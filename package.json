@@ -1,0 +1,14 @@
+{
+  "name": "logistics-mvp",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "node --experimental-strip-types --test \"packages/**/src/**/*.test.ts\" \"apps/**/src/**/*.test.ts\"",
+    "dev:api": "node --experimental-strip-types apps/api/src/index.ts"
+  }
+}
+

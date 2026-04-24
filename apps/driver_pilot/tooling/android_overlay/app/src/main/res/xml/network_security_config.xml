@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pilot-only: allows cleartext HTTP to API during lab demos (emulator 10.0.2.2, LAN IPs). -->
+<!-- Replace with HTTPS-only before any wide external pilot. -->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

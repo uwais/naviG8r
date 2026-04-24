@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Local env (secrets)
+.env
+.env.*
+
+# Node API local persisted state (pilot data — do not commit real PII)
+data/*.json
+
+# Flutter
+apps/driver_pilot/.dart_tool/
+apps/driver_pilot/.packages
+apps/driver_pilot/build/
+apps/driver_pilot/**/local.properties
+apps/driver_pilot/android/key.properties
+apps/driver_pilot/**/*.jks
+apps/driver_pilot/**/*.keystore

@@ -1,0 +1,8 @@
+# Flutter / Android local
+.dart_tool/
+.packages
+build/
+**/local.properties
+**/key.properties
+**/*.jks
+**/*.keystore
