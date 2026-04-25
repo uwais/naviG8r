@@ -1,0 +1,27 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# After first deploy, set AUTH_SECRET in the Render dashboard (Environment).
+services:
+  - type: web
+    name: navig8r-api
+    runtime: docker
+    region: singapore
+    plan: starter
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    disk:
+      name: navig8r-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OTP_DEBUG
+        value: "0"
+      # Must be set manually in dashboard (do not commit secrets):
+      # AUTH_SECRET = openssl rand -hex 32
+      - key: AUTH_SECRET
+        sync: false
+      # Persist JSON store across deploys (attach a Render Disk mounted at /data):
+      - key: DATA_FILE
+        value: /data/store.json

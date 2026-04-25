@@ -39,4 +39,5 @@ node --experimental-strip-types --test "packages/**/src/**/*.test.ts" "apps/**/s
 - `apps/driver_pilot/`: minimal Flutter Driver pilot app (Android APK Option A)
 - `docs/android-option-a-apk-pilot.md`: build/install signed APK + emulator demo steps
 - `docs/DEPLOY.md`: GitHub push + notes on external hosting (Vercel vs API)
+- `docs/RENDER.md`: deploy the Node API to Render (Docker + disk + env vars)
 

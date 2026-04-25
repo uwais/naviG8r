@@ -12,9 +12,9 @@ if (!process.env.AUTH_SECRET || process.env.AUTH_SECRET.length < 16) {
 const port = Number(process.env.PORT ?? "3000");
 const { server, store, persist, dataFilePath } = createApp();
 
-server.listen(port, () => {
+server.listen(port, "0.0.0.0", () => {
   // eslint-disable-next-line no-console
-  console.log(`API listening on http://localhost:${port}`);
+  console.log(`API listening on 0.0.0.0:${port}`);
   // eslint-disable-next-line no-console
   console.log(`Data file: ${dataFilePath}`);
   // eslint-disable-next-line no-console

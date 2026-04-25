@@ -48,6 +48,9 @@ Typical approach:
 - Split HTTP routes into **serverless functions** or use a framework adapter supported by Vercel
 - Remove background `setInterval` payout runner → use **cron** / external scheduler
 
+### Render (this repo)
+See `docs/RENDER.md` (includes `Dockerfile` + optional `render.yaml`).
+
 ---
 
 ## Flutter Android APK (Option A)
