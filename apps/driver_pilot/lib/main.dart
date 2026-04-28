@@ -8,7 +8,7 @@ import "package:go_router/go_router.dart";
 ///
 /// Physical Android on same LAN:
 /// `http://<YOUR_PC_LAN_IP>:3000`
-const String kDefaultBaseUrl = "http://10.0.2.2:3000";
+const String kDefaultBaseUrl = "https://navig8r.onrender.com";
 
 final _storage = const FlutterSecureStorage();
 
