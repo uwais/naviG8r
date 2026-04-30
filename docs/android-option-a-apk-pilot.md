@@ -90,7 +90,7 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 
 ---
 
-## Roadmap (Android pilot)
+## Apr 30, 2026 — Roadmap (Android pilot)
 
 ### Current scope
 - **Driver pilot app**: `apps/driver_pilot/` (Android APK).
@@ -106,15 +106,16 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 - [x] **List my trips** (`GET /v1/pilot/anchor-trips`) + Trips tab (requires API deployed with that route).
 
 ### Next (near-term: improve driver pilot UX)
-- [ ] **Session UX**: show “logged in as …” from `GET /v1/pilot/me`, plus **logout** (clear token).
-- [ ] **Trips UX**: pull-to-refresh, and a **trip detail** view (copy trip id, show raw JSON).
-- [ ] **Publish UX**: on success, show a snackbar and optionally **jump to Trips**.
+- [x] **Session UX**: show “logged in as …” from `GET /v1/pilot/me`, plus **logout** (clear token).
+- [x] **Trips UX**: pull-to-refresh, and a **trip detail** view (copy trip id, show raw JSON).
+- [x] **Publish UX**: on success, show a snackbar and optionally **jump to Trips**.
 
 ### Next (medium-term: customer flow UI)
-- [ ] Create a small **customer pilot UI** (separate Flutter app or a mode inside the same app):
-  - Customer register (`POST /v1/pilot/customer/register`)
-  - Browse open trips + quote + book (`/shipments/quote`, `/shipments/book`)
-  - Track shipment + simulate POD (`/shipments/:id/pod`)
+- [x] Create a small **customer pilot UI** (implemented as a mode inside the same app):
+  - [x] Customer register (`POST /v1/pilot/customer/register`)
+  - [x] Browse open trips (`GET /anchor-trips`)
+  - [x] Quote + book (`POST /shipments/quote`, `POST /shipments/book`)
+  - [x] Track shipment + simulate POD/refund (`GET /shipments`, `GET /shipments/:id`, `POST /shipments/:id/pod`, `POST /shipments/:id/fail-refund`)
 
 ### Hardening (before broad external pilot)
 - [ ] Replace debug OTP (`OTP_DEBUG`) with real SMS + rate limits.
