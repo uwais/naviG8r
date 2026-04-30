@@ -8,7 +8,9 @@ import {
   failCarrierAndRefund,
   markPodDelivered,
   pilotLoginDriverByPhone,
+  pilotGetMyAnchorTrip,
   pilotMe,
+  pilotListMyAnchorTrips,
   publishAnchorTrip,
   publishAnchorTripAsPilotDriver,
   quoteShipment,
@@ -121,6 +123,19 @@ export function createApp() {
         const userId = requireUserId(req, store);
         const out = pilotMe(store, userId);
         return json(res, 200, out);
+      }
+
+      if (method === "GET" && url.pathname === "/v1/pilot/anchor-trips") {
+        const userId = requireUserId(req, store);
+        const trips = pilotListMyAnchorTrips(store, userId);
+        return json(res, 200, { trips });
+      }
+
+      if (method === "GET" && url.pathname.startsWith("/v1/pilot/anchor-trips/")) {
+        const userId = requireUserId(req, store);
+        const tripId = url.pathname.split("/").at(-1) ?? "";
+        const trip = pilotGetMyAnchorTrip(store, userId, String(tripId));
+        return json(res, 200, { trip });
       }
 
       if (method === "POST" && url.pathname === "/v1/pilot/anchor-trips") {

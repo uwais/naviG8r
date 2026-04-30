@@ -87,3 +87,36 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 ### Notes / pitfalls
 - **Cleartext HTTP** is enabled for pilot demos via `network_security_config.xml`. Move to **HTTPS** before a broad external pilot.
 - If Gradle is Kotlin DSL (`build.gradle.kts`) on your Flutter version, release signing injection may need manual steps (see Flutter docs). The Python injector supports the common **Groovy** `android/app/build.gradle` template.
+
+---
+
+## Roadmap (Android pilot)
+
+### Current scope
+- **Driver pilot app**: `apps/driver_pilot/` (Android APK).
+- **API**: `apps/api/` (Node) + `docs/pilot-api.md` for contracts.
+- There is **no customer UI** in this repo yet (customer endpoints exist server-side; see `docs/pilot-api.md` and marketplace routes in `apps/api/src/httpServer.ts`).
+
+### What’s done (Android)
+- [x] **Build + run on emulator/device** (Gradle / Java / NDK alignment).
+- [x] **Home + navigation shell** (bottom tabs).
+- [x] **Driver register** (`POST /v1/pilot/driver/register`) with phone normalization.
+- [x] **OTP login** (`/v1/auth/otp/start` + `/v1/auth/otp/verify`) with clearer error output.
+- [x] **Publish anchor trip** (`POST /v1/pilot/anchor-trips`) with org helper (`GET /v1/pilot/me`) and IST window helper.
+- [x] **List my trips** (`GET /v1/pilot/anchor-trips`) + Trips tab (requires API deployed with that route).
+
+### Next (near-term: improve driver pilot UX)
+- [ ] **Session UX**: show “logged in as …” from `GET /v1/pilot/me`, plus **logout** (clear token).
+- [ ] **Trips UX**: pull-to-refresh, and a **trip detail** view (copy trip id, show raw JSON).
+- [ ] **Publish UX**: on success, show a snackbar and optionally **jump to Trips**.
+
+### Next (medium-term: customer flow UI)
+- [ ] Create a small **customer pilot UI** (separate Flutter app or a mode inside the same app):
+  - Customer register (`POST /v1/pilot/customer/register`)
+  - Browse open trips + quote + book (`/shipments/quote`, `/shipments/book`)
+  - Track shipment + simulate POD (`/shipments/:id/pod`)
+
+### Hardening (before broad external pilot)
+- [ ] Replace debug OTP (`OTP_DEBUG`) with real SMS + rate limits.
+- [ ] Token/session revocation + device binding.
+- [ ] Observability + per-env config (dev vs pilot vs production).

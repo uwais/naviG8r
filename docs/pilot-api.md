@@ -94,6 +94,33 @@ Body:
 Headers:
 - `Authorization: Bearer <accessToken>`
 
+#### `GET /v1/pilot/anchor-trips`
+Headers:
+- `Authorization: Bearer <accessToken>`
+
+Response:
+```json
+{
+  "trips": [
+    {
+      "id": "trip_...",
+      "carrierId": "<orgId>",
+      "originCity": "Gurugram",
+      "destCity": "Jaipur",
+      "windowStart": "2026-04-24T00:00:00+05:30",
+      "windowEnd": "2026-04-25T23:59:59+05:30",
+      "vehicleClass": "MEDIUM",
+      "capacityKg": 1000,
+      "reservedKg": 0,
+      "status": "OPEN",
+      "createdAtUtcMs": 1234567890
+    }
+  ]
+}
+```
+
+Trips are limited to **carrier orgs** your user belongs to (`CARRIER_SOLO`, `CARRIER_FLEET`, `CARRIER_LEGACY`), newest first.
+
 #### `POST /v1/pilot/anchor-trips`
 Headers:
 - `Authorization: Bearer <accessToken>`

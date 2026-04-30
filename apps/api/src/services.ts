@@ -209,6 +209,28 @@ export function pilotMe(store: Store, userId: string): {
   return { user, memberships, organizations: orgs, vehicles, driverProfile };
 }
 
+/**
+ * Anchor trips published under any carrier org the user belongs to (pilot driver context).
+ */
+export function pilotListMyAnchorTrips(store: Store, userId: string): AnchorTrip[] {
+  const me = pilotMe(store, userId);
+  const carrierOrgIds = new Set(
+    me.organizations
+      .filter((o) => o.kind === "CARRIER_SOLO" || o.kind === "CARRIER_FLEET" || o.kind === "CARRIER_LEGACY")
+      .map((o) => o.id),
+  );
+  const trips = [...store.anchorTrips.values()].filter((t) => carrierOrgIds.has(t.carrierId));
+  trips.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
+  return trips;
+}
+
+export function pilotGetMyAnchorTrip(store: Store, userId: string, tripId: string): AnchorTrip {
+  const trips = pilotListMyAnchorTrips(store, userId);
+  const t = trips.find((x) => x.id === tripId);
+  if (!t) throw new Error("anchor_trip_not_found");
+  return t;
+}
+
 export function publishAnchorTrip(store: Store, params: {
   carrierId: string;
   originCity: string;

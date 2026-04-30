@@ -4,6 +4,7 @@ import { createStore } from "./store.ts";
 import {
   bookShipment,
   markPodDelivered,
+  pilotListMyAnchorTrips,
   publishAnchorTripAsPilotDriver,
   registerSoloOwnerOperatorDriver,
 } from "./services.ts";
@@ -31,6 +32,10 @@ test("pilot solo driver can register, publish trip, and shipments reference org 
   });
 
   assert.equal(trip.carrierId, onboard.org.id);
+
+  const listed = pilotListMyAnchorTrips(store, onboard.user.id);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0]!.id, trip.id);
 
   const shipment = bookShipment(store, {
     anchorTripId: trip.id,
