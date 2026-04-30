@@ -1,6 +1,7 @@
 import "package:dio/dio.dart";
 import "package:flutter/material.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
+import "package:flutter/services.dart";
 import "package:go_router/go_router.dart";
 
 /// Android emulator → host machine API:
@@ -42,6 +43,12 @@ String _formatApiError(Object e) {
     return "HTTP ${status ?? "?"}: ${body ?? e.message ?? e.toString()}";
   }
   return e.toString();
+}
+
+Future<void> _copyToClipboard(BuildContext context, String label, String value) async {
+  await Clipboard.setData(ClipboardData(text: value));
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Copied $label")));
 }
 
 /// Last `org.id` from a successful `POST /v1/pilot/driver/register` (same isolate / app session).
@@ -119,6 +126,15 @@ class DriverPilotApp extends StatelessWidget {
         GoRoute(
           path: "/trips/:tripId",
           builder: (_, state) => TripDetailScreen(tripId: state.pathParameters["tripId"] ?? ""),
+        ),
+        GoRoute(path: "/customer", builder: (_, __) => const CustomerHomeScreen()),
+        GoRoute(path: "/customer/register", builder: (_, __) => const CustomerRegisterScreen()),
+        GoRoute(path: "/customer/trips", builder: (_, __) => const CustomerBrowseTripsScreen()),
+        GoRoute(path: "/customer/book", builder: (_, __) => const CustomerBookShipmentScreen()),
+        GoRoute(path: "/customer/shipments", builder: (_, __) => const CustomerShipmentsScreen()),
+        GoRoute(
+          path: "/customer/shipments/:shipmentId",
+          builder: (_, state) => CustomerShipmentDetailScreen(shipmentId: state.pathParameters["shipmentId"] ?? ""),
         ),
         GoRoute(path: "/publish", builder: (_, __) => const PublishTripScreen()),
       ],
@@ -200,6 +216,67 @@ class PilotScaffold extends StatelessWidget {
           NavigationDestination(icon: Icon(Icons.lock_open_outlined), selectedIcon: Icon(Icons.lock_open), label: "Login"),
           NavigationDestination(icon: Icon(Icons.route_outlined), selectedIcon: Icon(Icons.route), label: "Trips"),
           NavigationDestination(icon: Icon(Icons.local_shipping_outlined), selectedIcon: Icon(Icons.local_shipping), label: "Publish"),
+        ],
+      ),
+    );
+  }
+}
+
+class CustomerScaffold extends StatelessWidget {
+  const CustomerScaffold({
+    required this.title,
+    required this.currentPath,
+    required this.body,
+    this.actions,
+    super.key,
+  });
+
+  final String title;
+  final String currentPath;
+  final Widget body;
+  final List<Widget>? actions;
+
+  int _indexForPath(String path) {
+    if (path.startsWith("/customer/trips")) return 1;
+    if (path.startsWith("/customer/book")) return 2;
+    if (path.startsWith("/customer/shipments")) return 3;
+    return 0; // /customer (home) and anything else
+  }
+
+  String _pathForIndex(int index) {
+    switch (index) {
+      case 1:
+        return "/customer/trips";
+      case 2:
+        return "/customer/book";
+      case 3:
+        return "/customer/shipments";
+      case 0:
+      default:
+        return "/customer";
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = _indexForPath(currentPath);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        actions: actions,
+      ),
+      body: SafeArea(child: body),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: selected,
+        onDestinationSelected: (index) {
+          final target = _pathForIndex(index);
+          if (target != currentPath) context.go(target);
+        },
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: "Customer"),
+          NavigationDestination(icon: Icon(Icons.travel_explore_outlined), selectedIcon: Icon(Icons.travel_explore), label: "Trips"),
+          NavigationDestination(icon: Icon(Icons.shopping_cart_outlined), selectedIcon: Icon(Icons.shopping_cart), label: "Book"),
+          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: "Shipments"),
         ],
       ),
     );
@@ -344,6 +421,14 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => context.go("/publish"),
             icon: const Icon(Icons.local_shipping),
             label: const Text("Publish anchor trip"),
+          ),
+          const SizedBox(height: 12),
+          Text("Customer demo (no auth)", style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => context.go("/customer"),
+            icon: const Icon(Icons.storefront_outlined),
+            label: const Text("Open customer flow"),
           ),
         ],
       ),
@@ -623,6 +708,12 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
     }
   }
 
+  Future<void> _refresh() async {
+    // RefreshIndicator expects a Future even if we're already loading.
+    if (_loading) return;
+    await _load();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -645,9 +736,12 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
           icon: const Icon(Icons.logout),
         ),
       ],
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
           Card(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
             child: Padding(
@@ -710,7 +804,8 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
               ),
             );
           }),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -797,6 +892,661 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             const SizedBox(height: 8),
             SelectableText(trip.toString()),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class CustomerHomeScreen extends StatelessWidget {
+  const CustomerHomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomerScaffold(
+      title: "Customer demo",
+      currentPath: "/customer",
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                "This is a lightweight customer-side demo using the marketplace endpoints:\n"
+                "• GET /anchor-trips\n"
+                "• POST /shipments/quote\n"
+                "• POST /shipments/book\n"
+                "• GET /shipments (+ details, POD, refund)\n\n"
+                "It does not use Bearer auth in this MVP.",
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: () => context.go("/customer/register"),
+            icon: const Icon(Icons.person_add_alt_1),
+            label: const Text("Register customer org (pilot)"),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: () => context.go("/customer/trips"),
+            icon: const Icon(Icons.travel_explore),
+            label: const Text("Browse open trips"),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: () => context.go("/customer/book"),
+            icon: const Icon(Icons.shopping_cart_outlined),
+            label: const Text("Quote + book a shipment"),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: () => context.go("/customer/shipments"),
+            icon: const Icon(Icons.receipt_long_outlined),
+            label: const Text("Shipments"),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CustomerRegisterScreen extends StatefulWidget {
+  const CustomerRegisterScreen({super.key});
+
+  @override
+  State<CustomerRegisterScreen> createState() => _CustomerRegisterScreenState();
+}
+
+class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
+  final _fullName = TextEditingController(text: "ACME Ops");
+  final _phone = TextEditingController(text: "9123456789");
+  final _org = TextEditingController(text: "ACME Manufacturing Pvt Ltd");
+  bool _submitting = false;
+  String _out = "";
+
+  @override
+  void dispose() {
+    _fullName.dispose();
+    _phone.dispose();
+    _org.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() => _submitting = true);
+    try {
+      final phone = _digitsOnly(_phone.text.trim());
+      final r = await api.post<Map<String, dynamic>>(
+        "/v1/pilot/customer/register",
+        data: {
+          "fullName": _fullName.text.trim(),
+          "phone": phone,
+          "orgDisplayName": _org.text.trim(),
+        },
+      );
+      setState(() => _out = r.data?.toString() ?? "{}");
+    } catch (e) {
+      setState(() => _out = _formatApiError(e));
+    } finally {
+      setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomerScaffold(
+      title: "Customer register",
+      currentPath: "/customer/register",
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          TextField(controller: _fullName, decoration: const InputDecoration(labelText: "Full name")),
+          TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone (10 digit IN)")),
+          TextField(controller: _org, decoration: const InputDecoration(labelText: "Org display name")),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _submitting ? null : _submit,
+            icon: _submitting
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.send),
+            label: const Text("POST /v1/pilot/customer/register"),
+          ),
+          const SizedBox(height: 12),
+          SelectableText(_out),
+        ],
+      ),
+    );
+  }
+}
+
+class CustomerBrowseTripsScreen extends StatefulWidget {
+  const CustomerBrowseTripsScreen({super.key});
+
+  @override
+  State<CustomerBrowseTripsScreen> createState() => _CustomerBrowseTripsScreenState();
+}
+
+class _CustomerBrowseTripsScreenState extends State<CustomerBrowseTripsScreen> {
+  bool _loading = false;
+  String? _error;
+  List<Map<String, dynamic>> _trips = [];
+
+  int _statusRank(String status) {
+    switch (status) {
+      case "OPEN":
+        return 0;
+      case "FULL":
+        return 1;
+      case "COMPLETED":
+        return 2;
+      default:
+        return 3;
+    }
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final r = await api.get<Map<String, dynamic>>("/anchor-trips");
+      final raw = r.data?["trips"];
+      final list = <Map<String, dynamic>>[];
+      if (raw is List<dynamic>) {
+        for (final item in raw) {
+          if (item is Map<String, dynamic>) list.add(item);
+        }
+      }
+      list.sort((a, b) {
+        final sa = a["status"]?.toString() ?? "";
+        final sb = b["status"]?.toString() ?? "";
+        final ra = _statusRank(sa);
+        final rb = _statusRank(sb);
+        if (ra != rb) return ra.compareTo(rb);
+        final ca = a["createdAtUtcMs"];
+        final cb = b["createdAtUtcMs"];
+        if (ca is num && cb is num) return cb.compareTo(ca);
+        return 0;
+      });
+      setState(() => _trips = list);
+    } catch (e) {
+      setState(() => _error = _formatApiError(e));
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _refresh() async {
+    if (_loading) return;
+    await _load();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomerScaffold(
+      title: "Browse trips",
+      currentPath: "/customer/trips",
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            FilledButton.icon(
+              onPressed: _loading ? null : _load,
+              icon: _loading
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.refresh),
+              label: const Text("Refresh"),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              SelectableText(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            ..._trips.map((t) {
+              final id = t["id"]?.toString() ?? "—";
+              final route = "${t["originCity"]} → ${t["destCity"]}";
+              final status = t["status"]?.toString() ?? "—";
+              final cap = t["capacityKg"];
+              final res = t["reservedKg"];
+              final isBookable = status == "OPEN";
+              return Card(
+                margin: const EdgeInsets.only(top: 12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: Text(route, style: Theme.of(context).textTheme.titleMedium)),
+                          const SizedBox(width: 8),
+                          Chip(
+                            label: Text(status),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(child: Text("id: $id", style: Theme.of(context).textTheme.bodySmall)),
+                          IconButton(
+                            tooltip: "Copy trip id",
+                            onPressed: id == "—" ? null : () => _copyToClipboard(context, "trip id", id),
+                            icon: const Icon(Icons.copy, size: 18),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text("$status · capacity ${cap}kg (reserved ${res}kg)"),
+                      const SizedBox(height: 8),
+                      FilledButton.icon(
+                        onPressed: (!isBookable || id == "—") ? null : () => context.go("/customer/book?anchorTripId=$id"),
+                        icon: const Icon(Icons.shopping_cart_outlined),
+                        label: Text(isBookable ? "Book against this trip" : "Not bookable"),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CustomerBookShipmentScreen extends StatefulWidget {
+  const CustomerBookShipmentScreen({super.key});
+
+  @override
+  State<CustomerBookShipmentScreen> createState() => _CustomerBookShipmentScreenState();
+}
+
+class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen> {
+  final _anchorTripId = TextEditingController();
+  final _customerOrgName = TextEditingController(text: "ACME Manufacturing");
+  final _weightKg = TextEditingController(text: "200");
+  final _pickup = TextEditingController(text: "Sector 44, Gurugram");
+  final _drop = TextEditingController(text: "Sitapura, Jaipur");
+  bool _quoting = false;
+  bool _booking = false;
+  String _out = "";
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final id = GoRouterState.of(context).uri.queryParameters["anchorTripId"];
+    if (id != null && id.isNotEmpty && _anchorTripId.text.isEmpty) _anchorTripId.text = id;
+  }
+
+  @override
+  void dispose() {
+    _anchorTripId.dispose();
+    _customerOrgName.dispose();
+    _weightKg.dispose();
+    _pickup.dispose();
+    _drop.dispose();
+    super.dispose();
+  }
+
+  Future<void> _quote() async {
+    setState(() => _quoting = true);
+    try {
+      final w = int.tryParse(_weightKg.text.trim()) ?? 0;
+      final r = await api.post<Map<String, dynamic>>("/shipments/quote", data: {"weightKg": w});
+      setState(() => _out = r.data?.toString() ?? "{}");
+    } catch (e) {
+      setState(() => _out = _formatApiError(e));
+    } finally {
+      setState(() => _quoting = false);
+    }
+  }
+
+  Future<void> _book() async {
+    setState(() => _booking = true);
+    try {
+      final w = int.tryParse(_weightKg.text.trim()) ?? 0;
+      final r = await api.post<Map<String, dynamic>>(
+        "/shipments/book",
+        data: {
+          "anchorTripId": _anchorTripId.text.trim(),
+          "customerOrgName": _customerOrgName.text.trim(),
+          "weightKg": w,
+          "pickupAddress": _pickup.text.trim(),
+          "dropAddress": _drop.text.trim(),
+        },
+      );
+      final s = r.data?["shipment"];
+      final shipmentId = (s is Map<String, dynamic>) ? s["id"]?.toString() : null;
+      setState(() => _out = r.data?.toString() ?? "{}");
+      if (!mounted) return;
+      if (shipmentId != null && shipmentId.isNotEmpty) context.go("/customer/shipments/$shipmentId");
+    } catch (e) {
+      setState(() => _out = _formatApiError(e));
+    } finally {
+      setState(() => _booking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomerScaffold(
+      title: "Quote + book",
+      currentPath: "/customer/book",
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          OutlinedButton.icon(
+            onPressed: () => context.go("/customer/trips"),
+            icon: const Icon(Icons.travel_explore),
+            label: const Text("Pick an anchorTripId from Trips"),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(controller: _anchorTripId, decoration: const InputDecoration(labelText: "anchorTripId")),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: "Copy trip id",
+                onPressed: _anchorTripId.text.trim().isEmpty
+                    ? null
+                    : () => _copyToClipboard(context, "trip id", _anchorTripId.text.trim()),
+                icon: const Icon(Icons.copy),
+              ),
+            ],
+          ),
+          TextField(controller: _customerOrgName, decoration: const InputDecoration(labelText: "customerOrgName")),
+          TextField(controller: _weightKg, decoration: const InputDecoration(labelText: "weightKg")),
+          TextField(controller: _pickup, decoration: const InputDecoration(labelText: "pickupAddress")),
+          TextField(controller: _drop, decoration: const InputDecoration(labelText: "dropAddress")),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _quoting ? null : _quote,
+                  icon: _quoting
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.calculate_outlined),
+                  label: const Text("Quote"),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _booking ? null : _book,
+                  icon: _booking
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.shopping_cart_outlined),
+                  label: const Text("Book"),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SelectableText(_out),
+        ],
+      ),
+    );
+  }
+}
+
+class CustomerShipmentsScreen extends StatefulWidget {
+  const CustomerShipmentsScreen({super.key});
+
+  @override
+  State<CustomerShipmentsScreen> createState() => _CustomerShipmentsScreenState();
+}
+
+class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
+  bool _loading = false;
+  String? _error;
+  List<Map<String, dynamic>> _shipments = [];
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final r = await api.get<Map<String, dynamic>>("/shipments");
+      final raw = r.data?["shipments"];
+      final list = <Map<String, dynamic>>[];
+      if (raw is List<dynamic>) {
+        for (final item in raw) {
+          if (item is Map<String, dynamic>) list.add(item);
+        }
+      }
+      setState(() => _shipments = list);
+    } catch (e) {
+      setState(() => _error = _formatApiError(e));
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomerScaffold(
+      title: "Shipments",
+      currentPath: "/customer/shipments",
+      body: RefreshIndicator(
+        onRefresh: () async => _load(),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            FilledButton.icon(
+              onPressed: _loading ? null : _load,
+              icon: _loading
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.refresh),
+              label: const Text("Refresh"),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              SelectableText(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            ..._shipments.map((s) {
+              final id = s["id"]?.toString() ?? "—";
+              final status = s["status"]?.toString() ?? "—";
+              final org = s["customerOrgName"]?.toString() ?? "—";
+              final tripId = s["anchorTripId"]?.toString() ?? "—";
+              return Card(
+                margin: const EdgeInsets.only(top: 12),
+                child: InkWell(
+                  onTap: id == "—" ? null : () => context.go("/customer/shipments/$id"),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Shipment $id", style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 4),
+                        Text("$status · $org", style: Theme.of(context).textTheme.bodySmall),
+                        Text("anchorTripId: $tripId", style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CustomerShipmentDetailScreen extends StatefulWidget {
+  const CustomerShipmentDetailScreen({required this.shipmentId, super.key});
+  final String shipmentId;
+
+  @override
+  State<CustomerShipmentDetailScreen> createState() => _CustomerShipmentDetailScreenState();
+}
+
+class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScreen> {
+  bool _loading = false;
+  String? _error;
+  Map<String, dynamic>? _shipment;
+  Map<String, dynamic>? _payment;
+  String _actionOut = "";
+  bool _acting = false;
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final r = await api.get<Map<String, dynamic>>("/shipments/${widget.shipmentId}");
+      final s = r.data?["shipment"];
+      final p = r.data?["payment"];
+      setState(() {
+        _shipment = (s is Map<String, dynamic>) ? s : null;
+        _payment = (p is Map<String, dynamic>) ? p : null;
+      });
+    } catch (e) {
+      setState(() => _error = _formatApiError(e));
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _pod() async {
+    setState(() => _acting = true);
+    try {
+      final r = await api.post<Map<String, dynamic>>("/shipments/${widget.shipmentId}/pod", data: {});
+      setState(() => _actionOut = r.data?.toString() ?? "{}");
+      await _load();
+    } catch (e) {
+      setState(() => _actionOut = _formatApiError(e));
+    } finally {
+      setState(() => _acting = false);
+    }
+  }
+
+  Future<void> _failRefund() async {
+    setState(() => _acting = true);
+    try {
+      final r = await api.post<Map<String, dynamic>>("/shipments/${widget.shipmentId}/fail-refund", data: {});
+      setState(() => _actionOut = r.data?.toString() ?? "{}");
+      await _load();
+    } catch (e) {
+      setState(() => _actionOut = _formatApiError(e));
+    } finally {
+      setState(() => _acting = false);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomerScaffold(
+      title: "Shipment detail",
+      currentPath: "/customer/shipments/${widget.shipmentId}",
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text("shipmentId: ${widget.shipmentId}", style: Theme.of(context).textTheme.bodySmall),
+              ),
+              IconButton(
+                tooltip: "Copy shipment id",
+                onPressed: () => _copyToClipboard(context, "shipment id", widget.shipmentId),
+                icon: const Icon(Icons.copy, size: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_error != null) SelectableText(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          if (_shipment != null) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("status: ${_shipment!["status"]}"),
+                    Text("customerOrgName: ${_shipment!["customerOrgName"]}"),
+                    Text("anchorTripId: ${_shipment!["anchorTripId"]}"),
+                    Text("weightKg: ${_shipment!["weightKg"]}"),
+                    const SizedBox(height: 8),
+                    Text("pickup: ${_shipment!["pickupAddress"]}", style: Theme.of(context).textTheme.bodySmall),
+                    Text("drop: ${_shipment!["dropAddress"]}", style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          if (_payment != null) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("payment: ${_payment!["status"]} · ${_payment!["amountPaise"]} paise"),
+                    Text("provider: ${_payment!["provider"]}", style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: (_acting || _loading) ? null : _pod,
+                  icon: _acting
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.fact_check_outlined),
+                  label: const Text("Mark POD"),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: (_acting || _loading) ? null : _failRefund,
+                  icon: const Icon(Icons.undo),
+                  label: const Text("Fail + refund"),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_actionOut.isNotEmpty) SelectableText(_actionOut),
         ],
       ),
     );
