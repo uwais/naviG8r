@@ -167,16 +167,19 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname === "/v1/orgs") {
+        requireUserId(req, store);
         const orgs = [...store.organizations.values()];
         return json(res, 200, { orgs });
       }
 
       if (method === "GET" && url.pathname === "/v1/users") {
+        requireUserId(req, store);
         const users = [...store.users.values()];
         return json(res, 200, { users });
       }
 
       if (method === "GET" && url.pathname === "/admin") {
+        requireUserId(req, store);
         const carriers = [...store.carriers.values()];
         const orgs = [...store.organizations.values()];
         const users = [...store.users.values()];
@@ -397,11 +400,13 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname === "/shipments") {
+        requireUserId(req, store);
         const shipments = [...store.shipments.values()];
         return json(res, 200, { shipments });
       }
 
       if (method === "GET" && url.pathname.startsWith("/shipments/") && url.pathname.split("/").length === 3) {
+        requireUserId(req, store);
         const shipmentId = url.pathname.split("/")[2] ?? "";
         const shipment = store.shipments.get(shipmentId);
         if (!shipment) return json(res, 404, { error: "shipment_not_found" });
@@ -423,6 +428,7 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
+        requireUserId(req, store);
         const shipmentId = url.pathname.split("/")[2] ?? "";
         const body = await readJson(req);
         const out = markPodDelivered(store, { shipmentId, podAtUtcMs: body?.podAtUtcMs });
@@ -431,6 +437,7 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
+        requireUserId(req, store);
         const shipmentId = url.pathname.split("/")[2] ?? "";
         const shipment = failCarrierAndRefund(store, { shipmentId });
         persist();
@@ -438,12 +445,14 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        requireUserId(req, store);
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        requireUserId(req, store);
         const body = await readJson(req);
         const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
         persist();
@@ -451,6 +460,7 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        requireUserId(req, store);
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
