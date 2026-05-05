@@ -1,8 +1,13 @@
+import "dart:async";
+
 import "package:dio/dio.dart";
 import "package:flutter/material.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
 import "package:flutter/services.dart";
+import "package:google_maps_flutter/google_maps_flutter.dart";
 import "package:go_router/go_router.dart";
+
+import "location_editor.dart";
 
 /// Android emulator → host machine API:
 /// `http://10.0.2.2:3000`
@@ -49,6 +54,24 @@ Future<void> _copyToClipboard(BuildContext context, String label, String value) 
   await Clipboard.setData(ClipboardData(text: value));
   if (!context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Copied $label")));
+}
+
+Widget _legendStripe(BuildContext context, Color color, double thickness, String label) {
+  return Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      Container(
+        width: 36,
+        height: thickness,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(3),
+        ),
+      ),
+      const SizedBox(width: 10),
+      Expanded(child: Text(label, style: Theme.of(context).textTheme.bodySmall)),
+    ],
+  );
 }
 
 /// Last `org.id` from a successful `POST /v1/pilot/driver/register` (same isolate / app session).
@@ -131,6 +154,7 @@ class DriverPilotApp extends StatelessWidget {
         GoRoute(path: "/customer/register", builder: (_, __) => const CustomerRegisterScreen()),
         GoRoute(path: "/customer/trips", builder: (_, __) => const CustomerBrowseTripsScreen()),
         GoRoute(path: "/customer/book", builder: (_, __) => const CustomerBookShipmentScreen()),
+        GoRoute(path: "/customer/eligible", builder: (_, __) => const CustomerEligibleTripsScreen()),
         GoRoute(path: "/customer/shipments", builder: (_, __) => const CustomerShipmentsScreen()),
         GoRoute(
           path: "/customer/shipments/:shipmentId",
@@ -240,6 +264,7 @@ class CustomerScaffold extends StatelessWidget {
     if (path.startsWith("/customer/trips")) return 1;
     if (path.startsWith("/customer/book")) return 2;
     if (path.startsWith("/customer/shipments")) return 3;
+    if (path.startsWith("/customer/eligible")) return 1;
     return 0; // /customer (home) and anything else
   }
 
@@ -263,7 +288,14 @@ class CustomerScaffold extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
-        actions: actions,
+        actions: [
+          IconButton(
+            tooltip: "Switch to driver",
+            onPressed: () => context.go("/"),
+            icon: const Icon(Icons.local_shipping_outlined),
+          ),
+          ...?actions,
+        ],
       ),
       body: SafeArea(child: body),
       bottomNavigationBar: NavigationBar(
@@ -850,6 +882,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Widget build(BuildContext context) {
     final trip = _trip;
     final title = trip == null ? "Trip" : "${trip["originCity"]} → ${trip["destCity"]}";
+    final routeOrigin = trip != null ? latLngFromTripField(trip, "origin") : null;
+    final routeDest = trip != null ? latLngFromTripField(trip, "destination") : null;
     return PilotScaffold(
       title: title,
       currentPath: "/trips",
@@ -887,6 +921,12 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                 ),
               ),
             ),
+            if (routeOrigin != null && routeDest != null) ...[
+              const SizedBox(height: 12),
+              Text("Route preview", style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              routePreviewMap(a: routeOrigin, b: routeDest),
+            ],
             const SizedBox(height: 12),
             Text("Raw JSON", style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -940,6 +980,12 @@ class CustomerHomeScreen extends StatelessWidget {
             onPressed: () => context.go("/customer/book"),
             icon: const Icon(Icons.shopping_cart_outlined),
             label: const Text("Quote + book a shipment"),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: () => context.go("/customer/eligible"),
+            icon: const Icon(Icons.tune),
+            label: const Text("Eligible lanes (Phase A)"),
           ),
           const SizedBox(height: 8),
           FilledButton.icon(
@@ -1168,6 +1214,171 @@ class _CustomerBrowseTripsScreenState extends State<CustomerBrowseTripsScreen> {
   }
 }
 
+class CustomerEligibleTripsScreen extends StatefulWidget {
+  const CustomerEligibleTripsScreen({super.key});
+
+  @override
+  State<CustomerEligibleTripsScreen> createState() => _CustomerEligibleTripsScreenState();
+}
+
+class _CustomerEligibleTripsScreenState extends State<CustomerEligibleTripsScreen> {
+  final _pickupLabel = TextEditingController(text: "Gurugram, Haryana");
+  final _dropLabel = TextEditingController(text: "Jaipur, Rajasthan");
+  final _weightKg = TextEditingController(text: "200");
+  LatLng _pickupPos = const LatLng(28.4700, 77.0300);
+  LatLng _dropPos = const LatLng(26.9000, 75.8200);
+
+  bool _loading = false;
+  String? _error;
+  List<Map<String, dynamic>> _rows = [];
+
+  @override
+  void dispose() {
+    _pickupLabel.dispose();
+    _dropLabel.dispose();
+    _weightKg.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final weightKg = int.tryParse(_weightKg.text.trim()) ?? 0;
+      if (weightKg <= 0) {
+        setState(() => _error = "Enter weightKg > 0.");
+        return;
+      }
+
+      final qs = Uri(queryParameters: {
+        "pickupLat": _pickupPos.latitude.toString(),
+        "pickupLng": _pickupPos.longitude.toString(),
+        "dropLat": _dropPos.latitude.toString(),
+        "dropLng": _dropPos.longitude.toString(),
+        "weightKg": weightKg.toString(),
+      }).query;
+      final r = await api.get<Map<String, dynamic>>("/v1/customer/eligible-anchor-trips?$qs");
+      final raw = r.data?["trips"];
+      final list = <Map<String, dynamic>>[];
+      if (raw is List<dynamic>) {
+        for (final item in raw) {
+          if (item is Map<String, dynamic>) list.add(item);
+        }
+      }
+      setState(() => _rows = list);
+    } catch (e) {
+      setState(() => _error = _formatApiError(e));
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomerScaffold(
+      title: "Eligible lanes",
+      currentPath: "/customer/eligible",
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                "Phase A eligibility = distance from your pickup/drop to each trip’s origin/destination. "
+                "Set locations with search or by dragging pins; coordinates are sent to the API.",
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          LocationEndpointEditor(
+            title: "Your pickup (approx.)",
+            hint: "City, area, or address",
+            labelController: _pickupLabel,
+            markerId: "eligible_pickup",
+            markerHue: BitmapDescriptor.hueGreen,
+            position: _pickupPos,
+            onPositionChanged: (p) => setState(() => _pickupPos = p),
+          ),
+          const SizedBox(height: 20),
+          LocationEndpointEditor(
+            title: "Your drop (approx.)",
+            hint: "City, area, or address",
+            labelController: _dropLabel,
+            markerId: "eligible_drop",
+            markerHue: BitmapDescriptor.hueRed,
+            position: _dropPos,
+            onPositionChanged: (p) => setState(() => _dropPos = p),
+          ),
+          const SizedBox(height: 12),
+          routePreviewMap(a: _pickupPos, b: _dropPos),
+          const SizedBox(height: 12),
+          TextField(controller: _weightKg, decoration: const InputDecoration(labelText: "weightKg")),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _loading ? null : _load,
+            icon: _loading
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.search),
+            label: const Text("Find eligible trips"),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            SelectableText(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ],
+          ..._rows.map((row) {
+            final trip = row["trip"];
+            final elig = row["eligibility"];
+            if (trip is! Map<String, dynamic> || elig is! Map<String, dynamic>) return const SizedBox.shrink();
+            final id = trip["id"]?.toString() ?? "—";
+            final route = "${trip["originCity"]} → ${trip["destCity"]}";
+            final eligible = elig["eligible"] == true;
+            final reason = elig["reason"]?.toString() ?? "—";
+            final pickupKm = elig["pickupDistanceKm"]?.toString() ?? "—";
+            final dropKm = elig["dropDistanceKm"]?.toString() ?? "—";
+            return Card(
+              margin: const EdgeInsets.only(top: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: Text(route, style: Theme.of(context).textTheme.titleMedium)),
+                        const SizedBox(width: 8),
+                        Chip(label: Text(eligible ? "ELIGIBLE" : "NO"), visualDensity: VisualDensity.compact),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text("id: $id", style: Theme.of(context).textTheme.bodySmall),
+                    Text("reason: $reason · pickup ${pickupKm}km · drop ${dropKm}km", style: Theme.of(context).textTheme.bodySmall),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: eligible && id != "—" ? () => context.go("/customer/book?anchorTripId=$id") : null,
+                      icon: const Icon(Icons.shopping_cart_outlined),
+                      label: const Text("Book this trip"),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
 class CustomerBookShipmentScreen extends StatefulWidget {
   const CustomerBookShipmentScreen({super.key});
 
@@ -1183,19 +1394,75 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
   final _weightKg = TextEditingController(text: "200");
   final _pickup = TextEditingController(text: "Sector 44, Gurugram");
   final _drop = TextEditingController(text: "Sitapura, Jaipur");
+  LatLng _pickupPos = const LatLng(28.4700, 77.0300);
+  LatLng _dropPos = const LatLng(26.9000, 75.8200);
   bool _quoting = false;
   bool _booking = false;
   String _out = "";
+  Map<String, dynamic>? _anchorTrip;
+  bool _loadingTrip = false;
+  String? _tripLoadError;
+  Timer? _tripLoadDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _anchorTripId.addListener(_onAnchorTripIdChanged);
+  }
+
+  void _onAnchorTripIdChanged() {
+    _tripLoadDebounce?.cancel();
+    _tripLoadDebounce = Timer(const Duration(milliseconds: 450), () {
+      if (mounted) _loadAnchorTrip();
+    });
+  }
+
+  Future<void> _loadAnchorTrip() async {
+    final id = _anchorTripId.text.trim();
+    if (id.isEmpty) {
+      setState(() {
+        _anchorTrip = null;
+        _tripLoadError = null;
+      });
+      return;
+    }
+    setState(() {
+      _loadingTrip = true;
+      _tripLoadError = null;
+    });
+    try {
+      final r = await api.get<Map<String, dynamic>>("/anchor-trips/$id");
+      final t = r.data?["trip"];
+      if (!mounted) return;
+      setState(() {
+        _anchorTrip = t is Map<String, dynamic> ? t : null;
+        if (_anchorTrip == null) _tripLoadError = "Trip not found.";
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _tripLoadError = _formatApiError(e);
+        _anchorTrip = null;
+      });
+    } finally {
+      if (mounted) setState(() => _loadingTrip = false);
+    }
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final id = GoRouterState.of(context).uri.queryParameters["anchorTripId"];
-    if (id != null && id.isNotEmpty && _anchorTripId.text.isEmpty) _anchorTripId.text = id;
+    if (id != null && id.isNotEmpty && _anchorTripId.text.isEmpty) {
+      _anchorTripId.text = id;
+      scheduleMicrotask(_loadAnchorTrip);
+    }
   }
 
   @override
   void dispose() {
+    _tripLoadDebounce?.cancel();
+    _anchorTripId.removeListener(_onAnchorTripIdChanged);
     _anchorTripId.dispose();
     _customerOrgName.dispose();
     _weightKg.dispose();
@@ -1229,6 +1496,16 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
           "weightKg": w,
           "pickupAddress": _pickup.text.trim(),
           "dropAddress": _drop.text.trim(),
+          "pickup": {
+            "lat": _pickupPos.latitude,
+            "lng": _pickupPos.longitude,
+            "label": _pickup.text.trim(),
+          },
+          "drop": {
+            "lat": _dropPos.latitude,
+            "lng": _dropPos.longitude,
+            "label": _drop.text.trim(),
+          },
         },
       );
       final s = r.data?["shipment"];
@@ -1263,9 +1540,19 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
           Row(
             children: [
               Expanded(
-                child: TextField(controller: _anchorTripId, decoration: const InputDecoration(labelText: "anchorTripId")),
+                child: TextField(
+                  controller: _anchorTripId,
+                  decoration: const InputDecoration(labelText: "anchorTripId"),
+                  onSubmitted: (_) => _loadAnchorTrip(),
+                ),
               ),
-              const SizedBox(width: 8),
+              IconButton(
+                tooltip: "Refresh trip details",
+                onPressed: _loadingTrip || _anchorTripId.text.trim().isEmpty ? null : _loadAnchorTrip,
+                icon: _loadingTrip
+                    ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.refresh),
+              ),
               IconButton(
                 tooltip: "Copy trip id",
                 onPressed: _anchorTripId.text.trim().isEmpty
@@ -1275,10 +1562,107 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
               ),
             ],
           ),
+          if (_tripLoadError != null && _anchorTripId.text.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SelectableText(_tripLoadError!, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 13)),
+          ],
+          if (_anchorTrip != null) ...[
+            const SizedBox(height: 12),
+            Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("You’re booking against", style: Theme.of(context).textTheme.labelMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      "${_anchorTrip!["originCity"]} → ${_anchorTrip!["destCity"]}",
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      "status ${_anchorTrip!["status"]} · ${_anchorTrip!["vehicleClass"]} · "
+                      "capacity ${_anchorTrip!["capacityKg"]}kg (reserved ${_anchorTrip!["reservedKg"]}kg)",
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Text(
+                      "window ${_anchorTrip!["windowStart"]} → ${_anchorTrip!["windowEnd"]}",
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           TextField(controller: _customerOrgName, decoration: const InputDecoration(labelText: "customerOrgName")),
           TextField(controller: _weightKg, decoration: const InputDecoration(labelText: "weightKg")),
-          TextField(controller: _pickup, decoration: const InputDecoration(labelText: "pickupAddress")),
-          TextField(controller: _drop, decoration: const InputDecoration(labelText: "dropAddress")),
+          const SizedBox(height: 8),
+          Text("Pickup & drop (maps)", style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          LocationEndpointEditor(
+            title: "Pickup",
+            hint: "Pickup address or area",
+            labelController: _pickup,
+            markerId: "book_pickup",
+            markerHue: BitmapDescriptor.hueGreen,
+            position: _pickupPos,
+            onPositionChanged: (p) => setState(() => _pickupPos = p),
+          ),
+          const SizedBox(height: 20),
+          LocationEndpointEditor(
+            title: "Drop",
+            hint: "Drop address or area",
+            labelController: _drop,
+            markerId: "book_drop",
+            markerHue: BitmapDescriptor.hueRed,
+            position: _dropPos,
+            onPositionChanged: (p) => setState(() => _dropPos = p),
+          ),
+          const SizedBox(height: 16),
+          Text("Review on map before booking", style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          if (latLngFromTripField(_anchorTrip, "origin") == null || latLngFromTripField(_anchorTrip, "destination") == null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _anchorTrip == null
+                    ? "Enter an anchor trip id to load the carrier route (orange), or only your pickup→drop (blue) is shown."
+                    : "This trip has no stored origin/destination coordinates; the map shows your shipment pickup→drop only.",
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _legendStripe(context, const Color(0xFFE65100), 9, "Anchor trip (carrier)"),
+                    const SizedBox(height: 6),
+                    _legendStripe(context, const Color(0xFF0D47A1), 4, "Your pickup → drop"),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Builder(builder: (context) {
+            final ao = latLngFromTripField(_anchorTrip, "origin");
+            final ad = latLngFromTripField(_anchorTrip, "destination");
+            return bookShipmentRouteMap(
+              key: ValueKey(
+                "${_pickupPos.latitude},${_pickupPos.longitude},${_dropPos.latitude},${_dropPos.longitude},"
+                "${ao?.latitude},${ao?.longitude},${ad?.latitude},${ad?.longitude}",
+              ),
+              shipmentPickup: _pickupPos,
+              shipmentDrop: _dropPos,
+              anchorOrigin: ao,
+              anchorDestination: ad,
+            );
+          }),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -1481,8 +1865,10 @@ class PublishTripScreen extends StatefulWidget {
 
 class _PublishTripScreenState extends State<PublishTripScreen> {
   final _orgId = TextEditingController();
-  final _origin = TextEditingController(text: "Gurugram");
-  final _dest = TextEditingController(text: "Jaipur");
+  final _origin = TextEditingController(text: "Gurugram, Haryana");
+  final _dest = TextEditingController(text: "Jaipur, Rajasthan");
+  LatLng _originPos = const LatLng(28.4595, 77.0266);
+  LatLng _destPos = const LatLng(26.9124, 75.7873);
   final _w1 = TextEditingController();
   final _w2 = TextEditingController();
   final _vehClass = TextEditingController(text: "MEDIUM");
@@ -1552,6 +1938,16 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
           "orgId": orgId,
           "originCity": _origin.text.trim(),
           "destCity": _dest.text.trim(),
+          "origin": {
+            "lat": _originPos.latitude,
+            "lng": _originPos.longitude,
+            "label": _origin.text.trim(),
+          },
+          "destination": {
+            "lat": _destPos.latitude,
+            "lng": _destPos.longitude,
+            "label": _dest.text.trim(),
+          },
           "windowStart": _w1.text.trim(),
           "windowEnd": _w2.text.trim(),
           "vehicleClass": vc,
@@ -1607,8 +2003,35 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
           ),
           const SizedBox(height: 12),
           TextField(controller: _orgId, decoration: const InputDecoration(labelText: "orgId (org.id)")),
-          TextField(controller: _origin, decoration: const InputDecoration(labelText: "originCity")),
-          TextField(controller: _dest, decoration: const InputDecoration(labelText: "destCity")),
+          const SizedBox(height: 8),
+          Text("Origin & destination", style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+            "Search sets the pin; dragging updates coordinates. Text is sent as originCity / destCity and as map labels.",
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          LocationEndpointEditor(
+            title: "Origin",
+            hint: "Origin city or address",
+            labelController: _origin,
+            markerId: "publish_origin",
+            markerHue: BitmapDescriptor.hueGreen,
+            position: _originPos,
+            onPositionChanged: (p) => setState(() => _originPos = p),
+          ),
+          const SizedBox(height: 20),
+          LocationEndpointEditor(
+            title: "Destination",
+            hint: "Destination city or address",
+            labelController: _dest,
+            markerId: "publish_dest",
+            markerHue: BitmapDescriptor.hueRed,
+            position: _destPos,
+            onPositionChanged: (p) => setState(() => _destPos = p),
+          ),
+          const SizedBox(height: 12),
+          routePreviewMap(a: _originPos, b: _destPos),
           TextField(controller: _w1, decoration: const InputDecoration(labelText: "windowStart (ISO +05:30)")),
           TextField(controller: _w2, decoration: const InputDecoration(labelText: "windowEnd (ISO +05:30)")),
           TextField(controller: _vehClass, decoration: const InputDecoration(labelText: "vehicleClass (SMALL|MEDIUM|LARGE)")),

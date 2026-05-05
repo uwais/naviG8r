@@ -4,6 +4,7 @@ import type {
   AnchorTrip,
   Carrier,
   DriverProfile,
+  GeoPoint,
   LedgerLine,
   Membership,
   Organization,
@@ -18,6 +19,83 @@ import type { Store } from "./store.ts";
 
 function nowUtcMs(): number {
   return Date.now();
+}
+
+function assertGeoPoint(v: any, name: string): asserts v is GeoPoint {
+  if (!v || typeof v !== "object") throw new Error(`invalid_${name}`);
+  const lat = (v as any).lat;
+  const lng = (v as any).lng;
+  if (typeof lat !== "number" || Number.isNaN(lat) || lat < -90 || lat > 90) throw new Error(`invalid_${name}`);
+  if (typeof lng !== "number" || Number.isNaN(lng) || lng < -180 || lng > 180) throw new Error(`invalid_${name}`);
+}
+
+function haversineKm(a: GeoPoint, b: GeoPoint): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const sa = Math.sin(dLat / 2);
+  const sb = Math.sin(dLng / 2);
+  const aa = sa * sa + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sb * sb;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(aa)));
+}
+
+/** Structured API error (HTTP 400 body includes `error` + optional fields from [extra]). */
+export class ApiError extends Error {
+  readonly extra: Record<string, unknown>;
+
+  constructor(message: string, extra: Record<string, unknown> = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.extra = extra;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/** Max distance from trip origin / destination for Phase A booking (km). Env overrides for ops. */
+function phaseAEndpointRadiiKm(): { maxPickupKm: number; maxDropKm: number } {
+  const p = Number(process.env.PHASE_A_MAX_PICKUP_KM ?? "15");
+  const d = Number(process.env.PHASE_A_MAX_DROP_KM ?? "15");
+  return {
+    maxPickupKm: Number.isFinite(p) && p > 0 ? p : 15,
+    maxDropKm: Number.isFinite(d) && d > 0 ? d : 15,
+  };
+}
+
+/** When [trip] has `origin` + `destination`, booking must supply pickup/drop geo within Phase A radii. Legacy trips without geo skip this. */
+export function assertPhaseABookingEligible(params: {
+  trip: AnchorTrip;
+  pickup?: GeoPoint;
+  drop?: GeoPoint;
+  maxPickupKm?: number;
+  maxDropKm?: number;
+}): void {
+  const { trip } = params;
+  if (!trip.origin || !trip.destination) return;
+
+  const radii = phaseAEndpointRadiiKm();
+  const maxP = params.maxPickupKm ?? radii.maxPickupKm;
+  const maxD = params.maxDropKm ?? radii.maxDropKm;
+
+  if (!params.pickup || !params.drop) {
+    throw new ApiError("phase_a_pickup_drop_required", {
+      detail: "Anchor trip has map endpoints; include pickup and drop coordinates to book.",
+    });
+  }
+  assertGeoPoint(params.pickup, "pickup");
+  assertGeoPoint(params.drop, "drop");
+
+  const pickupDistanceKm = haversineKm(params.pickup, trip.origin);
+  const dropDistanceKm = haversineKm(params.drop, trip.destination);
+  if (pickupDistanceKm > maxP || dropDistanceKm > maxD) {
+    throw new ApiError("phase_a_not_eligible", {
+      reason: "too_far_from_endpoints",
+      pickupDistanceKm: Math.round(pickupDistanceKm * 10) / 10,
+      dropDistanceKm: Math.round(dropDistanceKm * 10) / 10,
+      maxPickupKm: maxP,
+      maxDropKm: maxD,
+    });
+  }
 }
 
 function id(prefix: string): string {
@@ -235,6 +313,8 @@ export function publishAnchorTrip(store: Store, params: {
   carrierId: string;
   originCity: string;
   destCity: string;
+  origin?: GeoPoint;
+  destination?: GeoPoint;
   windowStart: string;
   windowEnd: string;
   vehicleClass: VehicleClass;
@@ -243,11 +323,15 @@ export function publishAnchorTrip(store: Store, params: {
   // `carrierId` is legacy naming; it is the Organization id for carrier-side entities.
   getOrgOrThrow(store, params.carrierId);
   if (params.capacityKg <= 0) throw new Error("invalid_capacityKg");
+  if (params.origin) assertGeoPoint(params.origin, "origin");
+  if (params.destination) assertGeoPoint(params.destination, "destination");
   const t: AnchorTrip = {
     id: id("trip"),
     carrierId: params.carrierId,
     originCity: params.originCity,
     destCity: params.destCity,
+    origin: params.origin,
+    destination: params.destination,
     windowStart: params.windowStart,
     windowEnd: params.windowEnd,
     vehicleClass: params.vehicleClass,
@@ -265,6 +349,8 @@ export function publishAnchorTripAsPilotDriver(store: Store, params: {
   orgId: string;
   originCity: string;
   destCity: string;
+  origin?: GeoPoint;
+  destination?: GeoPoint;
   windowStart: string;
   windowEnd: string;
   vehicleClass: VehicleClass;
@@ -279,11 +365,63 @@ export function publishAnchorTripAsPilotDriver(store: Store, params: {
     carrierId: params.orgId,
     originCity: params.originCity,
     destCity: params.destCity,
+    origin: params.origin,
+    destination: params.destination,
     windowStart: params.windowStart,
     windowEnd: params.windowEnd,
     vehicleClass: params.vehicleClass,
     capacityKg: params.capacityKg,
   });
+}
+
+export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
+  pickup: GeoPoint;
+  drop: GeoPoint;
+  weightKg: number;
+  maxPickupDistanceKm?: number;
+  maxDropDistanceKm?: number;
+}): Array<{
+  trip: AnchorTrip;
+  eligibility: { eligible: boolean; reason: string; score: number; pickupDistanceKm: number; dropDistanceKm: number };
+}> {
+  assertGeoPoint(params.pickup, "pickup");
+  assertGeoPoint(params.drop, "drop");
+  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+
+  const radii = phaseAEndpointRadiiKm();
+  const maxPickup = params.maxPickupDistanceKm ?? radii.maxPickupKm;
+  const maxDrop = params.maxDropDistanceKm ?? radii.maxDropKm;
+
+  const out: Array<{
+    trip: AnchorTrip;
+    eligibility: { eligible: boolean; reason: string; score: number; pickupDistanceKm: number; dropDistanceKm: number };
+  }> = [];
+
+  for (const trip of store.anchorTrips.values()) {
+    if (trip.status !== "OPEN") continue;
+    const remaining = trip.capacityKg - trip.reservedKg;
+    if (remaining < params.weightKg) continue;
+    if (!trip.origin || !trip.destination) continue; // Phase A requires endpoints
+
+    const pickupDistanceKm = haversineKm(params.pickup, trip.origin);
+    const dropDistanceKm = haversineKm(params.drop, trip.destination);
+
+    const eligible = pickupDistanceKm <= maxPickup && dropDistanceKm <= maxDrop;
+    const score = Math.max(0, 1 - (pickupDistanceKm / maxPickup + dropDistanceKm / maxDrop) / 2);
+    out.push({
+      trip,
+      eligibility: {
+        eligible,
+        reason: eligible ? "near_endpoints" : "too_far_from_endpoints",
+        score,
+        pickupDistanceKm: Math.round(pickupDistanceKm * 10) / 10,
+        dropDistanceKm: Math.round(dropDistanceKm * 10) / 10,
+      },
+    });
+  }
+
+  out.sort((a, b) => b.eligibility.score - a.eligibility.score);
+  return out;
 }
 
 export function quoteShipment(params: { weightKg: number }): { grossPaise: number } {
@@ -297,12 +435,20 @@ export function bookShipment(store: Store, params: {
   weightKg: number;
   pickupAddress: string;
   dropAddress: string;
+  pickup?: GeoPoint;
+  drop?: GeoPoint;
 }): Shipment {
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");
   if (params.weightKg <= 0) throw new Error("invalid_weightKg");
   if (trip.reservedKg + params.weightKg > trip.capacityKg) throw new Error("insufficient_capacity");
+
+  assertPhaseABookingEligible({
+    trip,
+    pickup: params.pickup,
+    drop: params.drop,
+  });
 
   // Reserve capacity immediately (instant booking).
   trip.reservedKg += params.weightKg;
@@ -333,6 +479,8 @@ export function bookShipment(store: Store, params: {
     weightKg: params.weightKg,
     pickupAddress: params.pickupAddress,
     dropAddress: params.dropAddress,
+    pickup: params.pickup,
+    drop: params.drop,
     status: "BOOKED",
     grossPaise,
     commissionPaise,

@@ -3,10 +3,12 @@ import { URL } from "node:url";
 import { pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import {
+  ApiError,
   bookShipment,
   createCarrier,
   failCarrierAndRefund,
   markPodDelivered,
+  customerEligibleAnchorTripsPhaseA,
   pilotLoginDriverByPhone,
   pilotGetMyAnchorTrip,
   pilotMe,
@@ -155,6 +157,8 @@ export function createApp() {
           orgId: String(body?.orgId ?? ""),
           originCity: String(body?.originCity ?? ""),
           destCity: String(body?.destCity ?? ""),
+          origin: body?.origin,
+          destination: body?.destination,
           windowStart: String(body?.windowStart ?? ""),
           windowEnd: String(body?.windowEnd ?? ""),
           vehicleClass: body?.vehicleClass,
@@ -162,6 +166,20 @@ export function createApp() {
         });
         persist();
         return json(res, 201, { trip });
+      }
+
+      if (method === "GET" && url.pathname === "/v1/customer/eligible-anchor-trips") {
+        const pickupLat = Number(url.searchParams.get("pickupLat"));
+        const pickupLng = Number(url.searchParams.get("pickupLng"));
+        const dropLat = Number(url.searchParams.get("dropLat"));
+        const dropLng = Number(url.searchParams.get("dropLng"));
+        const weightKg = Number(url.searchParams.get("weightKg"));
+        const trips = customerEligibleAnchorTripsPhaseA(store, {
+          pickup: { lat: pickupLat, lng: pickupLng },
+          drop: { lat: dropLat, lng: dropLng },
+          weightKg,
+        });
+        return json(res, 200, { trips });
       }
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/register") {
@@ -400,6 +418,15 @@ export function createApp() {
         return json(res, 201, { trip });
       }
 
+      if (method === "GET" && url.pathname.startsWith("/anchor-trips/")) {
+        const tripId = url.pathname.slice("/anchor-trips/".length).split("/")[0] ?? "";
+        if (tripId.length > 0) {
+          const trip = store.anchorTrips.get(tripId);
+          if (!trip) return json(res, 404, { error: "trip_not_found" });
+          return json(res, 200, { trip });
+        }
+      }
+
       if (method === "GET" && url.pathname === "/anchor-trips") {
         const trips = [...store.anchorTrips.values()];
         return json(res, 200, { trips });
@@ -434,6 +461,8 @@ export function createApp() {
           weightKg: Number(body?.weightKg ?? 0),
           pickupAddress: String(body?.pickupAddress ?? ""),
           dropAddress: String(body?.dropAddress ?? ""),
+          pickup: body?.pickup,
+          drop: body?.drop,
         });
         persist();
         return json(res, 201, { shipment });
@@ -479,6 +508,9 @@ export function createApp() {
 
       return json(res, 404, { error: "not_found" });
     } catch (e: any) {
+      if (e instanceof ApiError) {
+        return json(res, 400, { error: e.message, ...e.extra } as Record<string, unknown>);
+      }
       return json(res, 400, { error: e?.message ?? "bad_request" });
     }
   });
