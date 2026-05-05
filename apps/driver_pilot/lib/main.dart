@@ -1175,6 +1175,8 @@ class CustomerBookShipmentScreen extends StatefulWidget {
   State<CustomerBookShipmentScreen> createState() => _CustomerBookShipmentScreenState();
 }
 
+String? lastBookedShipmentId;
+
 class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen> {
   final _anchorTripId = TextEditingController();
   final _customerOrgName = TextEditingController(text: "ACME Manufacturing");
@@ -1233,7 +1235,10 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
       final shipmentId = (s is Map<String, dynamic>) ? s["id"]?.toString() : null;
       setState(() => _out = r.data?.toString() ?? "{}");
       if (!mounted) return;
-      if (shipmentId != null && shipmentId.isNotEmpty) context.go("/customer/shipments/$shipmentId");
+      if (shipmentId != null && shipmentId.isNotEmpty) {
+        lastBookedShipmentId = shipmentId;
+        context.go("/customer/shipments/$shipmentId");
+      }
     } catch (e) {
       setState(() => _out = _formatApiError(e));
     } finally {
@@ -1314,86 +1319,46 @@ class CustomerShipmentsScreen extends StatefulWidget {
 }
 
 class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
-  bool _loading = false;
-  String? _error;
-  List<Map<String, dynamic>> _shipments = [];
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final r = await api.get<Map<String, dynamic>>("/shipments");
-      final raw = r.data?["shipments"];
-      final list = <Map<String, dynamic>>[];
-      if (raw is List<dynamic>) {
-        for (final item in raw) {
-          if (item is Map<String, dynamic>) list.add(item);
-        }
-      }
-      setState(() => _shipments = list);
-    } catch (e) {
-      setState(() => _error = _formatApiError(e));
-    } finally {
-      setState(() => _loading = false);
-    }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
   @override
   Widget build(BuildContext context) {
+    final shipmentId = lastBookedShipmentId;
     return CustomerScaffold(
       title: "Shipments",
       currentPath: "/customer/shipments",
-      body: RefreshIndicator(
-        onRefresh: () async => _load(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          children: [
-            FilledButton.icon(
-              onPressed: _loading ? null : _load,
-              icon: _loading
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.refresh),
-              label: const Text("Refresh"),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                "For the pilot, use the shipment id returned after booking. "
+                "Bulk shipment browsing is not exposed on the hosted API.",
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
             ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              SelectableText(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ],
-            ..._shipments.map((s) {
-              final id = s["id"]?.toString() ?? "—";
-              final status = s["status"]?.toString() ?? "—";
-              final org = s["customerOrgName"]?.toString() ?? "—";
-              final tripId = s["anchorTripId"]?.toString() ?? "—";
-              return Card(
-                margin: const EdgeInsets.only(top: 12),
-                child: InkWell(
-                  onTap: id == "—" ? null : () => context.go("/customer/shipments/$id"),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text("Shipment $id", style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 4),
-                        Text("$status · $org", style: Theme.of(context).textTheme.bodySmall),
-                        Text("anchorTripId: $tripId", style: Theme.of(context).textTheme.bodySmall),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            }),
+          ),
+          const SizedBox(height: 12),
+          if (shipmentId != null && shipmentId.isNotEmpty) ...[
+            Card(
+              child: ListTile(
+                title: Text("Last booked shipment"),
+                subtitle: Text(shipmentId),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.go("/customer/shipments/$shipmentId"),
+              ),
+            ),
+          ] else ...[
+            const Text("No shipment booked in this app session yet."),
           ],
-        ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: () => context.go("/customer/book"),
+            icon: const Icon(Icons.shopping_cart_outlined),
+            label: const Text("Book a shipment"),
+          ),
+        ],
       ),
     );
   }
@@ -1412,8 +1377,6 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
   String? _error;
   Map<String, dynamic>? _shipment;
   Map<String, dynamic>? _payment;
-  String _actionOut = "";
-  bool _acting = false;
 
   Future<void> _load() async {
     setState(() {
@@ -1432,32 +1395,6 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
       setState(() => _error = _formatApiError(e));
     } finally {
       setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _pod() async {
-    setState(() => _acting = true);
-    try {
-      final r = await api.post<Map<String, dynamic>>("/shipments/${widget.shipmentId}/pod", data: {});
-      setState(() => _actionOut = r.data?.toString() ?? "{}");
-      await _load();
-    } catch (e) {
-      setState(() => _actionOut = _formatApiError(e));
-    } finally {
-      setState(() => _acting = false);
-    }
-  }
-
-  Future<void> _failRefund() async {
-    setState(() => _acting = true);
-    try {
-      final r = await api.post<Map<String, dynamic>>("/shipments/${widget.shipmentId}/fail-refund", data: {});
-      setState(() => _actionOut = r.data?.toString() ?? "{}");
-      await _load();
-    } catch (e) {
-      setState(() => _actionOut = _formatApiError(e));
-    } finally {
-      setState(() => _acting = false);
     }
   }
 
@@ -1524,29 +1461,11 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
             ),
           ],
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: (_acting || _loading) ? null : _pod,
-                  icon: _acting
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.fact_check_outlined),
-                  label: const Text("Mark POD"),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: (_acting || _loading) ? null : _failRefund,
-                  icon: const Icon(Icons.undo),
-                  label: const Text("Fail + refund"),
-                ),
-              ),
-            ],
+          OutlinedButton.icon(
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh),
+            label: const Text("Refresh status"),
           ),
-          const SizedBox(height: 12),
-          if (_actionOut.isNotEmpty) SelectableText(_actionOut),
         ],
       ),
     );
