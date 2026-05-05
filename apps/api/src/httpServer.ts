@@ -66,6 +66,14 @@ function requireUserId(req: http.IncomingMessage, store: ReturnType<typeof loadS
   return userId;
 }
 
+function requireLegacyDemoSurface(res: http.ServerResponse): boolean {
+  const enabled =
+    process.env.NODE_ENV !== "production" || process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+  if (enabled) return true;
+  json(res, 403, { error: "legacy_demo_surface_disabled" });
+  return false;
+}
+
 export function createApp() {
   const dataFilePath = process.env.DATA_FILE ?? "./data/store.json";
   const store = loadStoreFromDisk(dataFilePath);
@@ -116,6 +124,7 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname === "/v1/pilot/driver/login") {
+        if (!requireLegacyDemoSurface(res)) return;
         const body = await readJson(req);
         const out = pilotLoginDriverByPhone(store, String(body?.phone ?? ""));
         return json(res, 200, out);
@@ -185,16 +194,19 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname === "/v1/orgs") {
+        if (!requireLegacyDemoSurface(res)) return;
         const orgs = [...store.organizations.values()];
         return json(res, 200, { orgs });
       }
 
       if (method === "GET" && url.pathname === "/v1/users") {
+        if (!requireLegacyDemoSurface(res)) return;
         const users = [...store.users.values()];
         return json(res, 200, { users });
       }
 
       if (method === "GET" && url.pathname === "/admin") {
+        if (!requireLegacyDemoSurface(res)) return;
         const carriers = [...store.carriers.values()];
         const orgs = [...store.organizations.values()];
         const users = [...store.users.values()];
@@ -377,6 +389,7 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname === "/carriers") {
+        if (!requireLegacyDemoSurface(res)) return;
         const body = await readJson(req);
         const carrier = createCarrier(store, String(body?.name ?? ""));
         persist();
@@ -384,11 +397,13 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname === "/carriers") {
+        if (!requireLegacyDemoSurface(res)) return;
         const carriers = [...store.carriers.values()];
         return json(res, 200, { carriers });
       }
 
       if (method === "POST" && url.pathname === "/anchor-trips") {
+        if (!requireLegacyDemoSurface(res)) return;
         const body = await readJson(req);
         const trip = publishAnchorTrip(store, {
           carrierId: String(body?.carrierId ?? ""),
@@ -424,11 +439,13 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname === "/shipments") {
+        if (!requireLegacyDemoSurface(res)) return;
         const shipments = [...store.shipments.values()];
         return json(res, 200, { shipments });
       }
 
       if (method === "GET" && url.pathname.startsWith("/shipments/") && url.pathname.split("/").length === 3) {
+        if (!requireLegacyDemoSurface(res)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
         const shipment = store.shipments.get(shipmentId);
         if (!shipment) return json(res, 404, { error: "shipment_not_found" });
@@ -452,6 +469,7 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
+        if (!requireLegacyDemoSurface(res)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
         const body = await readJson(req);
         const out = markPodDelivered(store, { shipmentId, podAtUtcMs: body?.podAtUtcMs });
@@ -460,6 +478,7 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
+        if (!requireLegacyDemoSurface(res)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
         const shipment = failCarrierAndRefund(store, { shipmentId });
         persist();
@@ -467,12 +486,14 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        if (!requireLegacyDemoSurface(res)) return;
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        if (!requireLegacyDemoSurface(res)) return;
         const body = await readJson(req);
         const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
         persist();
@@ -480,6 +501,7 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        if (!requireLegacyDemoSurface(res)) return;
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }

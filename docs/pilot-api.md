@@ -15,6 +15,7 @@ This document defines the **first concrete API resources** for the Flutter pilot
 - **`AUTH_SECRET`**: required (min 16 chars). Used to sign access tokens.
 - **`OTP_DEBUG=1`**: returns `debugCode` from `otp/start` and defaults OTP to `OTP_FIXED_CODE` (default `123456`).
 - **`ALLOW_X_USER_ID=1`**: allows the old header-based auth (not for real pilots).
+- **`ENABLE_LEGACY_DEMO_SURFACE=1`**: enables legacy unauthenticated admin/demo write routes in production. Leave unset for hosted pilots.
 
 ### Data model (persisted in `store.json`)
 - `Organization` (`CARRIER_SOLO` | `CARRIER_FLEET` | `CUSTOMER` | `CARRIER_LEGACY`)
@@ -83,7 +84,8 @@ Body:
 ```
 
 #### `POST /v1/pilot/driver/login`
-Returns the same “bundle” as register, for a known phone.
+Legacy demo helper that returns the same “bundle” as register, for a known phone.
+It is disabled when `NODE_ENV=production` unless `ENABLE_LEGACY_DEMO_SURFACE=1`.
 
 Body:
 ```json
@@ -148,9 +150,11 @@ Body:
 }
 ```
 
-### Existing marketplace endpoints (still available)
+### Existing marketplace endpoints
+- `GET /anchor-trips` lists available trips for the customer pilot.
+- `POST /shipments/quote` quotes a shipment.
 - `POST /shipments/book` books against an `anchorTripId` (customer flow can remain separate for now).
-- `POST /shipments/:id/pod` completes delivery and creates ledger accruals.
+- Legacy admin/demo routes that expose all records or mutate operator state (for example `/admin`, `/shipments`, `/shipments/:id/pod`, `/shipments/:id/fail-refund`, `/payout-batches/run`) are disabled in production unless `ENABLE_LEGACY_DEMO_SURFACE=1`.
 
 ---
 
