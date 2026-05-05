@@ -26,7 +26,12 @@ async function postJson(baseUrl: string, path: string, body: unknown): Promise<R
   });
 }
 
-test("production: demo/admin JSON disabled; public marketplace shipments still work", async (t) => {
+/**
+ * In production, legacy demo/admin routes return 403.
+ * Public marketplace routes (anchor-trips, quote, book, customer shipments with Bearer) stay enabled;
+ * unauthenticated shipment reads/mutations return 401 (not 403).
+ */
+test("production disables legacy demo routes that expose or mutate operator state", async (t) => {
   const prev = {
     DATA_FILE: process.env.DATA_FILE,
     NODE_ENV: process.env.NODE_ENV,
@@ -50,19 +55,29 @@ test("production: demo/admin JSON disabled; public marketplace shipments still w
     const carriers = await fetch(`${baseUrl}/carriers`);
     assert.equal(carriers.status, 403);
 
+    const detail = await fetch(`${baseUrl}/shipments/shp_123`);
+    assert.equal(detail.status, 401);
+    assert.deepEqual(await detail.json(), { error: "unauthorized" });
+
     const shipments = await fetch(`${baseUrl}/shipments`);
     assert.equal(shipments.status, 401);
     assert.deepEqual(await shipments.json(), { error: "unauthorized" });
 
     const pod = await postJson(baseUrl, "/shipments/shp_123/pod", {});
     assert.equal(pod.status, 401);
+    assert.deepEqual(await pod.json(), { error: "unauthorized" });
+
+    const refund = await postJson(baseUrl, "/shipments/shp_123/fail-refund", {});
+    assert.equal(refund.status, 401);
+    assert.deepEqual(await refund.json(), { error: "unauthorized" });
 
     const login = await postJson(baseUrl, "/v1/pilot/driver/login", { phone: "9876543210" });
     assert.equal(login.status, 403);
+    assert.deepEqual(await login.json(), { error: "legacy_demo_surface_disabled" });
   });
 });
 
-test("non-production: legacy carrier demo route still works", async (t) => {
+test("legacy demo surface remains available outside production", async (t) => {
   const prev = {
     DATA_FILE: process.env.DATA_FILE,
     NODE_ENV: process.env.NODE_ENV,
