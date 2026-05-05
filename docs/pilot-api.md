@@ -152,6 +152,144 @@ Body:
 - `POST /shipments/book` books against an `anchorTripId` (customer flow can remain separate for now).
 - `POST /shipments/:id/pod` completes delivery and creates ledger accruals.
 
+---
+
+## Location-based MVP extension (maps + lane eligibility)
+
+This section upgrades the MVP to be **location-based** (lat/lng + maps), while keeping the existing city-string fields for backwards compatibility during rollout.
+
+### Goals
+- Driver publishes anchor trips with **origin + destination on a map** (Google Maps).
+- Customer sees **eligible lanes** for their desired shipment (pickup/drop + weight).
+- Bookings are treated as **en-route** (pickup/drop should lie along the trip lane, with reasonable detour tolerance).
+
+### New types (MVP)
+
+#### `GeoPoint`
+```json
+{
+  "lat": 28.4595,
+  "lng": 77.0266,
+  "placeId": "ChIJ...optional",
+  "label": "Gurugram (optional)"
+}
+```
+
+Notes:
+- `placeId`/`label` are optional but useful for UI and debugging.
+- Canonical matching is based on **lat/lng**.
+
+### AnchorTrip (location-based fields)
+When enabled, an anchor trip includes:
+- `origin`: `GeoPoint`
+- `destination`: `GeoPoint`
+- Optional: `routePolyline` (encoded polyline, computed client-side or server-side later)
+
+Backwards compatibility:
+- During rollout, keep `originCity` / `destCity` populated for UI fallbacks.
+
+### Shipment booking (location-based fields)
+When enabled, a booking includes:
+- `pickup`: `GeoPoint`
+- `drop`: `GeoPoint`
+- Optional: `laneMatch` describing why it is eligible (explainable scoring)
+
+### Driver: publish anchor trip (location-based)
+
+#### `POST /v1/pilot/anchor-trips` (extended body)
+Headers:
+- `Authorization: Bearer <accessToken>`
+
+Body (new fields; keep city fields during rollout):
+```json
+{
+  "orgId": "<orgId>",
+  "origin": { "lat": 28.4595, "lng": 77.0266, "label": "Gurugram" },
+  "destination": { "lat": 26.9124, "lng": 75.7873, "label": "Jaipur" },
+  "originCity": "Gurugram",
+  "destCity": "Jaipur",
+  "windowStart": "2026-04-24T00:00:00+05:30",
+  "windowEnd": "2026-04-25T23:59:59+05:30",
+  "vehicleClass": "MEDIUM",
+  "capacityKg": 1000
+}
+```
+
+### Customer: eligible trips for a shipment request
+
+#### `GET /v1/customer/eligible-anchor-trips`
+Query params:
+- `pickupLat`, `pickupLng`
+- `dropLat`, `dropLng`
+- `weightKg`
+
+Response:
+```json
+{
+  "trips": [
+    {
+      "trip": { "...": "..." },
+      "eligibility": {
+        "eligible": true,
+        "reason": "near_endpoints",
+        "score": 0.92,
+        "pickupDistanceKm": 3.1,
+        "dropDistanceKm": 4.8,
+        "detourKmEstimate": 6.5
+      }
+    }
+  ]
+}
+```
+
+MVP eligibility rules (simple + explainable):
+- Trip must be `OPEN`
+- Remaining capacity \(\ge\) `weightKg`
+- Pickup/drop must be within detour tolerance. During rollout:
+  - **Phase A**: near endpoints (pickup near origin, drop near destination)
+  - **Phase B**: near route polyline (pickup/drop near the computed route)
+
+### Customer: quote + book (en-route)
+
+#### `POST /shipments/quote`
+Body:
+```json
+{ "weightKg": 200 }
+```
+
+#### `POST /shipments/book` (extended body)
+Body:
+```json
+{
+  "anchorTripId": "trip_...",
+  "customerOrgName": "ACME Manufacturing",
+  "weightKg": 200,
+  "pickup": { "lat": 28.4700, "lng": 77.0300, "label": "Sector 44, Gurugram" },
+  "drop": { "lat": 26.9000, "lng": 75.8200, "label": "Sitapura, Jaipur" },
+  "pickupAddress": "Sector 44, Gurugram",
+  "dropAddress": "Sitapura, Jaipur"
+}
+```
+
+Server behavior (unchanged from MVP):
+- Reserve capacity immediately (`reservedKg += weightKg`)
+- If capacity becomes fully reserved, mark trip `FULL`
+
+### Phase C: en-route status + detour tolerance (accepted)
+
+#### En-route semantics
+Bookings are considered **en-route** if pickup/drop are “along the lane” within acceptable detour limits.
+
+#### Detour policy (MVP)
+Define detour tolerance with simple thresholds:
+- `maxPickupDetourKm` and `maxDropDetourKm` (e.g. 10–20 km)
+- Optional `maxTotalDetourKm` for combined pickup + drop (e.g. 25–40 km)
+
+Eligibility computes and returns `detourKmEstimate` so the UI can explain why a lane is eligible/ineligible.
+
+Future upgrade (non-MVP):
+- Use actual route distance deltas from Google Directions to compute detour cost.
+
 ### Next auth upgrade (recommended)
 - Rate limit OTP
 - SMS provider integration

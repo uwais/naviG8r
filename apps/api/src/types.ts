@@ -87,11 +87,22 @@ export type AuthSession = {
   revokedAtUtcMs: number | null;
 };
 
+export type GeoPoint = {
+  lat: number;
+  lng: number;
+  placeId?: string;
+  label?: string;
+};
+
 export type AnchorTrip = {
   id: string;
   carrierId: string;
   originCity: string;
   destCity: string;
+  /** Optional location-based origin. */
+  origin?: GeoPoint;
+  /** Optional location-based destination. */
+  destination?: GeoPoint;
   /** ISO 8601. */
   windowStart: string;
   /** ISO 8601. */
@@ -111,6 +122,10 @@ export type Shipment = {
   weightKg: number;
   pickupAddress: string;
   dropAddress: string;
+  /** Optional location-based pickup. */
+  pickup?: GeoPoint;
+  /** Optional location-based drop. */
+  drop?: GeoPoint;
   status: ShipmentStatus;
   // Money in paise
   grossPaise: number;
