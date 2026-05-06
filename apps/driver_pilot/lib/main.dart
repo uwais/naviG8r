@@ -656,49 +656,62 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final mode = GoRouterState.of(context).uri.queryParameters["mode"];
+    final isCustomer = mode == "customer";
+
+    final body = ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              _debugCode != null
+                  ? "Using debug OTP from server response: $_debugCode"
+                  : "On hosted environments, OTP code 123456 only works if the server has OTP debug mode enabled. "
+                      "If /otp/start does not return debugCode, you likely need a real SMS flow or a server-side debug setting.",
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone")),
+        FilledButton.icon(
+          onPressed: _starting ? null : _start,
+          icon: _starting
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.sms),
+          label: const Text("POST /v1/auth/otp/start"),
+        ),
+        const SizedBox(height: 8),
+        SelectableText(_startOut),
+        const SizedBox(height: 16),
+        TextField(controller: _challengeId, decoration: const InputDecoration(labelText: "challengeId")),
+        TextField(controller: _code, decoration: const InputDecoration(labelText: "code (use OTP_DEBUG=123456 locally)")),
+        FilledButton.icon(
+          onPressed: _verifying ? null : _verify,
+          icon: _verifying
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.verified_user),
+          label: const Text("POST /v1/auth/otp/verify"),
+        ),
+        const SizedBox(height: 8),
+        SelectableText(_verifyOut),
+      ],
+    );
+
+    if (isCustomer) {
+      return CustomerScaffold(
+        title: "Sign in (OTP)",
+        currentPath: "/customer",
+        body: body,
+      );
+    }
+
     return PilotScaffold(
       title: "Login (OTP)",
       currentPath: "/login",
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                _debugCode != null
-                    ? "Using debug OTP from server response: $_debugCode"
-                    : "On hosted environments, OTP code 123456 only works if the server has OTP debug mode enabled. "
-                        "If /otp/start does not return debugCode, you likely need a real SMS flow or a server-side debug setting.",
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone")),
-          FilledButton.icon(
-            onPressed: _starting ? null : _start,
-            icon: _starting
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.sms),
-            label: const Text("POST /v1/auth/otp/start"),
-          ),
-          const SizedBox(height: 8),
-          SelectableText(_startOut),
-          const SizedBox(height: 16),
-          TextField(controller: _challengeId, decoration: const InputDecoration(labelText: "challengeId")),
-          TextField(controller: _code, decoration: const InputDecoration(labelText: "code (use OTP_DEBUG=123456 locally)")),
-          FilledButton.icon(
-            onPressed: _verifying ? null : _verify,
-            icon: _verifying
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.verified_user),
-            label: const Text("POST /v1/auth/otp/verify"),
-          ),
-          const SizedBox(height: 8),
-          SelectableText(_verifyOut),
-        ],
-      ),
+      body: body,
     );
   }
 }
@@ -963,7 +976,7 @@ class CustomerHomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: () => context.go("/login"),
+            onPressed: () => context.go("/login?mode=customer"),
             icon: const Icon(Icons.login),
             label: const Text("Sign in (OTP) — required for shipments"),
           ),
@@ -1765,7 +1778,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             OutlinedButton.icon(
-              onPressed: () => context.go("/login"),
+              onPressed: () => context.go("/login?mode=customer"),
               icon: const Icon(Icons.login),
               label: const Text("Sign in (OTP)"),
             ),
