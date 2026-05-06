@@ -1720,26 +1720,44 @@ class CustomerShipmentsScreen extends StatefulWidget {
 }
 
 class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
+  bool _loading = false;
+  String? _error;
+  List<Map<String, dynamic>> _shipments = [];
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final r = await api.get<Map<String, dynamic>>("/shipments");
+      final raw = r.data?["shipments"];
+      final list = <Map<String, dynamic>>[];
+      if (raw is List<dynamic>) {
+        for (final item in raw) {
+          if (item is Map<String, dynamic>) list.add(item);
+        }
+      }
+      setState(() => _shipments = list);
+    } catch (e) {
+      setState(() => _error = _formatApiError(e));
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final shipmentId = lastBookedShipmentId;
     return CustomerScaffold(
       title: "Shipments",
       currentPath: "/customer/shipments",
-<<<<<<< HEAD
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                "For the pilot, use the shipment id returned after booking. "
-                "Bulk shipment browsing is not exposed on the hosted API.",
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-=======
       body: RefreshIndicator(
         onRefresh: () async => _load(),
         child: ListView(
@@ -1758,29 +1776,56 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.refresh),
               label: const Text("Refresh"),
->>>>>>> c02bb22 (Improved legacy surface flag handling for disabling list all type views in non-dev environments. Significant update to allow authentication of customers and have orgs for order bookings and added un-signned-in book-by-phone number support.)
             ),
-          ),
-          const SizedBox(height: 12),
-          if (shipmentId != null && shipmentId.isNotEmpty) ...[
-            Card(
-              child: ListTile(
-                title: Text("Last booked shipment"),
-                subtitle: Text(shipmentId),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.go("/customer/shipments/$shipmentId"),
+            const SizedBox(height: 12),
+            if (shipmentId != null && shipmentId.isNotEmpty) ...[
+              Card(
+                child: ListTile(
+                  title: const Text("Last booked shipment"),
+                  subtitle: Text(shipmentId),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.go("/customer/shipments/$shipmentId"),
+                ),
               ),
+            ] else ...[
+              const Text("No shipment booked in this app session yet."),
+            ],
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => context.go("/customer/book"),
+              icon: const Icon(Icons.shopping_cart_outlined),
+              label: const Text("Book a shipment"),
             ),
-          ] else ...[
-            const Text("No shipment booked in this app session yet."),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              SelectableText(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            ..._shipments.map((s) {
+              final id = s["id"]?.toString() ?? "—";
+              final status = s["status"]?.toString() ?? "—";
+              final org = s["customerOrgName"]?.toString() ?? "—";
+              final tripId = s["anchorTripId"]?.toString() ?? "—";
+              return Card(
+                margin: const EdgeInsets.only(top: 12),
+                child: InkWell(
+                  onTap: id == "—" ? null : () => context.go("/customer/shipments/$id"),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Shipment $id", style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 4),
+                        Text("$status · $org", style: Theme.of(context).textTheme.bodySmall),
+                        Text("anchorTripId: $tripId", style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
           ],
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: () => context.go("/customer/book"),
-            icon: const Icon(Icons.shopping_cart_outlined),
-            label: const Text("Book a shipment"),
-          ),
-        ],
+        ),
       ),
     );
   }
