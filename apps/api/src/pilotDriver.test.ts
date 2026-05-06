@@ -4,10 +4,14 @@ import { createStore } from "./store.ts";
 import {
   ApiError,
   bookShipment,
+  createCarrier,
   markPodDelivered,
   pilotListMyAnchorTrips,
+  publishAnchorTrip,
   publishAnchorTripAsPilotDriver,
+  registerCustomerOrgAdmin,
   registerSoloOwnerOperatorDriver,
+  shipmentVisibleToCustomerUser,
 } from "./services.ts";
 
 test("pilot solo driver can register, publish trip, and shipments reference org id", () => {
@@ -99,4 +103,71 @@ test("bookShipment enforces Phase A when anchor trip has origin/destination geo"
     drop: { lat: 26.45, lng: 74.64 },
   });
   assert.equal(shipment.anchorTripId, trip.id);
+});
+
+test("bookShipment stores customerOrgId when customerOrg is provided", () => {
+  const store = createStore();
+  const carrier = createCarrier(store, "Carrier X");
+  const trip = publishAnchorTrip(store, {
+    carrierId: carrier.id,
+    originCity: "A",
+    destCity: "B",
+    windowStart: "2026-04-24T00:00:00+05:30",
+    windowEnd: "2026-04-25T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+  });
+  const cust = registerCustomerOrgAdmin(store, {
+    fullName: "Ops",
+    phone: "9111223344",
+    orgDisplayName: "ACME Logistics",
+  });
+  const shipment = bookShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: "should be replaced",
+    customerOrg: { id: cust.org.id, displayName: cust.org.displayName },
+    weightKg: 50,
+    pickupAddress: "p",
+    dropAddress: "d",
+  });
+  assert.equal(shipment.customerOrgId, cust.org.id);
+  assert.equal(shipment.customerOrgName, "ACME Logistics");
+});
+
+test("bookedByPhone links anonymous shipment to OTP user with same mobile", () => {
+  const store = createStore();
+  const onboard = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Ravi Kumar",
+    phone: "9876543299",
+    orgDisplayName: "Ravi Transport PhoneTest",
+    vehicleRegistrationNumber: "HR26AB1299",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 5000,
+  });
+  const trip = publishAnchorTripAsPilotDriver(store, {
+    userId: onboard.user.id,
+    orgId: onboard.org.id,
+    originCity: "Gurugram",
+    destCity: "Jaipur",
+    windowStart: "2026-04-24T00:00:00+05:30",
+    windowEnd: "2026-04-25T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+  });
+  const cust = registerCustomerOrgAdmin(store, {
+    fullName: "Buyer",
+    phone: "9123456700",
+    orgDisplayName: "Retail Co",
+  });
+  const shipment = bookShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: "Not Matching Org Name",
+    bookedByPhoneRaw: "+91 9123456700",
+    weightKg: 200,
+    pickupAddress: "Sector 44, Gurugram",
+    dropAddress: "Sitapura, Jaipur",
+  });
+  assert.equal(shipment.customerOrgId, undefined);
+  assert.equal(shipment.bookedByPhone, "9123456700");
+  assert.ok(shipmentVisibleToCustomerUser(store, shipment, cust.user.id));
 });

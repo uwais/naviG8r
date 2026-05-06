@@ -6,6 +6,7 @@ import {
   ApiError,
   bookShipment,
   createCarrier,
+  customerPrimaryOrgForUser,
   failCarrierAndRefund,
   markPodDelivered,
   customerEligibleAnchorTripsPhaseA,
@@ -19,6 +20,7 @@ import {
   registerCustomerOrgAdmin,
   registerSoloOwnerOperatorDriver,
   runPayoutBatch,
+  shipmentVisibleToCustomerUser,
 } from "./services.ts";
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -66,12 +68,47 @@ function requireUserId(req: http.IncomingMessage, store: ReturnType<typeof loadS
   return userId;
 }
 
-function requireLegacyDemoSurface(res: http.ServerResponse): boolean {
-  const enabled =
-    process.env.NODE_ENV !== "production" || process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+/**
+ * Public marketplace JSON (customer pilot + book flow). Not treated as legacy demo;
+ * stays available when NODE_ENV=production unless you remove these routes intentionally.
+ */
+function publicMarketplaceRouteAllowed(method: string, pathname: string): boolean {
+  if (method === "GET" && pathname === "/anchor-trips") return true;
+  const segs = pathname.split("/").filter(Boolean);
+  if (method === "GET" && segs.length === 2 && segs[0] === "anchor-trips") return true;
+  if (method === "POST" && pathname === "/shipments/quote") return true;
+  if (method === "POST" && pathname === "/shipments/book") return true;
+  if (method === "GET" && pathname === "/shipments") return true;
+  if (method === "GET" && segs.length === 2 && segs[0] === "shipments") return true;
+  if (method === "POST" && segs.length === 3 && segs[0] === "shipments" && segs[2] === "pod") return true;
+  if (method === "POST" && segs.length === 3 && segs[0] === "shipments" && segs[2] === "fail-refund") return true;
+  return false;
+}
+
+/**
+ * Locks down unauthenticated demo/admin surfaces in production (user dumps, HTML console,
+ * legacy carrier CRUD, legacy trip publish, ledger/payout toys). Set ENABLE_LEGACY_DEMO_SURFACE=1 to re-enable.
+ */
+function requireLegacyDemoSurface(res: http.ServerResponse, method: string, pathname: string): boolean {
+  if (publicMarketplaceRouteAllowed(method, pathname)) return true;
+  const enabled = process.env.NODE_ENV !== "production" || process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
   if (enabled) return true;
   json(res, 403, { error: "legacy_demo_surface_disabled" });
   return false;
+}
+
+/** Any valid Bearer user (OTP session); listing uses org + optional bookedByPhone match. */
+function requireBearerUserId(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: ReturnType<typeof loadStoreFromDisk>,
+): string | null {
+  try {
+    return verifyBearer(store, bearerToken(req)).userId;
+  } catch {
+    json(res, 401, { error: "unauthorized" });
+    return null;
+  }
 }
 
 export function createApp() {
@@ -124,7 +161,7 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname === "/v1/pilot/driver/login") {
-        if (!requireLegacyDemoSurface(res)) return;
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
         const out = pilotLoginDriverByPhone(store, String(body?.phone ?? ""));
         return json(res, 200, out);
@@ -194,19 +231,19 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname === "/v1/orgs") {
-        if (!requireLegacyDemoSurface(res)) return;
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const orgs = [...store.organizations.values()];
         return json(res, 200, { orgs });
       }
 
       if (method === "GET" && url.pathname === "/v1/users") {
-        if (!requireLegacyDemoSurface(res)) return;
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const users = [...store.users.values()];
         return json(res, 200, { users });
       }
 
       if (method === "GET" && url.pathname === "/admin") {
-        if (!requireLegacyDemoSurface(res)) return;
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const carriers = [...store.carriers.values()];
         const orgs = [...store.organizations.values()];
         const users = [...store.users.values()];
@@ -389,7 +426,7 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname === "/carriers") {
-        if (!requireLegacyDemoSurface(res)) return;
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
         const carrier = createCarrier(store, String(body?.name ?? ""));
         persist();
@@ -397,13 +434,13 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname === "/carriers") {
-        if (!requireLegacyDemoSurface(res)) return;
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const carriers = [...store.carriers.values()];
         return json(res, 200, { carriers });
       }
 
       if (method === "POST" && url.pathname === "/anchor-trips") {
-        if (!requireLegacyDemoSurface(res)) return;
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
         const trip = publishAnchorTrip(store, {
           carrierId: String(body?.carrierId ?? ""),
@@ -433,31 +470,51 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname === "/shipments/quote") {
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
         const quote = quoteShipment({ weightKg: Number(body?.weightKg ?? 0) });
         return json(res, 200, { quote });
       }
 
       if (method === "GET" && url.pathname === "/shipments") {
-        if (!requireLegacyDemoSurface(res)) return;
-        const shipments = [...store.shipments.values()];
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        const shipments = [...store.shipments.values()].filter((s) => shipmentVisibleToCustomerUser(store, s, userId));
         return json(res, 200, { shipments });
       }
 
       if (method === "GET" && url.pathname.startsWith("/shipments/") && url.pathname.split("/").length === 3) {
-        if (!requireLegacyDemoSurface(res)) return;
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
         const shipment = store.shipments.get(shipmentId);
-        if (!shipment) return json(res, 404, { error: "shipment_not_found" });
+        if (!shipment || !shipmentVisibleToCustomerUser(store, shipment, userId)) {
+          return json(res, 404, { error: "shipment_not_found" });
+        }
         const payment = store.payments.get(shipment.paymentId) ?? null;
         return json(res, 200, { shipment, payment });
       }
 
       if (method === "POST" && url.pathname === "/shipments/book") {
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
+        let customerOrg: { id: string; displayName: string } | undefined;
+        try {
+          const { userId } = verifyBearer(store, bearerToken(req));
+          const org = customerPrimaryOrgForUser(store, userId);
+          if (org) customerOrg = { id: org.id, displayName: org.displayName };
+        } catch {
+          /* anonymous booking: no customerOrgId on shipment */
+        }
+        const phoneField = body?.customerPhone ?? body?.bookedByPhone;
         const shipment = bookShipment(store, {
           anchorTripId: String(body?.anchorTripId ?? ""),
           customerOrgName: String(body?.customerOrgName ?? ""),
+          customerOrg,
+          bookedByPhoneRaw:
+            phoneField != null && String(phoneField).trim() !== "" ? String(phoneField) : undefined,
           weightKg: Number(body?.weightKg ?? 0),
           pickupAddress: String(body?.pickupAddress ?? ""),
           dropAddress: String(body?.dropAddress ?? ""),
@@ -469,8 +526,14 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
-        if (!requireLegacyDemoSurface(res)) return;
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
+        const shipment = store.shipments.get(shipmentId);
+        if (!shipment || !shipmentVisibleToCustomerUser(store, shipment, userId)) {
+          return json(res, 404, { error: "shipment_not_found" });
+        }
         const body = await readJson(req);
         const out = markPodDelivered(store, { shipmentId, podAtUtcMs: body?.podAtUtcMs });
         persist();
@@ -478,22 +541,26 @@ export function createApp() {
       }
 
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
-        if (!requireLegacyDemoSurface(res)) return;
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
+        const shipmentPre = store.shipments.get(shipmentId);
+        if (!shipmentPre || !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
+          return json(res, 404, { error: "shipment_not_found" });
+        }
         const shipment = failCarrierAndRefund(store, { shipmentId });
         persist();
         return json(res, 200, { shipment });
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
-        if (!requireLegacyDemoSurface(res)) return;
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
-        if (!requireLegacyDemoSurface(res)) return;
         const body = await readJson(req);
         const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
         persist();
@@ -501,7 +568,6 @@ export function createApp() {
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
-        if (!requireLegacyDemoSurface(res)) return;
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
@@ -511,7 +577,11 @@ export function createApp() {
       if (e instanceof ApiError) {
         return json(res, 400, { error: e.message, ...e.extra } as Record<string, unknown>);
       }
-      return json(res, 400, { error: e?.message ?? "bad_request" });
+      const msg = String(e?.message ?? "bad_request");
+      if (msg === "unauthorized" || msg === "invalid_token" || msg === "token_expired") {
+        return json(res, 401, { error: "unauthorized" });
+      }
+      return json(res, 400, { error: msg });
     }
   });
 

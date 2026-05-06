@@ -218,6 +218,38 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
  * Minimal customer org bootstrap for pilot bookings (Factories/SMBs).
  * Not used by the Driver app, but defines the API resource shape early.
  */
+/** First CUSTOMER org for this user (stable order if several). */
+export function customerPrimaryOrgForUser(store: Store, userId: string): Organization | null {
+  const matches: Organization[] = [];
+  for (const m of store.memberships.values()) {
+    if (m.userId !== userId) continue;
+    const o = store.organizations.get(m.orgId);
+    if (o?.kind === "CUSTOMER") matches.push(o);
+  }
+  if (matches.length === 0) return null;
+  matches.sort((a, b) => a.id.localeCompare(b.id));
+  return matches[0]!;
+}
+
+export function shipmentBelongsToCustomerOrg(shipment: Shipment, org: Organization): boolean {
+  if (shipment.customerOrgId != null && shipment.customerOrgId !== "") {
+    return shipment.customerOrgId === org.id;
+  }
+  return shipment.customerOrgName === org.displayName;
+}
+
+/** List/detail/POD visibility: org-scoped booking, or anonymous booking tied to the same phone as the logged-in user. */
+export function shipmentVisibleToCustomerUser(store: Store, shipment: Shipment, userId: string): boolean {
+  const user = store.users.get(userId);
+  if (!user) return false;
+  const org = customerPrimaryOrgForUser(store, userId);
+  if (org && shipmentBelongsToCustomerOrg(shipment, org)) return true;
+  if (shipment.bookedByPhone != null && shipment.bookedByPhone !== "" && shipment.bookedByPhone === user.phone) {
+    return true;
+  }
+  return false;
+}
+
 export function registerCustomerOrgAdmin(store: Store, params: {
   fullName: string;
   phone: string;
@@ -432,6 +464,10 @@ export function quoteShipment(params: { weightKg: number }): { grossPaise: numbe
 export function bookShipment(store: Store, params: {
   anchorTripId: string;
   customerOrgName: string;
+  /** When set (e.g. Bearer customer session), shipment is tagged for scoped listing. */
+  customerOrg?: { id: string; displayName: string };
+  /** Same digits as `User.phone` after OTP; links anonymous bookings to that user for GET /shipments. */
+  bookedByPhoneRaw?: string;
   weightKg: number;
   pickupAddress: string;
   dropAddress: string;
@@ -471,11 +507,22 @@ export function bookShipment(store: Store, params: {
     updatedAtUtcMs: now,
   };
 
+  const co = params.customerOrg;
+  const customerOrgName = co != null ? co.displayName : params.customerOrgName;
+
+  let bookedByPhone: string | undefined;
+  const rawPhone = params.bookedByPhoneRaw;
+  if (rawPhone != null && String(rawPhone).trim() !== "") {
+    bookedByPhone = normalizeInPhone(String(rawPhone));
+  }
+
   const s: Shipment = {
     id: id("shp"),
     anchorTripId: trip.id,
     carrierId: trip.carrierId,
-    customerOrgName: params.customerOrgName,
+    ...(co != null ? { customerOrgId: co.id } : {}),
+    customerOrgName,
+    ...(bookedByPhone != null ? { bookedByPhone } : {}),
     weightKg: params.weightKg,
     pickupAddress: params.pickupAddress,
     dropAddress: params.dropAddress,
