@@ -23,6 +23,8 @@ API listens on `http://localhost:3000`.
 Notes:
 - `AUTH_SECRET` is **required** (min 16 chars). Without it, the API exits on startup.
 - For quick local testing, `OTP_DEBUG=1` makes `/v1/auth/otp/start` return `debugCode` (see `docs/pilot-api.md`).
+- When `NODE_ENV=production`, unauthenticated **demo/admin** JSON and HTML (`/admin`, `/v1/users`, `/carriers`, legacy `POST /anchor-trips`, ledger/payout toys, etc.) return **403** unless you set `ENABLE_LEGACY_DEMO_SURFACE=1`. **Public marketplace** routes used by the customer pilot (`GET /anchor-trips`, quote/book, etc.) stay enabled.
+- **Customer shipments** (`GET /shipments`, `GET /shipments/:id`, POD, fail-refund) require `Authorization: Bearer <token>` from `POST /v1/auth/otp/*`. You see shipments tagged to your **CUSTOMER** org (`customerOrgId` / name match when booking logged in), **or** anonymous bookings where you passed **`customerPhone`** on `POST /shipments/book` and it matches your account phone after OTP. Book while logged in as a customer user sets `customerOrgId` on the shipment.
 
 ### Run tests
 

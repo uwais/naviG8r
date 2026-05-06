@@ -155,6 +155,10 @@ Body:
 - `POST /shipments/quote` quotes a shipment.
 - `POST /shipments/book` books against an `anchorTripId` (customer flow can remain separate for now).
 - Legacy admin/demo routes that expose all records or mutate operator state (for example `/admin`, `/shipments`, `/shipments/:id/pod`, `/shipments/:id/fail-refund`, `/payout-batches/run`) are disabled in production unless `ENABLE_LEGACY_DEMO_SURFACE=1`.
+### Existing marketplace endpoints (still available)
+- `POST /shipments/book` books against an `anchorTripId`. With `Authorization: Bearer` from OTP for a user in a **CUSTOMER** org, the shipment is tagged with `customerOrgId` and `customerOrgName` from that org (otherwise anonymous booking uses only the body `customerOrgName`). Optional **`customerPhone`** or **`bookedByPhone`** (India mobile, same normalization as registration) stores `bookedByPhone` on the shipment so the same person can list it after OTP **without** relying on org name matching.
+- `GET /shipments` and `GET /shipments/:id` require `Authorization: Bearer`. Responses include shipments for your **CUSTOMER** org (`customerOrgId` match, or legacy match on `customerOrgName` vs org `displayName`) **or** shipments whose **`bookedByPhone`** equals your user’s phone.
+- `POST /shipments/:id/pod` and `POST /shipments/:id/fail-refund` require the same Bearer and the same visibility rules as GET.
 
 ---
 
@@ -267,6 +271,7 @@ Body:
 {
   "anchorTripId": "trip_...",
   "customerOrgName": "ACME Manufacturing",
+  "customerPhone": "9123456789",
   "weightKg": 200,
   "pickup": { "lat": 28.4700, "lng": 77.0300, "label": "Sector 44, Gurugram" },
   "drop": { "lat": 26.9000, "lng": 75.8200, "label": "Sitapura, Jaipur" },
@@ -274,6 +279,8 @@ Body:
   "dropAddress": "Sitapura, Jaipur"
 }
 ```
+
+`customerPhone` is optional; when present it must be a valid India mobile (same rules as customer registration). Use the **same** number when you sign in with OTP to see the shipment on `GET /shipments` even if the booking was anonymous (no `customerOrgId`).
 
 Server behavior (unchanged from MVP):
 - Reserve capacity immediately (`reservedKg += weightKg`)

@@ -455,7 +455,7 @@ class _HomeScreenState extends State<HomeScreen> {
             label: const Text("Publish anchor trip"),
           ),
           const SizedBox(height: 12),
-          Text("Customer demo (no auth)", style: Theme.of(context).textTheme.titleMedium),
+          Text("Customer marketplace", style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: () => context.go("/customer"),
@@ -954,16 +954,20 @@ class CustomerHomeScreen extends StatelessWidget {
             child: const Padding(
               padding: EdgeInsets.all(12),
               child: Text(
-                "This is a lightweight customer-side demo using the marketplace endpoints:\n"
-                "• GET /anchor-trips\n"
-                "• POST /shipments/quote\n"
-                "• POST /shipments/book\n"
-                "• GET /shipments (+ details, POD, refund)\n\n"
-                "It does not use Bearer auth in this MVP.",
+                "Customer marketplace demo:\n"
+                "• Browse trips & book (quote/book) — open.\n"
+                "• Shipments list, detail, POD, refund — use the same phone as customer register, then "
+                "Sign in (OTP) so the app sends a Bearer token; only your org’s shipments are returned.",
               ),
             ),
           ),
           const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => context.go("/login"),
+            icon: const Icon(Icons.login),
+            label: const Text("Sign in (OTP) — required for shipments"),
+          ),
+          const SizedBox(height: 8),
           FilledButton.icon(
             onPressed: () => context.go("/customer/register"),
             icon: const Icon(Icons.person_add_alt_1),
@@ -1391,6 +1395,7 @@ String? lastBookedShipmentId;
 class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen> {
   final _anchorTripId = TextEditingController();
   final _customerOrgName = TextEditingController(text: "ACME Manufacturing");
+  final _customerPhone = TextEditingController();
   final _weightKg = TextEditingController(text: "200");
   final _pickup = TextEditingController(text: "Sector 44, Gurugram");
   final _drop = TextEditingController(text: "Sitapura, Jaipur");
@@ -1465,6 +1470,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     _anchorTripId.removeListener(_onAnchorTripIdChanged);
     _anchorTripId.dispose();
     _customerOrgName.dispose();
+    _customerPhone.dispose();
     _weightKg.dispose();
     _pickup.dispose();
     _drop.dispose();
@@ -1488,9 +1494,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     setState(() => _booking = true);
     try {
       final w = int.tryParse(_weightKg.text.trim()) ?? 0;
-      final r = await api.post<Map<String, dynamic>>(
-        "/shipments/book",
-        data: {
+      final bookBody = <String, dynamic>{
           "anchorTripId": _anchorTripId.text.trim(),
           "customerOrgName": _customerOrgName.text.trim(),
           "weightKg": w,
@@ -1506,7 +1510,12 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
             "lng": _dropPos.longitude,
             "label": _drop.text.trim(),
           },
-        },
+      };
+      final phone = _customerPhone.text.trim();
+      if (phone.isNotEmpty) bookBody["customerPhone"] = phone;
+      final r = await api.post<Map<String, dynamic>>(
+        "/shipments/book",
+        data: bookBody,
       );
       final s = r.data?["shipment"];
       final shipmentId = (s is Map<String, dynamic>) ? s["id"]?.toString() : null;
@@ -1597,6 +1606,14 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
             ),
           ],
           TextField(controller: _customerOrgName, decoration: const InputDecoration(labelText: "customerOrgName")),
+          TextField(
+            controller: _customerPhone,
+            decoration: const InputDecoration(
+              labelText: "Your mobile (optional)",
+              helperText: "Same number as OTP login to list this booking without org match",
+            ),
+            keyboardType: TextInputType.phone,
+          ),
           TextField(controller: _weightKg, decoration: const InputDecoration(labelText: "weightKg")),
           const SizedBox(height: 8),
           Text("Pickup & drop (maps)", style: Theme.of(context).textTheme.titleMedium),
@@ -1709,6 +1726,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
     return CustomerScaffold(
       title: "Shipments",
       currentPath: "/customer/shipments",
+<<<<<<< HEAD
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -1721,6 +1739,26 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
                 "Bulk shipment browsing is not exposed on the hosted API.",
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
+=======
+      body: RefreshIndicator(
+        onRefresh: () async => _load(),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => context.go("/login"),
+              icon: const Icon(Icons.login),
+              label: const Text("Sign in (OTP)"),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: _loading ? null : _load,
+              icon: _loading
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.refresh),
+              label: const Text("Refresh"),
+>>>>>>> c02bb22 (Improved legacy surface flag handling for disabling list all type views in non-dev environments. Significant update to allow authentication of customers and have orgs for order bookings and added un-signned-in book-by-phone number support.)
             ),
           ),
           const SizedBox(height: 12),

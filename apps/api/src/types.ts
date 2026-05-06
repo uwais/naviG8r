@@ -118,7 +118,11 @@ export type Shipment = {
   id: string;
   anchorTripId: string;
   carrierId: string;
+  /** Set when booked with a logged-in customer; used to scope GET /shipments. */
+  customerOrgId?: string;
   customerOrgName: string;
+  /** Normalized India mobile; optional on anonymous book so the same user can list via OTP + phone match. */
+  bookedByPhone?: string;
   weightKg: number;
   pickupAddress: string;
   dropAddress: string;

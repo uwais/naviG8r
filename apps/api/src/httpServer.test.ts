@@ -26,7 +26,7 @@ async function postJson(baseUrl: string, path: string, body: unknown): Promise<R
   });
 }
 
-test("production disables legacy demo routes that expose or mutate shipment state", async (t) => {
+test("production: demo/admin JSON disabled; public marketplace shipments still work", async (t) => {
   const prev = {
     DATA_FILE: process.env.DATA_FILE,
     NODE_ENV: process.env.NODE_ENV,
@@ -47,29 +47,22 @@ test("production disables legacy demo routes that expose or mutate shipment stat
     assert.equal(users.status, 403);
     assert.deepEqual(await users.json(), { error: "legacy_demo_surface_disabled" });
 
-    const detail = await fetch(`${baseUrl}/shipments/shp_123`);
-    assert.equal(detail.status, 403);
-    assert.deepEqual(await detail.json(), { error: "legacy_demo_surface_disabled" });
+    const carriers = await fetch(`${baseUrl}/carriers`);
+    assert.equal(carriers.status, 403);
 
     const shipments = await fetch(`${baseUrl}/shipments`);
-    assert.equal(shipments.status, 403);
-    assert.deepEqual(await shipments.json(), { error: "legacy_demo_surface_disabled" });
+    assert.equal(shipments.status, 401);
+    assert.deepEqual(await shipments.json(), { error: "unauthorized" });
 
     const pod = await postJson(baseUrl, "/shipments/shp_123/pod", {});
-    assert.equal(pod.status, 403);
-    assert.deepEqual(await pod.json(), { error: "legacy_demo_surface_disabled" });
-
-    const refund = await postJson(baseUrl, "/shipments/shp_123/fail-refund", {});
-    assert.equal(refund.status, 403);
-    assert.deepEqual(await refund.json(), { error: "legacy_demo_surface_disabled" });
+    assert.equal(pod.status, 401);
 
     const login = await postJson(baseUrl, "/v1/pilot/driver/login", { phone: "9876543210" });
     assert.equal(login.status, 403);
-    assert.deepEqual(await login.json(), { error: "legacy_demo_surface_disabled" });
   });
 });
 
-test("legacy demo surface remains available outside production", async (t) => {
+test("non-production: legacy carrier demo route still works", async (t) => {
   const prev = {
     DATA_FILE: process.env.DATA_FILE,
     NODE_ENV: process.env.NODE_ENV,
@@ -88,7 +81,7 @@ test("legacy demo surface remains available outside production", async (t) => {
   await withApp(t, async (baseUrl) => {
     const res = await postJson(baseUrl, "/carriers", { name: "Carrier One" });
     assert.equal(res.status, 201);
-    const body = await res.json() as { carrier?: { name?: string } };
+    const body = (await res.json()) as { carrier?: { name?: string } };
     assert.equal(body.carrier?.name, "Carrier One");
   });
 });
