@@ -16,6 +16,8 @@ This document defines the **first concrete API resources** for the Flutter pilot
 - **`OTP_DEBUG=1`**: returns `debugCode` from `otp/start` and defaults OTP to `OTP_FIXED_CODE` (default `123456`).
 - **`ALLOW_X_USER_ID=1`**: allows the old header-based auth (not for real pilots).
 - **`ENABLE_LEGACY_DEMO_SURFACE=1`**: enables legacy unauthenticated admin/demo write routes in production. Leave unset for hosted pilots.
+- **`FREIGHT_PAISE_PER_KM_SMALL`**, **`FREIGHT_PAISE_PER_KM_MEDIUM`**, **`FREIGHT_PAISE_PER_KM_LARGE`**: paise per km defaults (see `apps/api/src/config.ts`).
+- **`FREIGHT_MIN_GROSS_PAISE`**: optional minimum gross paise when distance is priced.
 
 ### Data model (persisted in `store.json`)
 - `Organization` (`CARRIER_SOLO` | `CARRIER_FLEET` | `CUSTOMER` | `CARRIER_LEGACY`)
@@ -140,6 +142,40 @@ Body:
 }
 ```
 
+#### `POST /v1/pilot/rates/estimate`
+Pilot-only (Bearer token; user must belong to a **carrier** org). Advisory lane pricing samples for publishing — does **not** persist a trip rate.
+
+Headers:
+- `Authorization: Bearer <accessToken>`
+
+Body:
+```json
+{
+  "origin": { "lat": 28.4595, "lng": 77.0266 },
+  "destination": { "lat": 26.9124, "lng": 75.7873 },
+  "vehicleClass": "MEDIUM",
+  "sampleWeightsKg": [100, 250, 500]
+}
+```
+
+(`sampleWeightsKg` optional — defaults to `[100,250,500]`. Maximum 8 positive weights.)
+
+Response (subset):
+```json
+{
+  "laneKm": 236.71,
+  "modelVersion": "freight-v1",
+  "samples": [
+    { "weightKg": 100, "grossPaise": 523420, "breakdown": { "pricingMode": "distance_weight", "..." : "..." } }
+  ]
+}
+```
+
+**Freight tuning (server env):**
+- `FREIGHT_PAISE_PER_KM_SMALL` / `_MEDIUM` / `_LARGE` — paise per km when distance is used (defaults: 1500 / 2000 / 2500).
+- `FREIGHT_MIN_GROSS_PAISE` — optional floor when `pricingMode` is `distance_weight`.
+- Distance + weight: `distanceKmForPrice × paisePerKm(vehicleClass) + weightKg × PRICE_PAISE_PER_KG` (defaults in `apps/api/src/config.ts`). Customer quotes prefer **shipment** pickup→drop km when pickup+drop are sent, else **lane** km from the anchor trip origin→destination.
+
 #### `POST /v1/pilot/customer/register` (not used by Driver app; defines customer org early)
 Body:
 ```json
@@ -150,14 +186,9 @@ Body:
 }
 ```
 
-### Existing marketplace endpoints
-- `GET /anchor-trips` lists available trips for the customer pilot.
-- `POST /shipments/quote` quotes a shipment.
-- `POST /shipments/book` books against an `anchorTripId` (customer flow can remain separate for now).
-- Legacy admin/demo routes that expose all records or mutate operator state (for example `/admin`, `/shipments`, `/shipments/:id/pod`, `/shipments/:id/fail-refund`, `/payout-batches/run`) are disabled in production unless `ENABLE_LEGACY_DEMO_SURFACE=1`.
 ### Existing marketplace endpoints (still available)
 - `GET /anchor-trips` (list + `GET /anchor-trips/:id`) lists trips for the customer pilot; **enabled in production** as part of the public marketplace.
-- `POST /shipments/quote` quotes a shipment.
+- `POST /shipments/quote` quotes a shipment. Body **`weightKg`** (required); optional **`pickup`** / **`drop`** (`GeoPoint` each — send **both** or **neither**); optional **`anchorTripId`**. Response includes **`grossPaise`** plus **`breakdown`** (`pricingMode`, `laneKm`, `shipmentKm`, `distanceKmForPrice`, `modelVersion`, component paise). Booking uses the same formula when coords allow distance pricing.
 - `POST /shipments/book` books against an `anchorTripId`. With `Authorization: Bearer` from OTP for a user in a **CUSTOMER** org, the shipment is tagged with `customerOrgId` and `customerOrgName` from that org (otherwise anonymous booking uses only the body `customerOrgName`). Optional **`customerPhone`** or **`bookedByPhone`** (India mobile, same normalization as registration) stores `bookedByPhone` on the shipment so the same person can list it after OTP **without** relying on org name matching.
 - `GET /shipments` and `GET /shipments/:id` require `Authorization: Bearer`. Responses include shipments for your **CUSTOMER** org (`customerOrgId` match, or legacy match on `customerOrgName` vs org `displayName`) **or** shipments whose **`bookedByPhone`** equals your user’s phone.
 - `POST /shipments/:id/pod` and `POST /shipments/:id/fail-refund` require the same Bearer and the same visibility rules as GET.
@@ -264,9 +295,39 @@ MVP eligibility rules (simple + explainable):
 ### Customer: quote + book (en-route)
 
 #### `POST /shipments/quote`
-Body:
+Body (minimum):
 ```json
 { "weightKg": 200 }
+```
+
+With geography (recommended so **quote matches book** on Phase A lanes):
+```json
+{
+  "weightKg": 200,
+  "anchorTripId": "trip_optional",
+  "pickup": { "lat": 28.4700, "lng": 77.0300, "label": "Sector 44, Gurugram" },
+  "drop": { "lat": 26.9000, "lng": 75.8200, "label": "Sitapura, Jaipur" }
+}
+```
+
+Response shape:
+```json
+{
+  "quote": {
+    "grossPaise": 523420,
+    "breakdown": {
+      "pricingMode": "distance_weight",
+      "modelVersion": "freight-v1",
+      "vehicleClass": "MEDIUM",
+      "laneKm": 236.7,
+      "shipmentKm": 245.2,
+      "distanceKmForPrice": 245.2,
+      "paisePerKm": 2000,
+      "distanceComponentPaise": 490400,
+      "weightComponentPaise": 100000
+    }
+  }
+}
 ```
 
 #### `POST /shipments/book` (extended body)

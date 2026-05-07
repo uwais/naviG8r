@@ -571,6 +571,8 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _debugCode;
   bool _starting = false;
   bool _verifying = false;
+  /** After OTP verify returned an access token (used for customer-flow CTA). */
+  bool _verifyIssuedToken = false;
 
   String? _extractChallengeId(dynamic data) {
     if (data is! Map<String, dynamic>) return null;
@@ -628,6 +630,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _verifyOut = "Enter valid phone (10 digits), challengeId, and code.";
         _verifying = false;
+        _verifyIssuedToken = false;
       });
       return;
     }
@@ -638,9 +641,15 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       final token = r.data?["accessToken"] as String?;
       if (token != null) await api.setToken(token);
-      setState(() => _verifyOut = r.data?.toString() ?? "{}");
+      setState(() {
+        _verifyOut = r.data?.toString() ?? "{}";
+        _verifyIssuedToken = token != null;
+      });
     } catch (e) {
-      setState(() => _verifyOut = _formatApiError(e));
+      setState(() {
+        _verifyOut = _formatApiError(e);
+        _verifyIssuedToken = false;
+      });
     } finally {
       setState(() => _verifying = false);
     }
@@ -656,49 +665,73 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final mode = GoRouterState.of(context).uri.queryParameters["mode"];
+    final isCustomer = mode == "customer";
+
+    final body = ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              _debugCode != null
+                  ? "Using debug OTP from server response: $_debugCode"
+                  : "On hosted environments, OTP code 123456 only works if the server has OTP debug mode enabled. "
+                      "If /otp/start does not return debugCode, you likely need a real SMS flow or a server-side debug setting.",
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone")),
+        FilledButton.icon(
+          onPressed: _starting ? null : _start,
+          icon: _starting
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.sms),
+          label: const Text("POST /v1/auth/otp/start"),
+        ),
+        const SizedBox(height: 8),
+        SelectableText(_startOut),
+        const SizedBox(height: 16),
+        TextField(controller: _challengeId, decoration: const InputDecoration(labelText: "challengeId")),
+        TextField(controller: _code, decoration: const InputDecoration(labelText: "code (use OTP_DEBUG=123456 locally)")),
+        FilledButton.icon(
+          onPressed: _verifying ? null : _verify,
+          icon: _verifying
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.verified_user),
+          label: const Text("POST /v1/auth/otp/verify"),
+        ),
+        const SizedBox(height: 8),
+        SelectableText(_verifyOut),
+        if (isCustomer && _verifyIssuedToken) ...[
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () => context.go("/customer"),
+            icon: const Icon(Icons.storefront_outlined),
+            label: const Text("Continue to customer home"),
+          ),
+        ],
+      ],
+    );
+
+    if (isCustomer) {
+      // Use real route so bottom "Customer" tab navigates to `/customer`
+      // (was `/login?mode=customer` but scaffold claimed `/customer`, blocking `go`).
+      final loc = GoRouterState.of(context).matchedLocation;
+      return CustomerScaffold(
+        title: "Sign in (OTP)",
+        currentPath: loc.isEmpty ? "/login" : loc,
+        body: body,
+      );
+    }
+
     return PilotScaffold(
       title: "Login (OTP)",
       currentPath: "/login",
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                _debugCode != null
-                    ? "Using debug OTP from server response: $_debugCode"
-                    : "On hosted environments, OTP code 123456 only works if the server has OTP debug mode enabled. "
-                        "If /otp/start does not return debugCode, you likely need a real SMS flow or a server-side debug setting.",
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone")),
-          FilledButton.icon(
-            onPressed: _starting ? null : _start,
-            icon: _starting
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.sms),
-            label: const Text("POST /v1/auth/otp/start"),
-          ),
-          const SizedBox(height: 8),
-          SelectableText(_startOut),
-          const SizedBox(height: 16),
-          TextField(controller: _challengeId, decoration: const InputDecoration(labelText: "challengeId")),
-          TextField(controller: _code, decoration: const InputDecoration(labelText: "code (use OTP_DEBUG=123456 locally)")),
-          FilledButton.icon(
-            onPressed: _verifying ? null : _verify,
-            icon: _verifying
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.verified_user),
-            label: const Text("POST /v1/auth/otp/verify"),
-          ),
-          const SizedBox(height: 8),
-          SelectableText(_verifyOut),
-        ],
-      ),
+      body: body,
     );
   }
 }
@@ -963,7 +996,7 @@ class CustomerHomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: () => context.go("/login"),
+            onPressed: () => context.go("/login?mode=customer"),
             icon: const Icon(Icons.login),
             label: const Text("Sign in (OTP) — required for shipments"),
           ),
@@ -1481,8 +1514,41 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     setState(() => _quoting = true);
     try {
       final w = int.tryParse(_weightKg.text.trim()) ?? 0;
-      final r = await api.post<Map<String, dynamic>>("/shipments/quote", data: {"weightKg": w});
-      setState(() => _out = r.data?.toString() ?? "{}");
+      final id = _anchorTripId.text.trim();
+      final payload = <String, dynamic>{
+        "weightKg": w,
+        "pickup": {
+          "lat": _pickupPos.latitude,
+          "lng": _pickupPos.longitude,
+          "label": _pickup.text.trim(),
+        },
+        "drop": {
+          "lat": _dropPos.latitude,
+          "lng": _dropPos.longitude,
+          "label": _drop.text.trim(),
+        },
+      };
+      if (id.isNotEmpty) payload["anchorTripId"] = id;
+
+      final r = await api.post<Map<String, dynamic>>("/shipments/quote", data: payload);
+
+      final q = r.data?["quote"];
+      if (q is Map<String, dynamic>) {
+        final b = q["breakdown"];
+        final buf = StringBuffer();
+        buf.writeln("grossPaise: ${q["grossPaise"]}");
+        if (b is Map<String, dynamic>) {
+          buf.writeln("pricingMode: ${b["pricingMode"]}");
+          buf.writeln("laneKm: ${b["laneKm"]} · shipmentKm: ${b["shipmentKm"]} · priced on ${b["distanceKmForPrice"]} km "
+              "(paise/km: ${b["paisePerKm"]})");
+          buf.writeln("distanceComponentPaise: ${b["distanceComponentPaise"]} · "
+              "weightComponentPaise: ${b["weightComponentPaise"]}");
+          buf.writeln("vehicleClass: ${b["vehicleClass"]} · modelVersion: ${b["modelVersion"]}");
+        }
+        setState(() => _out = buf.toString());
+      } else {
+        setState(() => _out = r.data?.toString() ?? "{}");
+      }
     } catch (e) {
       setState(() => _out = _formatApiError(e));
     } finally {
@@ -1720,26 +1786,44 @@ class CustomerShipmentsScreen extends StatefulWidget {
 }
 
 class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
+  bool _loading = false;
+  String? _error;
+  List<Map<String, dynamic>> _shipments = [];
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final r = await api.get<Map<String, dynamic>>("/shipments");
+      final raw = r.data?["shipments"];
+      final list = <Map<String, dynamic>>[];
+      if (raw is List<dynamic>) {
+        for (final item in raw) {
+          if (item is Map<String, dynamic>) list.add(item);
+        }
+      }
+      setState(() => _shipments = list);
+    } catch (e) {
+      setState(() => _error = _formatApiError(e));
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final shipmentId = lastBookedShipmentId;
     return CustomerScaffold(
       title: "Shipments",
       currentPath: "/customer/shipments",
-<<<<<<< HEAD
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                "For the pilot, use the shipment id returned after booking. "
-                "Bulk shipment browsing is not exposed on the hosted API.",
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-=======
       body: RefreshIndicator(
         onRefresh: () async => _load(),
         child: ListView(
@@ -1747,7 +1831,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             OutlinedButton.icon(
-              onPressed: () => context.go("/login"),
+              onPressed: () => context.go("/login?mode=customer"),
               icon: const Icon(Icons.login),
               label: const Text("Sign in (OTP)"),
             ),
@@ -1758,29 +1842,56 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.refresh),
               label: const Text("Refresh"),
->>>>>>> c02bb22 (Improved legacy surface flag handling for disabling list all type views in non-dev environments. Significant update to allow authentication of customers and have orgs for order bookings and added un-signned-in book-by-phone number support.)
             ),
-          ),
-          const SizedBox(height: 12),
-          if (shipmentId != null && shipmentId.isNotEmpty) ...[
-            Card(
-              child: ListTile(
-                title: Text("Last booked shipment"),
-                subtitle: Text(shipmentId),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.go("/customer/shipments/$shipmentId"),
+            const SizedBox(height: 12),
+            if (shipmentId != null && shipmentId.isNotEmpty) ...[
+              Card(
+                child: ListTile(
+                  title: const Text("Last booked shipment"),
+                  subtitle: Text(shipmentId),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.go("/customer/shipments/$shipmentId"),
+                ),
               ),
+            ] else ...[
+              const Text("No shipment booked in this app session yet."),
+            ],
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => context.go("/customer/book"),
+              icon: const Icon(Icons.shopping_cart_outlined),
+              label: const Text("Book a shipment"),
             ),
-          ] else ...[
-            const Text("No shipment booked in this app session yet."),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              SelectableText(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            ..._shipments.map((s) {
+              final id = s["id"]?.toString() ?? "—";
+              final status = s["status"]?.toString() ?? "—";
+              final org = s["customerOrgName"]?.toString() ?? "—";
+              final tripId = s["anchorTripId"]?.toString() ?? "—";
+              return Card(
+                margin: const EdgeInsets.only(top: 12),
+                child: InkWell(
+                  onTap: id == "—" ? null : () => context.go("/customer/shipments/$id"),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Shipment $id", style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 4),
+                        Text("$status · $org", style: Theme.of(context).textTheme.bodySmall),
+                        Text("anchorTripId: $tripId", style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
           ],
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: () => context.go("/customer/book"),
-            icon: const Icon(Icons.shopping_cart_outlined),
-            label: const Text("Book a shipment"),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1914,6 +2025,10 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   String _out = "";
   bool _submitting = false;
   bool _loadingMe = false;
+  Timer? _rateDebounce;
+  Map<String, dynamic>? _rateEstimate;
+  String _rateError = "";
+  bool _loadingRates = false;
 
   @override
   void initState() {
@@ -1921,10 +2036,12 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     final oid = lastRegisteredOrgId;
     if (oid != null && oid.isNotEmpty) _orgId.text = oid;
     _defaultAnchorTripWindow(_w1, _w2);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleRateFetch());
   }
 
   @override
   void dispose() {
+    _rateDebounce?.cancel();
     _orgId.dispose();
     _origin.dispose();
     _dest.dispose();
@@ -1933,6 +2050,46 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     _vehClass.dispose();
     _cap.dispose();
     super.dispose();
+  }
+
+  void _scheduleRateFetch() {
+    _rateDebounce?.cancel();
+    _rateDebounce = Timer(const Duration(milliseconds: 550), () {
+      _fetchSuggestedRates();
+    });
+  }
+
+  Future<void> _fetchSuggestedRates() async {
+    final vc = _vehClass.text.trim().toUpperCase();
+    if (vc != "SMALL" && vc != "MEDIUM" && vc != "LARGE") return;
+    setState(() {
+      _loadingRates = true;
+      _rateError = "";
+    });
+    try {
+      final r = await api.post<Map<String, dynamic>>(
+        "/v1/pilot/rates/estimate",
+        data: {
+          "origin": {"lat": _originPos.latitude, "lng": _originPos.longitude},
+          "destination": {"lat": _destPos.latitude, "lng": _destPos.longitude},
+          "vehicleClass": vc,
+          "sampleWeightsKg": [100, 250, 500],
+        },
+      );
+      final d = r.data;
+      if (!mounted) return;
+      setState(() {
+        _rateEstimate = d is Map<String, dynamic> ? d : null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _rateEstimate = null;
+        _rateError = _formatApiError(e);
+      });
+    } finally {
+      if (mounted) setState(() => _loadingRates = false);
+    }
   }
 
   Future<void> _loadPilotMe() async {
@@ -2056,7 +2213,10 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
             markerId: "publish_origin",
             markerHue: BitmapDescriptor.hueGreen,
             position: _originPos,
-            onPositionChanged: (p) => setState(() => _originPos = p),
+            onPositionChanged: (p) {
+              setState(() => _originPos = p);
+              _scheduleRateFetch();
+            },
           ),
           const SizedBox(height: 20),
           LocationEndpointEditor(
@@ -2066,13 +2226,74 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
             markerId: "publish_dest",
             markerHue: BitmapDescriptor.hueRed,
             position: _destPos,
-            onPositionChanged: (p) => setState(() => _destPos = p),
+            onPositionChanged: (p) {
+              setState(() => _destPos = p);
+              _scheduleRateFetch();
+            },
           ),
           const SizedBox(height: 12),
           routePreviewMap(a: _originPos, b: _destPos),
+          TextField(
+            controller: _vehClass,
+            decoration: const InputDecoration(labelText: "vehicleClass (SMALL|MEDIUM|LARGE)"),
+            onChanged: (_) => _scheduleRateFetch(),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(0.45),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Suggested freight (lane reference)",
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Advisory — customer quotes use shipment pickup→drop when booked. "
+                    "Tune server env FREIGHT_PAISE_PER_KM_*.",
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 10),
+                  if (_loadingRates)
+                    const SizedBox(
+                      height: 28,
+                      width: 28,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else if (_rateError.isNotEmpty)
+                    Text(_rateError, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 13))
+                  else if (_rateEstimate != null) ...[
+                    Text(
+                      "Lane ≈ ${_rateEstimate!["laneKm"]} km · ${_rateEstimate!["modelVersion"] ?? ""}",
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    ...(List<dynamic>.from(_rateEstimate!["samples"] as List? ?? const [])
+                        .whereType<Map>()
+                        .map((s) {
+                          final m = Map<String, dynamic>.from(s);
+                          final w = m["weightKg"];
+                          final gp = m["grossPaise"];
+                          final rupees = (gp is num)
+                              ? (gp / 100).toStringAsFixed((gp.remainder(100).abs() < 1e-6) ? 0 : 2)
+                              : "?";
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Text("≈ ₹$rupees total at ${w ?? "?"} kg"),
+                          );
+                        })),
+                  ]
+                  else
+                    Text("Sign in as a driver and adjust pins to load estimates.", style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+          ),
           TextField(controller: _w1, decoration: const InputDecoration(labelText: "windowStart (ISO +05:30)")),
           TextField(controller: _w2, decoration: const InputDecoration(labelText: "windowEnd (ISO +05:30)")),
-          TextField(controller: _vehClass, decoration: const InputDecoration(labelText: "vehicleClass (SMALL|MEDIUM|LARGE)")),
           TextField(controller: _cap, decoration: const InputDecoration(labelText: "capacityKg")),
           const SizedBox(height: 12),
           FilledButton.icon(

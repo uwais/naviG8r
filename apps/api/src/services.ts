@@ -1,5 +1,12 @@
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
-import { COMMISSION_BPS, PAYOUT_BATCH_SCHEDULE, PRICE_PAISE_PER_KG } from "./config.ts";
+import {
+  COMMISSION_BPS,
+  FREIGHT_MODEL_VERSION,
+  PAYOUT_BATCH_SCHEDULE,
+  PRICE_PAISE_PER_KG,
+  freightMinGrossPaise,
+  freightPaisePerKmForClass,
+} from "./config.ts";
 import type {
   AnchorTrip,
   Carrier,
@@ -29,7 +36,8 @@ function assertGeoPoint(v: any, name: string): asserts v is GeoPoint {
   if (typeof lng !== "number" || Number.isNaN(lng) || lng < -180 || lng > 180) throw new Error(`invalid_${name}`);
 }
 
-function haversineKm(a: GeoPoint, b: GeoPoint): number {
+/** Great-circle distance between two WGS84 points (km). */
+export function distanceBetweenGeoPointsKm(a: GeoPoint, b: GeoPoint): number {
   const toRad = (d: number) => (d * Math.PI) / 180;
   const R = 6371;
   const dLat = toRad(b.lat - a.lat);
@@ -40,14 +48,21 @@ function haversineKm(a: GeoPoint, b: GeoPoint): number {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(aa)));
 }
 
-/** Structured API error (HTTP 400 body includes `error` + optional fields from [extra]). */
+function haversineKm(a: GeoPoint, b: GeoPoint): number {
+  return distanceBetweenGeoPointsKm(a, b);
+}
+
+/** Structured API error (handlers map {@link ApiError.httpStatus}, default 400). */
 export class ApiError extends Error {
   readonly extra: Record<string, unknown>;
+  /** HTTP status for API handlers (default 400). */
+  readonly httpStatus: number;
 
-  constructor(message: string, extra: Record<string, unknown> = {}) {
+  constructor(message: string, extra: Record<string, unknown> = {}, httpStatus = 400) {
     super(message);
     this.name = "ApiError";
     this.extra = extra;
+    this.httpStatus = httpStatus;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
@@ -456,9 +471,188 @@ export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
   return out;
 }
 
-export function quoteShipment(params: { weightKg: number }): { grossPaise: number } {
+export type FreightPricingMode = "distance_weight" | "weight_only";
+
+export type FreightBreakdown = {
+  pricingMode: FreightPricingMode;
+  modelVersion: string;
+  vehicleClass: VehicleClass;
+  laneKm: number | null;
+  shipmentKm: number | null;
+  distanceKmForPrice: number | null;
+  paisePerKm: number | null;
+  distanceComponentPaise: number;
+  weightComponentPaise: number;
+};
+
+function userHasPilotCarrierMembership(store: Store, userId: string): boolean {
+  for (const m of store.memberships.values()) {
+    if (m.userId !== userId) continue;
+    const o = store.organizations.get(m.orgId);
+    if (!o) continue;
+    if (o.kind === "CARRIER_SOLO" || o.kind === "CARRIER_FLEET" || o.kind === "CARRIER_LEGACY") return true;
+  }
+  return false;
+}
+
+/**
+ * Pure freight price: paise per km (class) + ₹5/kg when a distance basis exists
+ * (`shipmentKm` preferred else `laneKm`). Without distance, falls back to weight-only.
+ */
+export function computeFreightGrossPaise(params: {
+  weightKg: number;
+  vehicleClass: VehicleClass;
+  laneKm?: number | null;
+  shipmentKm?: number | null;
+}): { grossPaise: number; breakdown: FreightBreakdown } {
+  assertVehicleClass(params.vehicleClass);
   if (params.weightKg <= 0) throw new Error("invalid_weightKg");
-  return { grossPaise: Math.round(params.weightKg * PRICE_PAISE_PER_KG) };
+
+  const laneKm = params.laneKm != null && params.laneKm > 0 ? params.laneKm : null;
+  const shipmentKm = params.shipmentKm != null && params.shipmentKm > 0 ? params.shipmentKm : null;
+  const distanceKmForPrice = shipmentKm ?? laneKm;
+  const paisePerKm = distanceKmForPrice != null ? freightPaisePerKmForClass(params.vehicleClass) : null;
+
+  let distanceComponentPaise = 0;
+  let weightComponentPaise = 0;
+  let pricingMode: FreightPricingMode;
+  let grossPaise: number;
+
+  if (distanceKmForPrice != null && paisePerKm != null) {
+    pricingMode = "distance_weight";
+    distanceComponentPaise = Math.round(distanceKmForPrice * paisePerKm);
+    weightComponentPaise = Math.round(params.weightKg * PRICE_PAISE_PER_KG);
+    grossPaise = distanceComponentPaise + weightComponentPaise;
+    const floor = freightMinGrossPaise();
+    if (floor > 0 && grossPaise < floor) grossPaise = floor;
+  } else {
+    pricingMode = "weight_only";
+    weightComponentPaise = Math.round(params.weightKg * PRICE_PAISE_PER_KG);
+    grossPaise = weightComponentPaise;
+  }
+
+  return {
+    grossPaise,
+    breakdown: {
+      pricingMode,
+      modelVersion: FREIGHT_MODEL_VERSION,
+      vehicleClass: params.vehicleClass,
+      laneKm: laneKm != null ? Math.round(laneKm * 10) / 10 : null,
+      shipmentKm: shipmentKm != null ? Math.round(shipmentKm * 10) / 10 : null,
+      distanceKmForPrice: distanceKmForPrice != null ? Math.round(distanceKmForPrice * 10) / 10 : null,
+      paisePerKm,
+      distanceComponentPaise,
+      weightComponentPaise,
+    },
+  };
+}
+
+export function quoteShipmentMarketplace(store: Store, params: {
+  weightKg: number;
+  pickup?: unknown;
+  drop?: unknown;
+  anchorTripId?: string;
+}): { grossPaise: number; breakdown: FreightBreakdown } {
+  if (params.weightKg <= 0) throw new ApiError("invalid_weightKg", {});
+
+  let vehicleClass: VehicleClass = "MEDIUM";
+  let laneKm: number | null = null;
+  let shipmentKm: number | null = null;
+
+  if (params.anchorTripId) {
+    const trip = store.anchorTrips.get(params.anchorTripId);
+    if (trip) {
+      vehicleClass = trip.vehicleClass;
+      if (trip.origin && trip.destination) {
+        laneKm = haversineKm(trip.origin, trip.destination);
+      }
+    }
+  }
+
+  const hasP = params.pickup != null && params.pickup !== undefined;
+  const hasD = params.drop != null && params.drop !== undefined;
+  if (hasP !== hasD) {
+    throw new ApiError("pickup_drop_both_required", {
+      detail: "Send both pickup and drop objects with lat/lng, or omit both.",
+    });
+  }
+  if (hasP && hasD) {
+    assertGeoPoint(params.pickup, "pickup");
+    assertGeoPoint(params.drop, "drop");
+    shipmentKm = haversineKm(params.pickup as GeoPoint, params.drop as GeoPoint);
+  }
+
+  return computeFreightGrossPaise({
+    weightKg: params.weightKg,
+    vehicleClass,
+    laneKm,
+    shipmentKm,
+  });
+}
+
+export function pilotRatesEstimate(store: Store, userId: string, body: {
+  origin: unknown;
+  destination: unknown;
+  vehicleClass?: unknown;
+  sampleWeightsKg?: unknown;
+}): {
+  laneKm: number;
+  samples: Array<{ weightKg: number; grossPaise: number; breakdown: FreightBreakdown }>;
+  modelVersion: string;
+} {
+  if (!userHasPilotCarrierMembership(store, userId)) {
+    throw new ApiError(
+      "pilot_carrier_required",
+      { detail: "User must belong to a carrier organization." },
+      403,
+    );
+  }
+  assertGeoPoint(body.origin, "origin");
+  assertGeoPoint(body.destination, "destination");
+  const origin = body.origin as GeoPoint;
+  const destination = body.destination as GeoPoint;
+
+  let vc: VehicleClass = "MEDIUM";
+  if (body.vehicleClass != null && body.vehicleClass !== "") {
+    assertVehicleClass(body.vehicleClass);
+    vc = body.vehicleClass;
+  }
+
+  let sampleWeights: number[] = [100, 250, 500];
+  if (Array.isArray(body.sampleWeightsKg) && body.sampleWeightsKg.length > 0) {
+    const parsed = body.sampleWeightsKg
+      .map((w) => Number(w))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (parsed.length > 0) {
+      sampleWeights = [...new Set(parsed)].sort((a, b) => a - b).slice(0, 8);
+    }
+  }
+
+  const laneKmRaw = haversineKm(origin, destination);
+  const laneKmRounded = Math.round(laneKmRaw * 100) / 100;
+
+  const samples = sampleWeights.map((weightKg) => {
+    const { grossPaise, breakdown } = computeFreightGrossPaise({
+      weightKg,
+      vehicleClass: vc,
+      laneKm: laneKmRaw,
+      shipmentKm: null,
+    });
+    return { weightKg, grossPaise, breakdown };
+  });
+
+  return { laneKm: laneKmRounded, samples, modelVersion: FREIGHT_MODEL_VERSION };
+}
+
+/** Legacy weight-only helper; same as marketplace quote with no geography. */
+export function quoteShipment(params: { weightKg: number }): { grossPaise: number } {
+  const { grossPaise } = computeFreightGrossPaise({
+    weightKg: params.weightKg,
+    vehicleClass: "MEDIUM",
+    laneKm: null,
+    shipmentKm: null,
+  });
+  return { grossPaise };
 }
 
 export function bookShipment(store: Store, params: {
@@ -486,12 +680,29 @@ export function bookShipment(store: Store, params: {
     drop: params.drop,
   });
 
+  let laneKm: number | null = null;
+  if (trip.origin && trip.destination) {
+    laneKm = haversineKm(trip.origin, trip.destination);
+  }
+  let shipmentKm: number | null = null;
+  if (params.pickup && params.drop) {
+    assertGeoPoint(params.pickup, "pickup");
+    assertGeoPoint(params.drop, "drop");
+    shipmentKm = haversineKm(params.pickup, params.drop);
+  }
+
+  const { grossPaise } = computeFreightGrossPaise({
+    weightKg: params.weightKg,
+    vehicleClass: trip.vehicleClass,
+    laneKm,
+    shipmentKm,
+  });
+
   // Reserve capacity immediately (instant booking).
   trip.reservedKg += params.weightKg;
   if (trip.reservedKg === trip.capacityKg) trip.status = "FULL";
   store.anchorTrips.set(trip.id, trip);
 
-  const { grossPaise } = quoteShipment({ weightKg: params.weightKg });
   const { commissionPaise, netToCarrierPaise } = moneySplit(grossPaise);
   const now = nowUtcMs();
 

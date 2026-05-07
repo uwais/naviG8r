@@ -4,7 +4,9 @@ import { createStore } from "./store.ts";
 import {
   ApiError,
   bookShipment,
+  computeFreightGrossPaise,
   createCarrier,
+  distanceBetweenGeoPointsKm,
   markPodDelivered,
   pilotListMyAnchorTrips,
   publishAnchorTrip,
@@ -49,6 +51,7 @@ test("pilot solo driver can register, publish trip, and shipments reference org 
     pickupAddress: "Sector 44, Gurugram",
     dropAddress: "Sitapura, Jaipur",
   });
+  assert.equal(shipment.grossPaise, 200 * 500);
   assert.equal(shipment.carrierId, onboard.org.id);
 
   const pod = markPodDelivered(store, { shipmentId: shipment.id });
@@ -102,6 +105,17 @@ test("bookShipment enforces Phase A when anchor trip has origin/destination geo"
     pickup: { lat: 27.18, lng: 78.01 },
     drop: { lat: 26.45, lng: 74.64 },
   });
+  const tripOrigin = { lat: 27.1767, lng: 78.0081 };
+  const tripDest = { lat: 26.4499, lng: 74.6399 };
+  const pickup = { lat: 27.18, lng: 78.01 };
+  const drop = { lat: 26.45, lng: 74.64 };
+  const { grossPaise: expected } = computeFreightGrossPaise({
+    weightKg: 200,
+    vehicleClass: "MEDIUM",
+    laneKm: distanceBetweenGeoPointsKm(tripOrigin, tripDest),
+    shipmentKm: distanceBetweenGeoPointsKm(pickup, drop),
+  });
+  assert.equal(shipment.grossPaise, expected);
   assert.equal(shipment.anchorTripId, trip.id);
 });
 
