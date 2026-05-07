@@ -571,6 +571,8 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _debugCode;
   bool _starting = false;
   bool _verifying = false;
+  /** After OTP verify returned an access token (used for customer-flow CTA). */
+  bool _verifyIssuedToken = false;
 
   String? _extractChallengeId(dynamic data) {
     if (data is! Map<String, dynamic>) return null;
@@ -628,6 +630,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _verifyOut = "Enter valid phone (10 digits), challengeId, and code.";
         _verifying = false;
+        _verifyIssuedToken = false;
       });
       return;
     }
@@ -638,9 +641,15 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       final token = r.data?["accessToken"] as String?;
       if (token != null) await api.setToken(token);
-      setState(() => _verifyOut = r.data?.toString() ?? "{}");
+      setState(() {
+        _verifyOut = r.data?.toString() ?? "{}";
+        _verifyIssuedToken = token != null;
+      });
     } catch (e) {
-      setState(() => _verifyOut = _formatApiError(e));
+      setState(() {
+        _verifyOut = _formatApiError(e);
+        _verifyIssuedToken = false;
+      });
     } finally {
       setState(() => _verifying = false);
     }
@@ -697,13 +706,24 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         const SizedBox(height: 8),
         SelectableText(_verifyOut),
+        if (isCustomer && _verifyIssuedToken) ...[
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () => context.go("/customer"),
+            icon: const Icon(Icons.storefront_outlined),
+            label: const Text("Continue to customer home"),
+          ),
+        ],
       ],
     );
 
     if (isCustomer) {
+      // Use real route so bottom "Customer" tab navigates to `/customer`
+      // (was `/login?mode=customer` but scaffold claimed `/customer`, blocking `go`).
+      final loc = GoRouterState.of(context).matchedLocation;
       return CustomerScaffold(
         title: "Sign in (OTP)",
-        currentPath: "/customer",
+        currentPath: loc.isEmpty ? "/login" : loc,
         body: body,
       );
     }

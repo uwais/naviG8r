@@ -14,7 +14,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - [x] Anonymous booking linkage via phone (`customerPhone` → `Shipment.bookedByPhone`) visible after OTP with same phone.
 - [x] **Production hardening**: legacy demo/admin routes gated behind `ENABLE_LEGACY_DEMO_SURFACE=1`; marketplace stays enabled.
 - [x] **Android build unblockers**: Gradle/AGP alignment and dependency pinning for Flutter 3.22.x on macOS 13.
-- [x] **Customer OTP screen UX fix**: customer flow uses `/login?mode=customer` and renders OTP inside `CustomerScaffold`.
+- [x] **Customer OTP screen UX fix**: customer flow uses `/login?mode=customer` and renders OTP inside `CustomerScaffold`; after verify, **Continue to customer home** + bottom **Customer** tab route to **`/customer`** (scaffold uses `matchedLocation`, not a fake `/customer` path on login).
 - [x] **B0.2 freight & pricing (shipped)**:
   - [x] Core: `computeFreightGrossPaise` — **shipment** pickup→drop km when both exist, else **lane** trip origin→destination km, else **weight-only**; env `FREIGHT_PAISE_PER_KM_*`, `FREIGHT_MIN_GROSS_PAISE`, `modelVersion` on breakdowns.
   - [x] `POST /v1/pilot/rates/estimate` (carrier pilot only) + **Publish** “Suggested freight” card (debounced).
@@ -239,7 +239,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 
 ## C) Next execution steps (suggested order)
 
-- [x] **Customer OTP navigation baseline**: `/login?mode=customer` + OTP in `CustomerScaffold` (see **What we’ve achieved**). _Further polish/home shortcuts still optional._
+- [x] **Customer OTP navigation baseline**: `/login?mode=customer` + OTP in `CustomerScaffold`; **Customer** bottom tab and **Continue to customer home** (after successful verify) return to **`/customer`** (real `matchedLocation` so nav is not stuck on login).
 - [ ] **`flutter run` + device smoke**: full quote/book flow on emulator + physical device (also **B5**).
 - [ ] **Payment decision**: Razorpay “pay at booking” vs “authorize then capture”.
 - [ ] **Implement Razorpay (test mode)** end-to-end (server order + webhook + client checkout).
