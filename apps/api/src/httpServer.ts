@@ -14,9 +14,10 @@ import {
   pilotGetMyAnchorTrip,
   pilotMe,
   pilotListMyAnchorTrips,
+  pilotRatesEstimate,
   publishAnchorTrip,
   publishAnchorTripAsPilotDriver,
-  quoteShipment,
+  quoteShipmentMarketplace,
   registerCustomerOrgAdmin,
   registerSoloOwnerOperatorDriver,
   runPayoutBatch,
@@ -203,6 +204,18 @@ export function createApp() {
         });
         persist();
         return json(res, 201, { trip });
+      }
+
+      if (method === "POST" && url.pathname === "/v1/pilot/rates/estimate") {
+        const body = await readJson(req);
+        const userId = requireUserId(req, store);
+        const out = pilotRatesEstimate(store, userId, {
+          origin: body?.origin,
+          destination: body?.destination,
+          vehicleClass: body?.vehicleClass,
+          sampleWeightsKg: body?.sampleWeightsKg,
+        });
+        return json(res, 200, out);
       }
 
       if (method === "GET" && url.pathname === "/v1/customer/eligible-anchor-trips") {
@@ -472,7 +485,15 @@ export function createApp() {
       if (method === "POST" && url.pathname === "/shipments/quote") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
-        const quote = quoteShipment({ weightKg: Number(body?.weightKg ?? 0) });
+        const anchorRaw = body?.anchorTripId;
+        const anchorTripId =
+          anchorRaw != null && String(anchorRaw).trim() !== "" ? String(anchorRaw).trim() : undefined;
+        const quote = quoteShipmentMarketplace(store, {
+          weightKg: Number(body?.weightKg ?? 0),
+          pickup: body?.pickup,
+          drop: body?.drop,
+          anchorTripId,
+        });
         return json(res, 200, { quote });
       }
 
@@ -575,7 +596,8 @@ export function createApp() {
       return json(res, 404, { error: "not_found" });
     } catch (e: any) {
       if (e instanceof ApiError) {
-        return json(res, 400, { error: e.message, ...e.extra } as Record<string, unknown>);
+        const status = e.httpStatus ?? 400;
+        return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
       }
       const msg = String(e?.message ?? "bad_request");
       if (msg === "unauthorized" || msg === "invalid_token" || msg === "token_expired") {

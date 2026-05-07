@@ -23,7 +23,7 @@ This API is a **single Node HTTP process** (`apps/api/src/index.ts`). Render run
 
 - `**AUTH_SECRET`**: required (min 16 chars). Generate locally:
   - `openssl rand -hex 32`
-- `**OTP_DEBUG**`: `0` for real pilots (only `1` for local dev convenience)
+- `**OTP_DEBUG`**: `0` for real pilots (only `1` for local dev convenience)
 - `**DATA_FILE**` (recommended for persistence):
   - If you attach a **Render Disk**, mount it (example) at `/data` and set:
     - `DATA_FILE=/data/store.json`

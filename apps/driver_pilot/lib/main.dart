@@ -1494,8 +1494,41 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     setState(() => _quoting = true);
     try {
       final w = int.tryParse(_weightKg.text.trim()) ?? 0;
-      final r = await api.post<Map<String, dynamic>>("/shipments/quote", data: {"weightKg": w});
-      setState(() => _out = r.data?.toString() ?? "{}");
+      final id = _anchorTripId.text.trim();
+      final payload = <String, dynamic>{
+        "weightKg": w,
+        "pickup": {
+          "lat": _pickupPos.latitude,
+          "lng": _pickupPos.longitude,
+          "label": _pickup.text.trim(),
+        },
+        "drop": {
+          "lat": _dropPos.latitude,
+          "lng": _dropPos.longitude,
+          "label": _drop.text.trim(),
+        },
+      };
+      if (id.isNotEmpty) payload["anchorTripId"] = id;
+
+      final r = await api.post<Map<String, dynamic>>("/shipments/quote", data: payload);
+
+      final q = r.data?["quote"];
+      if (q is Map<String, dynamic>) {
+        final b = q["breakdown"];
+        final buf = StringBuffer();
+        buf.writeln("grossPaise: ${q["grossPaise"]}");
+        if (b is Map<String, dynamic>) {
+          buf.writeln("pricingMode: ${b["pricingMode"]}");
+          buf.writeln("laneKm: ${b["laneKm"]} · shipmentKm: ${b["shipmentKm"]} · priced on ${b["distanceKmForPrice"]} km "
+              "(paise/km: ${b["paisePerKm"]})");
+          buf.writeln("distanceComponentPaise: ${b["distanceComponentPaise"]} · "
+              "weightComponentPaise: ${b["weightComponentPaise"]}");
+          buf.writeln("vehicleClass: ${b["vehicleClass"]} · modelVersion: ${b["modelVersion"]}");
+        }
+        setState(() => _out = buf.toString());
+      } else {
+        setState(() => _out = r.data?.toString() ?? "{}");
+      }
     } catch (e) {
       setState(() => _out = _formatApiError(e));
     } finally {
@@ -1972,6 +2005,10 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   String _out = "";
   bool _submitting = false;
   bool _loadingMe = false;
+  Timer? _rateDebounce;
+  Map<String, dynamic>? _rateEstimate;
+  String _rateError = "";
+  bool _loadingRates = false;
 
   @override
   void initState() {
@@ -1979,10 +2016,12 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     final oid = lastRegisteredOrgId;
     if (oid != null && oid.isNotEmpty) _orgId.text = oid;
     _defaultAnchorTripWindow(_w1, _w2);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleRateFetch());
   }
 
   @override
   void dispose() {
+    _rateDebounce?.cancel();
     _orgId.dispose();
     _origin.dispose();
     _dest.dispose();
@@ -1991,6 +2030,46 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     _vehClass.dispose();
     _cap.dispose();
     super.dispose();
+  }
+
+  void _scheduleRateFetch() {
+    _rateDebounce?.cancel();
+    _rateDebounce = Timer(const Duration(milliseconds: 550), () {
+      _fetchSuggestedRates();
+    });
+  }
+
+  Future<void> _fetchSuggestedRates() async {
+    final vc = _vehClass.text.trim().toUpperCase();
+    if (vc != "SMALL" && vc != "MEDIUM" && vc != "LARGE") return;
+    setState(() {
+      _loadingRates = true;
+      _rateError = "";
+    });
+    try {
+      final r = await api.post<Map<String, dynamic>>(
+        "/v1/pilot/rates/estimate",
+        data: {
+          "origin": {"lat": _originPos.latitude, "lng": _originPos.longitude},
+          "destination": {"lat": _destPos.latitude, "lng": _destPos.longitude},
+          "vehicleClass": vc,
+          "sampleWeightsKg": [100, 250, 500],
+        },
+      );
+      final d = r.data;
+      if (!mounted) return;
+      setState(() {
+        _rateEstimate = d is Map<String, dynamic> ? d : null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _rateEstimate = null;
+        _rateError = _formatApiError(e);
+      });
+    } finally {
+      if (mounted) setState(() => _loadingRates = false);
+    }
   }
 
   Future<void> _loadPilotMe() async {
@@ -2114,7 +2193,10 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
             markerId: "publish_origin",
             markerHue: BitmapDescriptor.hueGreen,
             position: _originPos,
-            onPositionChanged: (p) => setState(() => _originPos = p),
+            onPositionChanged: (p) {
+              setState(() => _originPos = p);
+              _scheduleRateFetch();
+            },
           ),
           const SizedBox(height: 20),
           LocationEndpointEditor(
@@ -2124,13 +2206,74 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
             markerId: "publish_dest",
             markerHue: BitmapDescriptor.hueRed,
             position: _destPos,
-            onPositionChanged: (p) => setState(() => _destPos = p),
+            onPositionChanged: (p) {
+              setState(() => _destPos = p);
+              _scheduleRateFetch();
+            },
           ),
           const SizedBox(height: 12),
           routePreviewMap(a: _originPos, b: _destPos),
+          TextField(
+            controller: _vehClass,
+            decoration: const InputDecoration(labelText: "vehicleClass (SMALL|MEDIUM|LARGE)"),
+            onChanged: (_) => _scheduleRateFetch(),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(0.45),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Suggested freight (lane reference)",
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Advisory — customer quotes use shipment pickup→drop when booked. "
+                    "Tune server env FREIGHT_PAISE_PER_KM_*.",
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 10),
+                  if (_loadingRates)
+                    const SizedBox(
+                      height: 28,
+                      width: 28,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else if (_rateError.isNotEmpty)
+                    Text(_rateError, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 13))
+                  else if (_rateEstimate != null) ...[
+                    Text(
+                      "Lane ≈ ${_rateEstimate!["laneKm"]} km · ${_rateEstimate!["modelVersion"] ?? ""}",
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    ...(List<dynamic>.from(_rateEstimate!["samples"] as List? ?? const [])
+                        .whereType<Map>()
+                        .map((s) {
+                          final m = Map<String, dynamic>.from(s);
+                          final w = m["weightKg"];
+                          final gp = m["grossPaise"];
+                          final rupees = (gp is num)
+                              ? (gp / 100).toStringAsFixed((gp.remainder(100).abs() < 1e-6) ? 0 : 2)
+                              : "?";
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Text("≈ ₹$rupees total at ${w ?? "?"} kg"),
+                          );
+                        })),
+                  ]
+                  else
+                    Text("Sign in as a driver and adjust pins to load estimates.", style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+          ),
           TextField(controller: _w1, decoration: const InputDecoration(labelText: "windowStart (ISO +05:30)")),
           TextField(controller: _w2, decoration: const InputDecoration(labelText: "windowEnd (ISO +05:30)")),
-          TextField(controller: _vehClass, decoration: const InputDecoration(labelText: "vehicleClass (SMALL|MEDIUM|LARGE)")),
           TextField(controller: _cap, decoration: const InputDecoration(labelText: "capacityKg")),
           const SizedBox(height: 12),
           FilledButton.icon(
