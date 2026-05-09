@@ -9,7 +9,14 @@
   },
   "dependencies": {
     "@prisma/client": "^6.8.2",
+<<<<<<< HEAD
     "prisma": "^6.8.2",
     "razorpay": "^2.9.6"
+=======
+    "razorpay": "^2.9.6"
+  },
+  "devDependencies": {
+    "prisma": "^6.8.2"
+>>>>>>> origin/main
   }
 }
