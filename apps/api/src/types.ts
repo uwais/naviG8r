@@ -15,7 +15,7 @@ export type ShipmentStatus =
 
 export type LedgerLineStatus = "ACCRUED" | "PAID";
 
-export type PaymentStatus = "CAPTURED" | "REFUNDED";
+export type PaymentStatus = "CREATED" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "REFUNDED";
 
 /**
  * @deprecated Legacy demo entity. Prefer {@link Organization}.
@@ -143,13 +143,20 @@ export type Shipment = {
   updatedAtUtcMs: number;
 };
 
+export type PaymentProviderId = "MOCK" | "RAZORPAY";
+
 export type Payment = {
   id: string;
   shipmentId: string;
   amountPaise: number;
   status: PaymentStatus;
-  provider: "MOCK";
+  provider: PaymentProviderId;
+  /** MOCK ref, Razorpay order id once created, or payment id alias for debugging */
   providerRef: string;
+  /** Set after Razorpay order create (manual authorize/capture flow). */
+  razorpayOrderId?: string;
+  /** Set after payment authorized (checkout success / webhook). */
+  razorpayPaymentId?: string;
   createdAtUtcMs: number;
   updatedAtUtcMs: number;
 };

@@ -4,11 +4,13 @@ import { once } from "node:events";
 import type http from "node:http";
 import { createApp } from "./httpServer.ts";
 
+type AppBundle = Awaited<ReturnType<typeof createApp>>;
+
 async function withApp<T>(
   t: { after(fn: () => void): void },
-  fn: (baseUrl: string, app: ReturnType<typeof createApp>) => Promise<T>,
+  fn: (baseUrl: string, app: AppBundle) => Promise<T>,
 ): Promise<T> {
-  const app = createApp();
+  const app = await createApp();
   app.server.listen(0, "127.0.0.1");
   await once(app.server, "listening");
   t.after(() => app.server.close());

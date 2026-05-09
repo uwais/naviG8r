@@ -20,29 +20,26 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - [x] `POST /v1/pilot/rates/estimate` (carrier pilot only) + **Publish** “Suggested freight” card (debounced).
   - [x] `POST /shipments/quote` extended + **Customer book** Quote shows **breakdown**; **`bookShipment` `grossPaise`** uses the same rules (aligned with quote when coords exist).
   - [x] Tests: `apps/api/src/freight.test.ts` + updates in `pilotDriver.test.ts`; docs in `docs/pilot-api.md` + README env notes.
+- [x] **B0.1 Razorpay (repo wiring, test mode)**: `PAYMENT_PROVIDER=RAZORPAY` — order without capture on book, webhook updates, capture at POD, Flutter checkout; **`PERSISTENCE=DB`** Postgres via Prisma for optional persistence.
+- [x] **Local dev verification**: `npm install` in `apps/api` then  
+  `node --experimental-strip-types --test "apps/api/src/**/*.test.ts" "packages/**/src/**/*.test.ts"` (from repo root) — **all tests passing**.
 
 ---
 
 ## A) Replace JSON file store with database persistence
 
 ### A1 — Choose DB + ORM + deployment shape (1 day)
-- [ ] **DB choice**: Postgres (recommended for hosted pilots) vs SQLite (single-node only).
-- [ ] **ORM choice**:
-  - Option 1: Prisma (fast schema/migrations, good DX)
-  - Option 2: Drizzle (lighter, explicit SQL-ish)
-  - Option 3: Knex (minimal ORM)
-- [ ] **Decide migration strategy**: one-time import from `store.json` vs “start fresh” for pilot environments.
+- [x] **DB choice**: Postgres (hosted pilots).
+- [x] **ORM choice**: Prisma.
+- [x] **Migration strategy for pilot**: greenfield / `prisma db push` — **no** `store.json` importer in repo yet (not required pre-pilot).
 - [ ] **Define environments**:
   - local dev (docker Postgres or local Postgres)
   - staging (hosted Postgres)
   - production (hosted Postgres)
 
 ### A2 — Define schema + indexes (0.5–1 day)
-- [ ] **Tables**: `users`, `organizations`, `memberships`, `vehicles`, `driver_profiles`
-- [ ] **Auth**: `otp_challenges`, `auth_sessions` (token revocation/expiry storage if needed)
-- [ ] **Trips + shipments**: `anchor_trips`, `shipments`, `payments`
-- [ ] **Ledger/payout**: `ledger_lines`, `payout_batches`
-- [ ] **Indexes & uniqueness**:
+- [x] **Tables** (Prisma models): carriers, organizations, users, memberships, vehicles, driver profiles, OTP challenges, auth sessions, anchor trips, shipments, payments, ledger lines, payout batches — see `apps/api/prisma/schema.prisma`.
+- [ ] **Indexes & uniqueness** (tune for query patterns):
   - `users.phone` unique
   - memberships unique `(user_id, org_id)`
   - shipments visibility helpers:
@@ -51,42 +48,38 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - list queries (createdAt desc) indexes where needed
 
 ### A3 — Persistence layer (2–4 days)
-- [ ] **Add `apps/api/src/db/`**:
-  - connection pooling
-  - transaction helper
-  - typed query layer/repositories
-- [ ] **Replace `Store` access patterns**:
-  - read/write functions in `services.ts` should use repositories instead of `store.*.get/set`
+- [x] **DB mode** (`PERSISTENCE=DB`): `apps/api/src/persistenceDb.ts` loads/saves the full in-memory `Store` via Prisma (transactional replace). **FILE mode** unchanged (`DATA_FILE`).
+- [ ] **Repositories / row-level ops**:
+  - connection pooling tuning
+  - replace “full snapshot” writes with targeted updates + transactions per use case
   - preserve current validation + error contracts (`ApiError` messages)
 - [ ] **Id generation**: keep current id prefixes (`usr_`, `org_`, `trip_`, `shp_`, …) or migrate to UUIDs.
-- [ ] **Atomicity**:
+- [ ] **Atomicity** (with row-level layer):
   - booking reserves capacity + creates payment/shipment in one transaction
   - POD updates shipment + ledger entry transactionally
   - fail-refund reversals transactionally
 
 ### A4 — Migrations + bootstrapping (1–2 days)
-- [ ] **Create migrations** for all tables.
+- [x] **Schema apply**: `npx prisma db push` (no checked-in migration history required for pre-pilot greenfield).
 - [ ] **Seed script** (optional) for demo data.
-- [ ] **One-time importer**:
-  - parse existing `store.json`
-  - insert rows in safe order (orgs → users → memberships → trips → shipments → ledger)
-  - idempotency rules (re-run safe) or “one shot” CLI.
+- [ ] **One-time importer** from `store.json` (if ever needed).
 
 ### A5 — Runtime config + roll-out (0.5–1 day)
-- [ ] **Env vars**:
-  - `DATABASE_URL`
-  - remove/ignore `DATA_FILE` in DB mode
-- [ ] **Feature flag**:
-  - `PERSISTENCE=FILE|DB` temporarily during transition
-- [ ] **Update `docs/`**:
-  - how to run DB locally
-  - how to migrate/import
-  - Render deployment notes (Postgres + migrations)
+- [x] **Env vars**:
+  - `DATABASE_URL` when `PERSISTENCE=DB`
+  - `DATA_FILE` when file mode (default)
+- [x] **Feature flag**:
+  - `PERSISTENCE=FILE|DB` (FILE is default when unset)
+- [ ] **Docs / ops**:
+  - hosted Postgres wiring (e.g. Render) end-to-end
 
 ### A6 — Tests + verification (1–2 days)
-- [ ] **Service-level tests**: booking visibility (`bookedByPhone`), org scoping, payouts.
-- [ ] **HTTP tests**: production gating, auth-required shipment endpoints.
-- [ ] **Data consistency checks**: reservedKg/capacity invariants, payout schedule invariants.
+- [x] **Baseline automated suite (local)**: from repo root, after `apps/api` **`npm install`**,  
+  `node --experimental-strip-types --test "apps/api/src/**/*.test.ts" "packages/**/src/**/*.test.ts"` — **green** (freight, pilot/OTP, marketplace vertical slice, production demo gating, Razorpay webhook HMAC, payout schedule helpers, etc.).
+- [x] **Service-level coverage (current tests)**: booking/org/payout behaviors exercised via `mvp.test.ts`, `pilotDriver.test.ts`, `freight.test.ts`, and related API tests (not yet a separate DB-backed suite).
+- [x] **HTTP / integration coverage (current tests)**: `httpServer.test.ts` plus in-process flows in `mvp.test.ts` (extend when adding `PERSISTENCE=DB`-specific cases).
+- [ ] **`PERSISTENCE=DB`**: optional CI or manual regression (Postgres round-trip, concurrent writes) beyond file-mode tests.
+- [ ] **Data consistency hardening**: explicit stress/invariant tests for `reservedKg`/capacity and payout edge cases under load or races.
 
 ---
 
@@ -97,29 +90,22 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 ## B0) Payments + pricing tracks (pilot-critical)
 
 ### B0.1 — Razorpay payments for customer bookings (2–5 days)
-- [ ] **Decide payment moment**:
-  - Option A (simplest): pay at booking (customer pays full amount upfront)
-  - Option B: authorize now, capture later (requires more states + edge cases)
-- [ ] **Define payment states** (server canonical):
-  - `created` → `authorized` → `captured` → `failed` → `refunded`
-- [ ] **Razorpay server integration**:
-  - [ ] Create Razorpay account + keys (test + live)
-  - [ ] Add env vars: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`
-  - [ ] Add API endpoints:
-    - `POST /v1/payments/razorpay/order` (create order for a shipment booking)
-    - `POST /v1/payments/razorpay/webhook` (verify signature, update payment status)
-  - [ ] Persist payment records with idempotency (webhooks can repeat)
-- [ ] **Customer app checkout**:
-  - [ ] Add Razorpay Flutter SDK
-  - [ ] Booking flow:
-    - create shipment (or draft) → create Razorpay order → open checkout → confirm result → refresh shipment/payment
-  - [ ] UX: handle cancel/failure and “retry payment”
-- [ ] **Security + correctness**:
-  - [ ] Verify webhook signatures (do not trust client payment success alone)
-  - [ ] Reconciliation endpoint (optional): query Razorpay order/payment for debugging
-- [ ] **Tests**:
-  - [ ] webhook signature verification tests
-  - [ ] double-delivery idempotency tests (same webhook twice)
+- [x] **Payment moment**: **authorize at checkout**, **capture at POD** (not pay-in-full capture at booking).
+- [x] **Payment states** (server canonical): `CREATED` → `AUTHORIZED` → `CAPTURED` (plus `FAILED`, `REFUNDED`).
+- [x] **Razorpay server integration** (test mode wiring in repo):
+  - [ ] Operator: create Razorpay account + live keys when going live (test keys + dashboard webhook for dev).
+  - [x] Env: `PAYMENT_PROVIDER=RAZORPAY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`
+  - [x] **Booking** creates Razorpay order **`payment_capture: false`** (`attachRazorpayOrderForShipment`); dedicated `POST …/order` route not required — order is tied to **`POST /shipments/book`**.
+  - [x] `POST /v1/payments/razorpay/webhook`: HMAC verified (`x-razorpay-signature`), updates persisted payment (`payment.authorized`, `payment.captured`, `payment.failed`).
+  - [x] Webhook idempotency: handlers safe for duplicate delivery.
+  - [x] **Capture** before POD ledger: `ensureRazorpayCapturedBeforePod`
+  - [x] **Refund** path on carrier fail when authorized/captured (`failCarrierAndRefund`)
+- [x] **Customer app checkout** (`razorpay_flutter`): after `POST /shipments/book`, open checkout when **`razorpayKeyId`** + **`payment.status`** `CREATED` + `razorpayOrderId`; success/fail snackbars + navigate on success (authorization; server state from webhook).
+- [ ] UX: dedicated **retry payment** if checkout cancelled (client can re-call booking or future order endpoint).
+- [x] **Security**: webhook signature verification (do not trust client alone).
+- [ ] **Reconciliation** (optional): admin query Razorpay for mismatches.
+- [x] **Tests**: webhook signature unit test (`razorpayPayments.test.ts`).
+- [ ] **Tests**: double-webhook replay integration test against store (nice-to-have).
 
 ### B0.2 — Driver-side pricing help (rates by distance / weight)
 
@@ -127,7 +113,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 
 #### B0.2a — Plan review (what we build first)
 
-**Status:** Phases **1–4** are implemented in repo (booking totals **do** use distance+weight when geo allows; Razorpay go-live still needs **B0.1** tuning/reconciliation).
+**Status:** Phases **1–4** are implemented in repo (booking totals **do** use distance+weight when geo allows). **B0.1** wiring (authorize→capture + webhook + Flutter checkout) is in repo; go-live still needs Razorpay **live** keys, dashboard webhook URL, reconciliation, and retry-payment UX.
 
 | Phase | Scope | Outcome |
 |-------|--------|--------|
@@ -241,11 +227,11 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 
 - [x] **Customer OTP navigation baseline**: `/login?mode=customer` + OTP in `CustomerScaffold`; **Customer** bottom tab and **Continue to customer home** (after successful verify) return to **`/customer`** (real `matchedLocation` so nav is not stuck on login).
 - [ ] **`flutter run` + device smoke**: full quote/book flow on emulator + physical device (also **B5**).
-- [ ] **Payment decision**: Razorpay “pay at booking” vs “authorize then capture”.
-- [ ] **Implement Razorpay (test mode)** end-to-end (server order + webhook + client checkout).
-- [ ] **DB decision**: pick Postgres + ORM + migration strategy.
-- [ ] **Implement DB persistence behind a feature flag** (`PERSISTENCE=DB`) and keep file mode for local fallback.
-- [ ] **Staging deploy** with Postgres + migrations.
+- [x] **Payment decision**: **authorize at checkout, capture at POD** (Razorpay).
+- [x] **Razorpay (test mode)** wired end-to-end: server order on book + webhook + Flutter checkout (live keys + dashboard webhook + retry UX still **B0.1** follow-ups).
+- [x] **DB decision**: **Postgres + Prisma**; greenfield / `prisma db push` (no `store.json` importer).
+- [x] **DB persistence feature flag**: **`PERSISTENCE=DB`** + file fallback (`DATA_FILE` when not DB).
+- [ ] **Staging deploy** with Postgres + env (`DATABASE_URL`, `PERSISTENCE=DB`, Razorpay test secrets) + hosted webhook URL.
 - [x] **B0.2 freight & pricing (phases 1–4)** — `rates/estimate`, **Publish** suggested freight, **Quote** breakdown + **`bookShipment` parity** when coords exist; tests + docs. **Still open:** optional eligible-trip ~₹ hints (**B0.2c**) + structured estimate logging/metrics.
 - [ ] **Pilot build**: release signing + distribution + crash reporting.
 - [ ] **10-device rollout** + weekly feedback triage.
