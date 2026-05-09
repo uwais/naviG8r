@@ -1,11 +1,7 @@
+**/node_modules
+**/.dart_tool
+**/build
 .git
-.github
-**/.DS_Store
-node_modules
-data
-apps/driver_pilot/build
-apps/driver_pilot/.dart_tool
-**/*.jks
-**/*.keystore
-**/local.properties
-**/key.properties
+.gitignore
+*.md
+!README.md

@@ -16,8 +16,21 @@ This API is a **single Node HTTP process** (`apps/api/src/index.ts`). Render run
 2. Choose:
 
 - **Runtime**: **Docker**
-- **Dockerfile path**: `./Dockerfile`
+- **Root directory** (if the API lives under a subfolder): set to the folder that contains `Dockerfile`, **`packages/`**, and **`apps/api/`** (for this repo that is typically **`logistics-mvp`**).
+- **Dockerfile path**: `Dockerfile` (same directory as root above).
 - **Instance type**: anything that stays awake for pilots (free tier sleeps; often painful for mobile demos)
+
+The **`Dockerfile`** installs npm dependencies **inside `apps/api`** and copies **`packages/`** (shared TypeScript imports). If you point Docker at the wrong root or omit `packages/`, the build or runtime will fail.
+
+#### Native Node (no Docker)
+
+If you use Render’s **Node** runtime instead of Docker:
+
+- **Root directory**: **`apps/api`** (the only `package.json` for the API).
+- **Build command**: `npm install && npx prisma generate`
+- **Start command**: `node --experimental-strip-types src/index.ts`
+
+You must still expose **`packages/core`** to the process: either deploy from a layout where `apps/api` can resolve `../../../packages/core` (same as local), or switch to Docker.
 
 1. **Environment variables** (Service → Environment):
 
@@ -63,4 +76,9 @@ curl -i "https://<your-service>.onrender.com/health"
 
 - **Service crashes immediately**: missing/short `AUTH_SECRET` (the API exits on startup).
 - **502 / connection reset**: app not listening on `PORT` / wrong host — this repo binds `0.0.0.0` and uses `PORT`.
+- **`ERR_MODULE_NOT_FOUND` for `@prisma/client`** (`persistenceDb.ts`): **`npm install` did not run in `apps/api`**, or production omitted dependencies. Fix:
+  - **Docker**: use this repo’s **`logistics-mvp/Dockerfile`** with root directory = folder containing `apps/api` and `packages`, **or** change your image so `RUN cd apps/api && npm install && npx prisma generate` runs before start.
+  - **Heroku / Node buildpack**: set **project root** / **PROCFILE** so the build runs from **`apps/api`** (the only `package.json`), not the monorepo root with no install.
+  - **`prisma` is a runtime dependency** in `apps/api/package.json` so `postinstall` → `prisma generate` works even when the host uses `npm install --omit=dev`.
+- **Postgres**: set `PERSISTENCE=DB`, `DATABASE_URL`, and run migrations/schema (`npx prisma db push` once against that URL, or apply migrations in CI).
 
