@@ -1,0 +1,150 @@
+// Postgres persistence for logistics-mvp (optional; FILE mode remains default).
+// Apply: DATABASE_URL="postgresql://..." npx prisma db push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Carrier {
+  id             String @id
+  name           String
+  createdAtUtcMs BigInt
+}
+
+model Organization {
+  id             String @id
+  kind           String
+  displayName    String
+  kycStatus      String
+  createdAtUtcMs BigInt
+}
+
+model UserRow {
+  id             String @id
+  phone          String
+  fullName       String
+  createdAtUtcMs BigInt
+}
+
+model Membership {
+  userId         String
+  orgId          String
+  role           String
+  createdAtUtcMs BigInt
+
+  @@id([userId, orgId])
+}
+
+model Vehicle {
+  id                    String @id
+  orgId                 String
+  registrationNumber    String
+  vehicleClass          String
+  capacityKg            Int
+  createdAtUtcMs        BigInt
+}
+
+model DriverProfileRow {
+  userId                  String @id
+  orgId                   String
+  primaryVehicleId      String
+  createdAtUtcMs        BigInt
+}
+
+model OtpChallengeRow {
+  id              String @id
+  phone           String
+  code            String
+  status          String
+  expiresAtUtcMs  BigInt
+  createdAtUtcMs  BigInt
+}
+
+model AuthSessionRow {
+  id               String @id
+  userId           String
+  createdAtUtcMs   BigInt
+  expiresAtUtcMs   BigInt
+  revokedAtUtcMs   BigInt?
+}
+
+model AnchorTripRow {
+  id               String @id
+  carrierId        String
+  originCity       String
+  destCity         String
+  origin           Json?
+  destination      Json?
+  windowStart      String
+  windowEnd        String
+  vehicleClass     String
+  capacityKg       Int
+  reservedKg       Int
+  status           String
+  createdAtUtcMs   BigInt
+}
+
+model PaymentRow {
+  id                 String  @id
+  shipmentId         String
+  amountPaise        Int
+  status             String
+  provider           String
+  providerRef        String
+  razorpayOrderId    String?
+  razorpayPaymentId  String?
+  createdAtUtcMs     BigInt
+  updatedAtUtcMs     BigInt
+}
+
+model ShipmentRow {
+  id                             String @id
+  anchorTripId                   String
+  carrierId                      String
+  customerOrgId                  String?
+  customerOrgName                String
+  bookedByPhone                  String?
+  weightKg                       Int
+  pickupAddress                  String
+  dropAddress                    String
+  pickup                         Json?
+  drop                           Json?
+  status                         String
+  grossPaise                     Int
+  commissionPaise                Int
+  netToCarrierPaise             Int
+  paymentId                     String
+  podAtUtcMs                    BigInt?
+  firstPayoutEligibleAtUtcMs    BigInt?
+  payoutBatchCutoffUtcMs        BigInt?
+  createdAtUtcMs                BigInt
+  updatedAtUtcMs                BigInt
+}
+
+model LedgerLineRow {
+  id                          String @id
+  shipmentId                  String
+  carrierId                   String
+  grossPaise                  Int
+  commissionPaise             Int
+  netToCarrierPaise           Int
+  podAtUtcMs                  BigInt
+  firstPayoutEligibleAtUtcMs  BigInt
+  payoutBatchCutoffUtcMs      BigInt
+  status                      String
+  createdAtUtcMs              BigInt
+  paidAtUtcMs                 BigInt?
+}
+
+model PayoutBatchRow {
+  id                      String @id
+  cutoffUtcMs             BigInt
+  createdAtUtcMs          BigInt
+  totalNetToCarrierPaise  Int
+  lineIds                 Json // string[]
+}

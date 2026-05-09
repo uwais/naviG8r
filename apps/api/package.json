@@ -1,6 +1,17 @@
 {
-  "name": "@logistics-mvp/api",
+  "name": "logistics-mvp-api",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "prisma:generate": "prisma generate",
+    "postinstall": "prisma generate",
+    "db:push": "prisma db push"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.8.2",
+    "razorpay": "^2.9.6"
+  },
+  "devDependencies": {
+    "prisma": "^6.8.2"
+  }
 }
-

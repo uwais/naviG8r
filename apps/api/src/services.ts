@@ -23,6 +23,12 @@ import type {
   VehicleClass,
 } from "./types.ts";
 import type { Store } from "./store.ts";
+import {
+  captureRazorpayPayment,
+  createAuthorizeOnlyOrder,
+  razorpayPaymentsEnabled,
+  razorpayRefundPayment,
+} from "./razorpayPayments.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -706,14 +712,14 @@ export function bookShipment(store: Store, params: {
   const { commissionPaise, netToCarrierPaise } = moneySplit(grossPaise);
   const now = nowUtcMs();
 
-  // MVP payment: captured at booking (mock provider).
+  const useRzp = razorpayPaymentsEnabled();
   const payment: Payment = {
     id: id("payin"),
     shipmentId: "pending", // set after shipment id is generated
     amountPaise: grossPaise,
-    status: "CAPTURED",
-    provider: "MOCK",
-    providerRef: id("mock"),
+    status: useRzp ? "CREATED" : "CAPTURED",
+    provider: useRzp ? "RAZORPAY" : "MOCK",
+    providerRef: useRzp ? "" : id("mock"),
     createdAtUtcMs: now,
     updatedAtUtcMs: now,
   };
@@ -799,13 +805,79 @@ export function markPodDelivered(store: Store, params: {
   return { shipment: updated, ledgerLine: line };
 }
 
-export function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Shipment {
+/** Reverse a BOOKED shipment + free trip capacity if Razorpay order could not be created. */
+export function rollbackBooking(store: Store, shipmentId: string): void {
+  const s = store.shipments.get(shipmentId);
+  if (!s) return;
+  const trip = store.anchorTrips.get(s.anchorTripId);
+  if (trip) {
+    trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
+    if (trip.status === "FULL" && trip.reservedKg < trip.capacityKg) trip.status = "OPEN";
+    store.anchorTrips.set(trip.id, trip);
+  }
+  store.payments.delete(s.paymentId);
+  store.shipments.delete(shipmentId);
+}
+
+export async function attachRazorpayOrderForShipment(store: Store, shipmentId: string): Promise<void> {
+  const s = store.shipments.get(shipmentId);
+  if (!s) throw new Error("shipment_not_found");
+  const pay = store.payments.get(s.paymentId);
+  if (!pay || pay.provider !== "RAZORPAY") throw new Error("not_razorpay_shipment");
+  const { id: orderId } = await createAuthorizeOnlyOrder(pay.amountPaise, s.id);
+  const t = nowUtcMs();
+  store.payments.set(pay.id, {
+    ...pay,
+    razorpayOrderId: orderId,
+    providerRef: orderId,
+    updatedAtUtcMs: t,
+  });
+}
+
+/** After customer authorizes, capture funds at POD time (authorize-then-capture). */
+export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: string): Promise<void> {
+  const s = store.shipments.get(shipmentId);
+  if (!s) throw new Error("shipment_not_found");
+  const pay = store.payments.get(s.paymentId);
+  if (!pay) throw new Error("payment_not_found");
+  if (pay.provider !== "RAZORPAY") return;
+  if (pay.status === "CAPTURED") return;
+  if (pay.status !== "AUTHORIZED") {
+    throw new ApiError("checkout_not_completed_for_pod", {
+      detail: "Complete Razorpay checkout (authorized) before POD, or wait for webhook.",
+      status: pay.status,
+    });
+  }
+  const pid = pay.razorpayPaymentId;
+  if (!pid) throw new ApiError("payment_id_missing", {});
+  await captureRazorpayPayment(pid, pay.amountPaise);
+  store.payments.set(pay.id, { ...pay, status: "CAPTURED", updatedAtUtcMs: nowUtcMs() });
+}
+
+export async function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Promise<Shipment> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
   if (s.status !== "BOOKED") throw new Error("shipment_not_refundable");
 
   const pay = store.payments.get(s.paymentId);
-  if (!pay || pay.status !== "CAPTURED") throw new Error("payment_not_captured");
+  if (!pay) throw new Error("payment_not_found");
+
+  if (pay.provider === "RAZORPAY") {
+    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
+      if (!pay.razorpayPaymentId) {
+        throw new ApiError("razorpay_payment_id_missing", { status: pay.status });
+      }
+      try {
+        await razorpayRefundPayment(pay.razorpayPaymentId, pay.amountPaise);
+      } catch (e: any) {
+        throw new ApiError("razorpay_refund_failed", { detail: String(e?.message ?? e) });
+      }
+    } else if (pay.status !== "CREATED" && pay.status !== "FAILED") {
+      throw new ApiError("payment_not_refundable", { status: pay.status });
+    }
+  } else if (pay.status !== "CAPTURED") {
+    throw new Error("payment_not_captured");
+  }
 
   const trip = store.anchorTrips.get(s.anchorTripId);
   if (trip) {
@@ -814,12 +886,13 @@ export function failCarrierAndRefund(store: Store, params: { shipmentId: string 
     store.anchorTrips.set(trip.id, trip);
   }
 
-  store.payments.set(pay.id, { ...pay, status: "REFUNDED", updatedAtUtcMs: nowUtcMs() });
+  const now = nowUtcMs();
+  store.payments.set(pay.id, { ...pay, status: "REFUNDED", updatedAtUtcMs: now });
 
   const updated: Shipment = {
     ...s,
     status: "FAILED_CARRIER_REFUNDED",
-    updatedAtUtcMs: nowUtcMs(),
+    updatedAtUtcMs: now,
   };
   store.shipments.set(updated.id, updated);
   return updated;

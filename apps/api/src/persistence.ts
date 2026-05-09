@@ -17,6 +17,14 @@ import type {
   Vehicle,
 } from "./types.ts";
 
+function normalizeHydratedPayment(raw: Payment): Payment {
+  const p = raw as Payment & { provider?: Payment["provider"] };
+  return {
+    ...p,
+    provider: p.provider ?? "MOCK",
+  };
+}
+
 type StoreJsonV1 = {
   version: 1;
   carriers: Carrier[];
@@ -94,7 +102,7 @@ function hydrateStoreV3(json: StoreJsonV3): Store {
   for (const s of json.authSessions ?? []) store.authSessions.set(s.id, s);
   for (const t of json.anchorTrips ?? []) store.anchorTrips.set(t.id, t);
   for (const s of json.shipments ?? []) store.shipments.set(s.id, s);
-  for (const p of json.payments ?? []) store.payments.set(p.id, p);
+  for (const pr of json.payments ?? []) store.payments.set(pr.id, normalizeHydratedPayment(pr));
   for (const l of json.ledgerLines ?? []) store.ledgerLines.set(l.id, l);
   for (const b of json.payoutBatches ?? []) store.payoutBatches.set(b.id, b);
   return store;

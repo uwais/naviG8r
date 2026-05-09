@@ -6,6 +6,7 @@ import "package:flutter_secure_storage/flutter_secure_storage.dart";
 import "package:flutter/services.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 import "package:go_router/go_router.dart";
+import "package:razorpay_flutter/razorpay_flutter.dart";
 
 import "location_editor.dart";
 
@@ -1442,10 +1443,17 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
   String? _tripLoadError;
   Timer? _tripLoadDebounce;
 
+  Razorpay? _rzp;
+  String? _pendingShipmentIdForCheckout;
+
   @override
   void initState() {
     super.initState();
     _anchorTripId.addListener(_onAnchorTripIdChanged);
+    _rzp = Razorpay();
+    _rzp!.on(Razorpay.EVENT_PAYMENT_SUCCESS, _onRzpPaymentSuccess);
+    _rzp!.on(Razorpay.EVENT_PAYMENT_ERROR, _onRzpPaymentError);
+    _rzp!.on(Razorpay.EVENT_EXTERNAL_WALLET, _onRzpExternalWallet);
   }
 
   void _onAnchorTripIdChanged() {
@@ -1500,6 +1508,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
   @override
   void dispose() {
     _tripLoadDebounce?.cancel();
+    _rzp?.clear();
     _anchorTripId.removeListener(_onAnchorTripIdChanged);
     _anchorTripId.dispose();
     _customerOrgName.dispose();
@@ -1508,6 +1517,52 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     _pickup.dispose();
     _drop.dispose();
     super.dispose();
+  }
+
+  void _onRzpPaymentSuccess(PaymentSuccessResponse response) {
+    final id = _pendingShipmentIdForCheckout;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Authorized ${response.paymentId ?? "ok"} — funds captured at POD.")),
+    );
+    if (id != null && id.isNotEmpty) {
+      lastBookedShipmentId = id;
+      context.go("/customer/shipments/$id");
+    }
+    _pendingShipmentIdForCheckout = null;
+  }
+
+  void _onRzpPaymentError(PaymentFailureResponse response) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Razorpay error: ${response.message ?? response.code?.toString() ?? "?"}")),
+    );
+  }
+
+  void _onRzpExternalWallet(ExternalWalletResponse response) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("External wallet: ${response.walletName ?? "—"}")),
+    );
+  }
+
+  void _openRazorpayCheckout({
+    required String keyId,
+    required int amountPaise,
+    required String orderId,
+    required String shipmentId,
+  }) {
+    final rzp = _rzp;
+    if (rzp == null) return;
+    _pendingShipmentIdForCheckout = shipmentId;
+    rzp.open({
+      "key": keyId,
+      "amount": amountPaise,
+      "currency": "INR",
+      "name": "Navig8r pilot",
+      "description": "Shipment $shipmentId — authorize hold",
+      "order_id": orderId,
+    });
   }
 
   Future<void> _quote() async {
@@ -1583,11 +1638,38 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
         "/shipments/book",
         data: bookBody,
       );
-      final s = r.data?["shipment"];
+      final raw = r.data;
+      final s = raw?["shipment"];
+      final pay = raw?["payment"];
       final shipmentId = (s is Map<String, dynamic>) ? s["id"]?.toString() : null;
-      setState(() => _out = r.data?.toString() ?? "{}");
+      final keyId = raw?["razorpayKeyId"]?.toString();
+      final orderId = pay is Map<String, dynamic> ? pay["razorpayOrderId"]?.toString() : null;
+      final payStatus = pay is Map<String, dynamic> ? pay["status"]?.toString() : null;
+      final amountObj = pay is Map<String, dynamic> ? pay["amountPaise"] : null;
+      final amountPaise = amountObj is num ? amountObj.toInt() : int.tryParse("$amountObj") ?? 0;
+
+      setState(() => _out = raw?.toString() ?? "{}");
       if (!mounted) return;
-      if (shipmentId != null && shipmentId.isNotEmpty) {
+
+      if (shipmentId != null &&
+          shipmentId.isNotEmpty &&
+          keyId != null &&
+          orderId != null &&
+          orderId.isNotEmpty &&
+          payStatus == "CREATED" &&
+          amountPaise > 0 &&
+          _rzp != null) {
+        lastBookedShipmentId = shipmentId;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Authorize payment — capture happens when you mark POD.")),
+        );
+        _openRazorpayCheckout(
+          keyId: keyId,
+          amountPaise: amountPaise,
+          orderId: orderId,
+          shipmentId: shipmentId,
+        );
+      } else if (shipmentId != null && shipmentId.isNotEmpty) {
         lastBookedShipmentId = shipmentId;
         context.go("/customer/shipments/$shipmentId");
       }

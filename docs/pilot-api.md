@@ -18,14 +18,22 @@ This document defines the **first concrete API resources** for the Flutter pilot
 - **`ENABLE_LEGACY_DEMO_SURFACE=1`**: enables legacy unauthenticated admin/demo write routes in production. Leave unset for hosted pilots.
 - **`FREIGHT_PAISE_PER_KM_SMALL`**, **`FREIGHT_PAISE_PER_KM_MEDIUM`**, **`FREIGHT_PAISE_PER_KM_LARGE`**: paise per km defaults (see `apps/api/src/config.ts`).
 - **`FREIGHT_MIN_GROSS_PAISE`**: optional minimum gross paise when distance is priced.
+- **`PERSISTENCE`**: omit or **`FILE`** (default) — JSON snapshot via **`DATA_FILE`** (path). Set **`DB`** for Postgres (**`DATABASE_URL`** required); run `cd apps/api && npx prisma db push` once. Full-store snapshot load/save, not row-level repos yet.
+- **`PAYMENT_PROVIDER`**: omit or **`MOCK`** — payment is **`CAPTURED`** at booking (tests + local demos). **`RAZORPAY`** — Razorpay test/live keys; authorize at checkout, capture at POD (see below).
+- **`RAZORPAY_KEY_ID`**, **`RAZORPAY_KEY_SECRET`**: Standard checkout + server APIs (Flutter uses **key id**; server gets **`razorpayKeyId`** on book response — must match checkout key).
+- **`RAZORPAY_WEBHOOK_SECRET`**: Razorpay dashboard webhook secret; required for **`POST /v1/payments/razorpay/webhook`**.
 
-### Data model (persisted in `store.json`)
+### Data model (persistence)
+
+The API keeps an in-memory **`Store`** and persists it either to **`DATA_FILE`** (JSON) or to Postgres (**`PERSISTENCE=DB`**) after mutating routes. Entities match the MVP:
+
 - `Organization` (`CARRIER_SOLO` | `CARRIER_FLEET` | `CUSTOMER` | `CARRIER_LEGACY`)
 - `User` (phone + fullName)
 - `Membership` (user ↔ org, role)
 - `Vehicle` (owned by org)
 - `DriverProfile` (pilot assumes **one profile per user**)
 - `OtpChallenge` / `AuthSession` (pilot login)
+- `Payment`: `provider` **`MOCK` | `RAZORPAY`**, **`status`** `CREATED` → `AUTHORIZED` → `CAPTURED` (or `FAILED` / `REFUNDED`), **`razorpayOrderId`** / **`razorpayPaymentId`** when applicable
 
 ### Endpoints
 
@@ -190,8 +198,16 @@ Body:
 - `GET /anchor-trips` (list + `GET /anchor-trips/:id`) lists trips for the customer pilot; **enabled in production** as part of the public marketplace.
 - `POST /shipments/quote` quotes a shipment. Body **`weightKg`** (required); optional **`pickup`** / **`drop`** (`GeoPoint` each — send **both** or **neither**); optional **`anchorTripId`**. Response includes **`grossPaise`** plus **`breakdown`** (`pricingMode`, `laneKm`, `shipmentKm`, `distanceKmForPrice`, `modelVersion`, component paise). Booking uses the same formula when coords allow distance pricing.
 - `POST /shipments/book` books against an `anchorTripId`. With `Authorization: Bearer` from OTP for a user in a **CUSTOMER** org, the shipment is tagged with `customerOrgId` and `customerOrgName` from that org (otherwise anonymous booking uses only the body `customerOrgName`). Optional **`customerPhone`** or **`bookedByPhone`** (India mobile, same normalization as registration) stores `bookedByPhone` on the shipment so the same person can list it after OTP **without** relying on org name matching.
+  - **`PAYMENT_PROVIDER=MOCK` (default):** response **`201`** `{ shipment, payment }` where `payment.status` is **`CAPTURED`** immediately.
+  - **`PAYMENT_PROVIDER=RAZORPAY`:** after booking, server creates an order with **`payment_capture: false`**. Response **`201`** **`{ shipment, payment, razorpayKeyId? }`** — `payment.status` starts **`CREATED`** with **`razorpayOrderId`**. Flutter (or Web) opens Razorpay Standard Checkout with **`key`=`razorpayKeyId`**, **`order_id`=`razorpayOrderId`**, and amount from `payment.amountPaise`. After customer pays, **authorization** is applied when Razorpay calls **`POST /v1/payments/razorpay/webhook`** (`payment.authorized` / `payment.failed`). **Capture** happens on **`POST /shipments/:id/pod`** (server captures before ledger). Booking may be rolled back if order creation fails.
 - `GET /shipments` and `GET /shipments/:id` require `Authorization: Bearer`. Responses include shipments for your **CUSTOMER** org (`customerOrgId` match, or legacy match on `customerOrgName` vs org `displayName`) **or** shipments whose **`bookedByPhone`** equals your user’s phone.
-- `POST /shipments/:id/pod` and `POST /shipments/:id/fail-refund` require the same Bearer and the same visibility rules as GET.
+- `POST /shipments/:id/pod` and `POST /shipments/:id/fail-refund` require the same Bearer and the same visibility rules as GET. With Razorpay, POD triggers **capture** then delivery/ledger logic; **`fail-refund`** may refund an **AUTHORIZED** or **CAPTURED** payment where applicable.
+
+#### `GET /health`
+Returns **`{ ok: true, persistence: "file"|"db", paymentProvider: "mock"|"razorpay" }`** — useful when wiring Razorpay and Postgres locally.
+
+#### `POST /v1/payments/razorpay/webhook`
+**Unauthenticated** (signature only). Razorpay posts the JSON event body raw; validate **`x-razorpay-signature`** using **`RAZORPAY_WEBHOOK_SECRET`**. Implemented events: **`payment.authorized`**, **`payment.captured`**, **`payment.failed`**. The server finds the internal payment by Razorpay order/payment ids and updates state idempotently. Configure this URL on the Razorpay dashboard (test mode webhook for dev).
 
 **Production vs legacy demo:** legacy admin/demo JSON that exposes or mutates operator state (`/admin`, `/v1/users`, unauthenticated legacy `/carriers` list/create, legacy `POST /anchor-trips`, ledger/payout toys, **`POST /v1/pilot/driver/login`**, etc.) returns **403** unless `ENABLE_LEGACY_DEMO_SURFACE=1`. The customer marketplace routes above stay enabled in production; without a Bearer token, protected shipment routes return **401**.
 
@@ -347,7 +363,23 @@ Body:
 
 `customerPhone` is optional; when present it must be a valid India mobile (same rules as customer registration). Use the **same** number when you sign in with OTP to see the shipment on `GET /shipments` even if the booking was anonymous (no `customerOrgId`).
 
-Server behavior (unchanged from MVP):
+**Response (`201`):** `{ shipment, payment }`. When **`PAYMENT_PROVIDER=RAZORPAY`** and checkout is configured, **`razorpayKeyId`** is also present (omit if unset). Example (Razorpay path, truncated):
+
+```json
+{
+  "shipment": { "id": "shp_...", "paymentId": "pay_..." },
+  "payment": {
+    "id": "pay_...",
+    "amountPaise": 523420,
+    "status": "CREATED",
+    "provider": "RAZORPAY",
+    "razorpayOrderId": "order_..."
+  },
+  "razorpayKeyId": "rzp_test_..."
+}
+```
+
+Server behavior:
 - Reserve capacity immediately (`reservedKg += weightKg`)
 - If capacity becomes fully reserved, mark trip `FULL`
 

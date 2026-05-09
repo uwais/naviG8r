@@ -4,9 +4,11 @@ import { pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import {
   ApiError,
+  attachRazorpayOrderForShipment,
   bookShipment,
   createCarrier,
   customerPrimaryOrgForUser,
+  ensureRazorpayCapturedBeforePod,
   failCarrierAndRefund,
   markPodDelivered,
   customerEligibleAnchorTripsPhaseA,
@@ -20,9 +22,18 @@ import {
   quoteShipmentMarketplace,
   registerCustomerOrgAdmin,
   registerSoloOwnerOperatorDriver,
+  rollbackBooking,
   runPayoutBatch,
   shipmentVisibleToCustomerUser,
 } from "./services.ts";
+import { verifyRazorpayWebhookSignature, razorpayPaymentsEnabled, publicRazorpayKeyId } from "./razorpayPayments.ts";
+import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
+
+async function readRawBody(req: http.IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const data = JSON.stringify(body);
@@ -79,6 +90,7 @@ function publicMarketplaceRouteAllowed(method: string, pathname: string): boolea
   if (method === "GET" && segs.length === 2 && segs[0] === "anchor-trips") return true;
   if (method === "POST" && pathname === "/shipments/quote") return true;
   if (method === "POST" && pathname === "/shipments/book") return true;
+  if (method === "POST" && pathname === "/v1/payments/razorpay/webhook") return true;
   if (method === "GET" && pathname === "/shipments") return true;
   if (method === "GET" && segs.length === 2 && segs[0] === "shipments") return true;
   if (method === "POST" && segs.length === 3 && segs[0] === "shipments" && segs[2] === "pod") return true;
@@ -112,11 +124,32 @@ function requireBearerUserId(
   }
 }
 
-export function createApp() {
-  const dataFilePath = process.env.DATA_FILE ?? "./data/store.json";
-  const store = loadStoreFromDisk(dataFilePath);
+export async function createApp(): Promise<{
+  server: http.Server;
+  store: ReturnType<typeof loadStoreFromDisk>;
+  persist: () => Promise<void>;
+  dataFilePath: string | null;
+}> {
+  const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (process.env.DATA_FILE ?? "./data/store.json");
 
-  const persist = () => saveStoreToDisk(dataFilePath, store);
+  let store: ReturnType<typeof loadStoreFromDisk>;
+  let persist: () => Promise<void>;
+
+  if (process.env.PERSISTENCE === "DB") {
+    if (!process.env.DATABASE_URL?.trim()) {
+      throw new Error("PERSISTENCE=DB requires DATABASE_URL");
+    }
+    const db = await import("./persistenceDb.ts");
+    store = await db.loadStoreFromDatabase();
+    persist = async () => {
+      await db.saveStoreToDatabase(store);
+    };
+  } else {
+    store = loadStoreFromDisk(dataFilePath!);
+    persist = async () => {
+      saveStoreToDisk(dataFilePath!, store);
+    };
+  }
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -124,6 +157,31 @@ export function createApp() {
       const url = new URL(req.url ?? "/", "http://localhost");
 
       if (method === "GET" && url.pathname === "/health") {
+        return json(res, 200, {
+          ok: true,
+          persistence: process.env.PERSISTENCE === "DB" ? "db" : "file",
+          paymentProvider: razorpayPaymentsEnabled() ? "razorpay" : "mock",
+        });
+      }
+
+      if (method === "POST" && url.pathname === "/v1/payments/razorpay/webhook") {
+        const secret = process.env.RAZORPAY_WEBHOOK_SECRET?.trim();
+        if (!secret) {
+          return json(res, 503, { error: "webhook_secret_not_configured" });
+        }
+        const raw = await readRawBody(req);
+        const sig = header(req, "x-razorpay-signature");
+        if (!verifyRazorpayWebhookSignature(raw, sig ?? undefined, secret)) {
+          return json(res, 401, { error: "invalid_webhook_signature" });
+        }
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(raw) as Record<string, unknown>;
+        } catch {
+          return json(res, 400, { error: "invalid_json" });
+        }
+        applyRazorpayWebhookPayload(store, parsed);
+        await persist();
         return json(res, 200, { ok: true });
       }
 
@@ -131,7 +189,7 @@ export function createApp() {
       if (method === "POST" && url.pathname === "/v1/auth/otp/start") {
         const body = await readJson(req);
         const out = pilotOtpStart(store, { phone: String(body?.phone ?? "") });
-        persist();
+        await persist();
         return json(res, 200, out);
       }
 
@@ -142,7 +200,7 @@ export function createApp() {
           challengeId: String(body?.challengeId ?? ""),
           code: String(body?.code ?? ""),
         });
-        persist();
+        await persist();
         return json(res, 200, out);
       }
 
@@ -157,7 +215,7 @@ export function createApp() {
           vehicleClass: body?.vehicleClass,
           vehicleCapacityKg: Number(body?.vehicleCapacityKg ?? 0),
         });
-        persist();
+        await persist();
         return json(res, 201, out);
       }
 
@@ -202,7 +260,7 @@ export function createApp() {
           vehicleClass: body?.vehicleClass,
           capacityKg: Number(body?.capacityKg ?? 0),
         });
-        persist();
+        await persist();
         return json(res, 201, { trip });
       }
 
@@ -239,7 +297,7 @@ export function createApp() {
           phone: String(body?.phone ?? ""),
           orgDisplayName: String(body?.orgDisplayName ?? ""),
         });
-        persist();
+        await persist();
         return json(res, 201, out);
       }
 
@@ -442,7 +500,7 @@ export function createApp() {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
         const carrier = createCarrier(store, String(body?.name ?? ""));
-        persist();
+        await persist();
         return json(res, 201, { carrier });
       }
 
@@ -464,7 +522,7 @@ export function createApp() {
           vehicleClass: body?.vehicleClass,
           capacityKg: Number(body?.capacityKg ?? 0),
         });
-        persist();
+        await persist();
         return json(res, 201, { trip });
       }
 
@@ -542,8 +600,24 @@ export function createApp() {
           pickup: body?.pickup,
           drop: body?.drop,
         });
-        persist();
-        return json(res, 201, { shipment });
+
+        try {
+          if (razorpayPaymentsEnabled()) {
+            await attachRazorpayOrderForShipment(store, shipment.id);
+          }
+        } catch (e) {
+          rollbackBooking(store, shipment.id);
+          throw e;
+        }
+
+        await persist();
+
+        const pay = store.payments.get(shipment.paymentId) ?? null;
+        const rzpKey = publicRazorpayKeyId();
+
+        const bodyOut: Record<string, unknown> = { shipment, payment: pay };
+        if (razorpayPaymentsEnabled() && rzpKey) bodyOut["razorpayKeyId"] = rzpKey;
+        return json(res, 201, bodyOut);
       }
 
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
@@ -556,8 +630,9 @@ export function createApp() {
           return json(res, 404, { error: "shipment_not_found" });
         }
         const body = await readJson(req);
+        await ensureRazorpayCapturedBeforePod(store, shipmentId);
         const out = markPodDelivered(store, { shipmentId, podAtUtcMs: body?.podAtUtcMs });
-        persist();
+        await persist();
         return json(res, 200, out);
       }
 
@@ -570,8 +645,8 @@ export function createApp() {
         if (!shipmentPre || !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
           return json(res, 404, { error: "shipment_not_found" });
         }
-        const shipment = failCarrierAndRefund(store, { shipmentId });
-        persist();
+        const shipment = await failCarrierAndRefund(store, { shipmentId });
+        await persist();
         return json(res, 200, { shipment });
       }
 
@@ -584,7 +659,7 @@ export function createApp() {
       if (method === "POST" && url.pathname === "/payout-batches/run") {
         const body = await readJson(req);
         const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
-        persist();
+        await persist();
         return json(res, 200, { batch });
       }
 

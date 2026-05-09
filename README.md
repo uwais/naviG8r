@@ -2,12 +2,21 @@
 
 Backend-first MVP skeleton for:
 - Carrier-published anchor trips
-- Instant booking (payment captured at booking; mocked)
+- Instant booking with **payments**: default **`MOCK`** treats freight as captured at booking; set **`PAYMENT_PROVIDER=RAZORPAY`** for **Razorpay test mode** with **authorize at checkout, capture at POD** (see `docs/pilot-api.md`).
 - POD triggers payout scheduling
 - Payout rule: **POD IST date + 7 calendar days (00:00 IST)**, then **next weekly batch cutoff**
 - Weekly cutoff configured as **Wednesday 18:00 IST**
 - Pilot API resources for Flutter: see `docs/pilot-api.md`
 - Roadmap checklist: see `ROADMAP.md`
+
+### API dependencies (install once)
+
+```bash
+cd logistics-mvp/apps/api
+npm install
+```
+
+This installs Prisma client, the Razorpay SDK, and runs `prisma generate` via `postinstall`.
 
 ### Run API (Node 22+)
 
@@ -27,6 +36,14 @@ Notes:
 - **Freight estimator** (distance + ₹5/kg when coords exist): override defaults with `FREIGHT_PAISE_PER_KM_SMALL`, `FREIGHT_PAISE_PER_KM_MEDIUM`, `FREIGHT_PAISE_PER_KM_LARGE`, and optional `FREIGHT_MIN_GROSS_PAISE` (see `docs/pilot-api.md`).
 - When `NODE_ENV=production`, unauthenticated **demo/admin** JSON and HTML (`/admin`, `/v1/users`, `/carriers`, legacy `POST /anchor-trips`, ledger/payout toys, etc.) return **403** unless you set `ENABLE_LEGACY_DEMO_SURFACE=1`. **Public marketplace** routes used by the customer pilot (`GET /anchor-trips`, quote/book, etc.) stay enabled.
 - **Customer shipments** (`GET /shipments`, `GET /shipments/:id`, POD, fail-refund) require `Authorization: Bearer <token>` from `POST /v1/auth/otp/*`. You see shipments tagged to your **CUSTOMER** org (`customerOrgId` / name match when booking logged in), **or** anonymous bookings where you passed **`customerPhone`** on `POST /shipments/book` and it matches your account phone after OTP. Book while logged in as a customer user sets `customerOrgId` on the shipment.
+- **Persistence** (see `apps/api/prisma/schema.prisma`):
+  - Default **`PERSISTENCE` unset or not `DB`**: in-memory store + **`DATA_FILE`** (path to JSON snapshot; persists on writes).
+  - **`PERSISTENCE=DB`**: Postgres via Prisma (`DATABASE_URL` required). Bootstrap schema: `cd apps/api && npx prisma db push`. No importer from legacy `store.json` is wired yet (greenfield pilots only).
+- **Razorpay (test)** — set `PAYMENT_PROVIDER=RAZORPAY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, and register webhook URL **`POST /v1/payments/razorpay/webhook`** (raw JSON body; header `x-razorpay-signature`). **`GET /health`** reports `persistence` and `paymentProvider`.
+
+### Flutter customer checkout (Razorpay)
+
+The driver pilot app’s customer book flow opens **Razorpay Flutter** checkout when `POST /shipments/book` returns **`razorpayKeyId`** and payment status **`CREATED`**. Successful payment completes **authorization**; the server learns state from **webhooks** (`payment.authorized` / `payment.failed`). **Capture** runs on **POD** (`POST /shipments/:id/pod`). Configure the same Razorpay key id on the device as returned by the API.
 
 ### Run tests
 
