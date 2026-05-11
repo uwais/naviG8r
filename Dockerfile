@@ -9,7 +9,7 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 
 COPY apps/api/package.json ./apps/api/
-RUN cd apps/api && npm install
+RUN cd apps/api && npm install --ignore-scripts
 
 COPY packages ./packages
 COPY apps/api ./apps/api
