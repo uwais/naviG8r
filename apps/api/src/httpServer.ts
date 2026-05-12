@@ -361,6 +361,11 @@ export async function createApp(): Promise<{
     <h1>Logistics MVP Admin</h1>
     <p class="muted">Backed by <code>${esc(dataFilePath)}</code></p>
 
+    <div class="card" style="margin-bottom:12px;background:#fffbe6;border-color:#ffe58f;">
+      <h2>Auth token <span class="muted">(optional — needed when demo surface bypass is off)</span></h2>
+      <input id="bearerToken" placeholder="Paste Bearer token (from OTP login response)" style="font-family:monospace;font-size:13px;" />
+    </div>
+
     <div class="row">
       <div class="card">
         <h2>Create carrier</h2>
@@ -452,15 +457,20 @@ export async function createApp(): Promise<{
     <pre>${esc(JSON.stringify(payoutBatches, null, 2))}</pre>
 
     <script>
+      function authHeaders() {
+        const h = { "content-type": "application/json" };
+        const tok = document.getElementById("bearerToken").value.trim();
+        if (tok) h["authorization"] = "Bearer " + tok;
+        return h;
+      }
       async function submitJson(e) {
         e.preventDefault();
         const form = e.target;
         const data = Object.fromEntries(new FormData(form).entries());
-        // Numeric coercion for common fields.
         for (const k of ["capacityKg","weightKg","nowUtcMs"]) if (data[k] !== undefined && data[k] !== "") data[k] = Number(data[k]);
         const res = await fetch(form.action, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: authHeaders(),
           body: JSON.stringify(data)
         });
         const out = await res.json().catch(() => ({}));
@@ -473,7 +483,7 @@ export async function createApp(): Promise<{
         const form = e.target;
         const data = Object.fromEntries(new FormData(form).entries());
         const shipmentId = data.shipmentId;
-        const res = await fetch("/shipments/" + shipmentId + "/pod", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        const res = await fetch("/shipments/" + shipmentId + "/pod", { method: "POST", headers: authHeaders(), body: "{}" });
         const out = await res.json().catch(() => ({}));
         alert(JSON.stringify(out, null, 2));
         location.reload();
@@ -484,7 +494,7 @@ export async function createApp(): Promise<{
         const form = e.target;
         const data = Object.fromEntries(new FormData(form).entries());
         const shipmentId = data.shipmentId;
-        const res = await fetch("/shipments/" + shipmentId + "/fail-refund", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        const res = await fetch("/shipments/" + shipmentId + "/fail-refund", { method: "POST", headers: authHeaders(), body: "{}" });
         const out = await res.json().catch(() => ({}));
         alert(JSON.stringify(out, null, 2));
         location.reload();
