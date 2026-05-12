@@ -350,20 +350,50 @@ export async function createApp(): Promise<{
       .card { border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px; min-width: 320px; }
       h2 { margin: 0 0 8px; font-size: 16px; }
       h3 { margin: 12px 0 8px; font-size: 14px; }
-      input { width: 100%; padding: 8px; margin: 6px 0; }
-      button { padding: 8px 12px; }
+      input { width: 100%; padding: 8px; margin: 6px 0; box-sizing: border-box; }
+      button { padding: 8px 12px; cursor: pointer; }
       table { width: 100%; border-collapse: collapse; }
       th, td { border-bottom: 1px solid #eee; padding: 6px; text-align: left; font-size: 12px; vertical-align: top; }
       .muted { color: #666; font-size: 12px; }
+      #loginGate { max-width: 380px; margin: 60px auto; }
+      #loginGate .card { background: #fafafa; }
+      #loginGate h2 { font-size: 18px; }
+      #loginError { color: #c00; font-size: 13px; margin-top: 6px; display: none; }
+      .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+      .topbar .session-info { font-size: 13px; color: #555; }
+      .topbar button { background: none; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; padding: 4px 10px; }
     </style>
   </head>
   <body>
-    <h1>Logistics MVP Admin</h1>
-    <p class="muted">Backed by <code>${esc(dataFilePath)}</code></p>
+    <!-- Login gate — shown when no session stored -->
+    <div id="loginGate" style="display:none;">
+      <div class="card">
+        <h2>Admin Login</h2>
+        <div id="otpStep1">
+          <input id="loginPhone" placeholder="Phone number (10 digits)" autocomplete="tel" />
+          <button onclick="startOtp()">Send OTP</button>
+        </div>
+        <div id="otpStep2" style="display:none;">
+          <p class="muted">OTP sent. Enter the 6-digit code:</p>
+          <input id="loginCode" placeholder="6-digit code" maxlength="6" autocomplete="one-time-code" />
+          <button onclick="verifyOtp()">Verify</button>
+          <button onclick="resetLogin()" style="background:none;border:none;color:#666;font-size:12px;margin-top:4px;">Back</button>
+        </div>
+        <div id="loginError"></div>
+      </div>
+    </div>
 
-    <div class="card" style="margin-bottom:12px;background:#fffbe6;border-color:#ffe58f;">
-      <h2>Auth token <span class="muted">(optional — needed when demo surface bypass is off)</span></h2>
-      <input id="bearerToken" placeholder="Paste Bearer token (from OTP login response)" style="font-family:monospace;font-size:13px;" />
+    <!-- Main admin content — shown after login -->
+    <div id="adminContent" style="display:none;">
+    <div class="topbar">
+      <div>
+        <h1 style="margin:0;">Logistics MVP Admin</h1>
+        <p class="muted" style="margin:2px 0 0;">Backed by <code>${esc(dataFilePath)}</code></p>
+      </div>
+      <div style="text-align:right;">
+        <span class="session-info" id="sessionInfo"></span><br/>
+        <button onclick="logout()">Logout</button>
+      </div>
     </div>
 
     <div class="row">
@@ -456,13 +486,89 @@ export async function createApp(): Promise<{
     <h3>Payout batches (${payoutBatches.length})</h3>
     <pre>${esc(JSON.stringify(payoutBatches, null, 2))}</pre>
 
+    </div><!-- end adminContent -->
+
     <script>
+      const LS_TOKEN = "n8r_admin_token";
+      const LS_PHONE = "n8r_admin_phone";
+      let _challengeId = null;
+
+      function showError(msg) {
+        const el = document.getElementById("loginError");
+        el.textContent = msg;
+        el.style.display = msg ? "block" : "none";
+      }
+
+      async function startOtp() {
+        showError("");
+        const phone = document.getElementById("loginPhone").value.trim();
+        if (!phone) return showError("Enter a phone number.");
+        try {
+          const res = await fetch("/v1/auth/otp/start", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ phone })
+          });
+          const out = await res.json();
+          if (!res.ok) return showError(out.error || "Failed to send OTP.");
+          _challengeId = out.challengeId;
+          document.getElementById("otpStep1").style.display = "none";
+          document.getElementById("otpStep2").style.display = "block";
+          if (out.debugCode) {
+            document.getElementById("loginCode").value = out.debugCode;
+          }
+        } catch (e) { showError("Network error."); }
+      }
+
+      async function verifyOtp() {
+        showError("");
+        const phone = document.getElementById("loginPhone").value.trim();
+        const code = document.getElementById("loginCode").value.trim();
+        if (!code) return showError("Enter the OTP code.");
+        try {
+          const res = await fetch("/v1/auth/otp/verify", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ phone, challengeId: _challengeId, code })
+          });
+          const out = await res.json();
+          if (!res.ok) return showError(out.error || "Verification failed.");
+          localStorage.setItem(LS_TOKEN, out.accessToken);
+          localStorage.setItem(LS_PHONE, phone);
+          enterAdmin();
+        } catch (e) { showError("Network error."); }
+      }
+
+      function resetLogin() {
+        _challengeId = null;
+        document.getElementById("loginCode").value = "";
+        document.getElementById("otpStep1").style.display = "block";
+        document.getElementById("otpStep2").style.display = "none";
+        showError("");
+      }
+
+      function logout() {
+        localStorage.removeItem(LS_TOKEN);
+        localStorage.removeItem(LS_PHONE);
+        document.getElementById("adminContent").style.display = "none";
+        document.getElementById("loginGate").style.display = "block";
+        resetLogin();
+      }
+
+      function enterAdmin() {
+        document.getElementById("loginGate").style.display = "none";
+        document.getElementById("adminContent").style.display = "block";
+        const phone = localStorage.getItem(LS_PHONE) || "";
+        document.getElementById("sessionInfo").textContent = phone ? "Logged in as " + phone : "";
+      }
+
       function authHeaders() {
         const h = { "content-type": "application/json" };
-        const tok = document.getElementById("bearerToken").value.trim();
+        const tok = localStorage.getItem(LS_TOKEN);
         if (tok) h["authorization"] = "Bearer " + tok;
         return h;
       }
+
       async function submitJson(e) {
         e.preventDefault();
         const form = e.target;
@@ -478,6 +584,7 @@ export async function createApp(): Promise<{
         location.reload();
         return false;
       }
+
       async function submitPod(e) {
         e.preventDefault();
         const form = e.target;
@@ -489,6 +596,7 @@ export async function createApp(): Promise<{
         location.reload();
         return false;
       }
+
       async function submitFailRefund(e) {
         e.preventDefault();
         const form = e.target;
@@ -499,6 +607,13 @@ export async function createApp(): Promise<{
         alert(JSON.stringify(out, null, 2));
         location.reload();
         return false;
+      }
+
+      // On page load: check for stored session
+      if (localStorage.getItem(LS_TOKEN)) {
+        enterAdmin();
+      } else {
+        document.getElementById("loginGate").style.display = "block";
       }
     </script>
   </body>
