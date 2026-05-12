@@ -622,12 +622,22 @@ export async function createApp(): Promise<{
 
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const userId = requireBearerUserId(req, res, store);
-        if (!userId) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const shipment = store.shipments.get(shipmentId);
-        if (!shipment || !shipmentVisibleToCustomerUser(store, shipment, userId)) {
-          return json(res, 404, { error: "shipment_not_found" });
+        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+        const hasBearerToken = !!bearerToken(req);
+        if (hasBearerToken) {
+          const userId = requireBearerUserId(req, res, store);
+          if (!userId) return;
+          const shipment = store.shipments.get(shipmentId);
+          if (!shipment || !shipmentVisibleToCustomerUser(store, shipment, userId)) {
+            return json(res, 404, { error: "shipment_not_found" });
+          }
+        } else if (!demoSurface) {
+          return json(res, 401, { error: "unauthorized" });
+        } else {
+          if (!store.shipments.get(shipmentId)) {
+            return json(res, 404, { error: "shipment_not_found" });
+          }
         }
         const body = await readJson(req);
         await ensureRazorpayCapturedBeforePod(store, shipmentId);
@@ -638,12 +648,22 @@ export async function createApp(): Promise<{
 
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const userId = requireBearerUserId(req, res, store);
-        if (!userId) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const shipmentPre = store.shipments.get(shipmentId);
-        if (!shipmentPre || !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
-          return json(res, 404, { error: "shipment_not_found" });
+        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+        const hasBearerToken = !!bearerToken(req);
+        if (hasBearerToken) {
+          const userId = requireBearerUserId(req, res, store);
+          if (!userId) return;
+          const shipmentPre = store.shipments.get(shipmentId);
+          if (!shipmentPre || !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
+            return json(res, 404, { error: "shipment_not_found" });
+          }
+        } else if (!demoSurface) {
+          return json(res, 401, { error: "unauthorized" });
+        } else {
+          if (!store.shipments.get(shipmentId)) {
+            return json(res, 404, { error: "shipment_not_found" });
+          }
         }
         const shipment = await failCarrierAndRefund(store, { shipmentId });
         await persist();
