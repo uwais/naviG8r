@@ -378,6 +378,9 @@ export async function createApp(): Promise<{
             .replaceAll(">", "&gt;")
             .replaceAll("\"", "&quot;");
 
+        const persistenceBacking =
+          dataFilePath != null ? dataFilePath : "Postgres (Prisma, PERSISTENCE=DB)";
+
         return html(
           res,
           200,
@@ -437,7 +440,7 @@ export async function createApp(): Promise<{
     <div class="topbar">
       <div>
         <h1 style="margin:0;">Logistics MVP Admin</h1>
-        <p class="muted" style="margin:2px 0 0;">Backed by <code>${esc(dataFilePath)}</code></p>
+        <p class="muted" style="margin:2px 0 0;">Backed by <code>${esc(persistenceBacking)}</code></p>
       </div>
       <div style="text-align:right;">
         <span class="session-info" id="sessionInfo"></span>
