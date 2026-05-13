@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
 import { verifyRazorpayWebhookSignature } from "./razorpayPayments.ts";
+import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
+import { createStore } from "./store.ts";
 
 test("Razorpay webhook signature verification", () => {
   const secret = "whsec_unit_test";
@@ -10,4 +12,35 @@ test("Razorpay webhook signature verification", () => {
   assert.equal(verifyRazorpayWebhookSignature(payload, good, secret), true);
   assert.equal(verifyRazorpayWebhookSignature(payload, "deadbeef", secret), false);
   assert.equal(verifyRazorpayWebhookSignature(payload, undefined, secret), false);
+});
+
+test("Razorpay failed retry webhook does not overwrite an authorized payment", () => {
+  const store = createStore();
+  store.payments.set("pay_1", {
+    id: "pay_1",
+    shipmentId: "shp_1",
+    amountPaise: 10000,
+    status: "CREATED",
+    provider: "RAZORPAY",
+    providerRef: "order_1",
+    razorpayOrderId: "order_1",
+    createdAtUtcMs: 1,
+    updatedAtUtcMs: 1,
+  });
+
+  applyRazorpayWebhookPayload(store, {
+    event: "payment.authorized",
+    payload: { payment: { entity: { id: "rzp_success", order_id: "order_1" } } },
+  });
+
+  assert.equal(store.payments.get("pay_1")?.status, "AUTHORIZED");
+  assert.equal(store.payments.get("pay_1")?.razorpayPaymentId, "rzp_success");
+
+  applyRazorpayWebhookPayload(store, {
+    event: "payment.failed",
+    payload: { payment: { entity: { id: "rzp_failed_retry", order_id: "order_1" } } },
+  });
+
+  assert.equal(store.payments.get("pay_1")?.status, "AUTHORIZED");
+  assert.equal(store.payments.get("pay_1")?.razorpayPaymentId, "rzp_success");
 });

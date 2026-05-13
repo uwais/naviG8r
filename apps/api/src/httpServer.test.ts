@@ -102,3 +102,68 @@ test("legacy demo surface remains available outside production", async (t) => {
     assert.equal(body.carrier?.name, "Carrier One");
   });
 });
+
+test("admin HTML does not embed store data before OTP login", async (t) => {
+  const prev = {
+    AUTH_SECRET: process.env.AUTH_SECRET,
+    DATA_FILE: process.env.DATA_FILE,
+    ENABLE_LEGACY_DEMO_SURFACE: process.env.ENABLE_LEGACY_DEMO_SURFACE,
+    NODE_ENV: process.env.NODE_ENV,
+    OTP_DEBUG: process.env.OTP_DEBUG,
+  };
+  t.after(() => {
+    if (prev.AUTH_SECRET === undefined) delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = prev.AUTH_SECRET;
+    if (prev.DATA_FILE === undefined) delete process.env.DATA_FILE;
+    else process.env.DATA_FILE = prev.DATA_FILE;
+    if (prev.ENABLE_LEGACY_DEMO_SURFACE === undefined) delete process.env.ENABLE_LEGACY_DEMO_SURFACE;
+    else process.env.ENABLE_LEGACY_DEMO_SURFACE = prev.ENABLE_LEGACY_DEMO_SURFACE;
+    if (prev.NODE_ENV === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = prev.NODE_ENV;
+    if (prev.OTP_DEBUG === undefined) delete process.env.OTP_DEBUG;
+    else process.env.OTP_DEBUG = prev.OTP_DEBUG;
+  });
+
+  process.env.AUTH_SECRET = "test-admin-secret-at-least-16";
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "test";
+  process.env.OTP_DEBUG = "1";
+  delete process.env.ENABLE_LEGACY_DEMO_SURFACE;
+
+  await withApp(t, async (baseUrl, app) => {
+    app.store.users.set("usr_admin", {
+      id: "usr_admin",
+      phone: "9876543210",
+      fullName: "Sensitive Admin User",
+      createdAtUtcMs: 1,
+    });
+
+    const admin = await fetch(`${baseUrl}/admin`);
+    assert.equal(admin.status, 200);
+    const html = await admin.text();
+    assert.equal(html.includes("Sensitive Admin User"), false);
+    assert.equal(html.includes("9876543210"), false);
+
+    const noToken = await fetch(`${baseUrl}/admin/snapshot`);
+    assert.equal(noToken.status, 401);
+
+    const start = await postJson(baseUrl, "/v1/auth/otp/start", { phone: "9876543210" });
+    assert.equal(start.status, 200);
+    const startBody = (await start.json()) as { challengeId: string; debugCode: string };
+
+    const verify = await postJson(baseUrl, "/v1/auth/otp/verify", {
+      phone: "9876543210",
+      challengeId: startBody.challengeId,
+      code: startBody.debugCode,
+    });
+    assert.equal(verify.status, 200);
+    const verifyBody = (await verify.json()) as { accessToken: string };
+
+    const snapshot = await fetch(`${baseUrl}/admin/snapshot`, {
+      headers: { authorization: `Bearer ${verifyBody.accessToken}` },
+    });
+    assert.equal(snapshot.status, 200);
+    const snapshotBody = (await snapshot.json()) as { users: Array<{ fullName: string }> };
+    assert.deepEqual(snapshotBody.users.map((u) => u.fullName), ["Sensitive Admin User"]);
+  });
+});
