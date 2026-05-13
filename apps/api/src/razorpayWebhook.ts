@@ -75,10 +75,15 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
   if (event === "payment.failed") {
     const razorpayPayId = ent.id ?? "";
     const orderId = ent.order_id ?? "";
-    const pay = (razorpayPayId ? findPaymentByRazorpayPaymentId(store, razorpayPayId) : undefined)
-      ?? (orderId ? findPaymentByRazorpayOrderId(store, orderId) : undefined);
+    let matchedByPaymentId = true;
+    let pay = razorpayPayId ? findPaymentByRazorpayPaymentId(store, razorpayPayId) : undefined;
+    if (!pay && orderId) {
+      matchedByPaymentId = false;
+      pay = findPaymentByRazorpayOrderId(store, orderId);
+    }
     if (!pay || pay.provider !== "RAZORPAY") return;
-    if (pay.status === "CAPTURED" || pay.status === "REFUNDED") return;
+    if (!matchedByPaymentId && pay.razorpayPaymentId && pay.razorpayPaymentId !== razorpayPayId) return;
+    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED" || pay.status === "REFUNDED") return;
     store.payments.set(pay.id, {
       ...pay,
       ...(razorpayPayId ? { razorpayPaymentId: razorpayPayId } : {}),

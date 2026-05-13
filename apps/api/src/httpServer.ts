@@ -313,26 +313,27 @@ export async function createApp(): Promise<{
         return json(res, 200, { users });
       }
 
+      if (method === "GET" && url.pathname === "/admin/snapshot") {
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        return json(res, 200, {
+          dataFilePath,
+          carriers: [...store.carriers.values()],
+          organizations: [...store.organizations.values()],
+          users: [...store.users.values()],
+          memberships: [...store.memberships.values()],
+          vehicles: [...store.vehicles.values()],
+          driverProfiles: [...store.driverProfiles.values()],
+          anchorTrips: [...store.anchorTrips.values()],
+          shipments: [...store.shipments.values()],
+          ledgerLines: [...store.ledgerLines.values()],
+          payoutBatches: [...store.payoutBatches.values()],
+        });
+      }
+
       if (method === "GET" && url.pathname === "/admin") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const carriers = [...store.carriers.values()];
-        const orgs = [...store.organizations.values()];
-        const users = [...store.users.values()];
-        const memberships = [...store.memberships.values()];
-        const vehicles = [...store.vehicles.values()];
-        const driverProfiles = [...store.driverProfiles.values()];
-        const trips = [...store.anchorTrips.values()];
-        const shipments = [...store.shipments.values()];
-        const ledgerLines = [...store.ledgerLines.values()];
-        const payoutBatches = [...store.payoutBatches.values()];
-
-        const esc = (s: any) =>
-          String(s)
-            .replaceAll("&", "&amp;")
-            .replaceAll("<", "&lt;")
-            .replaceAll(">", "&gt;")
-            .replaceAll("\"", "&quot;");
-
         return html(
           res,
           200,
@@ -388,7 +389,7 @@ export async function createApp(): Promise<{
     <div class="topbar">
       <div>
         <h1 style="margin:0;">Logistics MVP Admin</h1>
-        <p class="muted" style="margin:2px 0 0;">Backed by <code>${esc(dataFilePath)}</code></p>
+        <p class="muted" style="margin:2px 0 0;">Backed by <code id="dataFilePath">loading...</code></p>
       </div>
       <div style="text-align:right;">
         <span class="session-info" id="sessionInfo"></span><br/>
@@ -456,35 +457,35 @@ export async function createApp(): Promise<{
       </div>
     </div>
 
-    <h3>Carriers (${carriers.length})</h3>
-    <pre>${esc(JSON.stringify(carriers, null, 2))}</pre>
+    <h3>Carriers (<span id="carriersCount">0</span>)</h3>
+    <pre id="carriersData">Login required.</pre>
 
-    <h3>Organizations (${orgs.length})</h3>
-    <pre>${esc(JSON.stringify(orgs, null, 2))}</pre>
+    <h3>Organizations (<span id="organizationsCount">0</span>)</h3>
+    <pre id="organizationsData">Login required.</pre>
 
-    <h3>Users (${users.length})</h3>
-    <pre>${esc(JSON.stringify(users, null, 2))}</pre>
+    <h3>Users (<span id="usersCount">0</span>)</h3>
+    <pre id="usersData">Login required.</pre>
 
-    <h3>Memberships (${memberships.length})</h3>
-    <pre>${esc(JSON.stringify(memberships, null, 2))}</pre>
+    <h3>Memberships (<span id="membershipsCount">0</span>)</h3>
+    <pre id="membershipsData">Login required.</pre>
 
-    <h3>Vehicles (${vehicles.length})</h3>
-    <pre>${esc(JSON.stringify(vehicles, null, 2))}</pre>
+    <h3>Vehicles (<span id="vehiclesCount">0</span>)</h3>
+    <pre id="vehiclesData">Login required.</pre>
 
-    <h3>Driver profiles (${driverProfiles.length})</h3>
-    <pre>${esc(JSON.stringify(driverProfiles, null, 2))}</pre>
+    <h3>Driver profiles (<span id="driverProfilesCount">0</span>)</h3>
+    <pre id="driverProfilesData">Login required.</pre>
 
-    <h3>Anchor trips (${trips.length})</h3>
-    <pre>${esc(JSON.stringify(trips, null, 2))}</pre>
+    <h3>Anchor trips (<span id="anchorTripsCount">0</span>)</h3>
+    <pre id="anchorTripsData">Login required.</pre>
 
-    <h3>Shipments (${shipments.length})</h3>
-    <pre>${esc(JSON.stringify(shipments, null, 2))}</pre>
+    <h3>Shipments (<span id="shipmentsCount">0</span>)</h3>
+    <pre id="shipmentsData">Login required.</pre>
 
-    <h3>Ledger lines (${ledgerLines.length})</h3>
-    <pre>${esc(JSON.stringify(ledgerLines, null, 2))}</pre>
+    <h3>Ledger lines (<span id="ledgerLinesCount">0</span>)</h3>
+    <pre id="ledgerLinesData">Login required.</pre>
 
-    <h3>Payout batches (${payoutBatches.length})</h3>
-    <pre>${esc(JSON.stringify(payoutBatches, null, 2))}</pre>
+    <h3>Payout batches (<span id="payoutBatchesCount">0</span>)</h3>
+    <pre id="payoutBatchesData">Login required.</pre>
 
     </div><!-- end adminContent -->
 
@@ -560,6 +561,7 @@ export async function createApp(): Promise<{
         document.getElementById("adminContent").style.display = "block";
         const phone = localStorage.getItem(LS_PHONE) || "";
         document.getElementById("sessionInfo").textContent = phone ? "Logged in as " + phone : "";
+        refreshAdminData();
       }
 
       function authHeaders() {
@@ -567,6 +569,37 @@ export async function createApp(): Promise<{
         const tok = localStorage.getItem(LS_TOKEN);
         if (tok) h["authorization"] = "Bearer " + tok;
         return h;
+      }
+
+      async function refreshAdminData() {
+        const keys = [
+          "carriers",
+          "organizations",
+          "users",
+          "memberships",
+          "vehicles",
+          "driverProfiles",
+          "anchorTrips",
+          "shipments",
+          "ledgerLines",
+          "payoutBatches"
+        ];
+        try {
+          const res = await fetch("/admin/snapshot", { headers: authHeaders() });
+          const out = await res.json();
+          if (!res.ok) {
+            if (res.status === 401) logout();
+            return showError(out.error || "Failed to load admin data.");
+          }
+          document.getElementById("dataFilePath").textContent = String(out.dataFilePath ?? "");
+          for (const key of keys) {
+            const value = Array.isArray(out[key]) ? out[key] : [];
+            document.getElementById(key + "Count").textContent = String(value.length);
+            document.getElementById(key + "Data").textContent = JSON.stringify(value, null, 2);
+          }
+        } catch (e) {
+          showError("Failed to load admin data.");
+        }
       }
 
       async function submitJson(e) {
