@@ -10,7 +10,9 @@ import {
   customerPrimaryOrgForUser,
   ensureRazorpayCapturedBeforePod,
   failCarrierAndRefund,
+  grantOpsAdmin,
   isOpsAdmin,
+  listOpsAdmins,
   markPodDelivered,
   customerEligibleAnchorTripsPhaseA,
   pilotLoginDriverByPhone,
@@ -23,6 +25,7 @@ import {
   quoteShipmentMarketplace,
   registerCustomerOrgAdmin,
   registerSoloOwnerOperatorDriver,
+  revokeOpsAdmin,
   rollbackBooking,
   runPayoutBatch,
   shipmentVisibleToCustomerUser,
@@ -201,6 +204,11 @@ export async function createApp(): Promise<{
           challengeId: String(body?.challengeId ?? ""),
           code: String(body?.code ?? ""),
         });
+        // Auto-promote env-var ops admins to a DB membership on first login,
+        // so OPS_ADMIN_PHONES can be removed once each admin has logged in once.
+        if (isOpsAdmin(store, out.user.id)) {
+          try { grantOpsAdmin(store, { phone: out.user.phone }); } catch {}
+        }
         await persist();
         return json(res, 200, { ...out, isOpsAdmin: isOpsAdmin(store, out.user.id) });
       }
@@ -211,6 +219,34 @@ export async function createApp(): Promise<{
         const user = store.users.get(userId);
         if (!user) return json(res, 404, { error: "user_not_found" });
         return json(res, 200, { user, isOpsAdmin: isOpsAdmin(store, userId) });
+      }
+
+      // --- v1 ops-admins management (DB-backed grants) ---
+      if (method === "GET" && url.pathname === "/v1/ops-admins") {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        if (!isOpsAdmin(store, userId)) return json(res, 403, { error: "forbidden" });
+        return json(res, 200, { opsAdmins: listOpsAdmins(store) });
+      }
+
+      if (method === "POST" && url.pathname === "/v1/ops-admins") {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        if (!isOpsAdmin(store, userId)) return json(res, 403, { error: "forbidden" });
+        const body = await readJson(req);
+        const entry = grantOpsAdmin(store, { phone: String(body?.phone ?? "") });
+        await persist();
+        return json(res, 201, { opsAdmin: entry });
+      }
+
+      if (method === "DELETE" && url.pathname.startsWith("/v1/ops-admins/")) {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        if (!isOpsAdmin(store, userId)) return json(res, 403, { error: "forbidden" });
+        const phone = decodeURIComponent(url.pathname.split("/")[3] ?? "");
+        const out = revokeOpsAdmin(store, { phone, actingUserId: userId });
+        await persist();
+        return json(res, 200, out);
       }
 
       // --- v1 pilot API resources (Flutter Driver app first) ---
@@ -412,7 +448,18 @@ export async function createApp(): Promise<{
     <div id="nonOpsWarning" class="warning-banner" style="display:none;">
       You're logged in but you're not an <strong>Ops Admin</strong>.
       You can only act on shipments you booked. To get operator access,
-      add your phone to the <code>OPS_ADMIN_PHONES</code> environment variable on the server.
+      ask an existing ops admin to grant you the role, or have your phone added
+      to <code>OPS_ADMIN_PHONES</code> (bootstrap-only) on the server.
+    </div>
+
+    <div id="opsAdminsCard" class="card" style="margin-bottom:12px;display:none;">
+      <h2>Ops Admins <span class="muted">(DB-backed — survives env-var removal)</span></h2>
+      <div id="opsAdminsList" class="muted" style="margin-bottom:10px;">Loading…</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="grantPhone" placeholder="10-digit phone to grant" style="flex:1;margin:0;" />
+        <button onclick="grantOps()">Grant Ops Admin</button>
+      </div>
+      <p class="muted" style="margin:6px 0 0;">User must already be registered (customer or driver) before granting.</p>
     </div>
 
     <div class="row">
@@ -591,13 +638,63 @@ export async function createApp(): Promise<{
         const isOps = localStorage.getItem(LS_OPS) === "1";
         const badge = document.getElementById("roleBadge");
         const warn = document.getElementById("nonOpsWarning");
+        const opsCard = document.getElementById("opsAdminsCard");
         if (isOps) {
           badge.innerHTML = '<span class="role-badge role-ops">Ops Admin</span>';
           warn.style.display = "none";
+          opsCard.style.display = "block";
+          loadOpsAdmins();
         } else {
           badge.innerHTML = '<span class="role-badge role-customer">Customer</span>';
           warn.style.display = "block";
+          opsCard.style.display = "none";
         }
+      }
+
+      async function loadOpsAdmins() {
+        const listEl = document.getElementById("opsAdminsList");
+        try {
+          const res = await fetch("/v1/ops-admins", { headers: authHeaders() });
+          if (!res.ok) { listEl.textContent = "Failed to load ops admins."; return; }
+          const out = await res.json();
+          const items = out.opsAdmins || [];
+          if (items.length === 0) { listEl.innerHTML = '<em>None</em>'; return; }
+          listEl.innerHTML = items.map(function(a) {
+            const tag = a.source === "DB"
+              ? '<span class="role-badge role-ops">DB</span>'
+              : '<span class="role-badge role-customer">env</span>';
+            const revoke = a.source === "DB"
+              ? '<button onclick="revokeOps(\\''+a.phone+'\\')" style="font-size:11px;padding:2px 8px;">Revoke</button>'
+              : '';
+            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f0f0f0;">' +
+              '<span><code>'+a.phone+'</code> &mdash; '+ (a.fullName || '(no name)') +' '+tag+'</span>' + revoke + '</div>';
+          }).join("");
+        } catch (e) { listEl.textContent = "Network error loading ops admins."; }
+      }
+
+      async function grantOps() {
+        const phone = document.getElementById("grantPhone").value.trim();
+        if (!phone) { alert("Enter a phone."); return; }
+        const res = await fetch("/v1/ops-admins", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ phone })
+        });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) { alert("Grant failed: " + (out.error || res.status) + (out.detail ? " — " + out.detail : "")); return; }
+        document.getElementById("grantPhone").value = "";
+        loadOpsAdmins();
+      }
+
+      async function revokeOps(phone) {
+        if (!confirm("Revoke ops-admin from " + phone + "?")) return;
+        const res = await fetch("/v1/ops-admins/" + encodeURIComponent(phone), {
+          method: "DELETE",
+          headers: authHeaders()
+        });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) { alert("Revoke failed: " + (out.error || res.status) + (out.detail ? " — " + out.detail : "")); return; }
+        loadOpsAdmins();
       }
 
       function enterAdmin() {

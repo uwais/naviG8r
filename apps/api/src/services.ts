@@ -259,26 +259,163 @@ export function shipmentBelongsToCustomerOrg(shipment: Shipment, org: Organizati
   return shipment.customerOrgName === org.displayName;
 }
 
-/**
- * True if this user is an authorized naviG8r operations admin.
- * Two grant paths:
- *   1. OPS_ADMIN_PHONES env var (comma-separated 10-digit phones) — bootstrap mechanism,
- *      no DB row required. Use this for the first admin(s).
- *   2. Any membership with role "OPS_ADMIN" — for future admin-managed grants.
- */
-export function isOpsAdmin(store: Store, userId: string): boolean {
-  const user = store.users.get(userId);
-  if (!user) return false;
-  const envPhones = String(process.env.OPS_ADMIN_PHONES ?? "")
+const PLATFORM_OPS_ORG_ID = "org_platform_ops";
+
+/** Returns the singleton naviG8r Platform Ops org, creating it on first use. */
+export function getOrCreatePlatformOpsOrg(store: Store): Organization {
+  const existing = store.organizations.get(PLATFORM_OPS_ORG_ID);
+  if (existing) return existing;
+  const org: Organization = {
+    id: PLATFORM_OPS_ORG_ID,
+    kind: "PLATFORM",
+    displayName: "naviG8r Platform Ops",
+    kycStatus: "APPROVED",
+    createdAtUtcMs: nowUtcMs(),
+  };
+  store.organizations.set(org.id, org);
+  return org;
+}
+
+function envOpsAdminPhones(): string[] {
+  return String(process.env.OPS_ADMIN_PHONES ?? "")
     .split(",")
     .map((s) => s.trim().replace(/[^\d]/g, ""))
     .map((d) => (d.length === 12 && d.startsWith("91") ? d.slice(-10) : d))
     .filter((d) => d.length === 10);
-  if (envPhones.includes(user.phone)) return true;
+}
+
+/**
+ * True if this user is an authorized naviG8r operations admin.
+ * Two grant paths:
+ *   1. Membership row with role "OPS_ADMIN" in the platform-ops org (preferred, DB-managed).
+ *   2. OPS_ADMIN_PHONES env var — bootstrap-only fallback for the first admin(s).
+ *      Once a DB grant exists for that phone, the env var entry can be removed.
+ */
+export function isOpsAdmin(store: Store, userId: string): boolean {
+  const user = store.users.get(userId);
+  if (!user) return false;
   for (const m of store.memberships.values()) {
     if (m.userId === userId && m.role === "OPS_ADMIN") return true;
   }
+  if (envOpsAdminPhones().includes(user.phone)) return true;
   return false;
+}
+
+export type OpsAdminEntry = {
+  userId: string;
+  phone: string;
+  fullName: string;
+  source: "DB" | "ENV";
+  createdAtUtcMs: number | null;
+};
+
+export function listOpsAdmins(store: Store): OpsAdminEntry[] {
+  const out: OpsAdminEntry[] = [];
+  const seen = new Set<string>();
+  for (const m of store.memberships.values()) {
+    if (m.role !== "OPS_ADMIN") continue;
+    const user = store.users.get(m.userId);
+    if (!user) continue;
+    seen.add(user.id);
+    out.push({
+      userId: user.id,
+      phone: user.phone,
+      fullName: user.fullName,
+      source: "DB",
+      createdAtUtcMs: m.createdAtUtcMs,
+    });
+  }
+  for (const envPhone of envOpsAdminPhones()) {
+    const user = [...store.users.values()].find((u) => u.phone === envPhone);
+    if (!user || seen.has(user.id)) continue;
+    out.push({
+      userId: user.id,
+      phone: user.phone,
+      fullName: user.fullName,
+      source: "ENV",
+      createdAtUtcMs: null,
+    });
+  }
+  return out.sort((a, b) => a.phone.localeCompare(b.phone));
+}
+
+function normalizeOpsPhone(raw: string): string {
+  const digits = String(raw ?? "").replace(/[^\d]/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(-10);
+  if (digits.length === 10) return digits;
+  throw new ApiError("invalid_phone", { detail: "Phone must be 10 digits (or +91-prefixed)." });
+}
+
+/**
+ * Grants OPS_ADMIN to the user with the given phone. The user must already exist
+ * (registered as a customer/driver/operator). Creates the platform-ops org if needed.
+ */
+export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdminEntry {
+  const phone = normalizeOpsPhone(params.phone);
+  const user = [...store.users.values()].find((u) => u.phone === phone);
+  if (!user) {
+    throw new ApiError("user_not_found", {
+      detail: "Register this phone (customer or driver) before granting ops-admin.",
+    });
+  }
+  const org = getOrCreatePlatformOpsOrg(store);
+  const key = membershipKey(user.id, org.id);
+  const existing = store.memberships.get(key);
+  if (existing && existing.role === "OPS_ADMIN") {
+    return {
+      userId: user.id,
+      phone: user.phone,
+      fullName: user.fullName,
+      source: "DB",
+      createdAtUtcMs: existing.createdAtUtcMs,
+    };
+  }
+  const m: Membership = {
+    userId: user.id,
+    orgId: org.id,
+    role: "OPS_ADMIN",
+    createdAtUtcMs: nowUtcMs(),
+  };
+  store.memberships.set(key, m);
+  return {
+    userId: user.id,
+    phone: user.phone,
+    fullName: user.fullName,
+    source: "DB",
+    createdAtUtcMs: m.createdAtUtcMs,
+  };
+}
+
+/**
+ * Revokes OPS_ADMIN from the user with the given phone. Guards:
+ *   - At least one ops admin must remain (counting both DB rows and env-var phones).
+ *   - Cannot revoke yourself if you are the last DB ops admin.
+ */
+export function revokeOpsAdmin(
+  store: Store,
+  params: { phone: string; actingUserId: string },
+): { revoked: boolean } {
+  const phone = normalizeOpsPhone(params.phone);
+  const user = [...store.users.values()].find((u) => u.phone === phone);
+  if (!user) throw new ApiError("user_not_found", {});
+  const org = store.organizations.get(PLATFORM_OPS_ORG_ID);
+  if (!org) throw new ApiError("ops_admin_not_found", { detail: "No platform-ops org exists." });
+  const key = membershipKey(user.id, org.id);
+  const m = store.memberships.get(key);
+  if (!m || m.role !== "OPS_ADMIN") {
+    throw new ApiError("ops_admin_not_found", { detail: "This phone has no DB ops-admin grant." });
+  }
+  const remainingDb = [...store.memberships.values()].filter(
+    (x) => x.role === "OPS_ADMIN" && x.userId !== user.id,
+  ).length;
+  const envCount = envOpsAdminPhones().length;
+  if (remainingDb + envCount === 0) {
+    throw new ApiError("cannot_revoke_last_ops_admin", {
+      detail: "At least one ops admin must remain.",
+    });
+  }
+  store.memberships.delete(key);
+  return { revoked: true };
 }
 
 /** List/detail/POD visibility: org-scoped booking, or anonymous booking tied to the same phone as the logged-in user. */

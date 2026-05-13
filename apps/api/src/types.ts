@@ -1,6 +1,6 @@
 export type VehicleClass = "SMALL" | "MEDIUM" | "LARGE";
 
-export type OrgKind = "CARRIER_SOLO" | "CARRIER_FLEET" | "CUSTOMER" | "CARRIER_LEGACY";
+export type OrgKind = "CARRIER_SOLO" | "CARRIER_FLEET" | "CUSTOMER" | "CARRIER_LEGACY" | "PLATFORM";
 
 export type KycStatus = "NOT_STARTED" | "SUBMITTED" | "APPROVED" | "REJECTED";
 
