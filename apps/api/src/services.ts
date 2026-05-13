@@ -259,6 +259,28 @@ export function shipmentBelongsToCustomerOrg(shipment: Shipment, org: Organizati
   return shipment.customerOrgName === org.displayName;
 }
 
+/**
+ * True if this user is an authorized naviG8r operations admin.
+ * Two grant paths:
+ *   1. OPS_ADMIN_PHONES env var (comma-separated 10-digit phones) — bootstrap mechanism,
+ *      no DB row required. Use this for the first admin(s).
+ *   2. Any membership with role "OPS_ADMIN" — for future admin-managed grants.
+ */
+export function isOpsAdmin(store: Store, userId: string): boolean {
+  const user = store.users.get(userId);
+  if (!user) return false;
+  const envPhones = String(process.env.OPS_ADMIN_PHONES ?? "")
+    .split(",")
+    .map((s) => s.trim().replace(/[^\d]/g, ""))
+    .map((d) => (d.length === 12 && d.startsWith("91") ? d.slice(-10) : d))
+    .filter((d) => d.length === 10);
+  if (envPhones.includes(user.phone)) return true;
+  for (const m of store.memberships.values()) {
+    if (m.userId === userId && m.role === "OPS_ADMIN") return true;
+  }
+  return false;
+}
+
 /** List/detail/POD visibility: org-scoped booking, or anonymous booking tied to the same phone as the logged-in user. */
 export function shipmentVisibleToCustomerUser(store: Store, shipment: Shipment, userId: string): boolean {
   const user = store.users.get(userId);

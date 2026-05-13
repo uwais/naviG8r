@@ -4,7 +4,13 @@ export type OrgKind = "CARRIER_SOLO" | "CARRIER_FLEET" | "CUSTOMER" | "CARRIER_L
 
 export type KycStatus = "NOT_STARTED" | "SUBMITTED" | "APPROVED" | "REJECTED";
 
-export type MembershipRole = "OWNER_DRIVER" | "OWNER" | "DISPATCHER" | "DRIVER" | "CUSTOMER_ADMIN";
+export type MembershipRole =
+  | "OWNER_DRIVER"
+  | "OWNER"
+  | "DISPATCHER"
+  | "DRIVER"
+  | "CUSTOMER_ADMIN"
+  | "OPS_ADMIN";
 
 export type AnchorTripStatus = "OPEN" | "FULL" | "COMPLETED";
 

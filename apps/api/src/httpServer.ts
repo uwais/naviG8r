@@ -10,6 +10,7 @@ import {
   customerPrimaryOrgForUser,
   ensureRazorpayCapturedBeforePod,
   failCarrierAndRefund,
+  isOpsAdmin,
   markPodDelivered,
   customerEligibleAnchorTripsPhaseA,
   pilotLoginDriverByPhone,
@@ -201,7 +202,15 @@ export async function createApp(): Promise<{
           code: String(body?.code ?? ""),
         });
         await persist();
-        return json(res, 200, out);
+        return json(res, 200, { ...out, isOpsAdmin: isOpsAdmin(store, out.user.id) });
+      }
+
+      if (method === "GET" && url.pathname === "/v1/auth/me") {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        const user = store.users.get(userId);
+        if (!user) return json(res, 404, { error: "user_not_found" });
+        return json(res, 200, { user, isOpsAdmin: isOpsAdmin(store, userId) });
       }
 
       // --- v1 pilot API resources (Flutter Driver app first) ---
@@ -362,6 +371,10 @@ export async function createApp(): Promise<{
       .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
       .topbar .session-info { font-size: 13px; color: #555; }
       .topbar button { background: none; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; padding: 4px 10px; }
+      .role-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 6px; font-weight: 600; }
+      .role-ops { background: #e6f7ff; color: #0050b3; border: 1px solid #91d5ff; }
+      .role-customer { background: #f6f6f6; color: #555; border: 1px solid #ddd; }
+      .warning-banner { background: #fff1f0; border: 1px solid #ffa39e; color: #a8071a; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
     </style>
   </head>
   <body>
@@ -391,9 +404,15 @@ export async function createApp(): Promise<{
         <p class="muted" style="margin:2px 0 0;">Backed by <code>${esc(dataFilePath)}</code></p>
       </div>
       <div style="text-align:right;">
-        <span class="session-info" id="sessionInfo"></span><br/>
+        <span class="session-info" id="sessionInfo"></span>
+        <span id="roleBadge"></span><br/>
         <button onclick="logout()">Logout</button>
       </div>
+    </div>
+    <div id="nonOpsWarning" class="warning-banner" style="display:none;">
+      You're logged in but you're not an <strong>Ops Admin</strong>.
+      You can only act on shipments you booked. To get operator access,
+      add your phone to the <code>OPS_ADMIN_PHONES</code> environment variable on the server.
     </div>
 
     <div class="row">
@@ -491,6 +510,7 @@ export async function createApp(): Promise<{
     <script>
       const LS_TOKEN = "n8r_admin_token";
       const LS_PHONE = "n8r_admin_phone";
+      const LS_OPS = "n8r_admin_isops";
       let _challengeId = null;
 
       function showError(msg) {
@@ -535,6 +555,7 @@ export async function createApp(): Promise<{
           if (!res.ok) return showError(out.error || "Verification failed.");
           localStorage.setItem(LS_TOKEN, out.accessToken);
           localStorage.setItem(LS_PHONE, phone);
+          localStorage.setItem(LS_OPS, out.isOpsAdmin ? "1" : "0");
           enterAdmin();
         } catch (e) { showError("Network error."); }
       }
@@ -550,9 +571,33 @@ export async function createApp(): Promise<{
       function logout() {
         localStorage.removeItem(LS_TOKEN);
         localStorage.removeItem(LS_PHONE);
+        localStorage.removeItem(LS_OPS);
         document.getElementById("adminContent").style.display = "none";
         document.getElementById("loginGate").style.display = "block";
         resetLogin();
+      }
+
+      async function refreshOpsAdminStatus() {
+        try {
+          const res = await fetch("/v1/auth/me", { headers: authHeaders() });
+          if (!res.ok) return;
+          const out = await res.json();
+          localStorage.setItem(LS_OPS, out.isOpsAdmin ? "1" : "0");
+          renderRoleBadge();
+        } catch (e) {}
+      }
+
+      function renderRoleBadge() {
+        const isOps = localStorage.getItem(LS_OPS) === "1";
+        const badge = document.getElementById("roleBadge");
+        const warn = document.getElementById("nonOpsWarning");
+        if (isOps) {
+          badge.innerHTML = '<span class="role-badge role-ops">Ops Admin</span>';
+          warn.style.display = "none";
+        } else {
+          badge.innerHTML = '<span class="role-badge role-customer">Customer</span>';
+          warn.style.display = "block";
+        }
       }
 
       function enterAdmin() {
@@ -560,6 +605,8 @@ export async function createApp(): Promise<{
         document.getElementById("adminContent").style.display = "block";
         const phone = localStorage.getItem(LS_PHONE) || "";
         document.getElementById("sessionInfo").textContent = phone ? "Logged in as " + phone : "";
+        renderRoleBadge();
+        refreshOpsAdminStatus();
       }
 
       function authHeaders() {
@@ -754,7 +801,9 @@ export async function createApp(): Promise<{
           const userId = requireBearerUserId(req, res, store);
           if (!userId) return;
           const shipment = store.shipments.get(shipmentId);
-          if (!shipment || !shipmentVisibleToCustomerUser(store, shipment, userId)) {
+          if (!shipment) return json(res, 404, { error: "shipment_not_found" });
+          const opsAdmin = isOpsAdmin(store, userId);
+          if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipment, userId)) {
             return json(res, 404, { error: "shipment_not_found" });
           }
         } else if (!demoSurface) {
@@ -780,7 +829,9 @@ export async function createApp(): Promise<{
           const userId = requireBearerUserId(req, res, store);
           if (!userId) return;
           const shipmentPre = store.shipments.get(shipmentId);
-          if (!shipmentPre || !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
+          if (!shipmentPre) return json(res, 404, { error: "shipment_not_found" });
+          const opsAdmin = isOpsAdmin(store, userId);
+          if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
             return json(res, 404, { error: "shipment_not_found" });
           }
         } else if (!demoSurface) {
