@@ -23,6 +23,15 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [x] **B0.1 Razorpay (repo wiring, test mode)**: `PAYMENT_PROVIDER=RAZORPAY` — order without capture on book, webhook updates, capture at POD, Flutter checkout; **`PERSISTENCE=DB`** Postgres via Prisma for optional persistence.
 - [x] **Local dev verification**: `npm install` in `apps/api` then  
   `node --experimental-strip-types --test "apps/api/src/**/*.test.ts" "packages/**/src/**/*.test.ts"` (from repo root) — **all tests passing**.
+- [x] **Render production deploy (Docker)**: API ships as a Web Service from repo root with `Dockerfile`; build fixed for Prisma (`npm install --ignore-scripts` then copy tree + `npx prisma generate`) and valid `apps/api/package.json` (no merge-conflict JSON).
+- [x] **Hosted pilot API + Postgres**: `PERSISTENCE=DB` + `DATABASE_URL` on Render; env/runbook notes in `docs/RENDER.md`.
+- [x] **Legacy HTML admin (`/admin`)** (still gated in production by `ENABLE_LEGACY_DEMO_SURFACE=1`):
+  - OTP login (stores Bearer in `localStorage`), `GET /v1/auth/me`.
+  - **Ops admin RBAC**: `MembershipRole` **`OPS_ADMIN`** + singleton **`PLATFORM`** org; `GET/POST/DELETE /v1/ops-admins` for DB-backed operator whitelist; admin UI to list / grant / revoke (revoke only for DB rows).
+  - Optional bootstrap `OPS_ADMIN_PHONES` (comma-separated); first OTP verify **materializes** a DB `OPS_ADMIN` membership so the env list can be dropped after onboarding.
+  - **POD / fail-refund**: logged-in **ops admin** can act on **any** shipment (not only customer-visible rows); customers remain org/phone scoped.
+  - Admin header shows **Postgres (Prisma, PERSISTENCE=DB)** when not file-backed (fixes stray `Backed by null`).
+- [x] **Android pilot packaging (partial)**: `applicationId` / namespace **`com.navig8r.pilot`**, app label **naviG8r**, release signing wired via `key.properties` + keystore (see `docs/android-option-a-apk-pilot.md`).
 
 ---
 
@@ -34,8 +43,8 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [x] **Migration strategy for pilot**: greenfield / `prisma db push` — **no** `store.json` importer in repo yet (not required pre-pilot).
 - [ ] **Define environments**:
   - local dev (docker Postgres or local Postgres)
-  - staging (hosted Postgres)
-  - production (hosted Postgres)
+  - [ ] staging (hosted Postgres) — *optional; not a hard blocker if production pilot is the only hosted env today*
+  - [x] production (hosted Postgres on Render — pilot Web Service)
 
 ### A2 — Define schema + indexes (0.5–1 day)
 - [x] **Tables** (Prisma models): carriers, organizations, users, memberships, vehicles, driver profiles, OTP challenges, auth sessions, anchor trips, shipments, payments, ledger lines, payout batches — see `apps/api/prisma/schema.prisma`.
@@ -70,8 +79,8 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - `DATA_FILE` when file mode (default)
 - [x] **Feature flag**:
   - `PERSISTENCE=FILE|DB` (FILE is default when unset)
-- [ ] **Docs / ops**:
-  - hosted Postgres wiring (e.g. Render) end-to-end
+- [x] **Docs / ops**:
+  - hosted Postgres + Render wiring — see `docs/RENDER.md` (Docker root, `AUTH_SECRET`, `OTP_DEBUG`, Razorpay, `ENABLE_LEGACY_DEMO_SURFACE`, optional `OPS_ADMIN_PHONES` bootstrap)
 
 ### A6 — Tests + verification (1–2 days)
 - [x] **Baseline automated suite (local)**: from repo root, after `apps/api` **`npm install`**,  
@@ -172,7 +181,8 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - If coordinates are missing, pricing **gracefully degrades** to **weight-only** (same spirit as legacy).
 
 ### B1 — “Pilot-ready” product basics (1–2 days)
-- [ ] **Branding**: app name, icon, package id, launch screen.
+- [x] **Branding (partial)**: Android **package id** `com.navig8r.pilot`, **display name** naviG8r.
+- [ ] **Branding (remainder)**: launcher icon, splash / polish, store listing assets if needed.
 - [ ] **Environments**: dev vs pilot base URL switch (and a visible “Env: Pilot” label).
 - [ ] **Authentication UX**:
   - clear “Sign in required to view shipments”
@@ -182,11 +192,12 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - “unauthorized” recovery path (“Sign in again”)
 
 ### B2 — Build + signing + distribution (1–2 days)
-- [ ] **Versioning**: set `version:` and Android versionCode/versionName.
-- [ ] **Signing**:
-  - generate keystore (store securely)
+- [ ] **Versioning**: set `version:` and Android versionCode/versionName deliberately per pilot drop.
+- [x] **Signing (wired)**:
+  - generate keystore (store securely; not committed)
   - configure `android/key.properties` (do not commit secrets)
-  - build **release APK/AAB**
+  - [x] `build.gradle` uses release keystore when `key.properties` + `storeFile` present
+- [ ] **Build artifact**: repeatable **release APK/AAB** command in CI or documented one-liner per release.
 - [ ] **Distribution method** (pick one):
   - Firebase App Distribution (recommended)
   - Google Play Internal Testing
@@ -209,10 +220,9 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - OTP sign-in
   - book shipment with `customerPhone`
   - view shipments after sign-in
-- [ ] **Runbook**:
-  - how to reset a user
-  - how to inspect shipments/trips (admin surface or DB queries)
-  - support FAQs
+- [x] **Operator runbook (partial)**:
+  - [x] Inspect trips/shipments/ledger via **`/admin`** (OTP + ops admin); Mark POD / Fail+refund; manage ops admins via UI + `/v1/ops-admins`
+  - [ ] how to reset a user / support FAQs / DB ad-hoc queries beyond admin JSON dumps
 - [ ] **Customer list**: 10 target installs with names/phones + status.
 
 ### B5 — “Day 0” test plan before sending to customers (0.5 day)
@@ -225,14 +235,31 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 
 ## C) Next execution steps (suggested order)
 
+### Done recently (high level)
+
 - [x] **Customer OTP navigation baseline**: `/login?mode=customer` + OTP in `CustomerScaffold`; **Customer** bottom tab and **Continue to customer home** (after successful verify) return to **`/customer`** (real `matchedLocation` so nav is not stuck on login).
-- [ ] **`flutter run` + device smoke**: full quote/book flow on emulator + physical device (also **B5**).
 - [x] **Payment decision**: **authorize at checkout, capture at POD** (Razorpay).
 - [x] **Razorpay (test mode)** wired end-to-end: server order on book + webhook + Flutter checkout (live keys + dashboard webhook + retry UX still **B0.1** follow-ups).
 - [x] **DB decision**: **Postgres + Prisma**; greenfield / `prisma db push` (no `store.json` importer).
 - [x] **DB persistence feature flag**: **`PERSISTENCE=DB`** + file fallback (`DATA_FILE` when not DB).
-- [ ] **Staging deploy** with Postgres + env (`DATABASE_URL`, `PERSISTENCE=DB`, Razorpay test secrets) + hosted webhook URL.
+- [x] **Production pilot deploy** on Render (Docker + Postgres + env from `docs/RENDER.md`).
+- [x] **Admin + ops**: OTP-gated `/admin`, **ops admin** DB grants + API, POD/fail-refund across all shipments for ops admins.
+- [x] **Android pilot packaging (partial)**: `com.navig8r.pilot`, naviG8r label, release signing pattern.
+
+### What’s next (recommended priority)
+
+1. **Pilot hardening — payments & money** (**B0.1**): Razorpay **live** keys when ready, dashboard **webhook URL** on the public API host, **retry payment** if customer abandons checkout; optional reconciliation. Remember **POD still requires payment `AUTHORIZED`** for real captures — admin “Mark POD” over `CREATED` only works for unauthenticated legacy demo POSTs, not for logged-in flows unless checkout completed (or you introduce an explicit ops-only payment bypass later).
+2. **Pilot hardening — app** (**B1–B2**, **B5**): pilot **base URL** switch + visible env label; bump **versionCode** per drop; pick **distribution** (Firebase App Distribution vs internal track vs direct APK per `docs/android-option-a-apk-pilot.md`); **Google Maps** release restrictions (SHA-1 + package `com.navig8r.pilot`); emulator **RAM** for Maps + Razorpay WebView smoke.
+3. **Product gap (called out earlier, still open)**: **driver-side POD / trip completion** in the app vs admin-only — design + API + UI when you move past “MVP admin only.”
+4. **Data plane** (**A3–A4**, **A6**): Prisma **indexes** / uniqueness (`users.phone`, hot query paths); move off full-snapshot DB writes where it hurts; optional **CI** or manual **Postgres round-trip** regression beyond file-mode tests.
+5. **Optional staging**: separate Render service + DB if you want pre-prod before touching production pilot data (**A1**).
+6. **Observability** (**B3**): Crashlytics/Sentry + minimal analytics before widening beyond ~10 devices.
+7. **10-device rollout** (**B4–B5**): customer list, onboarding doc, day-0 test script, weekly feedback triage.
+
+### Still on the checklist (unchanged themes)
+
+- [ ] **`flutter run` + device smoke**: full quote/book flow on emulator + physical device (also **B5**).
 - [x] **B0.2 freight & pricing (phases 1–4)** — `rates/estimate`, **Publish** suggested freight, **Quote** breakdown + **`bookShipment` parity** when coords exist; tests + docs. **Still open:** optional eligible-trip ~₹ hints (**B0.2c**) + structured estimate logging/metrics.
-- [ ] **Pilot build**: release signing + distribution + crash reporting.
+- [ ] **Pilot build (completion)**: versioning cadence + chosen distribution channel + crash reporting (**B2**, **B3**).
 - [ ] **10-device rollout** + weekly feedback triage.
 
