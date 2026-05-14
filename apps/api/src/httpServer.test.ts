@@ -73,6 +73,18 @@ test("production disables legacy demo routes that expose or mutate operator stat
     assert.equal(refund.status, 401);
     assert.deepEqual(await refund.json(), { error: "unauthorized" });
 
+    const ledger = await fetch(`${baseUrl}/carriers/car_123/ledger`);
+    assert.equal(ledger.status, 403);
+    assert.deepEqual(await ledger.json(), { error: "legacy_demo_surface_disabled" });
+
+    const payoutRun = await postJson(baseUrl, "/payout-batches/run", {});
+    assert.equal(payoutRun.status, 403);
+    assert.deepEqual(await payoutRun.json(), { error: "legacy_demo_surface_disabled" });
+
+    const payoutBatches = await fetch(`${baseUrl}/payout-batches`);
+    assert.equal(payoutBatches.status, 403);
+    assert.deepEqual(await payoutBatches.json(), { error: "legacy_demo_surface_disabled" });
+
     const login = await postJson(baseUrl, "/v1/pilot/driver/login", { phone: "9876543210" });
     assert.equal(login.status, 403);
     assert.deepEqual(await login.json(), { error: "legacy_demo_surface_disabled" });
