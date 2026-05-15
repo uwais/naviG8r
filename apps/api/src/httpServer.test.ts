@@ -73,9 +73,52 @@ test("production disables legacy demo routes that expose or mutate operator stat
     assert.equal(refund.status, 401);
     assert.deepEqual(await refund.json(), { error: "unauthorized" });
 
+    const ledger = await fetch(`${baseUrl}/carriers/car_123/ledger`);
+    assert.equal(ledger.status, 403);
+    assert.deepEqual(await ledger.json(), { error: "legacy_demo_surface_disabled" });
+
+    const payoutRun = await postJson(baseUrl, "/payout-batches/run", {});
+    assert.equal(payoutRun.status, 403);
+    assert.deepEqual(await payoutRun.json(), { error: "legacy_demo_surface_disabled" });
+
+    const payoutBatches = await fetch(`${baseUrl}/payout-batches`);
+    assert.equal(payoutBatches.status, 403);
+    assert.deepEqual(await payoutBatches.json(), { error: "legacy_demo_surface_disabled" });
+
     const login = await postJson(baseUrl, "/v1/pilot/driver/login", { phone: "9876543210" });
     assert.equal(login.status, 403);
     assert.deepEqual(await login.json(), { error: "legacy_demo_surface_disabled" });
+  });
+});
+
+test("production legacy financial routes require bearer when demo surface is enabled", async (t) => {
+  const prev = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    ENABLE_LEGACY_DEMO_SURFACE: process.env.ENABLE_LEGACY_DEMO_SURFACE,
+  };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+    process.env.ENABLE_LEGACY_DEMO_SURFACE = prev.ENABLE_LEGACY_DEMO_SURFACE;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "production";
+  process.env.ENABLE_LEGACY_DEMO_SURFACE = "1";
+
+  await withApp(t, async (baseUrl) => {
+    const ledger = await fetch(`${baseUrl}/carriers/car_123/ledger`);
+    assert.equal(ledger.status, 401);
+    assert.deepEqual(await ledger.json(), { error: "unauthorized" });
+
+    const payoutRun = await postJson(baseUrl, "/payout-batches/run", {});
+    assert.equal(payoutRun.status, 401);
+    assert.deepEqual(await payoutRun.json(), { error: "unauthorized" });
+
+    const payoutBatches = await fetch(`${baseUrl}/payout-batches`);
+    assert.equal(payoutBatches.status, 401);
+    assert.deepEqual(await payoutBatches.json(), { error: "unauthorized" });
   });
 });
 
