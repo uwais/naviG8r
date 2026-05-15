@@ -363,28 +363,31 @@ export async function createApp(): Promise<{
 
       if (method === "GET" && url.pathname === "/v1/orgs") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const orgs = [...store.organizations.values()];
         return json(res, 200, { orgs });
       }
 
       if (method === "GET" && url.pathname === "/v1/users") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const users = [...store.users.values()];
         return json(res, 200, { users });
       }
 
       if (method === "GET" && url.pathname === "/admin") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const carriers = [...store.carriers.values()];
-        const orgs = [...store.organizations.values()];
-        const users = [...store.users.values()];
-        const memberships = [...store.memberships.values()];
-        const vehicles = [...store.vehicles.values()];
-        const driverProfiles = [...store.driverProfiles.values()];
-        const trips = [...store.anchorTrips.values()];
-        const shipments = [...store.shipments.values()];
-        const ledgerLines = [...store.ledgerLines.values()];
-        const payoutBatches = [...store.payoutBatches.values()];
+        const includeAdminSnapshot = process.env.NODE_ENV !== "production";
+        const carriers = includeAdminSnapshot ? [...store.carriers.values()] : [];
+        const orgs = includeAdminSnapshot ? [...store.organizations.values()] : [];
+        const users = includeAdminSnapshot ? [...store.users.values()] : [];
+        const memberships = includeAdminSnapshot ? [...store.memberships.values()] : [];
+        const vehicles = includeAdminSnapshot ? [...store.vehicles.values()] : [];
+        const driverProfiles = includeAdminSnapshot ? [...store.driverProfiles.values()] : [];
+        const trips = includeAdminSnapshot ? [...store.anchorTrips.values()] : [];
+        const shipments = includeAdminSnapshot ? [...store.shipments.values()] : [];
+        const ledgerLines = includeAdminSnapshot ? [...store.ledgerLines.values()] : [];
+        const payoutBatches = includeAdminSnapshot ? [...store.payoutBatches.values()] : [];
 
         const esc = (s: any) =>
           String(s)
@@ -469,6 +472,7 @@ export async function createApp(): Promise<{
       ask an existing ops admin to grant you the role, or have your phone added
       to <code>OPS_ADMIN_PHONES</code> (bootstrap-only) on the server.
     </div>
+    ${includeAdminSnapshot ? "" : `<div class="warning-banner">Production server-side data snapshots are disabled. Use the authenticated admin actions below.</div>`}
 
     <div id="opsAdminsCard" class="card" style="margin-bottom:12px;display:none;">
       <h2>Ops Admins <span class="muted">(DB-backed — survives env-var removal)</span></h2>
@@ -910,7 +914,7 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+        const demoSurface = process.env.NODE_ENV !== "production" && process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
         const hasBearerToken = !!bearerToken(req);
         if (hasBearerToken) {
           const userId = requireBearerUserId(req, res, store);
@@ -938,7 +942,7 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+        const demoSurface = process.env.NODE_ENV !== "production" && process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
         const hasBearerToken = !!bearerToken(req);
         if (hasBearerToken) {
           const userId = requireBearerUserId(req, res, store);

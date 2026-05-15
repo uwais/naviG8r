@@ -3,6 +3,7 @@ import test from "node:test";
 import { once } from "node:events";
 import type http from "node:http";
 import { createApp } from "./httpServer.ts";
+import { registerCustomerOrgAdmin } from "./services.ts";
 
 type AppBundle = Awaited<ReturnType<typeof createApp>>;
 
@@ -119,6 +120,53 @@ test("production legacy financial routes require bearer when demo surface is ena
     const payoutBatches = await fetch(`${baseUrl}/payout-batches`);
     assert.equal(payoutBatches.status, 401);
     assert.deepEqual(await payoutBatches.json(), { error: "unauthorized" });
+
+    const pod = await postJson(baseUrl, "/shipments/shp_123/pod", {});
+    assert.equal(pod.status, 401);
+    assert.deepEqual(await pod.json(), { error: "unauthorized" });
+
+    const refund = await postJson(baseUrl, "/shipments/shp_123/fail-refund", {});
+    assert.equal(refund.status, 401);
+    assert.deepEqual(await refund.json(), { error: "unauthorized" });
+  });
+});
+
+test("production admin shell does not server-render store data", async (t) => {
+  const prev = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    ENABLE_LEGACY_DEMO_SURFACE: process.env.ENABLE_LEGACY_DEMO_SURFACE,
+  };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+    process.env.ENABLE_LEGACY_DEMO_SURFACE = prev.ENABLE_LEGACY_DEMO_SURFACE;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "production";
+  process.env.ENABLE_LEGACY_DEMO_SURFACE = "1";
+
+  await withApp(t, async (baseUrl, app) => {
+    registerCustomerOrgAdmin(app.store, {
+      fullName: "Sensitive Buyer",
+      phone: "9988776655",
+      orgDisplayName: "Secret Co",
+    });
+
+    const res = await fetch(`${baseUrl}/admin`);
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.match(body, /Production server-side data snapshots are disabled/);
+    assert.doesNotMatch(body, /Sensitive Buyer|9988776655|Secret Co/);
+
+    const users = await fetch(`${baseUrl}/v1/users`);
+    assert.equal(users.status, 401);
+    assert.deepEqual(await users.json(), { error: "unauthorized" });
+
+    const orgs = await fetch(`${baseUrl}/v1/orgs`);
+    assert.equal(orgs.status, 401);
+    assert.deepEqual(await orgs.json(), { error: "unauthorized" });
   });
 });
 
