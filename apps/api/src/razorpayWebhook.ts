@@ -78,7 +78,7 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     const pay = (razorpayPayId ? findPaymentByRazorpayPaymentId(store, razorpayPayId) : undefined)
       ?? (orderId ? findPaymentByRazorpayOrderId(store, orderId) : undefined);
     if (!pay || pay.provider !== "RAZORPAY") return;
-    if (pay.status === "CAPTURED" || pay.status === "REFUNDED") return;
+    if (pay.status !== "CREATED" && pay.status !== "FAILED") return;
     store.payments.set(pay.id, {
       ...pay,
       ...(razorpayPayId ? { razorpayPaymentId: razorpayPayId } : {}),
