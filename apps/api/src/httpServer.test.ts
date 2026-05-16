@@ -79,6 +79,48 @@ test("production disables legacy demo routes that expose or mutate operator stat
   });
 });
 
+test("production demo flags do not allow unauthenticated privileged mutations", async (t) => {
+  const prev = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    ENABLE_LEGACY_DEMO_SURFACE: process.env.ENABLE_LEGACY_DEMO_SURFACE,
+    ALLOW_X_USER_ID: process.env.ALLOW_X_USER_ID,
+  };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+    process.env.ENABLE_LEGACY_DEMO_SURFACE = prev.ENABLE_LEGACY_DEMO_SURFACE;
+    process.env.ALLOW_X_USER_ID = prev.ALLOW_X_USER_ID;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "production";
+  process.env.ENABLE_LEGACY_DEMO_SURFACE = "1";
+  process.env.ALLOW_X_USER_ID = "1";
+
+  await withApp(t, async (baseUrl) => {
+    const pod = await postJson(baseUrl, "/shipments/shp_123/pod", {});
+    assert.equal(pod.status, 401);
+    assert.deepEqual(await pod.json(), { error: "unauthorized" });
+
+    const refund = await postJson(baseUrl, "/shipments/shp_123/fail-refund", {});
+    assert.equal(refund.status, 401);
+    assert.deepEqual(await refund.json(), { error: "unauthorized" });
+
+    const payout = await postJson(baseUrl, "/payout-batches/run", {});
+    assert.equal(payout.status, 401);
+    assert.deepEqual(await payout.json(), { error: "unauthorized" });
+
+    const ledger = await fetch(`${baseUrl}/carriers/org_123/ledger`);
+    assert.equal(ledger.status, 401);
+    assert.deepEqual(await ledger.json(), { error: "unauthorized" });
+
+    const pilotMe = await fetch(`${baseUrl}/v1/pilot/me`, { headers: { "x-user-id": "usr_victim" } });
+    assert.equal(pilotMe.status, 401);
+    assert.deepEqual(await pilotMe.json(), { error: "unauthorized" });
+  });
+});
+
 test("legacy demo surface remains available outside production", async (t) => {
   const prev = {
     DATA_FILE: process.env.DATA_FILE,
