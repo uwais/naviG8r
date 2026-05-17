@@ -450,7 +450,7 @@ export async function createApp(): Promise<{
     </div>
     <div id="nonOpsWarning" class="warning-banner" style="display:none;">
       You're logged in but you're not an <strong>Ops Admin</strong>.
-      You can only act on shipments you booked. To get operator access,
+      You can view shipments you booked, but operator actions require Ops Admin access. To get operator access,
       ask an existing ops admin to grant you the role, or have your phone added
       to <code>OPS_ADMIN_PHONES</code> (bootstrap-only) on the server.
     </div>
@@ -903,8 +903,11 @@ export async function createApp(): Promise<{
           const shipment = store.shipments.get(shipmentId);
           if (!shipment) return json(res, 404, { error: "shipment_not_found" });
           const opsAdmin = isOpsAdmin(store, userId);
-          if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipment, userId)) {
-            return json(res, 404, { error: "shipment_not_found" });
+          if (!opsAdmin) {
+            if (!shipmentVisibleToCustomerUser(store, shipment, userId)) {
+              return json(res, 404, { error: "shipment_not_found" });
+            }
+            return json(res, 403, { error: "forbidden" });
           }
         } else if (!demoSurface) {
           return json(res, 401, { error: "unauthorized" });
@@ -931,8 +934,11 @@ export async function createApp(): Promise<{
           const shipmentPre = store.shipments.get(shipmentId);
           if (!shipmentPre) return json(res, 404, { error: "shipment_not_found" });
           const opsAdmin = isOpsAdmin(store, userId);
-          if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
-            return json(res, 404, { error: "shipment_not_found" });
+          if (!opsAdmin) {
+            if (!shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
+              return json(res, 404, { error: "shipment_not_found" });
+            }
+            return json(res, 403, { error: "forbidden" });
           }
         } else if (!demoSurface) {
           return json(res, 401, { error: "unauthorized" });
