@@ -75,7 +75,7 @@ function bearerToken(req: http.IncomingMessage): string | null {
 }
 
 function requireUserId(req: http.IncomingMessage, store: ReturnType<typeof loadStoreFromDisk>): string {
-  const allowHeader = process.env.ALLOW_X_USER_ID === "1";
+  const allowHeader = process.env.NODE_ENV !== "production" && process.env.ALLOW_X_USER_ID === "1";
   if (allowHeader) {
     const hdr = String(header(req, "x-user-id") ?? "");
     if (hdr) return hdr;

@@ -35,16 +35,19 @@ async function postJson(baseUrl: string, path: string, body: unknown): Promise<R
  */
 test("production disables legacy demo routes that expose or mutate operator state", async (t) => {
   const prev = {
+    ALLOW_X_USER_ID: process.env.ALLOW_X_USER_ID,
     DATA_FILE: process.env.DATA_FILE,
     NODE_ENV: process.env.NODE_ENV,
     ENABLE_LEGACY_DEMO_SURFACE: process.env.ENABLE_LEGACY_DEMO_SURFACE,
   };
   t.after(() => {
+    process.env.ALLOW_X_USER_ID = prev.ALLOW_X_USER_ID;
     process.env.DATA_FILE = prev.DATA_FILE;
     process.env.NODE_ENV = prev.NODE_ENV;
     process.env.ENABLE_LEGACY_DEMO_SURFACE = prev.ENABLE_LEGACY_DEMO_SURFACE;
   });
 
+  process.env.ALLOW_X_USER_ID = "1";
   process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
   process.env.NODE_ENV = "production";
   delete process.env.ENABLE_LEGACY_DEMO_SURFACE;
@@ -84,6 +87,10 @@ test("production disables legacy demo routes that expose or mutate operator stat
     const payoutList = await fetch(`${baseUrl}/payout-batches`);
     assert.equal(payoutList.status, 401);
     assert.deepEqual(await payoutList.json(), { error: "unauthorized" });
+
+    const pilotMe = await fetch(`${baseUrl}/v1/pilot/me`, { headers: { "x-user-id": "usr_spoofed" } });
+    assert.equal(pilotMe.status, 401);
+    assert.deepEqual(await pilotMe.json(), { error: "unauthorized" });
 
     const login = await postJson(baseUrl, "/v1/pilot/driver/login", { phone: "9876543210" });
     assert.equal(login.status, 403);
