@@ -128,6 +128,20 @@ function requireBearerUserId(
   }
 }
 
+function requireOpsAdminUserId(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: ReturnType<typeof loadStoreFromDisk>,
+): string | null {
+  const userId = requireBearerUserId(req, res, store);
+  if (!userId) return null;
+  if (!isOpsAdmin(store, userId)) {
+    json(res, 403, { error: "forbidden" });
+    return null;
+  }
+  return userId;
+}
+
 export async function createApp(): Promise<{
   server: http.Server;
   store: ReturnType<typeof loadStoreFromDisk>;
@@ -219,6 +233,23 @@ export async function createApp(): Promise<{
         const user = store.users.get(userId);
         if (!user) return json(res, 404, { error: "user_not_found" });
         return json(res, 200, { user, isOpsAdmin: isOpsAdmin(store, userId) });
+      }
+
+      if (method === "GET" && url.pathname === "/v1/admin/snapshot") {
+        const userId = requireOpsAdminUserId(req, res, store);
+        if (!userId) return;
+        return json(res, 200, {
+          carriers: [...store.carriers.values()],
+          organizations: [...store.organizations.values()],
+          users: [...store.users.values()],
+          memberships: [...store.memberships.values()],
+          vehicles: [...store.vehicles.values()],
+          driverProfiles: [...store.driverProfiles.values()],
+          anchorTrips: [...store.anchorTrips.values()],
+          shipments: [...store.shipments.values()],
+          ledgerLines: [...store.ledgerLines.values()],
+          payoutBatches: [...store.payoutBatches.values()],
+        });
       }
 
       // --- v1 ops-admins management (DB-backed grants) ---
@@ -360,17 +391,6 @@ export async function createApp(): Promise<{
 
       if (method === "GET" && url.pathname === "/admin") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const carriers = [...store.carriers.values()];
-        const orgs = [...store.organizations.values()];
-        const users = [...store.users.values()];
-        const memberships = [...store.memberships.values()];
-        const vehicles = [...store.vehicles.values()];
-        const driverProfiles = [...store.driverProfiles.values()];
-        const trips = [...store.anchorTrips.values()];
-        const shipments = [...store.shipments.values()];
-        const ledgerLines = [...store.ledgerLines.values()];
-        const payoutBatches = [...store.payoutBatches.values()];
-
         const esc = (s: any) =>
           String(s)
             .replaceAll("&", "&amp;")
@@ -525,35 +545,7 @@ export async function createApp(): Promise<{
       </div>
     </div>
 
-    <h3>Carriers (${carriers.length})</h3>
-    <pre>${esc(JSON.stringify(carriers, null, 2))}</pre>
-
-    <h3>Organizations (${orgs.length})</h3>
-    <pre>${esc(JSON.stringify(orgs, null, 2))}</pre>
-
-    <h3>Users (${users.length})</h3>
-    <pre>${esc(JSON.stringify(users, null, 2))}</pre>
-
-    <h3>Memberships (${memberships.length})</h3>
-    <pre>${esc(JSON.stringify(memberships, null, 2))}</pre>
-
-    <h3>Vehicles (${vehicles.length})</h3>
-    <pre>${esc(JSON.stringify(vehicles, null, 2))}</pre>
-
-    <h3>Driver profiles (${driverProfiles.length})</h3>
-    <pre>${esc(JSON.stringify(driverProfiles, null, 2))}</pre>
-
-    <h3>Anchor trips (${trips.length})</h3>
-    <pre>${esc(JSON.stringify(trips, null, 2))}</pre>
-
-    <h3>Shipments (${shipments.length})</h3>
-    <pre>${esc(JSON.stringify(shipments, null, 2))}</pre>
-
-    <h3>Ledger lines (${ledgerLines.length})</h3>
-    <pre>${esc(JSON.stringify(ledgerLines, null, 2))}</pre>
-
-    <h3>Payout batches (${payoutBatches.length})</h3>
-    <pre>${esc(JSON.stringify(payoutBatches, null, 2))}</pre>
+    <div id="adminSnapshot" class="muted">Log in as an ops admin to load admin data.</div>
 
     </div><!-- end adminContent -->
 
@@ -647,10 +639,54 @@ export async function createApp(): Promise<{
           warn.style.display = "none";
           opsCard.style.display = "block";
           loadOpsAdmins();
+          loadAdminSnapshot();
         } else {
           badge.innerHTML = '<span class="role-badge role-customer">Customer</span>';
           warn.style.display = "block";
           opsCard.style.display = "none";
+          document.getElementById("adminSnapshot").textContent = "Admin data is visible to ops admins only.";
+        }
+      }
+
+      function escapeHtml(s) {
+        return String(s)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      async function loadAdminSnapshot() {
+        const el = document.getElementById("adminSnapshot");
+        el.textContent = "Loading admin data...";
+        try {
+          const res = await fetch("/v1/admin/snapshot", { headers: authHeaders() });
+          const out = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            el.textContent = res.status === 403 ? "Ops admin access required." : "Failed to load admin data.";
+            return;
+          }
+          const sections = [
+            ["Carriers", out.carriers],
+            ["Organizations", out.organizations],
+            ["Users", out.users],
+            ["Memberships", out.memberships],
+            ["Vehicles", out.vehicles],
+            ["Driver profiles", out.driverProfiles],
+            ["Anchor trips", out.anchorTrips],
+            ["Shipments", out.shipments],
+            ["Ledger lines", out.ledgerLines],
+            ["Payout batches", out.payoutBatches],
+          ];
+          el.className = "";
+          el.innerHTML = sections.map(function(section) {
+            const title = section[0];
+            const rows = Array.isArray(section[1]) ? section[1] : [];
+            return "<h3>" + escapeHtml(title) + " (" + rows.length + ")</h3><pre>" +
+              escapeHtml(JSON.stringify(rows, null, 2)) + "</pre>";
+          }).join("");
+        } catch (e) {
+          el.textContent = "Network error loading admin data.";
         }
       }
 
@@ -895,23 +931,13 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
-        const hasBearerToken = !!bearerToken(req);
-        if (hasBearerToken) {
-          const userId = requireBearerUserId(req, res, store);
-          if (!userId) return;
-          const shipment = store.shipments.get(shipmentId);
-          if (!shipment) return json(res, 404, { error: "shipment_not_found" });
-          const opsAdmin = isOpsAdmin(store, userId);
-          if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipment, userId)) {
-            return json(res, 404, { error: "shipment_not_found" });
-          }
-        } else if (!demoSurface) {
-          return json(res, 401, { error: "unauthorized" });
-        } else {
-          if (!store.shipments.get(shipmentId)) {
-            return json(res, 404, { error: "shipment_not_found" });
-          }
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        const shipment = store.shipments.get(shipmentId);
+        if (!shipment) return json(res, 404, { error: "shipment_not_found" });
+        const opsAdmin = isOpsAdmin(store, userId);
+        if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipment, userId)) {
+          return json(res, 404, { error: "shipment_not_found" });
         }
         const body = await readJson(req);
         await ensureRazorpayCapturedBeforePod(store, shipmentId);
@@ -923,23 +949,13 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
-        const hasBearerToken = !!bearerToken(req);
-        if (hasBearerToken) {
-          const userId = requireBearerUserId(req, res, store);
-          if (!userId) return;
-          const shipmentPre = store.shipments.get(shipmentId);
-          if (!shipmentPre) return json(res, 404, { error: "shipment_not_found" });
-          const opsAdmin = isOpsAdmin(store, userId);
-          if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
-            return json(res, 404, { error: "shipment_not_found" });
-          }
-        } else if (!demoSurface) {
-          return json(res, 401, { error: "unauthorized" });
-        } else {
-          if (!store.shipments.get(shipmentId)) {
-            return json(res, 404, { error: "shipment_not_found" });
-          }
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        const shipmentPre = store.shipments.get(shipmentId);
+        if (!shipmentPre) return json(res, 404, { error: "shipment_not_found" });
+        const opsAdmin = isOpsAdmin(store, userId);
+        if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
+          return json(res, 404, { error: "shipment_not_found" });
         }
         const shipment = await failCarrierAndRefund(store, { shipmentId });
         await persist();
@@ -947,12 +963,16 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        const userId = requireOpsAdminUserId(req, res, store);
+        if (!userId) return;
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        const userId = requireOpsAdminUserId(req, res, store);
+        if (!userId) return;
         const body = await readJson(req);
         const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
         await persist();
@@ -960,6 +980,8 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        const userId = requireOpsAdminUserId(req, res, store);
+        if (!userId) return;
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
