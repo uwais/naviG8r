@@ -41,12 +41,12 @@ abstract final class DriverTheme {
           borderSide: const BorderSide(color: border),
         ),
       ),
-      cardTheme: CardThemeData(
+      cardTheme: const CardTheme(
         color: Colors.white,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: border),
+          borderRadius: BorderRadius.all(Radius.circular(16)),
+          side: BorderSide(color: border),
         ),
       ),
       chipTheme: ChipThemeData(
@@ -56,15 +56,15 @@ abstract final class DriverTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.white,
-        indicatorColor: navy.withValues(alpha: 0.12),
-        labelTextStyle: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) {
+        indicatorColor: navy.withOpacity(0.12),
+        labelTextStyle: MaterialStateProperty.resolveWith((states) {
+          if (states.contains(MaterialState.selected)) {
             return const TextStyle(color: navy, fontWeight: FontWeight.w600, fontSize: 11);
           }
           return const TextStyle(color: muted, fontSize: 11);
         }),
-        iconTheme: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) {
+        iconTheme: MaterialStateProperty.resolveWith((states) {
+          if (states.contains(MaterialState.selected)) {
             return const IconThemeData(color: navy);
           }
           return const IconThemeData(color: muted);
