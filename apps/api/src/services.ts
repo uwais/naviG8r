@@ -12,6 +12,7 @@ import type {
   Carrier,
   DriverProfile,
   GeoPoint,
+  KycStatus,
   LedgerLine,
   Membership,
   Organization,
@@ -512,6 +513,92 @@ export function pilotListMyAnchorTrips(store: Store, userId: string): AnchorTrip
   const trips = [...store.anchorTrips.values()].filter((t) => carrierOrgIds.has(t.carrierId));
   trips.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
   return trips;
+}
+
+export function pilotCarrierOrgIds(store: Store, userId: string): string[] {
+  const me = pilotMe(store, userId);
+  return me.organizations
+    .filter((o) => o.kind === "CARRIER_SOLO" || o.kind === "CARRIER_FLEET" || o.kind === "CARRIER_LEGACY")
+    .map((o) => o.id);
+}
+
+/** Driver can act on shipments for orgs they belong to as carrier staff. */
+export function shipmentVisibleToCarrierPilot(store: Store, shipment: Shipment, userId: string): boolean {
+  const ids = new Set(pilotCarrierOrgIds(store, userId));
+  return ids.has(shipment.carrierId);
+}
+
+export function pilotListCarrierShipments(
+  store: Store,
+  userId: string,
+  params?: { anchorTripId?: string },
+): Shipment[] {
+  const ids = new Set(pilotCarrierOrgIds(store, userId));
+  let list = [...store.shipments.values()].filter((s) => ids.has(s.carrierId));
+  const tripId = params?.anchorTripId?.trim();
+  if (tripId) list = list.filter((s) => s.anchorTripId === tripId);
+  list.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
+  return list;
+}
+
+export function pilotCarrierEarningsSummary(store: Store, userId: string, carrierOrgId: string): {
+  carrierOrgId: string;
+  kycStatus: KycStatus;
+  pendingAccruedPaise: number;
+  paidPaise: number;
+  bookedCount: number;
+  deliveredCount: number;
+} {
+  assertPilotDriverCanManageOrg(store, userId, carrierOrgId);
+  const org = getOrgOrThrow(store, carrierOrgId);
+  const shipments = [...store.shipments.values()].filter((s) => s.carrierId === carrierOrgId);
+  const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierOrgId);
+  const pendingAccruedPaise = lines.filter((l) => l.status === "ACCRUED").reduce((sum, l) => sum + l.netToCarrierPaise, 0);
+  const paidPaise = lines.filter((l) => l.status === "PAID").reduce((sum, l) => sum + l.netToCarrierPaise, 0);
+  return {
+    carrierOrgId,
+    kycStatus: org.kycStatus,
+    pendingAccruedPaise,
+    paidPaise,
+    bookedCount: shipments.filter((s) => s.status === "BOOKED").length,
+    deliveredCount: shipments.filter((s) => s.status === "DELIVERED").length,
+  };
+}
+
+export function pilotSubmitPayoutSetup(
+  store: Store,
+  userId: string,
+  params: { orgId: string; accountHolderName: string; ifsc: string },
+): { org: Organization; message: string } {
+  assertPilotDriverCanManageOrg(store, userId, params.orgId);
+  const org = getOrgOrThrow(store, params.orgId);
+  if (!String(params.accountHolderName ?? "").trim() || !String(params.ifsc ?? "").trim()) {
+    throw new ApiError("invalid_payout_profile", { detail: "accountHolderName and ifsc are required." });
+  }
+  const updated: Organization = { ...org, kycStatus: "SUBMITTED" };
+  store.organizations.set(org.id, updated);
+  return {
+    org: updated,
+    message:
+      "Payout details received for verification. Transfers run after POD, cooling-off, and batch settlement — not at signup.",
+  };
+}
+
+export function pilotListCarrierLedger(store: Store, userId: string, carrierOrgId: string): LedgerLine[] {
+  assertPilotDriverCanManageOrg(store, userId, carrierOrgId);
+  const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierOrgId);
+  lines.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
+  return lines;
+}
+
+export function pilotListCarrierPayoutBatches(store: Store, userId: string, carrierOrgId: string): PayoutBatch[] {
+  assertPilotDriverCanManageOrg(store, userId, carrierOrgId);
+  const lineIds = new Set(
+    [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierOrgId).map((l) => l.id),
+  );
+  const batches = [...store.payoutBatches.values()].filter((b) => b.lineIds.some((id) => lineIds.has(id)));
+  batches.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
+  return batches;
 }
 
 export function pilotGetMyAnchorTrip(store: Store, userId: string, tripId: string): AnchorTrip {

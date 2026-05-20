@@ -8,48 +8,10 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 import "package:go_router/go_router.dart";
 import "package:razorpay_flutter/razorpay_flutter.dart";
 
+import "driver_flow.dart";
+import "driver_theme.dart";
 import "location_editor.dart";
-
-/// Android emulator → host machine API:
-/// `http://10.0.2.2:3000`
-///
-/// Physical Android on same LAN:
-/// `http://<YOUR_PC_LAN_IP>:3000`
-const String kDefaultBaseUrl = "https://navig8r.onrender.com";
-
-const _storage = FlutterSecureStorage();
-
-class Api {
-  Api(this.baseUrl) : dio = Dio(BaseOptions(baseUrl: baseUrl, headers: {"content-type": "application/json"})) {
-    dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) async {
-      final token = await _storage.read(key: "access_token");
-      if (token != null && token.isNotEmpty) {
-        options.headers["authorization"] = "Bearer $token";
-      }
-      handler.next(options);
-    }));
-  }
-
-  final String baseUrl;
-  final Dio dio;
-
-  Future<void> setToken(String token) => _storage.write(key: "access_token", value: token);
-  Future<void> clearToken() => _storage.delete(key: "access_token");
-
-  Future<Response<T>> get<T>(String path, {Map<String, dynamic>? query}) => dio.get<T>(path, queryParameters: query);
-  Future<Response<T>> post<T>(String path, {Object? data}) => dio.post<T>(path, data: data);
-}
-
-late Api api;
-
-String _formatApiError(Object e) {
-  if (e is DioException) {
-    final status = e.response?.statusCode;
-    final body = e.response?.data;
-    return "HTTP ${status ?? "?"}: ${body ?? e.message ?? e.toString()}";
-  }
-  return e.toString();
-}
+import "pilot_api.dart";
 
 Future<void> _copyToClipboard(BuildContext context, String label, String value) async {
   await Clipboard.setData(ClipboardData(text: value));
@@ -73,38 +35,6 @@ Widget _legendStripe(BuildContext context, Color color, double thickness, String
       Expanded(child: Text(label, style: Theme.of(context).textTheme.bodySmall)),
     ],
   );
-}
-
-/// Last `org.id` from a successful `POST /v1/pilot/driver/register` (same isolate / app session).
-String? lastRegisteredOrgId;
-
-String _digitsOnly(String input) => input.replaceAll(RegExp(r"\D"), "");
-
-String? _orgIdFromRegisterResponse(Map<String, dynamic>? data) {
-  final org = data?["org"];
-  if (org is Map<String, dynamic>) {
-    final id = org["id"];
-    if (id is String && id.trim().isNotEmpty) return id.trim();
-  }
-  return null;
-}
-
-String? _firstCarrierOrgIdFromPilotMe(Map<String, dynamic>? data) {
-  final orgs = data?["organizations"];
-  if (orgs is! List<dynamic>) return null;
-  for (final o in orgs) {
-    if (o is Map<String, dynamic>) {
-      final kind = o["kind"] as String?;
-      final id = o["id"] as String?;
-      if (id == null || id.isEmpty) continue;
-      if (kind == "CARRIER_SOLO" || kind == "CARRIER_FLEET" || kind == "CARRIER_LEGACY") return id;
-    }
-  }
-  if (orgs.isNotEmpty && orgs.first is Map<String, dynamic>) {
-    final id = (orgs.first as Map<String, dynamic>)["id"] as String?;
-    if (id != null && id.isNotEmpty) return id;
-  }
-  return null;
 }
 
 /// ISO-8601 local wall time with explicit `+05:30` offset (API examples use IST).
@@ -142,8 +72,11 @@ class DriverPilotApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final router = GoRouter(
       navigatorKey: _rootNavigatorKey,
+      initialLocation: "/driver",
       routes: [
-        GoRoute(path: "/", builder: (_, __) => const HomeScreen()),
+        ...driverFlowRoutes(),
+        GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
+        GoRoute(path: "/", redirect: (_, __) => "/driver"),
         GoRoute(path: "/register", builder: (_, __) => const RegisterScreen()),
         GoRoute(path: "/login", builder: (_, __) => const LoginScreen()),
         GoRoute(path: "/trips", builder: (_, __) => const MyTripsScreen()),
@@ -166,12 +99,8 @@ class DriverPilotApp extends StatelessWidget {
     );
 
     return MaterialApp.router(
-      title: "Driver Pilot",
-      theme: ThemeData(
-        colorSchemeSeed: Colors.indigo,
-        useMaterial3: true,
-        inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder()),
-      ),
+      title: "NaviG8r Driver",
+      theme: DriverTheme.theme(),
       routerConfig: router,
     );
   }
@@ -201,7 +130,7 @@ class PilotScaffold extends StatelessWidget {
         return 3;
       case "/publish":
         return 4;
-      case "/":
+      case "/pilot-lab":
       default:
         return 0;
     }
@@ -219,7 +148,7 @@ class PilotScaffold extends StatelessWidget {
         return "/publish";
       case 0:
       default:
-        return "/";
+        return "/pilot-lab";
     }
   }
 
@@ -336,11 +265,11 @@ class _HomeScreenState extends State<HomeScreen> {
       final user = r.data?["user"];
       final phone = (user is Map<String, dynamic>) ? user["phone"] : null;
       final name = (user is Map<String, dynamic>) ? user["fullName"] : null;
-      final orgId = _firstCarrierOrgIdFromPilotMe(r.data);
+      final orgId = firstCarrierOrgIdFromPilotMe(r.data);
       if (orgId != null) lastRegisteredOrgId = orgId;
       setState(() => _me = "user: ${name ?? "?"} (${phone ?? "?"})\ncarrierOrg: ${orgId ?? "—"}");
     } catch (e) {
-      setState(() => _me = _formatApiError(e));
+      setState(() => _me = formatApiError(e));
     } finally {
       setState(() => _loadingMe = false);
     }
@@ -374,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return PilotScaffold(
       title: "Driver Pilot",
-      currentPath: "/",
+      currentPath: "/pilot-lab",
       actions: [
         IconButton(
           tooltip: "Logout",
@@ -500,7 +429,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _submit() async {
     setState(() => _submitting = true);
     try {
-      final phone = _digitsOnly(_phone.text.trim());
+      final phone = digitsOnly(_phone.text.trim());
       if (phone.length != 10) {
         setState(() => _out = "Phone must be 10 digits.");
         return;
@@ -516,11 +445,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           "vehicleCapacityKg": int.tryParse(_capKg.text.trim()) ?? 0,
         },
       );
-      final orgId = _orgIdFromRegisterResponse(r.data);
+      final orgId = orgIdFromRegisterResponse(r.data);
       if (orgId != null) lastRegisteredOrgId = orgId;
       setState(() => _out = r.data?.toString() ?? "{}");
     } catch (e) {
-      setState(() => _out = _formatApiError(e));
+      setState(() => _out = formatApiError(e));
     } finally {
       setState(() => _submitting = false);
     }
@@ -597,7 +526,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _start() async {
     setState(() => _starting = true);
-    final phone = _digitsOnly(_phone.text.trim());
+    final phone = digitsOnly(_phone.text.trim());
     if (phone.length != 10) {
       setState(() {
         _startOut = "Phone must be 10 digits.";
@@ -616,7 +545,7 @@ class _LoginScreenState extends State<LoginScreen> {
         if (_debugCode != null) _code.text = _debugCode!;
       });
     } catch (e) {
-      setState(() => _startOut = _formatApiError(e));
+      setState(() => _startOut = formatApiError(e));
     } finally {
       setState(() => _starting = false);
     }
@@ -624,7 +553,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _verify() async {
     setState(() => _verifying = true);
-    final phone = _digitsOnly(_phone.text.trim());
+    final phone = digitsOnly(_phone.text.trim());
     final challengeId = _challengeId.text.trim();
     final code = _code.text.trim();
     if (phone.length != 10 || challengeId.isEmpty || code.isEmpty) {
@@ -648,7 +577,7 @@ class _LoginScreenState extends State<LoginScreen> {
       });
     } catch (e) {
       setState(() {
-        _verifyOut = _formatApiError(e);
+        _verifyOut = formatApiError(e);
         _verifyIssuedToken = false;
       });
     } finally {
@@ -766,7 +695,7 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
       setState(() => _trips = list);
     } catch (e) {
       setState(() {
-        _error = _formatApiError(e);
+        _error = formatApiError(e);
         _trips = [];
       });
     } finally {
@@ -900,7 +829,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       final t = r.data?["trip"];
       setState(() => _trip = (t is Map<String, dynamic>) ? t : null);
     } catch (e) {
-      setState(() => _error = _formatApiError(e));
+      setState(() => _error = formatApiError(e));
     } finally {
       setState(() => _loading = false);
     }
@@ -1062,7 +991,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
   Future<void> _submit() async {
     setState(() => _submitting = true);
     try {
-      final phone = _digitsOnly(_phone.text.trim());
+      final phone = digitsOnly(_phone.text.trim());
       final r = await api.post<Map<String, dynamic>>(
         "/v1/pilot/customer/register",
         data: {
@@ -1073,7 +1002,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
       );
       setState(() => _out = r.data?.toString() ?? "{}");
     } catch (e) {
-      setState(() => _out = _formatApiError(e));
+      setState(() => _out = formatApiError(e));
     } finally {
       setState(() => _submitting = false);
     }
@@ -1158,7 +1087,7 @@ class _CustomerBrowseTripsScreenState extends State<CustomerBrowseTripsScreen> {
       });
       setState(() => _trips = list);
     } catch (e) {
-      setState(() => _error = _formatApiError(e));
+      setState(() => _error = formatApiError(e));
     } finally {
       setState(() => _loading = false);
     }
@@ -1307,7 +1236,7 @@ class _CustomerEligibleTripsScreenState extends State<CustomerEligibleTripsScree
       }
       setState(() => _rows = list);
     } catch (e) {
-      setState(() => _error = _formatApiError(e));
+      setState(() => _error = formatApiError(e));
     } finally {
       setState(() => _loading = false);
     }
@@ -1487,7 +1416,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _tripLoadError = _formatApiError(e);
+        _tripLoadError = formatApiError(e);
         _anchorTrip = null;
       });
     } finally {
@@ -1605,7 +1534,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
         setState(() => _out = r.data?.toString() ?? "{}");
       }
     } catch (e) {
-      setState(() => _out = _formatApiError(e));
+      setState(() => _out = formatApiError(e));
     } finally {
       setState(() => _quoting = false);
     }
@@ -1674,7 +1603,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
         context.go("/customer/shipments/$shipmentId");
       }
     } catch (e) {
-      setState(() => _out = _formatApiError(e));
+      setState(() => _out = formatApiError(e));
     } finally {
       setState(() => _booking = false);
     }
@@ -1888,7 +1817,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
       }
       setState(() => _shipments = list);
     } catch (e) {
-      setState(() => _error = _formatApiError(e));
+      setState(() => _error = formatApiError(e));
     } finally {
       setState(() => _loading = false);
     }
@@ -2007,7 +1936,7 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
         _payment = (p is Map<String, dynamic>) ? p : null;
       });
     } catch (e) {
-      setState(() => _error = _formatApiError(e));
+      setState(() => _error = formatApiError(e));
     } finally {
       setState(() => _loading = false);
     }
@@ -2167,7 +2096,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
       if (!mounted) return;
       setState(() {
         _rateEstimate = null;
-        _rateError = _formatApiError(e);
+        _rateError = formatApiError(e);
       });
     } finally {
       if (mounted) setState(() => _loadingRates = false);
@@ -2178,14 +2107,14 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     setState(() => _loadingMe = true);
     try {
       final r = await api.get<Map<String, dynamic>>("/v1/pilot/me");
-      final oid = _firstCarrierOrgIdFromPilotMe(r.data);
+      final oid = firstCarrierOrgIdFromPilotMe(r.data);
       if (oid != null) {
         lastRegisteredOrgId = oid;
         _orgId.text = oid;
       }
       setState(() => _out = r.data?.toString() ?? "{}");
     } catch (e) {
-      setState(() => _out = _formatApiError(e));
+      setState(() => _out = formatApiError(e));
     } finally {
       setState(() => _loadingMe = false);
     }
@@ -2236,7 +2165,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Trip published.")));
       context.go("/trips");
     } catch (e) {
-      setState(() => _out = _formatApiError(e));
+      setState(() => _out = formatApiError(e));
     } finally {
       setState(() => _submitting = false);
     }

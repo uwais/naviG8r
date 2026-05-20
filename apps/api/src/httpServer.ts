@@ -20,6 +20,12 @@ import {
   pilotMe,
   pilotListMyAnchorTrips,
   pilotRatesEstimate,
+  pilotListCarrierShipments,
+  pilotCarrierEarningsSummary,
+  pilotSubmitPayoutSetup,
+  pilotListCarrierLedger,
+  pilotListCarrierPayoutBatches,
+  shipmentVisibleToCarrierPilot,
   publishAnchorTrip,
   publishAnchorTripAsPilotDriver,
   quoteShipmentMarketplace,
@@ -319,6 +325,46 @@ export async function createApp(): Promise<{
           sampleWeightsKg: body?.sampleWeightsKg,
         });
         return json(res, 200, out);
+      }
+
+      if (method === "GET" && url.pathname === "/v1/pilot/carrier/shipments") {
+        const userId = requireUserId(req, store);
+        const anchorTripId = url.searchParams.get("anchorTripId") ?? undefined;
+        const shipments = pilotListCarrierShipments(store, userId, { anchorTripId });
+        return json(res, 200, { shipments });
+      }
+
+      if (method === "GET" && url.pathname === "/v1/pilot/carrier/earnings") {
+        const userId = requireUserId(req, store);
+        const orgId = url.searchParams.get("orgId") ?? "";
+        const summary = pilotCarrierEarningsSummary(store, userId, orgId);
+        return json(res, 200, { summary });
+      }
+
+      if (method === "POST" && url.pathname === "/v1/pilot/carrier/payout-setup") {
+        const body = await readJson(req);
+        const userId = requireUserId(req, store);
+        const out = pilotSubmitPayoutSetup(store, userId, {
+          orgId: String(body?.orgId ?? ""),
+          accountHolderName: String(body?.accountHolderName ?? ""),
+          ifsc: String(body?.ifsc ?? ""),
+        });
+        await persist();
+        return json(res, 200, out);
+      }
+
+      if (method === "GET" && url.pathname === "/v1/pilot/carrier/ledger") {
+        const userId = requireUserId(req, store);
+        const orgId = url.searchParams.get("orgId") ?? "";
+        const lines = pilotListCarrierLedger(store, userId, orgId);
+        return json(res, 200, { lines });
+      }
+
+      if (method === "GET" && url.pathname === "/v1/pilot/carrier/payout-batches") {
+        const userId = requireUserId(req, store);
+        const orgId = url.searchParams.get("orgId") ?? "";
+        const payoutBatches = pilotListCarrierPayoutBatches(store, userId, orgId);
+        return json(res, 200, { payoutBatches });
       }
 
       if (method === "GET" && url.pathname === "/v1/customer/eligible-anchor-trips") {
@@ -903,7 +949,11 @@ export async function createApp(): Promise<{
           const shipment = store.shipments.get(shipmentId);
           if (!shipment) return json(res, 404, { error: "shipment_not_found" });
           const opsAdmin = isOpsAdmin(store, userId);
-          if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipment, userId)) {
+          const visible =
+            opsAdmin ||
+            shipmentVisibleToCustomerUser(store, shipment, userId) ||
+            shipmentVisibleToCarrierPilot(store, shipment, userId);
+          if (!visible) {
             return json(res, 404, { error: "shipment_not_found" });
           }
         } else if (!demoSurface) {
