@@ -314,6 +314,12 @@ class _HomeScreenState extends State<HomeScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          OutlinedButton.icon(
+            onPressed: () => context.go("/driver"),
+            icon: const Icon(Icons.arrow_back),
+            label: const Text("Back to driver app (welcome)"),
+          ),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(12),

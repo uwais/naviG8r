@@ -8,6 +8,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
+import "maps_config.dart";
 import "pilot_api.dart";
 
 /// Bottom-nav shell for the carrier driver journey.
@@ -402,7 +403,10 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   List<Map<String, dynamic>> _trips = [];
   bool _loading = false;
   String? _error;
-  String _filter = "All";
+  /// API `vehicleClass`: All | SMALL | MEDIUM | LARGE
+  String _vehicleClass = "All";
+  /// API `status`: All | OPEN | FULL | COMPLETED
+  String _status = "All";
 
   Future<void> _load() async {
     setState(() {
@@ -433,16 +437,81 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
     _load();
   }
 
+  int _statusRank(String status) {
+    switch (status) {
+      case "OPEN":
+        return 0;
+      case "FULL":
+        return 1;
+      case "COMPLETED":
+        return 2;
+      default:
+        return 3;
+    }
+  }
+
   List<Map<String, dynamic>> get _filtered {
-    if (_filter == "All") return _trips;
-    return _trips.where((t) => (t["vehicleClass"]?.toString() ?? "") == _filter).toList();
+    var list = List<Map<String, dynamic>>.from(_trips);
+    if (_vehicleClass != "All") {
+      list = list.where((t) => (t["vehicleClass"]?.toString() ?? "") == _vehicleClass).toList();
+    }
+    if (_status != "All") {
+      list = list.where((t) => (t["status"]?.toString() ?? "") == _status).toList();
+    }
+    list.sort((a, b) {
+      final sa = a["status"]?.toString() ?? "";
+      final sb = b["status"]?.toString() ?? "";
+      final ra = _statusRank(sa);
+      final rb = _statusRank(sb);
+      if (ra != rb) return ra.compareTo(rb);
+      final ca = a["createdAtUtcMs"];
+      final cb = b["createdAtUtcMs"];
+      if (ca is num && cb is num) return cb.compareTo(ca);
+      return 0;
+    });
+    return list;
+  }
+
+  String _vehicleChipLabel(String apiValue) {
+    switch (apiValue) {
+      case "SMALL":
+        return "Small";
+      case "MEDIUM":
+        return "Medium";
+      case "LARGE":
+        return "Large";
+      default:
+        return apiValue;
+    }
+  }
+
+  String _statusChipLabel(String apiValue) {
+    switch (apiValue) {
+      case "OPEN":
+        return "Open";
+      case "FULL":
+        return "Full";
+      case "COMPLETED":
+        return "Done";
+      default:
+        return apiValue;
+    }
+  }
+
+  String _loadsSummary() {
+    final org = DriverSession.carrierOrgName ?? "Your carrier";
+    if (_trips.isEmpty) {
+      return "$org · No anchor trips · publish from Profile";
+    }
+    final open = _trips.where((t) => t["status"] == "OPEN").length;
+    final full = _trips.where((t) => t["status"] == "FULL").length;
+    final active = _trips.where((t) => (t["reservedKg"] as num? ?? 0) > 0).length;
+    return "$org · $open open · $full full · $active with bookings";
   }
 
   @override
   Widget build(BuildContext context) {
-    final summary = _trips.isNotEmpty
-        ? "${_trips.first["originCity"]} → ${_trips.first["destCity"]} · Today · ${_trips.first["vehicleClass"]}"
-        : "No lanes yet · publish a trip";
+    final summary = _loadsSummary();
 
     return DriverShell(
       title: "Loads",
@@ -469,17 +538,22 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text("Vehicle", style: TextStyle(fontSize: 12, color: DriverTheme.muted, fontWeight: FontWeight.w600)),
+            ),
+            const SizedBox(height: 6),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: ["All", "SMALL", "MEDIUM", "LARGE"].map((label) {
-                  final active = _filter == label;
+                children: ["All", "SMALL", "MEDIUM", "LARGE"].map((value) {
+                  final active = _vehicleClass == value;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: FilterChip(
-                      label: Text(label == "All" ? "All" : label[0] + label.substring(1).toLowerCase()),
+                      label: Text(value == "All" ? "All" : _vehicleChipLabel(value)),
                       selected: active,
-                      onSelected: (_) => setState(() => _filter = label),
+                      onSelected: (_) => setState(() => _vehicleClass = value),
                       selectedColor: DriverTheme.navy,
                       labelStyle: TextStyle(color: active ? Colors.white : DriverTheme.navy),
                       showCheckmark: false,
@@ -488,21 +562,41 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
                 }).toList(),
               ),
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Text("Best match", style: TextStyle(fontSize: 12, color: DriverTheme.muted, fontWeight: FontWeight.w600)),
-                const Spacer(),
-                OutlinedButton(onPressed: () {}, style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32)), child: const Text("Fast pay")),
-                const SizedBox(width: 6),
-                OutlinedButton(onPressed: () {}, style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32)), child: const Text("Drop & hook")),
-              ],
+            const SizedBox(height: 10),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text("Trip status", style: TextStyle(fontSize: 12, color: DriverTheme.muted, fontWeight: FontWeight.w600)),
+            ),
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: ["All", "OPEN", "FULL", "COMPLETED"].map((value) {
+                  final active = _status == value;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      label: Text(value == "All" ? "All" : _statusChipLabel(value)),
+                      selected: active,
+                      onSelected: (_) => setState(() => _status = value),
+                      selectedColor: DriverTheme.navy,
+                      labelStyle: TextStyle(color: active ? Colors.white : DriverTheme.navy),
+                      showCheckmark: false,
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(_error!, style: const TextStyle(color: Colors.red)),
             ],
             if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+            if (!_loading && _trips.isNotEmpty && _filtered.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 24),
+                child: Text("No trips match these filters.", style: TextStyle(color: DriverTheme.muted)),
+              ),
             ..._filtered.map((t) => _LoadCard(trip: t, onView: () => context.go("/driver/trip/${t["id"]}/active"))),
             const SizedBox(height: 24),
           ],
@@ -521,10 +615,36 @@ class _LoadCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final route = "${trip["originCity"]} → ${trip["destCity"]}";
-    final cap = trip["capacityKg"];
-    final res = trip["reservedKg"];
+    final cap = (trip["capacityKg"] as num?)?.toInt() ?? 0;
+    final res = (trip["reservedKg"] as num?)?.toInt() ?? 0;
+    final available = cap - res;
     final status = trip["status"]?.toString() ?? "";
-    final grossHint = status == "FULL" ? "Trip full" : "Open capacity";
+    final vClass = trip["vehicleClass"]?.toString() ?? "";
+    final hasBookings = res > 0;
+
+    String statusLabel;
+    switch (status) {
+      case "OPEN":
+        statusLabel = "Open";
+        break;
+      case "FULL":
+        statusLabel = "Full";
+        break;
+      case "COMPLETED":
+        statusLabel = "Done";
+        break;
+      default:
+        statusLabel = status;
+    }
+
+    final tags = <Widget>[
+      Chip(label: Text(statusLabel), visualDensity: VisualDensity.compact),
+      Chip(label: Text(vClass), visualDensity: VisualDensity.compact),
+      if (status == "OPEN" && available > 0)
+        Chip(label: Text("$available kg available"), visualDensity: VisualDensity.compact),
+      if (hasBookings) const Chip(label: Text("Has bookings"), visualDensity: VisualDensity.compact),
+    ];
+
     return Card(
       margin: const EdgeInsets.only(top: 12),
       child: Padding(
@@ -537,40 +657,58 @@ class _LoadCard extends StatelessWidget {
                 Expanded(
                   child: Text(route, style: const TextStyle(fontWeight: FontWeight.w700, color: DriverTheme.navy)),
                 ),
-                Text(status, style: const TextStyle(fontWeight: FontWeight.w700, color: DriverTheme.navy)),
+                Text("$res / $cap kg", style: const TextStyle(fontWeight: FontWeight.w600, color: DriverTheme.navy, fontSize: 13)),
               ],
             ),
             const SizedBox(height: 4),
             Text(
-              "${trip["vehicleClass"]} · ${cap}kg cap · ${res}kg reserved",
+              "${_formatVehicle(vClass)} vehicle · $res kg booked on this lane",
               style: const TextStyle(fontSize: 12, color: DriverTheme.muted),
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              children: [
-                if (status == "FULL") const Chip(label: Text("Fast pay"), visualDensity: VisualDensity.compact),
-                Chip(label: Text(grossHint), visualDensity: VisualDensity.compact),
-              ],
-            ),
+            Wrap(spacing: 6, runSpacing: 6, children: tags),
             const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
                   child: Text(
-                    "Window ${trip["windowStart"]}",
+                    _formatWindow(trip["windowStart"]?.toString()),
                     style: const TextStyle(fontSize: 11, color: DriverTheme.muted),
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                FilledButton(onPressed: onView, child: const Text("View")),
+                FilledButton(
+                  onPressed: onView,
+                  child: Text(hasBookings ? "Track" : "View"),
+                ),
               ],
             ),
           ],
         ),
       ),
     );
+  }
+
+  static String _formatVehicle(String v) {
+    switch (v) {
+      case "SMALL":
+        return "Small";
+      case "MEDIUM":
+        return "Medium";
+      case "LARGE":
+        return "Large";
+      default:
+        return v;
+    }
+  }
+
+  static String _formatWindow(String? iso) {
+    if (iso == null || iso.isEmpty) return "Pickup window not set";
+    // Show date portion for IST-style strings e.g. 2026-05-12T00:00:00+05:30
+    final t = iso.indexOf("T");
+    if (t > 0) return "Window from ${iso.substring(0, t)}";
+    return "Window $iso";
   }
 }
 
@@ -584,9 +722,13 @@ class DriverTrackScreen extends StatefulWidget {
 class _DriverTrackScreenState extends State<DriverTrackScreen> {
   List<Map<String, dynamic>> _trips = [];
   bool _loading = false;
+  String? _error;
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final r = await api.get<Map<String, dynamic>>("/v1/pilot/anchor-trips");
       final raw = r.data?["trips"];
@@ -597,6 +739,8 @@ class _DriverTrackScreenState extends State<DriverTrackScreen> {
         }
       }
       setState(() => _trips = list);
+    } catch (e) {
+      setState(() => _error = formatApiError(e));
     } finally {
       setState(() => _loading = false);
     }
@@ -622,6 +766,10 @@ class _DriverTrackScreenState extends State<DriverTrackScreen> {
               "Trips with reserved capacity — open for live GPS tracking while in progress.",
               style: TextStyle(color: DriverTheme.muted),
             ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+            ],
             if (_loading) const Center(child: CircularProgressIndicator()),
             ..._trips.map(
               (t) => ListTile(
@@ -724,6 +872,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     try {
       final r = await api.get<Map<String, dynamic>>("/v1/pilot/anchor-trips/${widget.tripId}");
       final t = r.data?["trip"];
+      setState(() => _trip = t is Map<String, dynamic> ? t : null);
+    } catch (e) {
+      setState(() => _error = formatApiError(e));
+    }
+
+    try {
       final sr = await api.get<Map<String, dynamic>>(
         "/v1/pilot/carrier/shipments",
         query: {"anchorTripId": widget.tripId},
@@ -735,14 +889,19 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           if (s is Map<String, dynamic>) ships.add(s);
         }
       }
-      setState(() {
-        _trip = t is Map<String, dynamic> ? t : null;
-        _shipments = ships;
-      });
+      if (mounted) setState(() => _shipments = ships);
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      final msg = formatApiError(e);
+      if (mounted) {
+        setState(() {
+          _shipments = [];
+          _error = _error == null
+              ? "$msg\n(Shipment list needs API deploy — merge driver-onboarding PR.)"
+              : _error;
+        });
+      }
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -758,7 +917,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     final origin = trip != null ? latLngFromTripField(trip, "origin") : null;
     final dest = trip != null ? latLngFromTripField(trip, "destination") : null;
     final next = _shipments.isNotEmpty ? _shipments.first : null;
-    final nextPickup = next != null ? latLngFromTripField(next, "pickup") : null;
+
+    final mapsKeyMissing = kMapsApiKey.isEmpty;
 
     return Scaffold(
       appBar: AppBar(title: Text(trip == null ? "Active trip" : "${trip["originCity"]} → ${trip["destCity"]}")),
@@ -766,34 +926,30 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
+                if (mapsKeyMissing)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Text(
+                      "Maps key missing: set MAPS_API_KEY in android/local.properties or pass --dart-define=MAPS_API_KEY=… then rebuild.",
+                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
+                  ),
                 SizedBox(
                   height: 220,
-                  child: GoogleMap(
-                    initialCameraPosition: CameraPosition(
-                      target: _driverPos ?? origin ?? const LatLng(28.47, 77.03),
-                      zoom: 10,
-                    ),
-                    myLocationEnabled: true,
-                    myLocationButtonEnabled: true,
-                    markers: {
-                      if (origin != null)
-                        Marker(markerId: const MarkerId("o"), position: origin, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen)),
-                      if (dest != null)
-                        Marker(markerId: const MarkerId("d"), position: dest, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed)),
-                      if (nextPickup != null)
-                        Marker(markerId: const MarkerId("next"), position: nextPickup, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
-                    },
-                    polylines: origin != null && dest != null
-                        ? {
-                            Polyline(
-                              polylineId: const PolylineId("route"),
-                              points: [origin, dest],
-                              width: 4,
-                              color: DriverTheme.navy,
+                  child: origin != null && dest != null
+                      ? routePreviewMap(a: origin, b: dest)
+                      : Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text(
+                              trip == null
+                                  ? "Could not load trip"
+                                  : "No map coordinates on this trip — republish with origin/destination pins.",
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: DriverTheme.muted),
                             ),
-                          }
-                        : {},
-                  ),
+                          ),
+                        ),
                 ),
                 Expanded(
                   child: ListView(
