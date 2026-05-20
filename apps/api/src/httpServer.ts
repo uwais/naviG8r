@@ -128,6 +128,33 @@ function requireBearerUserId(
   }
 }
 
+function requireOpsAdminBearer(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: ReturnType<typeof loadStoreFromDisk>,
+): string | null {
+  const userId = requireBearerUserId(req, res, store);
+  if (!userId) return null;
+  if (!isOpsAdmin(store, userId)) {
+    json(res, 403, { error: "forbidden" });
+    return null;
+  }
+  return userId;
+}
+
+function requireProductionOpsAdminBearer(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: ReturnType<typeof loadStoreFromDisk>,
+): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  return requireOpsAdminBearer(req, res, store) != null;
+}
+
+function allowUnauthenticatedLegacyDemoMutation(): boolean {
+  return process.env.NODE_ENV !== "production" && process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+}
+
 export async function createApp(): Promise<{
   server: http.Server;
   store: ReturnType<typeof loadStoreFromDisk>;
@@ -249,6 +276,22 @@ export async function createApp(): Promise<{
         return json(res, 200, out);
       }
 
+      if (method === "GET" && url.pathname === "/v1/admin/snapshot") {
+        if (!requireOpsAdminBearer(req, res, store)) return;
+        return json(res, 200, {
+          carriers: [...store.carriers.values()],
+          organizations: [...store.organizations.values()],
+          users: [...store.users.values()],
+          memberships: [...store.memberships.values()],
+          vehicles: [...store.vehicles.values()],
+          driverProfiles: [...store.driverProfiles.values()],
+          anchorTrips: [...store.anchorTrips.values()],
+          shipments: [...store.shipments.values()],
+          ledgerLines: [...store.ledgerLines.values()],
+          payoutBatches: [...store.payoutBatches.values()],
+        });
+      }
+
       // --- v1 pilot API resources (Flutter Driver app first) ---
       if (method === "POST" && url.pathname === "/v1/pilot/driver/register") {
         const body = await readJson(req);
@@ -266,6 +309,7 @@ export async function createApp(): Promise<{
 
       if (method === "POST" && url.pathname === "/v1/pilot/driver/login") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdminBearer(req, res, store)) return;
         const body = await readJson(req);
         const out = pilotLoginDriverByPhone(store, String(body?.phone ?? ""));
         return json(res, 200, out);
@@ -348,29 +392,20 @@ export async function createApp(): Promise<{
 
       if (method === "GET" && url.pathname === "/v1/orgs") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdminBearer(req, res, store)) return;
         const orgs = [...store.organizations.values()];
         return json(res, 200, { orgs });
       }
 
       if (method === "GET" && url.pathname === "/v1/users") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdminBearer(req, res, store)) return;
         const users = [...store.users.values()];
         return json(res, 200, { users });
       }
 
       if (method === "GET" && url.pathname === "/admin") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const carriers = [...store.carriers.values()];
-        const orgs = [...store.organizations.values()];
-        const users = [...store.users.values()];
-        const memberships = [...store.memberships.values()];
-        const vehicles = [...store.vehicles.values()];
-        const driverProfiles = [...store.driverProfiles.values()];
-        const trips = [...store.anchorTrips.values()];
-        const shipments = [...store.shipments.values()];
-        const ledgerLines = [...store.ledgerLines.values()];
-        const payoutBatches = [...store.payoutBatches.values()];
-
         const esc = (s: any) =>
           String(s)
             .replaceAll("&", "&amp;")
@@ -525,35 +560,37 @@ export async function createApp(): Promise<{
       </div>
     </div>
 
-    <h3>Carriers (${carriers.length})</h3>
-    <pre>${esc(JSON.stringify(carriers, null, 2))}</pre>
+    <div id="snapshotError" class="warning-banner" style="display:none;"></div>
 
-    <h3>Organizations (${orgs.length})</h3>
-    <pre>${esc(JSON.stringify(orgs, null, 2))}</pre>
+    <h3 id="carriersTitle">Carriers</h3>
+    <pre id="carriersJson">Log in as an ops admin to load.</pre>
 
-    <h3>Users (${users.length})</h3>
-    <pre>${esc(JSON.stringify(users, null, 2))}</pre>
+    <h3 id="organizationsTitle">Organizations</h3>
+    <pre id="organizationsJson">Log in as an ops admin to load.</pre>
 
-    <h3>Memberships (${memberships.length})</h3>
-    <pre>${esc(JSON.stringify(memberships, null, 2))}</pre>
+    <h3 id="usersTitle">Users</h3>
+    <pre id="usersJson">Log in as an ops admin to load.</pre>
 
-    <h3>Vehicles (${vehicles.length})</h3>
-    <pre>${esc(JSON.stringify(vehicles, null, 2))}</pre>
+    <h3 id="membershipsTitle">Memberships</h3>
+    <pre id="membershipsJson">Log in as an ops admin to load.</pre>
 
-    <h3>Driver profiles (${driverProfiles.length})</h3>
-    <pre>${esc(JSON.stringify(driverProfiles, null, 2))}</pre>
+    <h3 id="vehiclesTitle">Vehicles</h3>
+    <pre id="vehiclesJson">Log in as an ops admin to load.</pre>
 
-    <h3>Anchor trips (${trips.length})</h3>
-    <pre>${esc(JSON.stringify(trips, null, 2))}</pre>
+    <h3 id="driverProfilesTitle">Driver profiles</h3>
+    <pre id="driverProfilesJson">Log in as an ops admin to load.</pre>
 
-    <h3>Shipments (${shipments.length})</h3>
-    <pre>${esc(JSON.stringify(shipments, null, 2))}</pre>
+    <h3 id="anchorTripsTitle">Anchor trips</h3>
+    <pre id="anchorTripsJson">Log in as an ops admin to load.</pre>
 
-    <h3>Ledger lines (${ledgerLines.length})</h3>
-    <pre>${esc(JSON.stringify(ledgerLines, null, 2))}</pre>
+    <h3 id="shipmentsTitle">Shipments</h3>
+    <pre id="shipmentsJson">Log in as an ops admin to load.</pre>
 
-    <h3>Payout batches (${payoutBatches.length})</h3>
-    <pre>${esc(JSON.stringify(payoutBatches, null, 2))}</pre>
+    <h3 id="ledgerLinesTitle">Ledger lines</h3>
+    <pre id="ledgerLinesJson">Log in as an ops admin to load.</pre>
+
+    <h3 id="payoutBatchesTitle">Payout batches</h3>
+    <pre id="payoutBatchesJson">Log in as an ops admin to load.</pre>
 
     </div><!-- end adminContent -->
 
@@ -675,6 +712,41 @@ export async function createApp(): Promise<{
         } catch (e) { listEl.textContent = "Network error loading ops admins."; }
       }
 
+      async function loadAdminSnapshot() {
+        const err = document.getElementById("snapshotError");
+        err.style.display = "none";
+        try {
+          const res = await fetch("/v1/admin/snapshot", { headers: authHeaders() });
+          const out = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            err.textContent = res.status === 403
+              ? "Ops admin access is required to load the full admin snapshot."
+              : "Failed to load admin snapshot: " + (out.error || res.status);
+            err.style.display = "block";
+            return;
+          }
+          renderSnapshotSection("carriers", "Carriers", out.carriers);
+          renderSnapshotSection("organizations", "Organizations", out.organizations);
+          renderSnapshotSection("users", "Users", out.users);
+          renderSnapshotSection("memberships", "Memberships", out.memberships);
+          renderSnapshotSection("vehicles", "Vehicles", out.vehicles);
+          renderSnapshotSection("driverProfiles", "Driver profiles", out.driverProfiles);
+          renderSnapshotSection("anchorTrips", "Anchor trips", out.anchorTrips);
+          renderSnapshotSection("shipments", "Shipments", out.shipments);
+          renderSnapshotSection("ledgerLines", "Ledger lines", out.ledgerLines);
+          renderSnapshotSection("payoutBatches", "Payout batches", out.payoutBatches);
+        } catch (e) {
+          err.textContent = "Network error loading admin snapshot.";
+          err.style.display = "block";
+        }
+      }
+
+      function renderSnapshotSection(key, label, items) {
+        const arr = Array.isArray(items) ? items : [];
+        document.getElementById(key + "Title").textContent = label + " (" + arr.length + ")";
+        document.getElementById(key + "Json").textContent = JSON.stringify(arr, null, 2);
+      }
+
       async function grantOps() {
         const phone = document.getElementById("grantPhone").value.trim();
         if (!phone) { alert("Enter a phone."); return; }
@@ -707,6 +779,7 @@ export async function createApp(): Promise<{
         document.getElementById("sessionInfo").textContent = phone ? "Logged in as " + phone : "";
         renderRoleBadge();
         refreshOpsAdminStatus();
+        loadAdminSnapshot();
       }
 
       function authHeaders() {
@@ -770,6 +843,7 @@ export async function createApp(): Promise<{
 
       if (method === "POST" && url.pathname === "/carriers") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdminBearer(req, res, store)) return;
         const body = await readJson(req);
         const carrier = createCarrier(store, String(body?.name ?? ""));
         await persist();
@@ -778,12 +852,14 @@ export async function createApp(): Promise<{
 
       if (method === "GET" && url.pathname === "/carriers") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdminBearer(req, res, store)) return;
         const carriers = [...store.carriers.values()];
         return json(res, 200, { carriers });
       }
 
       if (method === "POST" && url.pathname === "/anchor-trips") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdminBearer(req, res, store)) return;
         const body = await readJson(req);
         const trip = publishAnchorTrip(store, {
           carrierId: String(body?.carrierId ?? ""),
@@ -895,7 +971,6 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
         const hasBearerToken = !!bearerToken(req);
         if (hasBearerToken) {
           const userId = requireBearerUserId(req, res, store);
@@ -906,7 +981,7 @@ export async function createApp(): Promise<{
           if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipment, userId)) {
             return json(res, 404, { error: "shipment_not_found" });
           }
-        } else if (!demoSurface) {
+        } else if (!allowUnauthenticatedLegacyDemoMutation()) {
           return json(res, 401, { error: "unauthorized" });
         } else {
           if (!store.shipments.get(shipmentId)) {
@@ -923,7 +998,6 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
         const hasBearerToken = !!bearerToken(req);
         if (hasBearerToken) {
           const userId = requireBearerUserId(req, res, store);
@@ -934,7 +1008,7 @@ export async function createApp(): Promise<{
           if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
             return json(res, 404, { error: "shipment_not_found" });
           }
-        } else if (!demoSurface) {
+        } else if (!allowUnauthenticatedLegacyDemoMutation()) {
           return json(res, 401, { error: "unauthorized" });
         } else {
           if (!store.shipments.get(shipmentId)) {
@@ -947,12 +1021,16 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdminBearer(req, res, store)) return;
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdminBearer(req, res, store)) return;
         const body = await readJson(req);
         const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
         await persist();
@@ -960,6 +1038,8 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdminBearer(req, res, store)) return;
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
