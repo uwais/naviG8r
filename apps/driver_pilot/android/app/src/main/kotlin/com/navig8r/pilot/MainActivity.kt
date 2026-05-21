@@ -1,4 +1,4 @@
-package com.example.driver_pilot
+package com.navig8r.pilot
 
 import io.flutter.embedding.android.FlutterActivity
 

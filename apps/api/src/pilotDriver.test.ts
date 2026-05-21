@@ -8,11 +8,15 @@ import {
   createCarrier,
   distanceBetweenGeoPointsKm,
   markPodDelivered,
+  pilotCarrierEarningsSummary,
+  pilotListCarrierShipments,
   pilotListMyAnchorTrips,
+  pilotSubmitPayoutSetup,
   publishAnchorTrip,
   publishAnchorTripAsPilotDriver,
   registerCustomerOrgAdmin,
   registerSoloOwnerOperatorDriver,
+  shipmentVisibleToCarrierPilot,
   shipmentVisibleToCustomerUser,
 } from "./services.ts";
 
@@ -184,4 +188,47 @@ test("bookedByPhone links anonymous shipment to OTP user with same mobile", () =
   assert.equal(shipment.customerOrgId, undefined);
   assert.equal(shipment.bookedByPhone, "9123456700");
   assert.ok(shipmentVisibleToCustomerUser(store, shipment, cust.user.id));
+});
+
+test("carrier pilot can list org shipments, mark POD visibility, and submit payout setup", () => {
+  const store = createStore();
+  const onboard = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Ravi Kumar",
+    phone: "9876543212",
+    orgDisplayName: "Ravi Transport 3",
+    vehicleRegistrationNumber: "HR26AB1236",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 5000,
+  });
+  const trip = publishAnchorTripAsPilotDriver(store, {
+    userId: onboard.user.id,
+    orgId: onboard.org.id,
+    originCity: "Gurugram",
+    destCity: "Jaipur",
+    windowStart: "2026-04-24T00:00:00+05:30",
+    windowEnd: "2026-04-25T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+  });
+  const shipment = bookShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: "ACME",
+    weightKg: 100,
+    pickupAddress: "Gurugram",
+    dropAddress: "Jaipur",
+  });
+  assert.ok(shipmentVisibleToCarrierPilot(store, shipment, onboard.user.id));
+  const listed = pilotListCarrierShipments(store, onboard.user.id, { anchorTripId: trip.id });
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0]!.id, shipment.id);
+
+  const setup = pilotSubmitPayoutSetup(store, onboard.user.id, {
+    orgId: onboard.org.id,
+    accountHolderName: "Ravi Kumar",
+    ifsc: "HDFC0001234",
+  });
+  assert.equal(setup.org.kycStatus, "SUBMITTED");
+
+  const summary = pilotCarrierEarningsSummary(store, onboard.user.id, onboard.org.id);
+  assert.equal(summary.bookedCount, 1);
 });
