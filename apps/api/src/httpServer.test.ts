@@ -3,6 +3,7 @@ import test from "node:test";
 import { once } from "node:events";
 import type http from "node:http";
 import { createApp } from "./httpServer.ts";
+import { bookShipment, createCarrier, markPodDelivered, publishAnchorTrip } from "./services.ts";
 
 type AppBundle = Awaited<ReturnType<typeof createApp>>;
 
@@ -76,6 +77,58 @@ test("production disables legacy demo routes that expose or mutate operator stat
     const login = await postJson(baseUrl, "/v1/pilot/driver/login", { phone: "9876543210" });
     assert.equal(login.status, 403);
     assert.deepEqual(await login.json(), { error: "legacy_demo_surface_disabled" });
+  });
+});
+
+test("production legacy payout routes require ops-admin bearer and do not pay unauthenticated", async (t) => {
+  const prev = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    ENABLE_LEGACY_DEMO_SURFACE: process.env.ENABLE_LEGACY_DEMO_SURFACE,
+  };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+    process.env.ENABLE_LEGACY_DEMO_SURFACE = prev.ENABLE_LEGACY_DEMO_SURFACE;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "production";
+  delete process.env.ENABLE_LEGACY_DEMO_SURFACE;
+
+  await withApp(t, async (baseUrl, app) => {
+    const carrier = createCarrier(app.store, "Carrier Payables");
+    const trip = publishAnchorTrip(app.store, {
+      carrierId: carrier.id,
+      originCity: "Gurugram",
+      destCity: "Jaipur",
+      windowStart: "2026-04-24T00:00:00+05:30",
+      windowEnd: "2026-04-25T23:59:59+05:30",
+      vehicleClass: "MEDIUM",
+      capacityKg: 1000,
+    });
+    const shipment = bookShipment(app.store, {
+      anchorTripId: trip.id,
+      customerOrgName: "ACME",
+      weightKg: 100,
+      pickupAddress: "Gurugram",
+      dropAddress: "Jaipur",
+    });
+    const { ledgerLine } = markPodDelivered(app.store, { shipmentId: shipment.id });
+
+    const ledger = await fetch(`${baseUrl}/carriers/${carrier.id}/ledger`);
+    assert.equal(ledger.status, 401);
+
+    const batches = await fetch(`${baseUrl}/payout-batches`);
+    assert.equal(batches.status, 401);
+
+    const payout = await postJson(baseUrl, "/payout-batches/run", {
+      nowUtcMs: ledgerLine.payoutBatchCutoffUtcMs + 365 * 24 * 60 * 60 * 1000,
+    });
+    assert.equal(payout.status, 401);
+    assert.deepEqual(await payout.json(), { error: "unauthorized" });
+    assert.equal(app.store.ledgerLines.get(ledgerLine.id)?.status, "ACCRUED");
+    assert.equal(app.store.payoutBatches.size, 0);
   });
 });
 
