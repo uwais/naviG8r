@@ -11,23 +11,46 @@ import "location_editor.dart";
 import "maps_config.dart";
 import "pilot_api.dart";
 
-/// Bottom-nav shell for the carrier driver journey.
+/// Nested navigator for the driver shell (tabs + pushed detail routes).
+final GlobalKey<NavigatorState> driverShellNavigatorKey = GlobalKey<NavigatorState>();
+
+/// App bar title from the current driver route.
+String driverShellTitle(String path) {
+  if (path == "/driver") return "NaviG8r";
+  if (path.startsWith("/driver/loads")) return "Loads";
+  if (path.startsWith("/driver/track")) return "Track";
+  if (path.startsWith("/driver/profile")) return "Profile";
+  if (path.startsWith("/driver/trip/")) return "Active trip";
+  if (path.startsWith("/driver/shipment/")) return "Proof of delivery";
+  if (path.startsWith("/driver/earnings")) return "Earnings";
+  if (path.startsWith("/driver/payout-setup")) return "Payout method";
+  if (path.startsWith("/driver/payout-history")) return "Payout history";
+  return "NaviG8r";
+}
+
+/// Bottom-nav shell for the carrier driver journey (single instance via [ShellRoute]).
 class DriverShell extends StatelessWidget {
   const DriverShell({
     required this.title,
     required this.currentPath,
-    required this.body,
+    required this.child,
     this.actions,
+    this.showBottomNav = true,
     super.key,
   });
 
   final String title;
   final String currentPath;
-  final Widget body;
+  final Widget child;
   final List<Widget>? actions;
+  final bool showBottomNav;
 
   int _indexForPath(String path) {
-    if (path.startsWith("/driver/loads")) return 1;
+    if (path.startsWith("/driver/loads") ||
+        path.startsWith("/driver/trip/") ||
+        path.startsWith("/driver/shipment/")) {
+      return 1;
+    }
     if (path.startsWith("/driver/track")) return 2;
     if (path.startsWith("/driver/profile") ||
         path.startsWith("/driver/earnings") ||
@@ -54,34 +77,55 @@ class DriverShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = _indexForPath(currentPath);
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 26)),
-        actions: [
-          if (actions != null) ...actions!,
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: CircleAvatar(backgroundColor: DriverTheme.navy, radius: 18),
-          ),
-        ],
-      ),
-      body: SafeArea(child: body),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selected,
-        onDestinationSelected: (index) {
-          final target = _pathForIndex(index);
-          if (target != currentPath) context.go(target);
-        },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: "Home"),
-          NavigationDestination(
-            icon: Icon(Icons.local_shipping_outlined),
-            selectedIcon: Icon(Icons.local_shipping),
-            label: "Loads",
-          ),
-          NavigationDestination(icon: Icon(Icons.map_outlined), selectedIcon: Icon(Icons.map), label: "Track"),
-          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: "Profile"),
-        ],
+    final shellNav = Navigator.of(context);
+    final canPop = shellNav.canPop();
+
+    return PopScope(
+      canPop: canPop,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        // Tab roots have no stack entry — back goes to driver home instead of crashing.
+        if (currentPath != "/driver" && currentPath.startsWith("/driver")) {
+          context.go("/driver");
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: canPop
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => context.pop(),
+                )
+              : null,
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 26)),
+          actions: [
+            if (actions != null) ...actions!,
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: CircleAvatar(backgroundColor: DriverTheme.navy, radius: 18),
+            ),
+          ],
+        ),
+        body: SafeArea(child: child),
+        bottomNavigationBar: showBottomNav
+            ? NavigationBar(
+                selectedIndex: selected,
+                onDestinationSelected: (index) {
+                  final target = _pathForIndex(index);
+                  if (target != currentPath) context.go(target);
+                },
+                destinations: const [
+                  NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: "Home"),
+                  NavigationDestination(
+                    icon: Icon(Icons.local_shipping_outlined),
+                    selectedIcon: Icon(Icons.local_shipping),
+                    label: "Loads",
+                  ),
+                  NavigationDestination(icon: Icon(Icons.map_outlined), selectedIcon: Icon(Icons.map), label: "Track"),
+                  NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: "Profile"),
+                ],
+              )
+            : null,
       ),
     );
   }
@@ -92,48 +136,44 @@ class DriverWelcomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DriverShell(
-      title: "NaviG8r",
-      currentPath: "/driver",
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              "Driver & carrier",
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: DriverTheme.navy),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              "Sign in with your phone, confirm your carrier organization, run trips with live tracking, "
-              "and get paid after proof of delivery and cooling-off.",
-              style: TextStyle(color: DriverTheme.muted, height: 1.4),
-            ),
-            const Spacer(),
-            FilledButton(
-              onPressed: () => context.go("/driver/onboarding/phone"),
-              child: const Text("Get started"),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: () async {
-                final ok = await DriverSession.refresh();
-                if (!context.mounted) return;
-                if (ok && DriverSession.hasCarrierOrg) {
-                  context.go("/driver/loads");
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Sign in first, or complete carrier registration.")),
-                  );
-                }
-              },
-              child: const Text("Continue as signed-in driver"),
-            ),
-            const SizedBox(height: 8),
-            TextButton(onPressed: () => context.go("/pilot-lab"), child: const Text("Developer lab")),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            "Driver & carrier",
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: DriverTheme.navy),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            "Sign in with your phone, confirm your carrier organization, run trips with live tracking, "
+            "and get paid after proof of delivery and cooling-off.",
+            style: TextStyle(color: DriverTheme.muted, height: 1.4),
+          ),
+          const Spacer(),
+          FilledButton(
+            onPressed: () => context.go("/driver/onboarding/phone"),
+            child: const Text("Get started"),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () async {
+              final ok = await DriverSession.refresh();
+              if (!context.mounted) return;
+              if (ok && DriverSession.hasCarrierOrg) {
+                context.go("/driver/loads");
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Sign in first, or complete carrier registration.")),
+                );
+              }
+            },
+            child: const Text("Continue as signed-in driver"),
+          ),
+          const SizedBox(height: 8),
+          TextButton(onPressed: () => context.go("/pilot-lab"), child: const Text("Developer lab")),
+        ],
       ),
     );
   }
@@ -513,10 +553,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   Widget build(BuildContext context) {
     final summary = _loadsSummary();
 
-    return DriverShell(
-      title: "Loads",
-      currentPath: "/driver/loads",
-      body: RefreshIndicator(
+    return RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -597,11 +634,10 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
                 padding: EdgeInsets.only(top: 24),
                 child: Text("No trips match these filters.", style: TextStyle(color: DriverTheme.muted)),
               ),
-            ..._filtered.map((t) => _LoadCard(trip: t, onView: () => context.go("/driver/trip/${t["id"]}/active"))),
+            ..._filtered.map((t) => _LoadCard(trip: t, onView: () => context.push("/driver/trip/${t["id"]}/active"))),
             const SizedBox(height: 24),
           ],
         ),
-      ),
     );
   }
 }
@@ -754,10 +790,7 @@ class _DriverTrackScreenState extends State<DriverTrackScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return DriverShell(
-      title: "Track",
-      currentPath: "/driver/track",
-      body: RefreshIndicator(
+    return RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -776,13 +809,12 @@ class _DriverTrackScreenState extends State<DriverTrackScreen> {
                 title: Text("${t["originCity"]} → ${t["destCity"]}"),
                 subtitle: Text("Reserved ${t["reservedKg"]}kg · ${t["status"]}"),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.go("/driver/trip/${t["id"]}/active"),
+                onTap: () => context.push("/driver/trip/${t["id"]}/active"),
               ),
             ),
           ],
         ),
-      ),
-    );
+      );
   }
 }
 
@@ -791,41 +823,37 @@ class DriverProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DriverShell(
-      title: "Profile",
-      currentPath: "/driver/profile",
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: ListTile(
-              title: Text(DriverSession.carrierOrgName ?? "Carrier"),
-              subtitle: Text("${DriverSession.userFullName ?? "—"} · ${DriverSession.userPhone ?? "—"}"),
-            ),
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          child: ListTile(
+            title: Text(DriverSession.carrierOrgName ?? "Carrier"),
+            subtitle: Text("${DriverSession.userFullName ?? "—"} · ${DriverSession.userPhone ?? "—"}"),
           ),
-          ListTile(
-            leading: const Icon(Icons.payments_outlined, color: DriverTheme.navy),
-            title: const Text("Earnings & payouts"),
-            subtitle: Text(DriverSession.payoutSetupComplete ? "Payout method on file" : "Set up before first transfer"),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.go("/driver/earnings"),
-          ),
-          ListTile(
-            leading: const Icon(Icons.add_road, color: DriverTheme.navy),
-            title: const Text("Publish anchor trip"),
-            onTap: () => context.go("/publish"),
-          ),
-          ListTile(
-            leading: const Icon(Icons.logout, color: DriverTheme.navy),
-            title: const Text("Sign out"),
-            onTap: () async {
-              await api.clearToken();
-              DriverSession.clear();
-              if (context.mounted) context.go("/driver");
-            },
-          ),
-        ],
-      ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.payments_outlined, color: DriverTheme.navy),
+          title: const Text("Earnings & payouts"),
+          subtitle: Text(DriverSession.payoutSetupComplete ? "Payout method on file" : "Set up before first transfer"),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => context.push("/driver/earnings"),
+        ),
+        ListTile(
+          leading: const Icon(Icons.add_road, color: DriverTheme.navy),
+          title: const Text("Publish anchor trip"),
+          onTap: () => context.go("/publish"),
+        ),
+        ListTile(
+          leading: const Icon(Icons.logout, color: DriverTheme.navy),
+          title: const Text("Sign out"),
+          onTap: () async {
+            await api.clearToken();
+            DriverSession.clear();
+            if (context.mounted) context.go("/driver");
+          },
+        ),
+      ],
     );
   }
 }
@@ -920,9 +948,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
     final mapsKeyMissing = kMapsApiKey.isEmpty;
 
-    return Scaffold(
-      appBar: AppBar(title: Text(trip == null ? "Active trip" : "${trip["originCity"]} → ${trip["destCity"]}")),
-      body: _loading
+    return _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
@@ -971,7 +997,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                             subtitle: Text("$st · ${formatInrFromPaise(s["netToCarrierPaise"] as num? ?? 0)} net"),
                             trailing: st == "BOOKED"
                                 ? TextButton(
-                                    onPressed: () => context.go("/driver/shipment/$id/pod"),
+                                    onPressed: () => context.push("/driver/shipment/$id/pod"),
                                     child: const Text("POD"),
                                   )
                                 : null,
@@ -986,7 +1012,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                           Expanded(
                             child: FilledButton(
                               onPressed: next != null && next["status"] == "BOOKED"
-                                  ? () => context.go("/driver/shipment/${next["id"]}/pod")
+                                  ? () => context.push("/driver/shipment/${next["id"]}/pod")
                                   : null,
                               child: const Text("Mark arrived / POD"),
                             ),
@@ -997,8 +1023,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   ),
                 ),
               ],
-            ),
-    );
+            );
   }
 }
 
@@ -1038,28 +1063,25 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Proof of delivery")),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              "Confirming POD captures payment (if authorized) and sets your payout eligibility after the cooling-off period.",
-              style: TextStyle(color: DriverTheme.muted),
-            ),
-            const SizedBox(height: 16),
-            TextField(controller: _notes, decoration: const InputDecoration(labelText: "Notes (optional)"), maxLines: 3),
-            const Spacer(),
-            FilledButton(
-              onPressed: _busy ? null : _confirm,
-              child: _busy
-                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text("Confirm POD"),
-            ),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            "Confirming POD captures payment (if authorized) and sets your payout eligibility after the cooling-off period.",
+            style: TextStyle(color: DriverTheme.muted),
+          ),
+          const SizedBox(height: 16),
+          TextField(controller: _notes, decoration: const InputDecoration(labelText: "Notes (optional)"), maxLines: 3),
+          const Spacer(),
+          FilledButton(
+            onPressed: _busy ? null : _confirm,
+            child: _busy
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text("Confirm POD"),
+          ),
+        ],
       ),
     );
   }
@@ -1101,40 +1123,37 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
     final paid = s?["paidPaise"] as num? ?? 0;
     final kyc = s?["kycStatus"]?.toString() ?? DriverSession.kycStatus ?? "NOT_STARTED";
 
-    return Scaffold(
-      appBar: AppBar(title: const Text("Earnings")),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Row(
-                  children: [
-                    Expanded(child: _StatTile(label: "Pending (accrued)", value: formatInrFromPaise(pending))),
-                    const SizedBox(width: 12),
-                    Expanded(child: _StatTile(label: "Paid out", value: formatInrFromPaise(paid))),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Text(
-                      kyc == "NOT_STARTED"
-                          ? "Customer payments sit on the platform ledger until you add a verified payout method. No bank details required at signup."
-                          : "Payout profile status: $kyc",
-                      style: const TextStyle(color: DriverTheme.muted),
-                    ),
+    return _loading
+        ? const Center(child: CircularProgressIndicator())
+        : ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Row(
+                children: [
+                  Expanded(child: _StatTile(label: "Pending (accrued)", value: formatInrFromPaise(pending))),
+                  const SizedBox(width: 12),
+                  Expanded(child: _StatTile(label: "Paid out", value: formatInrFromPaise(paid))),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Text(
+                    kyc == "NOT_STARTED"
+                        ? "Customer payments sit on the platform ledger until you add a verified payout method. No bank details required at signup."
+                        : "Payout profile status: $kyc",
+                    style: const TextStyle(color: DriverTheme.muted),
                   ),
                 ),
-                FilledButton(
-                  onPressed: () => context.go("/driver/payout-setup"),
-                  child: Text(kyc == "NOT_STARTED" ? "Set up payouts" : "Update payout method"),
-                ),
-                OutlinedButton(onPressed: () => context.go("/driver/payout-history"), child: const Text("Payout history")),
-              ],
-            ),
-    );
+              ),
+              FilledButton(
+                onPressed: () => context.push("/driver/payout-setup"),
+                child: Text(kyc == "NOT_STARTED" ? "Set up payouts" : "Update payout method"),
+              ),
+              OutlinedButton(onPressed: () => context.push("/driver/payout-history"), child: const Text("Payout history")),
+            ],
+          );
   }
 }
 
@@ -1191,7 +1210,7 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
       await DriverSession.refresh();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      context.go("/driver/payout-history");
+      context.push("/driver/payout-history");
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
     } finally {
@@ -1201,29 +1220,26 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Payout method")),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              "Collect once before your first transfer. KYC may be required by your payment provider.",
-              style: TextStyle(color: DriverTheme.muted),
-            ),
-            const SizedBox(height: 16),
-            TextField(controller: _name, decoration: const InputDecoration(labelText: "Account holder name")),
-            TextField(controller: _ifsc, decoration: const InputDecoration(labelText: "IFSC / bank identifier")),
-            const Spacer(),
-            FilledButton(
-              onPressed: _busy ? null : _save,
-              child: _busy
-                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text("Save and verify"),
-            ),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            "Collect once before your first transfer. KYC may be required by your payment provider.",
+            style: TextStyle(color: DriverTheme.muted),
+          ),
+          const SizedBox(height: 16),
+          TextField(controller: _name, decoration: const InputDecoration(labelText: "Account holder name")),
+          TextField(controller: _ifsc, decoration: const InputDecoration(labelText: "IFSC / bank identifier")),
+          const Spacer(),
+          FilledButton(
+            onPressed: _busy ? null : _save,
+            child: _busy
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text("Save and verify"),
+          ),
+        ],
       ),
     );
   }
@@ -1266,50 +1282,73 @@ class _DriverPayoutHistoryScreenState extends State<DriverPayoutHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Payout history")),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                if (_batches.isEmpty)
-                  const Text("No payout batches yet. Complete POD on shipments and wait for batch settlement."),
-                ..._batches.map((b) {
-                  return Card(
-                    child: ListTile(
-                      title: Text(formatInrFromPaise(b["totalNetToCarrierPaise"] as num? ?? 0)),
-                      subtitle: Text("Cutoff ${b["cutoffUtcMs"]} · ${(b["lineIds"] as List?)?.length ?? 0} lines"),
-                    ),
-                  );
-                }),
-                OutlinedButton(onPressed: () => context.go("/driver/earnings"), child: const Text("Back to earnings")),
-              ],
-            ),
-    );
+    return _loading
+        ? const Center(child: CircularProgressIndicator())
+        : ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (_batches.isEmpty)
+                const Text("No payout batches yet. Complete POD on shipments and wait for batch settlement."),
+              ..._batches.map((b) {
+                return Card(
+                  child: ListTile(
+                    title: Text(formatInrFromPaise(b["totalNetToCarrierPaise"] as num? ?? 0)),
+                    subtitle: Text("Cutoff ${b["cutoffUtcMs"]} · ${(b["lineIds"] as List?)?.length ?? 0} lines"),
+                  ),
+                );
+              }),
+            ],
+          );
   }
 }
 
-/// Routes for the integrated driver onboarding + payout flow.
+/// Driver navigation uses [ShellRoute] so the bottom nav stays mounted.
+///
+/// Alternatives considered:
+/// - **Per-screen [DriverShell] + flat [GoRoute]s** (previous): simple but no real stack;
+///   Android back with only [go] caused empty pop / instability.
+/// - **IndexedStack tab state**: persistent tabs but poor deep-linking and URL sync.
+/// - **Full-screen detail routes on root navigator**: hides nav on drill-down; rejected for flow continuity.
+///
+/// Chosen: shell navigator for tabs + [push] for drill-down (active trip, POD, earnings stack);
+/// [go] for tab switches; [PopScope] sends back to `/driver` from tab roots.
 List<RouteBase> driverFlowRoutes() {
   return [
-    GoRoute(path: "/driver", builder: (_, __) => const DriverWelcomeScreen()),
+    ShellRoute(
+      navigatorKey: driverShellNavigatorKey,
+      builder: (context, state, child) {
+        final path = state.uri.path;
+        return DriverShell(
+          title: driverShellTitle(path),
+          currentPath: path,
+          child: child,
+        );
+      },
+      routes: [
+        GoRoute(
+          path: "/driver",
+          builder: (_, __) => const DriverWelcomeScreen(),
+          routes: [
+            GoRoute(path: "loads", builder: (_, __) => const DriverLoadsScreen()),
+            GoRoute(path: "track", builder: (_, __) => const DriverTrackScreen()),
+            GoRoute(path: "profile", builder: (_, __) => const DriverProfileScreen()),
+            GoRoute(
+              path: "trip/:tripId/active",
+              builder: (_, state) => DriverActiveTripScreen(tripId: state.pathParameters["tripId"] ?? ""),
+            ),
+            GoRoute(
+              path: "shipment/:shipmentId/pod",
+              builder: (_, state) => DriverPodScreen(shipmentId: state.pathParameters["shipmentId"] ?? ""),
+            ),
+            GoRoute(path: "earnings", builder: (_, __) => const DriverEarningsScreen()),
+            GoRoute(path: "payout-setup", builder: (_, __) => const DriverPayoutSetupScreen()),
+            GoRoute(path: "payout-history", builder: (_, __) => const DriverPayoutHistoryScreen()),
+          ],
+        ),
+      ],
+    ),
     GoRoute(path: "/driver/onboarding/phone", builder: (_, __) => const DriverPhoneScreen()),
     GoRoute(path: "/driver/onboarding/otp", builder: (_, __) => const DriverOtpScreen()),
     GoRoute(path: "/driver/onboarding/register", builder: (_, __) => const DriverRegisterScreen()),
-    GoRoute(path: "/driver/loads", builder: (_, __) => const DriverLoadsScreen()),
-    GoRoute(path: "/driver/track", builder: (_, __) => const DriverTrackScreen()),
-    GoRoute(path: "/driver/profile", builder: (_, __) => const DriverProfileScreen()),
-    GoRoute(
-      path: "/driver/trip/:tripId/active",
-      builder: (_, state) => DriverActiveTripScreen(tripId: state.pathParameters["tripId"] ?? ""),
-    ),
-    GoRoute(
-      path: "/driver/shipment/:shipmentId/pod",
-      builder: (_, state) => DriverPodScreen(shipmentId: state.pathParameters["shipmentId"] ?? ""),
-    ),
-    GoRoute(path: "/driver/earnings", builder: (_, __) => const DriverEarningsScreen()),
-    GoRoute(path: "/driver/payout-setup", builder: (_, __) => const DriverPayoutSetupScreen()),
-    GoRoute(path: "/driver/payout-history", builder: (_, __) => const DriverPayoutHistoryScreen()),
   ];
 }
