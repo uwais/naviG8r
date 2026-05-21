@@ -15,7 +15,7 @@ This document defines the **first concrete API resources** for the Flutter pilot
 - **`AUTH_SECRET`**: required (min 16 chars). Used to sign access tokens.
 - **`OTP_DEBUG=1`**: returns `debugCode` from `otp/start` and defaults OTP to `OTP_FIXED_CODE` (default `123456`).
 - **`ALLOW_X_USER_ID=1`**: allows the old header-based auth (not for real pilots).
-- **`ENABLE_LEGACY_DEMO_SURFACE=1`**: enables legacy unauthenticated admin/demo write routes in production. Leave unset for hosted pilots.
+- **`ENABLE_LEGACY_DEMO_SURFACE=1`**: enables the legacy admin/demo surface in production. Operator-state JSON and money-moving routes still require an ops-admin Bearer token in production.
 - **`FREIGHT_PAISE_PER_KM_SMALL`**, **`FREIGHT_PAISE_PER_KM_MEDIUM`**, **`FREIGHT_PAISE_PER_KM_LARGE`**: paise per km defaults (see `apps/api/src/config.ts`).
 - **`FREIGHT_MIN_GROSS_PAISE`**: optional minimum gross paise when distance is priced.
 - **`PERSISTENCE`**: omit or **`FILE`** (default) — JSON snapshot via **`DATA_FILE`** (path). Set **`DB`** for Postgres (**`DATABASE_URL`** required); run `cd apps/api && npx prisma db push` once. Full-store snapshot load/save, not row-level repos yet.
@@ -95,7 +95,7 @@ Body:
 
 #### `POST /v1/pilot/driver/login`
 Legacy demo helper that returns the same “bundle” as register, for a known phone.
-It is disabled when `NODE_ENV=production` unless `ENABLE_LEGACY_DEMO_SURFACE=1`.
+It is disabled when `NODE_ENV=production` unless `ENABLE_LEGACY_DEMO_SURFACE=1` and the caller is an ops admin.
 
 Body:
 ```json
@@ -209,7 +209,7 @@ Returns **`{ ok: true, persistence: "file"|"db", paymentProvider: "mock"|"razorp
 #### `POST /v1/payments/razorpay/webhook`
 **Unauthenticated** (signature only). Razorpay posts the JSON event body raw; validate **`x-razorpay-signature`** using **`RAZORPAY_WEBHOOK_SECRET`**. Implemented events: **`payment.authorized`**, **`payment.captured`**, **`payment.failed`**. The server finds the internal payment by Razorpay order/payment ids and updates state idempotently. Configure this URL on the Razorpay dashboard (test mode webhook for dev).
 
-**Production vs legacy demo:** legacy admin/demo JSON that exposes or mutates operator state (`/admin`, `/v1/users`, unauthenticated legacy `/carriers` list/create, legacy `POST /anchor-trips`, ledger/payout toys, **`POST /v1/pilot/driver/login`**, etc.) returns **403** unless `ENABLE_LEGACY_DEMO_SURFACE=1`. The customer marketplace routes above stay enabled in production; without a Bearer token, protected shipment routes return **401**.
+**Production vs legacy demo:** legacy admin/demo routes return **403** unless `ENABLE_LEGACY_DEMO_SURFACE=1`. In production, routes that expose or mutate operator state (`/v1/users`, `/v1/orgs`, legacy `/carriers` list/create, legacy `POST /anchor-trips`, ledger/payout toys, **`POST /v1/pilot/driver/login`**, etc.) also require an ops-admin Bearer token. `/admin` serves only the login shell until the browser loads `/v1/admin/snapshot` with an ops-admin Bearer token. The customer marketplace routes above stay enabled in production; without a Bearer token, protected shipment routes return **401**.
 
 ---
 
