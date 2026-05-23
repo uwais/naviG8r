@@ -81,7 +81,7 @@ function bearerToken(req: http.IncomingMessage): string | null {
 }
 
 function requireUserId(req: http.IncomingMessage, store: ReturnType<typeof loadStoreFromDisk>): string {
-  const allowHeader = process.env.ALLOW_X_USER_ID === "1";
+  const allowHeader = process.env.NODE_ENV !== "production" && process.env.ALLOW_X_USER_ID === "1";
   if (allowHeader) {
     const hdr = String(header(req, "x-user-id") ?? "");
     if (hdr) return hdr;
@@ -132,6 +132,21 @@ function requireBearerUserId(
     json(res, 401, { error: "unauthorized" });
     return null;
   }
+}
+
+function requireOpsAdminInProduction(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: ReturnType<typeof loadStoreFromDisk>,
+): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  const userId = requireBearerUserId(req, res, store);
+  if (!userId) return false;
+  if (!isOpsAdmin(store, userId)) {
+    json(res, 403, { error: "forbidden" });
+    return false;
+  }
+  return true;
 }
 
 export async function createApp(): Promise<{
@@ -272,6 +287,7 @@ export async function createApp(): Promise<{
 
       if (method === "POST" && url.pathname === "/v1/pilot/driver/login") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const body = await readJson(req);
         const out = pilotLoginDriverByPhone(store, String(body?.phone ?? ""));
         return json(res, 200, out);
@@ -394,18 +410,21 @@ export async function createApp(): Promise<{
 
       if (method === "GET" && url.pathname === "/v1/orgs") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const orgs = [...store.organizations.values()];
         return json(res, 200, { orgs });
       }
 
       if (method === "GET" && url.pathname === "/v1/users") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const users = [...store.users.values()];
         return json(res, 200, { users });
       }
 
       if (method === "GET" && url.pathname === "/admin") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const carriers = [...store.carriers.values()];
         const orgs = [...store.organizations.values()];
         const users = [...store.users.values()];
@@ -816,6 +835,7 @@ export async function createApp(): Promise<{
 
       if (method === "POST" && url.pathname === "/carriers") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const body = await readJson(req);
         const carrier = createCarrier(store, String(body?.name ?? ""));
         await persist();
@@ -824,12 +844,14 @@ export async function createApp(): Promise<{
 
       if (method === "GET" && url.pathname === "/carriers") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const carriers = [...store.carriers.values()];
         return json(res, 200, { carriers });
       }
 
       if (method === "POST" && url.pathname === "/anchor-trips") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const body = await readJson(req);
         const trip = publishAnchorTrip(store, {
           carrierId: String(body?.carrierId ?? ""),
@@ -941,7 +963,7 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+        const demoSurface = process.env.NODE_ENV !== "production" && process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
         const hasBearerToken = !!bearerToken(req);
         if (hasBearerToken) {
           const userId = requireBearerUserId(req, res, store);
@@ -973,7 +995,7 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+        const demoSurface = process.env.NODE_ENV !== "production" && process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
         const hasBearerToken = !!bearerToken(req);
         if (hasBearerToken) {
           const userId = requireBearerUserId(req, res, store);
@@ -997,19 +1019,24 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const body = await readJson(req);
-        const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
+        const batch = runPayoutBatch(store, {
+          nowUtcMs: process.env.NODE_ENV === "production" ? undefined : body?.nowUtcMs,
+        });
         await persist();
         return json(res, 200, { batch });
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
