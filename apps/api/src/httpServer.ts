@@ -134,6 +134,20 @@ function requireBearerUserId(
   }
 }
 
+function requireOpsAdminUserId(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: ReturnType<typeof loadStoreFromDisk>,
+): string | null {
+  const userId = requireBearerUserId(req, res, store);
+  if (!userId) return null;
+  if (!isOpsAdmin(store, userId)) {
+    json(res, 403, { error: "forbidden" });
+    return null;
+  }
+  return userId;
+}
+
 export async function createApp(): Promise<{
   server: http.Server;
   store: ReturnType<typeof loadStoreFromDisk>;
@@ -997,19 +1011,38 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        if (process.env.NODE_ENV === "production") {
+          const userId = requireOpsAdminUserId(req, res, store);
+          if (!userId) return;
+        } else if (!requireLegacyDemoSurface(res, method, url.pathname)) {
+          return;
+        }
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        if (process.env.NODE_ENV === "production") {
+          const userId = requireOpsAdminUserId(req, res, store);
+          if (!userId) return;
+        } else if (!requireLegacyDemoSurface(res, method, url.pathname)) {
+          return;
+        }
         const body = await readJson(req);
-        const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
+        const nowUtcMs = process.env.NODE_ENV === "production" ? undefined : body?.nowUtcMs;
+        const batch = runPayoutBatch(store, { nowUtcMs });
         await persist();
         return json(res, 200, { batch });
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        if (process.env.NODE_ENV === "production") {
+          const userId = requireOpsAdminUserId(req, res, store);
+          if (!userId) return;
+        } else if (!requireLegacyDemoSurface(res, method, url.pathname)) {
+          return;
+        }
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }

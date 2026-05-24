@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
 import type http from "node:http";
+import { pilotOtpStart, pilotOtpVerify } from "./auth.ts";
 import { createApp } from "./httpServer.ts";
+import { grantOpsAdmin, registerSoloOwnerOperatorDriver } from "./services.ts";
 
 type AppBundle = Awaited<ReturnType<typeof createApp>>;
 
@@ -20,12 +22,19 @@ async function withApp<T>(
   return fn(`http://127.0.0.1:${address.port}`, app);
 }
 
-async function postJson(baseUrl: string, path: string, body: unknown): Promise<Response> {
+async function postJson(baseUrl: string, path: string, body: unknown, headers?: Record<string, string>): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(headers ?? {}) },
     body: JSON.stringify(body),
   });
+}
+
+function restoreEnv(prev: Record<string, string | undefined>): void {
+  for (const [key, value] of Object.entries(prev)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 }
 
 /**
@@ -100,5 +109,110 @@ test("legacy demo surface remains available outside production", async (t) => {
     assert.equal(res.status, 201);
     const body = (await res.json()) as { carrier?: { name?: string } };
     assert.equal(body.carrier?.name, "Carrier One");
+  });
+});
+
+test("production requires ops-admin bearer for legacy payout and ledger routes", async (t) => {
+  const prev = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    ENABLE_LEGACY_DEMO_SURFACE: process.env.ENABLE_LEGACY_DEMO_SURFACE,
+    AUTH_SECRET: process.env.AUTH_SECRET,
+    OTP_DEBUG: process.env.OTP_DEBUG,
+    OTP_FIXED_CODE: process.env.OTP_FIXED_CODE,
+  };
+  t.after(() => restoreEnv(prev));
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "production";
+  process.env.ENABLE_LEGACY_DEMO_SURFACE = "1";
+  process.env.AUTH_SECRET = "test_secret_minimum_16_chars";
+  process.env.OTP_DEBUG = "1";
+  process.env.OTP_FIXED_CODE = "123456";
+
+  await withApp(t, async (baseUrl, app) => {
+    const noAuthLedger = await fetch(`${baseUrl}/carriers/org_missing/ledger`);
+    assert.equal(noAuthLedger.status, 401);
+    assert.deepEqual(await noAuthLedger.json(), { error: "unauthorized" });
+
+    const noAuthBatches = await fetch(`${baseUrl}/payout-batches`);
+    assert.equal(noAuthBatches.status, 401);
+    assert.deepEqual(await noAuthBatches.json(), { error: "unauthorized" });
+
+    const noAuthRun = await postJson(baseUrl, "/payout-batches/run", {});
+    assert.equal(noAuthRun.status, 401);
+    assert.deepEqual(await noAuthRun.json(), { error: "unauthorized" });
+
+    const driver = registerSoloOwnerOperatorDriver(app.store, {
+      fullName: "Non Ops Driver",
+      phone: "9876543201",
+      orgDisplayName: "Non Ops Transport",
+      vehicleRegistrationNumber: "HR26AA0001",
+      vehicleClass: "MEDIUM",
+      vehicleCapacityKg: 5000,
+    });
+    const nonOpsChallenge = pilotOtpStart(app.store, { phone: driver.user.phone });
+    const nonOpsToken = pilotOtpVerify(app.store, {
+      phone: driver.user.phone,
+      challengeId: nonOpsChallenge.challengeId,
+      code: "123456",
+    }).accessToken;
+
+    const nonOps = await fetch(`${baseUrl}/payout-batches`, {
+      headers: { authorization: `Bearer ${nonOpsToken}` },
+    });
+    assert.equal(nonOps.status, 403);
+    assert.deepEqual(await nonOps.json(), { error: "forbidden" });
+
+    const ops = registerSoloOwnerOperatorDriver(app.store, {
+      fullName: "Ops Driver",
+      phone: "9876543202",
+      orgDisplayName: "Ops Transport",
+      vehicleRegistrationNumber: "HR26AA0002",
+      vehicleClass: "MEDIUM",
+      vehicleCapacityKg: 5000,
+    });
+    grantOpsAdmin(app.store, { phone: ops.user.phone });
+    const opsChallenge = pilotOtpStart(app.store, { phone: ops.user.phone });
+    const opsToken = pilotOtpVerify(app.store, {
+      phone: ops.user.phone,
+      challengeId: opsChallenge.challengeId,
+      code: "123456",
+    }).accessToken;
+
+    const futureCutoffUtcMs = Date.now() + 24 * 60 * 60 * 1000;
+    app.store.ledgerLines.set("ll_future", {
+      id: "ll_future",
+      shipmentId: "shp_future",
+      carrierId: ops.org.id,
+      grossPaise: 100_00,
+      commissionPaise: 10_00,
+      netToCarrierPaise: 90_00,
+      podAtUtcMs: Date.now(),
+      firstPayoutEligibleAtUtcMs: futureCutoffUtcMs,
+      payoutBatchCutoffUtcMs: futureCutoffUtcMs,
+      status: "ACCRUED",
+      createdAtUtcMs: Date.now(),
+      paidAtUtcMs: null,
+    });
+
+    const ledger = await fetch(`${baseUrl}/carriers/${ops.org.id}/ledger`, {
+      headers: { authorization: `Bearer ${opsToken}` },
+    });
+    assert.equal(ledger.status, 200);
+    const ledgerBody = (await ledger.json()) as { lines?: unknown[] };
+    assert.equal(ledgerBody.lines?.length, 1);
+
+    const run = await postJson(
+      baseUrl,
+      "/payout-batches/run",
+      { nowUtcMs: futureCutoffUtcMs + 1 },
+      { authorization: `Bearer ${opsToken}` },
+    );
+    assert.equal(run.status, 200);
+    const runBody = (await run.json()) as { batch?: { lineIds?: string[]; totalNetToCarrierPaise?: number } };
+    assert.deepEqual(runBody.batch?.lineIds, []);
+    assert.equal(runBody.batch?.totalNetToCarrierPaise, 0);
+    assert.equal(app.store.ledgerLines.get("ll_future")?.status, "ACCRUED");
   });
 });
