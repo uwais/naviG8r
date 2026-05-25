@@ -81,7 +81,7 @@ function bearerToken(req: http.IncomingMessage): string | null {
 }
 
 function requireUserId(req: http.IncomingMessage, store: ReturnType<typeof loadStoreFromDisk>): string {
-  const allowHeader = process.env.ALLOW_X_USER_ID === "1";
+  const allowHeader = process.env.NODE_ENV !== "production" && process.env.ALLOW_X_USER_ID === "1";
   if (allowHeader) {
     const hdr = String(header(req, "x-user-id") ?? "");
     if (hdr) return hdr;
@@ -132,6 +132,21 @@ function requireBearerUserId(
     json(res, 401, { error: "unauthorized" });
     return null;
   }
+}
+
+function requireOpsAdminInProduction(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: ReturnType<typeof loadStoreFromDisk>,
+): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  const userId = requireBearerUserId(req, res, store);
+  if (!userId) return false;
+  if (!isOpsAdmin(store, userId)) {
+    json(res, 403, { error: "forbidden" });
+    return false;
+  }
+  return true;
 }
 
 export async function createApp(): Promise<{
@@ -997,19 +1012,23 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const body = await readJson(req);
-        const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
+        const nowUtcMs = process.env.NODE_ENV === "production" ? undefined : body?.nowUtcMs;
+        const batch = runPayoutBatch(store, { nowUtcMs });
         await persist();
         return json(res, 200, { batch });
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        if (!requireOpsAdminInProduction(req, res, store)) return;
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
