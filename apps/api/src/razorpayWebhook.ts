@@ -47,7 +47,7 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     if (!pay || pay.provider !== "RAZORPAY") return;
     const rid = ent.id ?? pay.razorpayPaymentId;
     if (!rid) return;
-    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") return;
+    if (pay.status !== "CREATED" && pay.status !== "FAILED") return;
     store.payments.set(pay.id, {
       ...pay,
       status: "AUTHORIZED",
@@ -63,6 +63,8 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     const pay = findPaymentByRazorpayPaymentId(store, razorpayPayId)
       ?? (ent.order_id ? findPaymentByRazorpayOrderId(store, ent.order_id) : undefined);
     if (!pay || pay.provider !== "RAZORPAY") return;
+    if (pay.status === "REFUNDED") return;
+    if (pay.razorpayPaymentId && pay.razorpayPaymentId !== razorpayPayId && pay.status !== "FAILED") return;
     store.payments.set(pay.id, {
       ...pay,
       razorpayPaymentId: razorpayPayId,
@@ -78,7 +80,8 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     const pay = (razorpayPayId ? findPaymentByRazorpayPaymentId(store, razorpayPayId) : undefined)
       ?? (orderId ? findPaymentByRazorpayOrderId(store, orderId) : undefined);
     if (!pay || pay.provider !== "RAZORPAY") return;
-    if (pay.status === "CAPTURED" || pay.status === "REFUNDED") return;
+    if (pay.status !== "CREATED" && pay.status !== "FAILED") return;
+    if (pay.razorpayPaymentId && pay.razorpayPaymentId !== razorpayPayId) return;
     store.payments.set(pay.id, {
       ...pay,
       ...(razorpayPayId ? { razorpayPaymentId: razorpayPayId } : {}),

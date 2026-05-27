@@ -997,12 +997,14 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
         const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
         await persist();
@@ -1010,6 +1012,7 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
