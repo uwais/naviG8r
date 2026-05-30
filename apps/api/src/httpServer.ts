@@ -81,7 +81,7 @@ function bearerToken(req: http.IncomingMessage): string | null {
 }
 
 function requireUserId(req: http.IncomingMessage, store: ReturnType<typeof loadStoreFromDisk>): string {
-  const allowHeader = process.env.ALLOW_X_USER_ID === "1";
+  const allowHeader = process.env.NODE_ENV !== "production" && process.env.ALLOW_X_USER_ID === "1";
   if (allowHeader) {
     const hdr = String(header(req, "x-user-id") ?? "");
     if (hdr) return hdr;
@@ -132,6 +132,53 @@ function requireBearerUserId(
     json(res, 401, { error: "unauthorized" });
     return null;
   }
+}
+
+function requireProductionOpsAdmin(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: ReturnType<typeof loadStoreFromDisk>,
+): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  const userId = requireBearerUserId(req, res, store);
+  if (!userId) return false;
+  if (!isOpsAdmin(store, userId)) {
+    json(res, 403, { error: "forbidden" });
+    return false;
+  }
+  return true;
+}
+
+function adminSnapshot(store: ReturnType<typeof loadStoreFromDisk>, persistenceBacking: string) {
+  return {
+    persistenceBacking,
+    carriers: [...store.carriers.values()],
+    orgs: [...store.organizations.values()],
+    users: [...store.users.values()],
+    memberships: [...store.memberships.values()],
+    vehicles: [...store.vehicles.values()],
+    driverProfiles: [...store.driverProfiles.values()],
+    trips: [...store.anchorTrips.values()],
+    shipments: [...store.shipments.values()],
+    ledgerLines: [...store.ledgerLines.values()],
+    payoutBatches: [...store.payoutBatches.values()],
+  };
+}
+
+function emptyAdminSnapshot(persistenceBacking: string) {
+  return {
+    persistenceBacking,
+    carriers: [],
+    orgs: [],
+    users: [],
+    memberships: [],
+    vehicles: [],
+    driverProfiles: [],
+    trips: [],
+    shipments: [],
+    ledgerLines: [],
+    payoutBatches: [],
+  };
 }
 
 export async function createApp(): Promise<{
@@ -253,6 +300,15 @@ export async function createApp(): Promise<{
         const out = revokeOpsAdmin(store, { phone, actingUserId: userId });
         await persist();
         return json(res, 200, out);
+      }
+
+      if (method === "GET" && url.pathname === "/v1/admin/snapshot") {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        if (!isOpsAdmin(store, userId)) return json(res, 403, { error: "forbidden" });
+        const persistenceBacking =
+          dataFilePath != null ? dataFilePath : "Postgres (Prisma, PERSISTENCE=DB)";
+        return json(res, 200, { snapshot: adminSnapshot(store, persistenceBacking) });
       }
 
       // --- v1 pilot API resources (Flutter Driver app first) ---
@@ -406,16 +462,6 @@ export async function createApp(): Promise<{
 
       if (method === "GET" && url.pathname === "/admin") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const carriers = [...store.carriers.values()];
-        const orgs = [...store.organizations.values()];
-        const users = [...store.users.values()];
-        const memberships = [...store.memberships.values()];
-        const vehicles = [...store.vehicles.values()];
-        const driverProfiles = [...store.driverProfiles.values()];
-        const trips = [...store.anchorTrips.values()];
-        const shipments = [...store.shipments.values()];
-        const ledgerLines = [...store.ledgerLines.values()];
-        const payoutBatches = [...store.payoutBatches.values()];
 
         const esc = (s: any) =>
           String(s)
@@ -426,6 +472,9 @@ export async function createApp(): Promise<{
 
         const persistenceBacking =
           dataFilePath != null ? dataFilePath : "Postgres (Prisma, PERSISTENCE=DB)";
+        const embeddedSnapshot = process.env.NODE_ENV === "production"
+          ? emptyAdminSnapshot(persistenceBacking)
+          : adminSnapshot(store, persistenceBacking);
 
         return html(
           res,
@@ -486,7 +535,7 @@ export async function createApp(): Promise<{
     <div class="topbar">
       <div>
         <h1 style="margin:0;">Logistics MVP Admin</h1>
-        <p class="muted" style="margin:2px 0 0;">Backed by <code>${esc(persistenceBacking)}</code></p>
+        <p class="muted" style="margin:2px 0 0;">Backed by <code id="persistenceBacking">${esc(embeddedSnapshot.persistenceBacking)}</code></p>
       </div>
       <div style="text-align:right;">
         <span class="session-info" id="sessionInfo"></span>
@@ -571,35 +620,35 @@ export async function createApp(): Promise<{
       </div>
     </div>
 
-    <h3>Carriers (${carriers.length})</h3>
-    <pre>${esc(JSON.stringify(carriers, null, 2))}</pre>
+    <h3>Carriers (<span id="carriersCount">${embeddedSnapshot.carriers.length}</span>)</h3>
+    <pre id="carriersJson">${esc(JSON.stringify(embeddedSnapshot.carriers, null, 2))}</pre>
 
-    <h3>Organizations (${orgs.length})</h3>
-    <pre>${esc(JSON.stringify(orgs, null, 2))}</pre>
+    <h3>Organizations (<span id="orgsCount">${embeddedSnapshot.orgs.length}</span>)</h3>
+    <pre id="orgsJson">${esc(JSON.stringify(embeddedSnapshot.orgs, null, 2))}</pre>
 
-    <h3>Users (${users.length})</h3>
-    <pre>${esc(JSON.stringify(users, null, 2))}</pre>
+    <h3>Users (<span id="usersCount">${embeddedSnapshot.users.length}</span>)</h3>
+    <pre id="usersJson">${esc(JSON.stringify(embeddedSnapshot.users, null, 2))}</pre>
 
-    <h3>Memberships (${memberships.length})</h3>
-    <pre>${esc(JSON.stringify(memberships, null, 2))}</pre>
+    <h3>Memberships (<span id="membershipsCount">${embeddedSnapshot.memberships.length}</span>)</h3>
+    <pre id="membershipsJson">${esc(JSON.stringify(embeddedSnapshot.memberships, null, 2))}</pre>
 
-    <h3>Vehicles (${vehicles.length})</h3>
-    <pre>${esc(JSON.stringify(vehicles, null, 2))}</pre>
+    <h3>Vehicles (<span id="vehiclesCount">${embeddedSnapshot.vehicles.length}</span>)</h3>
+    <pre id="vehiclesJson">${esc(JSON.stringify(embeddedSnapshot.vehicles, null, 2))}</pre>
 
-    <h3>Driver profiles (${driverProfiles.length})</h3>
-    <pre>${esc(JSON.stringify(driverProfiles, null, 2))}</pre>
+    <h3>Driver profiles (<span id="driverProfilesCount">${embeddedSnapshot.driverProfiles.length}</span>)</h3>
+    <pre id="driverProfilesJson">${esc(JSON.stringify(embeddedSnapshot.driverProfiles, null, 2))}</pre>
 
-    <h3>Anchor trips (${trips.length})</h3>
-    <pre>${esc(JSON.stringify(trips, null, 2))}</pre>
+    <h3>Anchor trips (<span id="tripsCount">${embeddedSnapshot.trips.length}</span>)</h3>
+    <pre id="tripsJson">${esc(JSON.stringify(embeddedSnapshot.trips, null, 2))}</pre>
 
-    <h3>Shipments (${shipments.length})</h3>
-    <pre>${esc(JSON.stringify(shipments, null, 2))}</pre>
+    <h3>Shipments (<span id="shipmentsCount">${embeddedSnapshot.shipments.length}</span>)</h3>
+    <pre id="shipmentsJson">${esc(JSON.stringify(embeddedSnapshot.shipments, null, 2))}</pre>
 
-    <h3>Ledger lines (${ledgerLines.length})</h3>
-    <pre>${esc(JSON.stringify(ledgerLines, null, 2))}</pre>
+    <h3>Ledger lines (<span id="ledgerLinesCount">${embeddedSnapshot.ledgerLines.length}</span>)</h3>
+    <pre id="ledgerLinesJson">${esc(JSON.stringify(embeddedSnapshot.ledgerLines, null, 2))}</pre>
 
-    <h3>Payout batches (${payoutBatches.length})</h3>
-    <pre>${esc(JSON.stringify(payoutBatches, null, 2))}</pre>
+    <h3>Payout batches (<span id="payoutBatchesCount">${embeddedSnapshot.payoutBatches.length}</span>)</h3>
+    <pre id="payoutBatchesJson">${esc(JSON.stringify(embeddedSnapshot.payoutBatches, null, 2))}</pre>
 
     </div><!-- end adminContent -->
 
@@ -693,6 +742,7 @@ export async function createApp(): Promise<{
           warn.style.display = "none";
           opsCard.style.display = "block";
           loadOpsAdmins();
+          loadAdminSnapshot();
         } else {
           badge.innerHTML = '<span class="role-badge role-customer">Customer</span>';
           warn.style.display = "block";
@@ -719,6 +769,26 @@ export async function createApp(): Promise<{
               '<span><code>'+a.phone+'</code> &mdash; '+ (a.fullName || '(no name)') +' '+tag+'</span>' + revoke + '</div>';
           }).join("");
         } catch (e) { listEl.textContent = "Network error loading ops admins."; }
+      }
+
+      async function loadAdminSnapshot() {
+        try {
+          const res = await fetch("/v1/admin/snapshot", { headers: authHeaders() });
+          if (!res.ok) return;
+          const out = await res.json();
+          const snapshot = out.snapshot || {};
+          const sections = ["carriers","orgs","users","memberships","vehicles","driverProfiles","trips","shipments","ledgerLines","payoutBatches"];
+          if (snapshot.persistenceBacking) {
+            document.getElementById("persistenceBacking").textContent = snapshot.persistenceBacking;
+          }
+          sections.forEach(function(name) {
+            const items = snapshot[name] || [];
+            const count = document.getElementById(name + "Count");
+            const pre = document.getElementById(name + "Json");
+            if (count) count.textContent = String(items.length);
+            if (pre) pre.textContent = JSON.stringify(items, null, 2);
+          });
+        } catch (e) {}
       }
 
       async function grantOps() {
@@ -941,7 +1011,7 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+        const demoSurface = process.env.NODE_ENV !== "production" && process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
         const hasBearerToken = !!bearerToken(req);
         if (hasBearerToken) {
           const userId = requireBearerUserId(req, res, store);
@@ -965,7 +1035,8 @@ export async function createApp(): Promise<{
         }
         const body = await readJson(req);
         await ensureRazorpayCapturedBeforePod(store, shipmentId);
-        const out = markPodDelivered(store, { shipmentId, podAtUtcMs: body?.podAtUtcMs });
+        const podAtUtcMs = process.env.NODE_ENV === "production" ? undefined : body?.podAtUtcMs;
+        const out = markPodDelivered(store, { shipmentId, podAtUtcMs });
         await persist();
         return json(res, 200, out);
       }
@@ -973,7 +1044,7 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+        const demoSurface = process.env.NODE_ENV !== "production" && process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
         const hasBearerToken = !!bearerToken(req);
         if (hasBearerToken) {
           const userId = requireBearerUserId(req, res, store);
@@ -997,19 +1068,23 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const body = await readJson(req);
-        const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
+        const nowUtcMs = process.env.NODE_ENV === "production" ? undefined : body?.nowUtcMs;
+        const batch = runPayoutBatch(store, { nowUtcMs });
         await persist();
         return json(res, 200, { batch });
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
