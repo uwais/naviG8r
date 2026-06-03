@@ -102,3 +102,36 @@ test("legacy demo surface remains available outside production", async (t) => {
     assert.equal(body.carrier?.name, "Carrier One");
   });
 });
+
+test("POST /shipments/:id/driver-pod requires authenticated user", async (t) => {
+  const prev = { DATA_FILE: process.env.DATA_FILE, NODE_ENV: process.env.NODE_ENV };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "test";
+
+  await withApp(t, async (baseUrl) => {
+    const res = await postJson(baseUrl, "/shipments/shp_fake/driver-pod", { notes: "ok" });
+    assert.equal(res.status, 401);
+  });
+});
+
+test("GET /ops returns ops portal HTML", async (t) => {
+  const prev = { DATA_FILE: process.env.DATA_FILE };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+
+  await withApp(t, async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/ops`);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.ok(html.includes("naviG8r Ops"));
+    assert.ok(html.includes("pending-release"));
+  });
+});

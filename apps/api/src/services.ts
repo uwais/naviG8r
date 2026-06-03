@@ -296,10 +296,19 @@ export function isOpsAdmin(store: Store, userId: string): boolean {
   const user = store.users.get(userId);
   if (!user) return false;
   for (const m of store.memberships.values()) {
-    if (m.userId === userId && m.role === "OPS_ADMIN") return true;
+    if (m.userId === userId && (m.role === "OPS_ADMIN" || m.role === "OPS_AGENT")) return true;
   }
   if (envOpsAdminPhones().includes(user.phone)) return true;
   return false;
+}
+
+/** Ops/support agent: platform OPS_AGENT or OPS_ADMIN membership (or env bootstrap). */
+export function isOpsAgent(store: Store, userId: string): boolean {
+  return isOpsAdmin(store, userId);
+}
+
+export function assertOpsAgent(store: Store, userId: string): void {
+  if (!isOpsAgent(store, userId)) throw new Error("forbidden");
 }
 
 export type OpsAdminEntry = {
@@ -314,7 +323,7 @@ export function listOpsAdmins(store: Store): OpsAdminEntry[] {
   const out: OpsAdminEntry[] = [];
   const seen = new Set<string>();
   for (const m of store.memberships.values()) {
-    if (m.role !== "OPS_ADMIN") continue;
+    if (m.role !== "OPS_ADMIN" && m.role !== "OPS_AGENT") continue;
     const user = store.users.get(m.userId);
     if (!user) continue;
     seen.add(user.id);
@@ -362,7 +371,7 @@ export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdmin
   const org = getOrCreatePlatformOpsOrg(store);
   const key = membershipKey(user.id, org.id);
   const existing = store.memberships.get(key);
-  if (existing && existing.role === "OPS_ADMIN") {
+  if (existing && (existing.role === "OPS_ADMIN" || existing.role === "OPS_AGENT")) {
     return {
       userId: user.id,
       phone: user.phone,
@@ -374,7 +383,7 @@ export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdmin
   const m: Membership = {
     userId: user.id,
     orgId: org.id,
-    role: "OPS_ADMIN",
+    role: "OPS_AGENT",
     createdAtUtcMs: nowUtcMs(),
   };
   store.memberships.set(key, m);
@@ -403,11 +412,11 @@ export function revokeOpsAdmin(
   if (!org) throw new ApiError("ops_admin_not_found", { detail: "No platform-ops org exists." });
   const key = membershipKey(user.id, org.id);
   const m = store.memberships.get(key);
-  if (!m || m.role !== "OPS_ADMIN") {
+  if (!m || (m.role !== "OPS_ADMIN" && m.role !== "OPS_AGENT")) {
     throw new ApiError("ops_admin_not_found", { detail: "This phone has no DB ops-admin grant." });
   }
   const remainingDb = [...store.memberships.values()].filter(
-    (x) => x.role === "OPS_ADMIN" && x.userId !== user.id,
+    (x) => (x.role === "OPS_ADMIN" || x.role === "OPS_AGENT") && x.userId !== user.id,
   ).length;
   const envCount = envOpsAdminPhones().length;
   if (remainingDb + envCount === 0) {
@@ -1008,17 +1017,11 @@ export function bookShipment(store: Store, params: {
   return s;
 }
 
-export function markPodDelivered(store: Store, params: {
-  shipmentId: string;
-  podAtUtcMs?: number;
-}): { shipment: Shipment; ledgerLine: LedgerLine } {
-  const s = store.shipments.get(params.shipmentId);
-  if (!s) throw new Error("shipment_not_found");
-  if (s.status !== "BOOKED") throw new Error("shipment_not_deliverable");
-  const pay = store.payments.get(s.paymentId);
-  if (!pay || pay.status !== "CAPTURED") throw new Error("payment_not_captured");
-
-  const podAtUtcMs = params.podAtUtcMs ?? nowUtcMs();
+function finalizeDeliveredShipment(
+  store: Store,
+  s: Shipment,
+  podAtUtcMs: number,
+): { shipment: Shipment; ledgerLine: LedgerLine } {
   const assignment = computePayoutBatchAssignment(podAtUtcMs, PAYOUT_BATCH_SCHEDULE);
   const now = nowUtcMs();
 
@@ -1049,6 +1052,118 @@ export function markPodDelivered(store: Store, params: {
   store.ledgerLines.set(line.id, line);
 
   return { shipment: updated, ledgerLine: line };
+}
+
+/** Driver confirms delivery; payment capture and ledger wait for ops release. */
+export function submitDriverPod(
+  store: Store,
+  params: { shipmentId: string; userId: string; notes?: string },
+): Shipment {
+  const s = store.shipments.get(params.shipmentId);
+  if (!s) throw new Error("shipment_not_found");
+  if (!shipmentVisibleToCarrierPilot(store, s, params.userId)) {
+    throw new Error("forbidden");
+  }
+  if (s.status !== "BOOKED") {
+    throw new ApiError("shipment_not_deliverable", { status: s.status });
+  }
+  const pay = store.payments.get(s.paymentId);
+  if (!pay) throw new Error("payment_not_found");
+  const payOk =
+    pay.status === "AUTHORIZED" || (pay.provider === "MOCK" && pay.status === "CAPTURED");
+  if (!payOk) {
+    throw new ApiError("checkout_not_completed_for_pod", {
+      detail: "Customer must complete payment authorization before driver POD.",
+      status: pay.status,
+    });
+  }
+
+  const podAtUtcMs = nowUtcMs();
+  const updated: Shipment = {
+    ...s,
+    status: "PENDING_RELEASE",
+    podAtUtcMs,
+    podSubmittedByUserId: params.userId,
+    ...(params.notes != null && String(params.notes).trim() !== ""
+      ? { podNotes: String(params.notes).trim() }
+      : {}),
+    updatedAtUtcMs: podAtUtcMs,
+  };
+  store.shipments.set(updated.id, updated);
+  return updated;
+}
+
+/** Ops releases payment after driver POD; captures Razorpay then marks DELIVERED. */
+export async function releasePaymentAndDeliver(
+  store: Store,
+  params: { shipmentId: string; podAtUtcMs?: number },
+): Promise<{ shipment: Shipment; ledgerLine: LedgerLine }> {
+  const s = store.shipments.get(params.shipmentId);
+  if (!s) throw new Error("shipment_not_found");
+  if (s.status !== "PENDING_RELEASE") {
+    throw new ApiError("shipment_not_pending_release", { status: s.status });
+  }
+  await ensureRazorpayCapturedBeforePod(store, params.shipmentId);
+  const pay = store.payments.get(s.paymentId);
+  if (!pay) throw new Error("payment_not_found");
+  if (pay.provider !== "MOCK" && pay.status !== "CAPTURED") {
+    throw new Error("payment_not_captured");
+  }
+  const podAtUtcMs = params.podAtUtcMs ?? s.podAtUtcMs ?? nowUtcMs();
+  return finalizeDeliveredShipment(store, s, podAtUtcMs);
+}
+
+export function opsListPendingRelease(store: Store): Shipment[] {
+  return [...store.shipments.values()]
+    .filter((s) => s.status === "PENDING_RELEASE")
+    .sort((a, b) => (b.podAtUtcMs ?? 0) - (a.podAtUtcMs ?? 0));
+}
+
+export function opsListRecentlyDelivered(store: Store, limit = 20): Shipment[] {
+  return [...store.shipments.values()]
+    .filter((s) => s.status === "DELIVERED")
+    .sort((a, b) => (b.podAtUtcMs ?? 0) - (a.podAtUtcMs ?? 0))
+    .slice(0, limit);
+}
+
+export function opsShipmentDetail(store: Store, shipmentId: string): {
+  shipment: Shipment;
+  payment: Payment | null;
+  carrierOrgName: string;
+  podSubmittedBy: User | null;
+} {
+  const shipment = store.shipments.get(shipmentId);
+  if (!shipment) throw new Error("shipment_not_found");
+  const payment = store.payments.get(shipment.paymentId) ?? null;
+  const org = store.organizations.get(shipment.carrierId);
+  const carrierOrgName = org?.displayName ?? shipment.carrierId;
+  const podSubmittedBy =
+    shipment.podSubmittedByUserId != null
+      ? store.users.get(shipment.podSubmittedByUserId) ?? null
+      : null;
+  return { shipment, payment, carrierOrgName, podSubmittedBy };
+}
+
+/** Legacy/admin instant POD: BOOKED + payment already captured (or MOCK). */
+export function markPodDelivered(store: Store, params: {
+  shipmentId: string;
+  podAtUtcMs?: number;
+}): { shipment: Shipment; ledgerLine: LedgerLine } {
+  const s = store.shipments.get(params.shipmentId);
+  if (!s) throw new Error("shipment_not_found");
+  if (s.status !== "BOOKED" && s.status !== "PENDING_RELEASE") {
+    throw new Error("shipment_not_deliverable");
+  }
+  if (s.status === "PENDING_RELEASE") {
+    throw new ApiError("use_ops_release", {
+      detail: "Shipment awaits ops payment release. POST /ops/shipments/:id/release",
+    });
+  }
+  const pay = store.payments.get(s.paymentId);
+  if (!pay || pay.status !== "CAPTURED") throw new Error("payment_not_captured");
+
+  const podAtUtcMs = params.podAtUtcMs ?? nowUtcMs();
+  return finalizeDeliveredShipment(store, s, podAtUtcMs);
 }
 
 /** Reverse a BOOKED shipment + free trip capacity if Razorpay order could not be created. */
