@@ -80,8 +80,12 @@ function bearerToken(req: http.IncomingMessage): string | null {
   return m?.[1] ?? null;
 }
 
+function isProduction(): boolean {
+  return process.env.NODE_ENV === "production";
+}
+
 function requireUserId(req: http.IncomingMessage, store: ReturnType<typeof loadStoreFromDisk>): string {
-  const allowHeader = process.env.ALLOW_X_USER_ID === "1";
+  const allowHeader = !isProduction() && process.env.ALLOW_X_USER_ID === "1";
   if (allowHeader) {
     const hdr = String(header(req, "x-user-id") ?? "");
     if (hdr) return hdr;
@@ -132,6 +136,29 @@ function requireBearerUserId(
     json(res, 401, { error: "unauthorized" });
     return null;
   }
+}
+
+function requireOpsAdminUserId(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: ReturnType<typeof loadStoreFromDisk>,
+): string | null {
+  const userId = requireBearerUserId(req, res, store);
+  if (!userId) return null;
+  if (!isOpsAdmin(store, userId)) {
+    json(res, 403, { error: "forbidden" });
+    return null;
+  }
+  return userId;
+}
+
+function requireProductionOpsAdmin(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: ReturnType<typeof loadStoreFromDisk>,
+): boolean {
+  if (!isProduction()) return true;
+  return requireOpsAdminUserId(req, res, store) != null;
 }
 
 export async function createApp(): Promise<{
@@ -272,6 +299,7 @@ export async function createApp(): Promise<{
 
       if (method === "POST" && url.pathname === "/v1/pilot/driver/login") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const body = await readJson(req);
         const out = pilotLoginDriverByPhone(store, String(body?.phone ?? ""));
         return json(res, 200, out);
@@ -394,28 +422,47 @@ export async function createApp(): Promise<{
 
       if (method === "GET" && url.pathname === "/v1/orgs") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const orgs = [...store.organizations.values()];
         return json(res, 200, { orgs });
       }
 
       if (method === "GET" && url.pathname === "/v1/users") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const users = [...store.users.values()];
         return json(res, 200, { users });
       }
 
+      if (method === "GET" && url.pathname === "/v1/admin/snapshot") {
+        if (!requireOpsAdminUserId(req, res, store)) return;
+        return json(res, 200, {
+          carriers: [...store.carriers.values()],
+          orgs: [...store.organizations.values()],
+          users: [...store.users.values()],
+          memberships: [...store.memberships.values()],
+          vehicles: [...store.vehicles.values()],
+          driverProfiles: [...store.driverProfiles.values()],
+          trips: [...store.anchorTrips.values()],
+          shipments: [...store.shipments.values()],
+          ledgerLines: [...store.ledgerLines.values()],
+          payoutBatches: [...store.payoutBatches.values()],
+        });
+      }
+
       if (method === "GET" && url.pathname === "/admin") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const carriers = [...store.carriers.values()];
-        const orgs = [...store.organizations.values()];
-        const users = [...store.users.values()];
-        const memberships = [...store.memberships.values()];
-        const vehicles = [...store.vehicles.values()];
-        const driverProfiles = [...store.driverProfiles.values()];
-        const trips = [...store.anchorTrips.values()];
-        const shipments = [...store.shipments.values()];
-        const ledgerLines = [...store.ledgerLines.values()];
-        const payoutBatches = [...store.payoutBatches.values()];
+        const embedSnapshot = !isProduction();
+        const carriers = embedSnapshot ? [...store.carriers.values()] : [];
+        const orgs = embedSnapshot ? [...store.organizations.values()] : [];
+        const users = embedSnapshot ? [...store.users.values()] : [];
+        const memberships = embedSnapshot ? [...store.memberships.values()] : [];
+        const vehicles = embedSnapshot ? [...store.vehicles.values()] : [];
+        const driverProfiles = embedSnapshot ? [...store.driverProfiles.values()] : [];
+        const trips = embedSnapshot ? [...store.anchorTrips.values()] : [];
+        const shipments = embedSnapshot ? [...store.shipments.values()] : [];
+        const ledgerLines = embedSnapshot ? [...store.ledgerLines.values()] : [];
+        const payoutBatches = embedSnapshot ? [...store.payoutBatches.values()] : [];
 
         const esc = (s: any) =>
           String(s)
@@ -571,35 +618,35 @@ export async function createApp(): Promise<{
       </div>
     </div>
 
-    <h3>Carriers (${carriers.length})</h3>
-    <pre>${esc(JSON.stringify(carriers, null, 2))}</pre>
+    <h3 id="carriersHeading">Carriers (${carriers.length})</h3>
+    <pre id="carriersPre">${esc(JSON.stringify(carriers, null, 2))}</pre>
 
-    <h3>Organizations (${orgs.length})</h3>
-    <pre>${esc(JSON.stringify(orgs, null, 2))}</pre>
+    <h3 id="orgsHeading">Organizations (${orgs.length})</h3>
+    <pre id="orgsPre">${esc(JSON.stringify(orgs, null, 2))}</pre>
 
-    <h3>Users (${users.length})</h3>
-    <pre>${esc(JSON.stringify(users, null, 2))}</pre>
+    <h3 id="usersHeading">Users (${users.length})</h3>
+    <pre id="usersPre">${esc(JSON.stringify(users, null, 2))}</pre>
 
-    <h3>Memberships (${memberships.length})</h3>
-    <pre>${esc(JSON.stringify(memberships, null, 2))}</pre>
+    <h3 id="membershipsHeading">Memberships (${memberships.length})</h3>
+    <pre id="membershipsPre">${esc(JSON.stringify(memberships, null, 2))}</pre>
 
-    <h3>Vehicles (${vehicles.length})</h3>
-    <pre>${esc(JSON.stringify(vehicles, null, 2))}</pre>
+    <h3 id="vehiclesHeading">Vehicles (${vehicles.length})</h3>
+    <pre id="vehiclesPre">${esc(JSON.stringify(vehicles, null, 2))}</pre>
 
-    <h3>Driver profiles (${driverProfiles.length})</h3>
-    <pre>${esc(JSON.stringify(driverProfiles, null, 2))}</pre>
+    <h3 id="driverProfilesHeading">Driver profiles (${driverProfiles.length})</h3>
+    <pre id="driverProfilesPre">${esc(JSON.stringify(driverProfiles, null, 2))}</pre>
 
-    <h3>Anchor trips (${trips.length})</h3>
-    <pre>${esc(JSON.stringify(trips, null, 2))}</pre>
+    <h3 id="tripsHeading">Anchor trips (${trips.length})</h3>
+    <pre id="tripsPre">${esc(JSON.stringify(trips, null, 2))}</pre>
 
-    <h3>Shipments (${shipments.length})</h3>
-    <pre>${esc(JSON.stringify(shipments, null, 2))}</pre>
+    <h3 id="shipmentsHeading">Shipments (${shipments.length})</h3>
+    <pre id="shipmentsPre">${esc(JSON.stringify(shipments, null, 2))}</pre>
 
-    <h3>Ledger lines (${ledgerLines.length})</h3>
-    <pre>${esc(JSON.stringify(ledgerLines, null, 2))}</pre>
+    <h3 id="ledgerLinesHeading">Ledger lines (${ledgerLines.length})</h3>
+    <pre id="ledgerLinesPre">${esc(JSON.stringify(ledgerLines, null, 2))}</pre>
 
-    <h3>Payout batches (${payoutBatches.length})</h3>
-    <pre>${esc(JSON.stringify(payoutBatches, null, 2))}</pre>
+    <h3 id="payoutBatchesHeading">Payout batches (${payoutBatches.length})</h3>
+    <pre id="payoutBatchesPre">${esc(JSON.stringify(payoutBatches, null, 2))}</pre>
 
     </div><!-- end adminContent -->
 
@@ -753,6 +800,7 @@ export async function createApp(): Promise<{
         document.getElementById("sessionInfo").textContent = phone ? "Logged in as " + phone : "";
         renderRoleBadge();
         refreshOpsAdminStatus();
+        loadAdminSnapshot();
       }
 
       function authHeaders() {
@@ -760,6 +808,32 @@ export async function createApp(): Promise<{
         const tok = localStorage.getItem(LS_TOKEN);
         if (tok) h["authorization"] = "Bearer " + tok;
         return h;
+      }
+
+      function renderJsonSection(key, title, items) {
+        const list = Array.isArray(items) ? items : [];
+        const heading = document.getElementById(key + "Heading");
+        const pre = document.getElementById(key + "Pre");
+        if (heading) heading.textContent = title + " (" + list.length + ")";
+        if (pre) pre.textContent = JSON.stringify(list, null, 2);
+      }
+
+      async function loadAdminSnapshot() {
+        try {
+          const res = await fetch("/v1/admin/snapshot", { headers: authHeaders() });
+          if (!res.ok) return;
+          const out = await res.json();
+          renderJsonSection("carriers", "Carriers", out.carriers);
+          renderJsonSection("orgs", "Organizations", out.orgs);
+          renderJsonSection("users", "Users", out.users);
+          renderJsonSection("memberships", "Memberships", out.memberships);
+          renderJsonSection("vehicles", "Vehicles", out.vehicles);
+          renderJsonSection("driverProfiles", "Driver profiles", out.driverProfiles);
+          renderJsonSection("trips", "Anchor trips", out.trips);
+          renderJsonSection("shipments", "Shipments", out.shipments);
+          renderJsonSection("ledgerLines", "Ledger lines", out.ledgerLines);
+          renderJsonSection("payoutBatches", "Payout batches", out.payoutBatches);
+        } catch (e) {}
       }
 
       async function submitJson(e) {
@@ -816,6 +890,7 @@ export async function createApp(): Promise<{
 
       if (method === "POST" && url.pathname === "/carriers") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const body = await readJson(req);
         const carrier = createCarrier(store, String(body?.name ?? ""));
         await persist();
@@ -824,12 +899,14 @@ export async function createApp(): Promise<{
 
       if (method === "GET" && url.pathname === "/carriers") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const carriers = [...store.carriers.values()];
         return json(res, 200, { carriers });
       }
 
       if (method === "POST" && url.pathname === "/anchor-trips") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const body = await readJson(req);
         const trip = publishAnchorTrip(store, {
           carrierId: String(body?.carrierId ?? ""),
@@ -941,7 +1018,7 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+        const demoSurface = !isProduction() && process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
         const hasBearerToken = !!bearerToken(req);
         if (hasBearerToken) {
           const userId = requireBearerUserId(req, res, store);
@@ -965,7 +1042,7 @@ export async function createApp(): Promise<{
         }
         const body = await readJson(req);
         await ensureRazorpayCapturedBeforePod(store, shipmentId);
-        const out = markPodDelivered(store, { shipmentId, podAtUtcMs: body?.podAtUtcMs });
+        const out = markPodDelivered(store, { shipmentId, podAtUtcMs: isProduction() ? undefined : body?.podAtUtcMs });
         await persist();
         return json(res, 200, out);
       }
@@ -973,7 +1050,7 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+        const demoSurface = !isProduction() && process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
         const hasBearerToken = !!bearerToken(req);
         if (hasBearerToken) {
           const userId = requireBearerUserId(req, res, store);
@@ -997,19 +1074,22 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const body = await readJson(req);
-        const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
+        const batch = runPayoutBatch(store, { nowUtcMs: isProduction() ? undefined : body?.nowUtcMs });
         await persist();
         return json(res, 200, { batch });
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        if (!requireProductionOpsAdmin(req, res, store)) return;
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
