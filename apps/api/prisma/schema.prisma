@@ -120,6 +120,8 @@ model ShipmentRow {
   netToCarrierPaise             Int
   paymentId                     String
   podAtUtcMs                    BigInt?
+  podSubmittedByUserId          String?
+  podNotes                      String?
   firstPayoutEligibleAtUtcMs    BigInt?
   payoutBatchCutoffUtcMs        BigInt?
   createdAtUtcMs                BigInt

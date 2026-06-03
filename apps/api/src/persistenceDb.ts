@@ -207,6 +207,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       netToCarrierPaise: row.netToCarrierPaise,
       paymentId: row.paymentId,
       podAtUtcMs: row.podAtUtcMs != null ? Number(row.podAtUtcMs) : null,
+      ...(row.podSubmittedByUserId != null ? { podSubmittedByUserId: row.podSubmittedByUserId } : {}),
+      ...(row.podNotes != null ? { podNotes: row.podNotes } : {}),
       firstPayoutEligibleAtUtcMs: row.firstPayoutEligibleAtUtcMs != null
         ? Number(row.firstPayoutEligibleAtUtcMs)
         : null,
@@ -407,6 +409,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           netToCarrierPaise: s.netToCarrierPaise,
           paymentId: s.paymentId,
           podAtUtcMs: s.podAtUtcMs != null ? BigInt(s.podAtUtcMs) : null,
+          podSubmittedByUserId: s.podSubmittedByUserId ?? null,
+          podNotes: s.podNotes ?? null,
           firstPayoutEligibleAtUtcMs: s.firstPayoutEligibleAtUtcMs != null
             ? BigInt(s.firstPayoutEligibleAtUtcMs)
             : null,

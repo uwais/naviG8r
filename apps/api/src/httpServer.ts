@@ -14,6 +14,12 @@ import {
   isOpsAdmin,
   listOpsAdmins,
   markPodDelivered,
+  opsListPendingRelease,
+  opsListRecentlyDelivered,
+  opsShipmentDetail,
+  releasePaymentAndDeliver,
+  submitDriverPod,
+  assertOpsAgent,
   customerEligibleAnchorTripsPhaseA,
   pilotLoginDriverByPhone,
   pilotGetMyAnchorTrip,
@@ -57,6 +63,146 @@ function html(res: http.ServerResponse, status: number, body: string): void {
   res.statusCode = status;
   res.setHeader("content-type", "text/html; charset=utf-8");
   res.end(body);
+}
+
+function opsPortalHtml(): string {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>naviG8r Ops</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 16px; max-width: 960px; }
+      .card { border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
+      button { padding: 6px 12px; cursor: pointer; }
+      input { width: 100%; padding: 8px; margin: 6px 0; box-sizing: border-box; }
+      .muted { color: #666; font-size: 12px; }
+      .warn { background: #fff1f0; border: 1px solid #ffa39e; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="loginGate">
+      <div class="card">
+        <h1>naviG8r Ops</h1>
+        <p class="muted">Sign in with an ops-agent phone (OTP).</p>
+        <div id="otpStep1">
+          <input id="loginPhone" placeholder="10-digit phone" />
+          <button onclick="startOtp()">Send OTP</button>
+        </div>
+        <div id="otpStep2" style="display:none;">
+          <input id="loginCode" placeholder="6-digit code" maxlength="6" />
+          <button onclick="verifyOtp()">Verify</button>
+        </div>
+        <div id="loginError" style="color:#c00;display:none;"></div>
+      </div>
+    </div>
+    <div id="opsContent" style="display:none;">
+      <h1>Payment release</h1>
+      <p class="muted">Logged in as <span id="sessionPhone"></span> · <button onclick="logout()">Logout</button></p>
+      <div id="nonOpsWarn" class="warn" style="display:none;">Not an ops agent — cannot release payments.</div>
+      <h2>Pending release</h2>
+      <div id="pendingTable" class="muted">Loading…</div>
+      <h2>Recently delivered</h2>
+      <div id="deliveredTable" class="muted">Loading…</div>
+    </div>
+    <script>
+      const LS_TOKEN = "n8r_ops_token";
+      const LS_PHONE = "n8r_ops_phone";
+      let _challengeId = null;
+      function authHeaders() {
+        const h = { "content-type": "application/json" };
+        const t = localStorage.getItem(LS_TOKEN);
+        if (t) h["authorization"] = "Bearer " + t;
+        return h;
+      }
+      function showErr(msg) {
+        const el = document.getElementById("loginError");
+        el.textContent = msg || "";
+        el.style.display = msg ? "block" : "none";
+      }
+      async function startOtp() {
+        showErr("");
+        const phone = document.getElementById("loginPhone").value.trim();
+        const res = await fetch("/v1/auth/otp/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ phone }) });
+        const out = await res.json();
+        if (!res.ok) return showErr(out.error || "Failed");
+        _challengeId = out.challengeId;
+        document.getElementById("otpStep1").style.display = "none";
+        document.getElementById("otpStep2").style.display = "block";
+        if (out.debugCode) document.getElementById("loginCode").value = out.debugCode;
+      }
+      async function verifyOtp() {
+        showErr("");
+        const phone = document.getElementById("loginPhone").value.trim();
+        const code = document.getElementById("loginCode").value.trim();
+        const res = await fetch("/v1/auth/otp/verify", { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ phone, challengeId: _challengeId, code }) });
+        const out = await res.json();
+        if (!res.ok) return showErr(out.error || "Failed");
+        localStorage.setItem(LS_TOKEN, out.accessToken);
+        localStorage.setItem(LS_PHONE, phone);
+        enterOps();
+      }
+      function logout() {
+        localStorage.removeItem(LS_TOKEN);
+        localStorage.removeItem(LS_PHONE);
+        location.reload();
+      }
+      async function enterOps() {
+        document.getElementById("loginGate").style.display = "none";
+        document.getElementById("opsContent").style.display = "block";
+        document.getElementById("sessionPhone").textContent = localStorage.getItem(LS_PHONE) || "";
+        const me = await fetch("/v1/auth/me", { headers: authHeaders() });
+        const meOut = await me.json();
+        const isOps = meOut.isOpsAdmin === true;
+        document.getElementById("nonOpsWarn").style.display = isOps ? "none" : "block";
+        if (!isOps) return;
+        loadPending();
+        loadDelivered();
+      }
+      function fmtInr(paise) { return "₹" + (paise / 100).toFixed(2); }
+      function fmtTime(ms) { if (!ms) return "—"; return new Date(ms).toLocaleString(); }
+      async function loadPending() {
+        const el = document.getElementById("pendingTable");
+        const res = await fetch("/ops/shipments/pending-release", { headers: authHeaders() });
+        const out = await res.json();
+        if (!res.ok) { el.textContent = "Error: " + (out.error || res.status); return; }
+        const rows = out.shipments || [];
+        if (!rows.length) { el.innerHTML = "<em>None</em>"; return; }
+        el.innerHTML = "<table><thead><tr><th>Shipment</th><th>Customer</th><th>Carrier</th><th>Gross</th><th>POD at</th><th></th></tr></thead><tbody>" +
+          rows.map(function(s) {
+            return "<tr><td><code>" + s.id + "</code></td><td>" + (s.customerOrgName||"") + "</td><td>" + (s.carrierId||"") +
+              "</td><td>" + fmtInr(s.grossPaise) + "</td><td>" + fmtTime(s.podAtUtcMs) +
+              "</td><td><button onclick=\\"release('" + s.id + "')\\">Release payment</button></td></tr>";
+          }).join("") + "</tbody></table>";
+      }
+      async function loadDelivered() {
+        const el = document.getElementById("deliveredTable");
+        const res = await fetch("/ops/shipments/delivered", { headers: authHeaders() });
+        if (!res.ok) { el.textContent = "Error loading delivered"; return; }
+        const out = await res.json();
+        const rows = out.shipments || [];
+        if (!rows.length) { el.innerHTML = "<em>None recent</em>"; return; }
+        el.innerHTML = "<table><thead><tr><th>Shipment</th><th>Customer</th><th>Delivered</th></tr></thead><tbody>" +
+          rows.map(function(s) {
+            return "<tr><td><code>" + s.id + "</code></td><td>" + (s.customerOrgName||"") + "</td><td>" + fmtTime(s.podAtUtcMs) + "</td></tr>";
+          }).join("") + "</tbody></table>";
+      }
+      async function release(id) {
+        if (!confirm("Capture payment and mark " + id + " delivered?")) return;
+        const res = await fetch("/ops/shipments/" + id + "/release", { method: "POST", headers: authHeaders(), body: "{}" });
+        const out = await res.json();
+        alert(JSON.stringify(out, null, 2));
+        loadPending();
+        loadDelivered();
+      }
+      if (localStorage.getItem(LS_TOKEN)) enterOps();
+    </script>
+  </body>
+</html>`;
 }
 
 async function readJson(req: http.IncomingMessage): Promise<any> {
@@ -936,6 +1082,86 @@ export async function createApp(): Promise<{
         const bodyOut: Record<string, unknown> = { shipment, payment: pay };
         if (razorpayPaymentsEnabled() && rzpKey) bodyOut["razorpayKeyId"] = rzpKey;
         return json(res, 201, bodyOut);
+      }
+
+      if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/driver-pod")) {
+        const userId = requireUserId(req, store);
+        const shipmentId = url.pathname.split("/")[2] ?? "";
+        const body = await readJson(req);
+        try {
+          const shipment = submitDriverPod(store, {
+            shipmentId,
+            userId,
+            notes: body?.notes != null ? String(body.notes) : undefined,
+          });
+          await persist();
+          return json(res, 200, { shipment });
+        } catch (e) {
+          if (e instanceof ApiError) throw e;
+          const msg = String((e as Error)?.message ?? "");
+          if (msg === "forbidden") return json(res, 403, { error: "forbidden" });
+          throw e;
+        }
+      }
+
+      if (method === "GET" && url.pathname === "/ops/shipments/pending-release") {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        try {
+          assertOpsAgent(store, userId);
+        } catch {
+          return json(res, 403, { error: "forbidden" });
+        }
+        const shipments = opsListPendingRelease(store);
+        return json(res, 200, { shipments });
+      }
+
+      if (method === "GET" && url.pathname === "/ops/shipments/delivered") {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        try {
+          assertOpsAgent(store, userId);
+        } catch {
+          return json(res, 403, { error: "forbidden" });
+        }
+        const shipments = opsListRecentlyDelivered(store);
+        return json(res, 200, { shipments });
+      }
+
+      if (method === "GET" && url.pathname.startsWith("/ops/shipments/") && url.pathname.split("/").length === 4) {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        try {
+          assertOpsAgent(store, userId);
+        } catch {
+          return json(res, 403, { error: "forbidden" });
+        }
+        const shipmentId = url.pathname.split("/")[3] ?? "";
+        const out = opsShipmentDetail(store, shipmentId);
+        return json(res, 200, out);
+      }
+
+      if (method === "POST" && url.pathname.startsWith("/ops/shipments/") && url.pathname.endsWith("/release")) {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        try {
+          assertOpsAgent(store, userId);
+        } catch {
+          return json(res, 403, { error: "forbidden" });
+        }
+        const parts = url.pathname.split("/");
+        const shipmentId = parts[3] ?? "";
+        const body = await readJson(req);
+        const out = await releasePaymentAndDeliver(store, {
+          shipmentId,
+          podAtUtcMs: body?.podAtUtcMs,
+        });
+        await persist();
+        return json(res, 200, out);
+      }
+
+      if (method === "GET" && url.pathname === "/ops") {
+        return html(res, 200, opsPortalHtml());
       }
 
       if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {

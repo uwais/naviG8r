@@ -17,6 +17,7 @@ final GlobalKey<NavigatorState> driverShellNavigatorKey = GlobalKey<NavigatorSta
 /// App bar title from the current driver route.
 String driverShellTitle(String path) {
   if (path == "/driver") return "NaviG8r";
+  if (path.startsWith("/driver/shipments")) return "Shipments";
   if (path.startsWith("/driver/loads")) return "Loads";
   if (path.startsWith("/driver/track")) return "Track";
   if (path.startsWith("/driver/profile")) return "Profile";
@@ -46,16 +47,17 @@ class DriverShell extends StatelessWidget {
   final bool showBottomNav;
 
   int _indexForPath(String path) {
-    if (path.startsWith("/driver/loads") ||
-        path.startsWith("/driver/trip/") ||
-        path.startsWith("/driver/shipment/")) {
+    if (path.startsWith("/driver/shipments") || path.startsWith("/driver/shipment/")) {
       return 1;
     }
-    if (path.startsWith("/driver/track")) return 2;
+    if (path.startsWith("/driver/loads") || path.startsWith("/driver/trip/")) {
+      return 2;
+    }
+    if (path.startsWith("/driver/track")) return 3;
     if (path.startsWith("/driver/profile") ||
         path.startsWith("/driver/earnings") ||
         path.startsWith("/driver/payout")) {
-      return 3;
+      return 4;
     }
     return 0;
   }
@@ -63,10 +65,12 @@ class DriverShell extends StatelessWidget {
   String _pathForIndex(int index) {
     switch (index) {
       case 1:
-        return "/driver/loads";
+        return "/driver/shipments";
       case 2:
-        return "/driver/track";
+        return "/driver/loads";
       case 3:
+        return "/driver/track";
+      case 4:
         return "/driver/profile";
       case 0:
       default:
@@ -116,6 +120,11 @@ class DriverShell extends StatelessWidget {
                 },
                 destinations: const [
                   NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: "Home"),
+                  NavigationDestination(
+                    icon: Icon(Icons.inventory_2_outlined),
+                    selectedIcon: Icon(Icons.inventory_2),
+                    label: "Shipments",
+                  ),
                   NavigationDestination(
                     icon: Icon(Icons.local_shipping_outlined),
                     selectedIcon: Icon(Icons.local_shipping),
@@ -426,6 +435,150 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                 ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Text("Create carrier profile"),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class DriverShipmentsScreen extends StatefulWidget {
+  const DriverShipmentsScreen({super.key});
+
+  @override
+  State<DriverShipmentsScreen> createState() => _DriverShipmentsScreenState();
+}
+
+class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
+  List<Map<String, dynamic>> _shipments = [];
+  bool _loading = false;
+  String? _error;
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final r = await api.get<Map<String, dynamic>>("/v1/pilot/carrier/shipments");
+      final raw = r.data?["shipments"];
+      final list = <Map<String, dynamic>>[];
+      if (raw is List) {
+        for (final s in raw) {
+          if (s is Map<String, dynamic>) {
+            final st = s["status"]?.toString() ?? "";
+            if (st == "BOOKED" || st == "PENDING_RELEASE") list.add(s);
+          }
+        }
+      }
+      setState(() => _shipments = list);
+    } catch (e) {
+      setState(() => _error = formatApiError(e));
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text(
+            "Active bookings on your carrier — confirm delivery when drop-off is complete.",
+            style: TextStyle(color: DriverTheme.muted),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+          ],
+          if (_loading) const Center(child: CircularProgressIndicator()),
+          ..._shipments.map((s) {
+            final id = s["id"]?.toString() ?? "";
+            final st = s["status"]?.toString() ?? "";
+            return Card(
+              child: ListTile(
+                title: Text("${s["customerOrgName"]} · ${s["weightKg"]} kg"),
+                subtitle: Text("$st · ${s["pickupAddress"]} → ${s["dropAddress"]}"),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push("/driver/shipment/$id"),
+              ),
+            );
+          }),
+          if (!_loading && _shipments.isEmpty)
+            const Padding(padding: EdgeInsets.only(top: 24), child: Text("No shipments to deliver.", style: TextStyle(color: DriverTheme.muted))),
+        ],
+      ),
+    );
+  }
+}
+
+class DriverShipmentDetailScreen extends StatefulWidget {
+  const DriverShipmentDetailScreen({required this.shipmentId, super.key});
+  final String shipmentId;
+
+  @override
+  State<DriverShipmentDetailScreen> createState() => _DriverShipmentDetailScreenState();
+}
+
+class _DriverShipmentDetailScreenState extends State<DriverShipmentDetailScreen> {
+  Map<String, dynamic>? _shipment;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final r = await api.get<Map<String, dynamic>>("/v1/pilot/carrier/shipments");
+      final raw = r.data?["shipments"];
+      if (raw is List) {
+        for (final s in raw) {
+          if (s is Map<String, dynamic> && s["id"] == widget.shipmentId) {
+            setState(() => _shipment = s);
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = _shipment;
+    if (s == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final st = s["status"]?.toString() ?? "";
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(s["customerOrgName"]?.toString() ?? "", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: DriverTheme.navy)),
+          const SizedBox(height: 8),
+          Text("Status: $st", style: const TextStyle(color: DriverTheme.muted)),
+          const SizedBox(height: 12),
+          Text("Pickup: ${s["pickupAddress"]}"),
+          Text("Drop: ${s["dropAddress"]}"),
+          Text("Net to carrier: ${formatInrFromPaise(s["netToCarrierPaise"] as num? ?? 0)}"),
+          const Spacer(),
+          if (st == "BOOKED")
+            FilledButton(
+              onPressed: () => context.push("/driver/shipment/${widget.shipmentId}/pod"),
+              child: const Text("Confirm delivery"),
+            ),
+          if (st == "PENDING_RELEASE")
+            const Text("Awaiting ops payment release.", style: TextStyle(color: DriverTheme.muted)),
         ],
       ),
     );
@@ -998,9 +1151,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                             trailing: st == "BOOKED"
                                 ? TextButton(
                                     onPressed: () => context.push("/driver/shipment/$id/pod"),
-                                    child: const Text("POD"),
+                                    child: const Text("Confirm delivery"),
                                   )
-                                : null,
+                                : st == "PENDING_RELEASE"
+                                    ? const Text("Awaiting ops", style: TextStyle(fontSize: 12, color: DriverTheme.muted))
+                                    : null,
                           ),
                         );
                       }),
@@ -1048,12 +1203,20 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
   Future<void> _confirm() async {
     setState(() => _busy = true);
     try {
-      await api.post<Map<String, dynamic>>("/shipments/${widget.shipmentId}/pod", data: {});
+      final notes = _notes.text.trim();
+      await api.post<Map<String, dynamic>>(
+        "/shipments/${widget.shipmentId}/driver-pod",
+        data: notes.isEmpty ? {} : {"notes": notes},
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("POD recorded — payout clock started after cooling-off.")),
+        const SnackBar(
+          content: Text(
+            "Delivery confirmed. Payment will be released after ops review.",
+          ),
+        ),
       );
-      context.go("/driver/earnings");
+      context.pop();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
     } finally {
@@ -1069,7 +1232,7 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            "Confirming POD captures payment (if authorized) and sets your payout eligibility after the cooling-off period.",
+            "Confirming delivery submits proof of delivery to the platform. Ops will release customer payment to your carrier ledger after review.",
             style: TextStyle(color: DriverTheme.muted),
           ),
           const SizedBox(height: 16),
@@ -1329,16 +1492,23 @@ List<RouteBase> driverFlowRoutes() {
           path: "/driver",
           builder: (_, __) => const DriverWelcomeScreen(),
           routes: [
+            GoRoute(path: "shipments", builder: (_, __) => const DriverShipmentsScreen()),
+            GoRoute(
+              path: "shipment/:shipmentId",
+              builder: (_, state) => DriverShipmentDetailScreen(shipmentId: state.pathParameters["shipmentId"] ?? ""),
+              routes: [
+                GoRoute(
+                  path: "pod",
+                  builder: (_, state) => DriverPodScreen(shipmentId: state.pathParameters["shipmentId"] ?? ""),
+                ),
+              ],
+            ),
             GoRoute(path: "loads", builder: (_, __) => const DriverLoadsScreen()),
             GoRoute(path: "track", builder: (_, __) => const DriverTrackScreen()),
             GoRoute(path: "profile", builder: (_, __) => const DriverProfileScreen()),
             GoRoute(
               path: "trip/:tripId/active",
               builder: (_, state) => DriverActiveTripScreen(tripId: state.pathParameters["tripId"] ?? ""),
-            ),
-            GoRoute(
-              path: "shipment/:shipmentId/pod",
-              builder: (_, state) => DriverPodScreen(shipmentId: state.pathParameters["shipmentId"] ?? ""),
             ),
             GoRoute(path: "earnings", builder: (_, __) => const DriverEarningsScreen()),
             GoRoute(path: "payout-setup", builder: (_, __) => const DriverPayoutSetupScreen()),
