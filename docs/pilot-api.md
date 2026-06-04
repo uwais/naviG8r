@@ -22,6 +22,9 @@ This document defines the **first concrete API resources** for the Flutter pilot
 - **`PAYMENT_PROVIDER`**: omit or **`MOCK`** — payment is **`CAPTURED`** at booking (tests + local demos). **`RAZORPAY`** — Razorpay test/live keys; authorize at checkout, capture at POD (see below).
 - **`RAZORPAY_KEY_ID`**, **`RAZORPAY_KEY_SECRET`**: Standard checkout + server APIs (Flutter uses **key id**; server gets **`razorpayKeyId`** on book response — must match checkout key).
 - **`RAZORPAY_WEBHOOK_SECRET`**: Razorpay dashboard webhook secret; required for **`POST /v1/payments/razorpay/webhook`**.
+- **`PAYOUTS_MODE`**: omit or **`BOOKKEEPING`** (default) — `POST /payout-batches/run` only marks ledger lines **`PAID`** (no money moves; MVP bookkeeping). **`RAZORPAYX`** — creates a real **RazorpayX payout per carrier** (reuses `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`, test keys in dev). Carriers without a fund account are skipped (lines stay `ACCRUED` to retry); errored transfers are marked `FAILED` and retried next run. `POST /payout-batches/run`, `GET /payout-batches`, and `GET /carriers/:id/ledger` require an **Ops Admin/Agent** bearer token.
+- **`RAZORPAYX_ACCOUNT_NUMBER`**: source account number from the RazorpayX dashboard; required when `PAYOUTS_MODE=RAZORPAYX`.
+- **`RAZORPAYX_PAYOUT_MODE`**: optional transfer rail — `IMPS` (default) | `NEFT` | `RTGS` | `UPI`. To register a carrier for payouts, call `POST /v1/pilot/carrier/payout-setup` with `accountHolderName`, `ifsc`, and (in RAZORPAYX mode) `accountNumber`; the server creates a RazorpayX contact + fund account and stores the ids on the org.
 
 ### Data model (persistence)
 

@@ -5,7 +5,7 @@ import { PAYOUT_BATCH_SCHEDULE } from "./config.ts";
 import { createStore } from "./store.ts";
 import { bookShipment, createCarrier, markPodDelivered, publishAnchorTrip, runPayoutBatch } from "./services.ts";
 
-test("vertical slice: publish trip -> book (capture) -> POD -> ledger -> weekly batch pays after cutoff", () => {
+test("vertical slice: publish trip -> book (capture) -> POD -> ledger -> weekly batch pays after cutoff", async () => {
   const store = createStore();
   const carrier = createCarrier(store, "Carrier One");
   const trip = publishAnchorTrip(store, {
@@ -39,13 +39,20 @@ test("vertical slice: publish trip -> book (capture) -> POD -> ledger -> weekly 
   assert.equal(out.ledgerLine.payoutBatchCutoffUtcMs, expected.payoutBatchCutoffUtcMs);
 
   // Before cutoff: not paid
-  const before = runPayoutBatch(store, { nowUtcMs: expected.payoutBatchCutoffUtcMs - 1 });
+  const before = await runPayoutBatch(store, { nowUtcMs: expected.payoutBatchCutoffUtcMs - 1 });
   assert.equal(before.totalNetToCarrierPaise, 0);
   assert.equal(store.ledgerLines.get(out.ledgerLine.id)?.status, "ACCRUED");
 
   // At/after cutoff: paid
-  const after = runPayoutBatch(store, { nowUtcMs: expected.payoutBatchCutoffUtcMs });
+  const after = await runPayoutBatch(store, { nowUtcMs: expected.payoutBatchCutoffUtcMs });
   assert.equal(after.totalNetToCarrierPaise, out.ledgerLine.netToCarrierPaise);
   assert.equal(store.ledgerLines.get(out.ledgerLine.id)?.status, "PAID");
+
+  // Default mode is bookkeeping: provider + a single per-carrier transfer is recorded.
+  assert.equal(after.provider, "BOOKKEEPING");
+  assert.equal(after.transfers.length, 1);
+  assert.equal(after.transfers[0]!.status, "BOOKKEEPING_PAID");
+  assert.equal(after.transfers[0]!.carrierId, out.ledgerLine.carrierId);
+  assert.equal(after.transfers[0]!.netToCarrierPaise, out.ledgerLine.netToCarrierPaise);
 });
 

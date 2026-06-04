@@ -190,7 +190,7 @@ test("bookedByPhone links anonymous shipment to OTP user with same mobile", () =
   assert.ok(shipmentVisibleToCustomerUser(store, shipment, cust.user.id));
 });
 
-test("carrier pilot can list org shipments, mark POD visibility, and submit payout setup", () => {
+test("carrier pilot can list org shipments, mark POD visibility, and submit payout setup", async () => {
   const store = createStore();
   const onboard = registerSoloOwnerOperatorDriver(store, {
     fullName: "Ravi Kumar",
@@ -222,7 +222,7 @@ test("carrier pilot can list org shipments, mark POD visibility, and submit payo
   assert.equal(listed.length, 1);
   assert.equal(listed[0]!.id, shipment.id);
 
-  const setup = pilotSubmitPayoutSetup(store, onboard.user.id, {
+  const setup = await pilotSubmitPayoutSetup(store, onboard.user.id, {
     orgId: onboard.org.id,
     accountHolderName: "Ravi Kumar",
     ifsc: "HDFC0001234",

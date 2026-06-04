@@ -41,6 +41,10 @@ export type Organization = {
   displayName: string;
   kycStatus: KycStatus;
   createdAtUtcMs: number;
+  /** RazorpayX contact id created during payout setup (RAZORPAYX mode only). */
+  payoutContactId?: string;
+  /** RazorpayX fund account id; required to send this carrier a real payout. */
+  payoutFundAccountId?: string;
 };
 
 export type User = {
@@ -187,11 +191,32 @@ export type LedgerLine = {
   paidAtUtcMs: number | null;
 };
 
+export type PayoutTransferStatus =
+  | "BOOKKEEPING_PAID"
+  | "PROCESSING"
+  | "PAID"
+  | "FAILED"
+  | "SKIPPED_NO_FUND_ACCOUNT";
+
+/** Per-carrier transfer within a payout batch (one carrier may have many ledger lines). */
+export type PayoutTransfer = {
+  carrierId: string;
+  netToCarrierPaise: number;
+  lineIds: string[];
+  status: PayoutTransferStatus;
+  /** RazorpayX payout id when a real transfer was initiated. */
+  providerPayoutId?: string;
+  error?: string;
+};
+
 export type PayoutBatch = {
   id: string;
   cutoffUtcMs: number;
   createdAtUtcMs: number;
   totalNetToCarrierPaise: number;
   lineIds: string[];
+  /** "BOOKKEEPING" (no money movement) or "RAZORPAYX" (real payouts). */
+  provider: "BOOKKEEPING" | "RAZORPAYX";
+  transfers: PayoutTransfer[];
 };
 
