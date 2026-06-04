@@ -165,6 +165,18 @@ function opsPortalHtml(): string {
       }
       function fmtInr(paise) { return "₹" + (paise / 100).toFixed(2); }
       function fmtTime(ms) { if (!ms) return "—"; return new Date(ms).toLocaleString(); }
+      function escHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, function(ch) {
+          switch (ch) {
+            case "&": return "&amp;";
+            case "<": return "&lt;";
+            case ">": return "&gt;";
+            case '"': return "&quot;";
+            case "'": return "&#39;";
+            default: return ch;
+          }
+        });
+      }
       async function loadPending() {
         const el = document.getElementById("pendingTable");
         const res = await fetch("/ops/shipments/pending-release", { headers: authHeaders() });
@@ -174,9 +186,9 @@ function opsPortalHtml(): string {
         if (!rows.length) { el.innerHTML = "<em>None</em>"; return; }
         el.innerHTML = "<table><thead><tr><th>Shipment</th><th>Customer</th><th>Carrier</th><th>Gross</th><th>POD at</th><th></th></tr></thead><tbody>" +
           rows.map(function(s) {
-            return "<tr><td><code>" + s.id + "</code></td><td>" + (s.customerOrgName||"") + "</td><td>" + (s.carrierId||"") +
+            return "<tr><td><code>" + escHtml(s.id) + "</code></td><td>" + escHtml(s.customerOrgName) + "</td><td>" + escHtml(s.carrierId) +
               "</td><td>" + fmtInr(s.grossPaise) + "</td><td>" + fmtTime(s.podAtUtcMs) +
-              "</td><td><button onclick=\\"release('" + s.id + "')\\">Release payment</button></td></tr>";
+              "</td><td><button type=\\"button\\" data-shipment-id=\\"" + escHtml(s.id) + "\\" onclick=\\"release(this.dataset.shipmentId)\\">Release payment</button></td></tr>";
           }).join("") + "</tbody></table>";
       }
       async function loadDelivered() {
@@ -188,7 +200,7 @@ function opsPortalHtml(): string {
         if (!rows.length) { el.innerHTML = "<em>None recent</em>"; return; }
         el.innerHTML = "<table><thead><tr><th>Shipment</th><th>Customer</th><th>Delivered</th></tr></thead><tbody>" +
           rows.map(function(s) {
-            return "<tr><td><code>" + s.id + "</code></td><td>" + (s.customerOrgName||"") + "</td><td>" + fmtTime(s.podAtUtcMs) + "</td></tr>";
+            return "<tr><td><code>" + escHtml(s.id) + "</code></td><td>" + escHtml(s.customerOrgName) + "</td><td>" + fmtTime(s.podAtUtcMs) + "</td></tr>";
           }).join("") + "</tbody></table>";
       }
       async function release(id) {
@@ -1175,11 +1187,19 @@ export async function createApp(): Promise<{
           const shipment = store.shipments.get(shipmentId);
           if (!shipment) return json(res, 404, { error: "shipment_not_found" });
           const opsAdmin = isOpsAdmin(store, userId);
-          const visible =
-            opsAdmin ||
-            shipmentVisibleToCustomerUser(store, shipment, userId) ||
-            shipmentVisibleToCarrierPilot(store, shipment, userId);
-          if (!visible) {
+          if (!opsAdmin) {
+            const visible =
+              shipmentVisibleToCustomerUser(store, shipment, userId) ||
+              shipmentVisibleToCarrierPilot(store, shipment, userId);
+            if (!visible) {
+              return json(res, 404, { error: "shipment_not_found" });
+            }
+            return json(res, 403, {
+              error: "legacy_pod_requires_ops",
+              detail: "Drivers must use POST /shipments/:id/driver-pod; ops releases payment separately.",
+            });
+          }
+          if (!store.shipments.get(shipmentId)) {
             return json(res, 404, { error: "shipment_not_found" });
           }
         } else if (!demoSurface) {

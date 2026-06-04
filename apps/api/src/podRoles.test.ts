@@ -104,6 +104,36 @@ test("releasePaymentAndDeliver: requires PENDING_RELEASE then DELIVERED", async 
   assert.ok(out.ledgerLine.id);
 });
 
+test("releasePaymentAndDeliver: concurrent releases accrue a single ledger line", async () => {
+  const store = createStore();
+  const { shipment } = seedBookedShipment(store);
+  const driver = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Ravi",
+    phone: "9100000021",
+    orgDisplayName: "Ravi3",
+    vehicleRegistrationNumber: "HR03",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 500,
+  });
+  const s0 = store.shipments.get(shipment.id)!;
+  store.shipments.set(s0.id, { ...s0, carrierId: driver.org.id });
+
+  submitDriverPod(store, { shipmentId: shipment.id, userId: driver.user.id });
+
+  const [a, b] = await Promise.all([
+    releasePaymentAndDeliver(store, { shipmentId: shipment.id }),
+    releasePaymentAndDeliver(store, { shipmentId: shipment.id }),
+  ]);
+
+  assert.equal(a.shipment.status, "DELIVERED");
+  assert.equal(b.shipment.status, "DELIVERED");
+  assert.equal(a.ledgerLine.id, b.ledgerLine.id);
+  assert.equal(
+    [...store.ledgerLines.values()].filter((line) => line.shipmentId === shipment.id).length,
+    1,
+  );
+});
+
 test("assertOpsAgent rejects non-ops user", () => {
   const store = createStore();
   const cust = registerCustomerOrgAdmin(store, {

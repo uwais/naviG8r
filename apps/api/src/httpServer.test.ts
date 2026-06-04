@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
 import type http from "node:http";
+import { pilotOtpStart, pilotOtpVerify } from "./auth.ts";
 import { createApp } from "./httpServer.ts";
+import {
+  bookShipment,
+  createCarrier,
+  publishAnchorTrip,
+  registerCustomerOrgAdmin,
+} from "./services.ts";
 
 type AppBundle = Awaited<ReturnType<typeof createApp>>;
 
@@ -133,5 +140,74 @@ test("GET /ops returns ops portal HTML", async (t) => {
     const html = await res.text();
     assert.ok(html.includes("naviG8r Ops"));
     assert.ok(html.includes("pending-release"));
+    assert.ok(html.includes("function escHtml"));
+    assert.ok(html.includes("escHtml(s.customerOrgName)"));
+    assert.equal(html.includes("(s.customerOrgName||\"\")"), false);
+  });
+});
+
+test("POST /shipments/:id/pod rejects visible non-ops bearer users in production", async (t) => {
+  const prev = {
+    AUTH_SECRET: process.env.AUTH_SECRET,
+    DATA_FILE: process.env.DATA_FILE,
+    ENABLE_LEGACY_DEMO_SURFACE: process.env.ENABLE_LEGACY_DEMO_SURFACE,
+    NODE_ENV: process.env.NODE_ENV,
+    PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER,
+  };
+  t.after(() => {
+    process.env.AUTH_SECRET = prev.AUTH_SECRET;
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.ENABLE_LEGACY_DEMO_SURFACE = prev.ENABLE_LEGACY_DEMO_SURFACE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+    process.env.PAYMENT_PROVIDER = prev.PAYMENT_PROVIDER;
+  });
+
+  process.env.AUTH_SECRET = "test_secret_minimum_16_chars";
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "production";
+  delete process.env.ENABLE_LEGACY_DEMO_SURFACE;
+  delete process.env.PAYMENT_PROVIDER;
+
+  await withApp(t, async (baseUrl, app) => {
+    const customer = registerCustomerOrgAdmin(app.store, {
+      fullName: "Buyer",
+      phone: "9100000033",
+      orgDisplayName: "ACME Buyer",
+    });
+    const carrier = createCarrier(app.store, "Carrier One");
+    const trip = publishAnchorTrip(app.store, {
+      carrierId: carrier.id,
+      originCity: "Gurugram",
+      destCity: "Jaipur",
+      windowStart: "2026-04-24T00:00:00+05:30",
+      windowEnd: "2026-04-25T23:59:59+05:30",
+      vehicleClass: "MEDIUM",
+      capacityKg: 1000,
+    });
+    const shipment = bookShipment(app.store, {
+      anchorTripId: trip.id,
+      customerOrgName: customer.org.displayName,
+      customerOrg: { id: customer.org.id, displayName: customer.org.displayName },
+      weightKg: 100,
+      pickupAddress: "A",
+      dropAddress: "B",
+    });
+    const otp = pilotOtpStart(app.store, { phone: customer.user.phone });
+    const { accessToken } = pilotOtpVerify(app.store, {
+      phone: customer.user.phone,
+      challengeId: otp.challengeId,
+      code: otp.debugCode ?? app.store.otpChallenges.get(otp.challengeId)!.code,
+    });
+
+    const res = await fetch(`${baseUrl}/shipments/${shipment.id}/pod`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+      body: "{}",
+    });
+
+    assert.equal(res.status, 403);
+    assert.equal((await res.json() as { error?: string }).error, "legacy_pod_requires_ops");
+    assert.equal(app.store.shipments.get(shipment.id)?.status, "BOOKED");
+    assert.equal([...app.store.ledgerLines.values()].filter((line) => line.shipmentId === shipment.id).length, 0);
   });
 });
