@@ -40,6 +40,10 @@ Notes:
   - Default **`PERSISTENCE` unset or not `DB`**: in-memory store + **`DATA_FILE`** (path to JSON snapshot; persists on writes).
   - **`PERSISTENCE=DB`**: Postgres via Prisma (`DATABASE_URL` required). Bootstrap schema: `cd apps/api && npx prisma db push`. No importer from legacy `store.json` is wired yet (greenfield pilots only).
 - **Razorpay (test)** — set `PAYMENT_PROVIDER=RAZORPAY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, and register webhook URL **`POST /v1/payments/razorpay/webhook`** (raw JSON body; header `x-razorpay-signature`). **`GET /health`** reports `persistence` and `paymentProvider`.
+- **Carrier payouts** (`PAYOUTS_MODE`) — controls how `POST /payout-batches/run` settles carrier earnings. This is **independent** of `PAYMENT_PROVIDER`: `PAYMENT_PROVIDER` governs charging the **customer**, while `PAYOUTS_MODE` governs paying the **carrier**.
+  - **Unset / `BOOKKEEPING` (default):** the payout batch is **bookkeeping only** — eligible ledger lines flip `ACCRUED → PAID` and a per-carrier transfer record is written, but **no money actually leaves the account**. Use this for the pilot until real disbursement is needed. Carrier payout setup (`POST /v1/pilot/carrier/payout-setup`) just records intent (`kycStatus=SUBMITTED`); the optional `accountNumber` is accepted but not used.
+  - **`RAZORPAYX`:** the batch creates a **real RazorpayX payout per carrier** (reuses the `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` test keys). Requires **`RAZORPAYX_ACCOUNT_NUMBER`** (your RazorpayX source account); optional **`RAZORPAYX_PAYOUT_MODE`** = `IMPS` (default) | `NEFT` | `RTGS` | `UPI`. Payout setup now provisions a RazorpayX contact + bank fund account (so `accountNumber` becomes required), and carriers without a fund account are **skipped** (their lines stay `ACCRUED` to retry once setup completes); transfers that error are marked `FAILED` and retried on the next run.
+  - **Role-gated:** `POST /payout-batches/run`, `GET /payout-batches`, and `GET /carriers/:id/ledger` require an **Ops Admin/Agent** bearer token in both modes.
 
 ### Flutter customer checkout (Razorpay)
 
