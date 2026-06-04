@@ -84,6 +84,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       displayName: o.displayName,
       kycStatus: o.kycStatus as Organization["kycStatus"],
       createdAtUtcMs: Number(o.createdAtUtcMs),
+      payoutContactId: o.payoutContactId ?? undefined,
+      payoutFundAccountId: o.payoutFundAccountId ?? undefined,
     };
     store.organizations.set(org.id, org);
   }
@@ -240,12 +242,16 @@ export async function loadStoreFromDatabase(): Promise<Store> {
   for (const b of payoutBatches) {
     const raw = b.lineIds;
     const lineIds = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
+    const transfersRaw = (b as { transfers?: unknown }).transfers;
+    const transfers = Array.isArray(transfersRaw) ? (transfersRaw as PayoutBatch["transfers"]) : [];
     const batch: PayoutBatch = {
       id: b.id,
       cutoffUtcMs: Number(b.cutoffUtcMs),
       createdAtUtcMs: Number(b.createdAtUtcMs),
       totalNetToCarrierPaise: b.totalNetToCarrierPaise,
       lineIds,
+      provider: (b as { provider?: string }).provider === "RAZORPAYX" ? "RAZORPAYX" : "BOOKKEEPING",
+      transfers,
     };
     store.payoutBatches.set(batch.id, batch);
   }
@@ -286,6 +292,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           displayName: o.displayName,
           kycStatus: o.kycStatus,
           createdAtUtcMs: BigInt(o.createdAtUtcMs),
+          payoutContactId: o.payoutContactId ?? null,
+          payoutFundAccountId: o.payoutFundAccountId ?? null,
         },
       });
     }
@@ -446,6 +454,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           createdAtUtcMs: BigInt(b.createdAtUtcMs),
           totalNetToCarrierPaise: b.totalNetToCarrierPaise,
           lineIds: b.lineIds,
+          provider: b.provider,
+          transfers: b.transfers as unknown as object[],
         },
       });
     }

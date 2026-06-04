@@ -17,11 +17,13 @@ model Carrier {
 }
 
 model Organization {
-  id             String @id
-  kind           String
-  displayName    String
-  kycStatus      String
-  createdAtUtcMs BigInt
+  id                   String  @id
+  kind                 String
+  displayName          String
+  kycStatus            String
+  createdAtUtcMs       BigInt
+  payoutContactId      String?
+  payoutFundAccountId  String?
 }
 
 model UserRow {
@@ -149,4 +151,6 @@ model PayoutBatchRow {
   createdAtUtcMs          BigInt
   totalNetToCarrierPaise  Int
   lineIds                 Json // string[]
+  provider                String? // "BOOKKEEPING" | "RAZORPAYX"
+  transfers               Json? // PayoutTransfer[]
 }

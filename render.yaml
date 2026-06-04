@@ -25,3 +25,22 @@ services:
       # Persist JSON store across deploys (attach a Render Disk mounted at /data):
       - key: DATA_FILE
         value: /data/store.json
+      # Carrier payout settlement mode:
+      #   BOOKKEEPING (default) = mark ledger PAID only, no money moves (MVP).
+      #   RAZORPAYX             = real RazorpayX payouts per carrier (test keys in dev).
+      - key: PAYOUTS_MODE
+        value: BOOKKEEPING
+      # Required only when PAYOUTS_MODE=RAZORPAYX. Reuses RAZORPAY_KEY_ID/SECRET below.
+      # RAZORPAYX_ACCOUNT_NUMBER = the RazorpayX source/virtual account number (dashboard).
+      - key: RAZORPAYX_ACCOUNT_NUMBER
+        sync: false
+      # Optional payout rail: IMPS (default) | NEFT | RTGS | UPI.
+      - key: RAZORPAYX_PAYOUT_MODE
+        value: IMPS
+      # Razorpay test keys (set in dashboard; required for customer payments and RAZORPAYX payouts):
+      - key: PAYMENT_PROVIDER
+        value: RAZORPAY
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false

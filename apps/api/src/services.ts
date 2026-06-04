@@ -17,6 +17,7 @@ import type {
   Membership,
   Organization,
   PayoutBatch,
+  PayoutTransfer,
   Payment,
   Shipment,
   User,
@@ -30,6 +31,12 @@ import {
   razorpayPaymentsEnabled,
   razorpayRefundPayment,
 } from "./razorpayPayments.ts";
+import {
+  createRazorpayBankFundAccount,
+  createRazorpayPayout,
+  payoutsMode,
+  razorpayPayoutsEnabled,
+} from "./razorpayPayouts.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -574,16 +581,54 @@ export function pilotCarrierEarningsSummary(store: Store, userId: string, carrie
   };
 }
 
-export function pilotSubmitPayoutSetup(
+export async function pilotSubmitPayoutSetup(
   store: Store,
   userId: string,
-  params: { orgId: string; accountHolderName: string; ifsc: string },
-): { org: Organization; message: string } {
+  params: { orgId: string; accountHolderName: string; ifsc: string; accountNumber?: string },
+): Promise<{ org: Organization; message: string }> {
   assertPilotDriverCanManageOrg(store, userId, params.orgId);
   const org = getOrgOrThrow(store, params.orgId);
-  if (!String(params.accountHolderName ?? "").trim() || !String(params.ifsc ?? "").trim()) {
+  const accountHolderName = String(params.accountHolderName ?? "").trim();
+  const ifsc = String(params.ifsc ?? "").trim();
+  const accountNumber = String(params.accountNumber ?? "").trim();
+  if (!accountHolderName || !ifsc) {
     throw new ApiError("invalid_payout_profile", { detail: "accountHolderName and ifsc are required." });
   }
+
+  // With real payouts enabled, provision a RazorpayX contact + fund account so this
+  // carrier can actually receive transfers. Requires a bank account number.
+  if (razorpayPayoutsEnabled()) {
+    if (!accountNumber) {
+      throw new ApiError("invalid_payout_profile", {
+        detail: "accountNumber is required to register a bank account for real payouts.",
+      });
+    }
+    try {
+      const { contactId, fundAccountId } = await createRazorpayBankFundAccount({
+        name: accountHolderName,
+        ifsc,
+        accountNumber,
+        referenceId: org.id,
+      });
+      const updated: Organization = {
+        ...org,
+        kycStatus: "APPROVED",
+        payoutContactId: contactId,
+        payoutFundAccountId: fundAccountId,
+      };
+      store.organizations.set(org.id, updated);
+      return {
+        org: updated,
+        message:
+          "Bank account registered for payouts. Transfers run after POD, cooling-off, and batch settlement — not at signup.",
+      };
+    } catch (err) {
+      throw new ApiError("payout_setup_provider_error", {
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   const updated: Organization = { ...org, kycStatus: "SUBMITTED" };
   store.organizations.set(org.id, updated);
   return {
@@ -1259,8 +1304,18 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
   return updated;
 }
 
-export function runPayoutBatch(store: Store, params: { nowUtcMs?: number }): PayoutBatch {
+/**
+ * Run the next due payout batch.
+ *
+ * Behaviour is gated by PAYOUTS_MODE:
+ *   - BOOKKEEPING (default): ledger lines are marked PAID; no money moves (MVP bookkeeping).
+ *   - RAZORPAYX: a real RazorpayX payout is created per carrier (test keys in dev).
+ *     Carriers missing a fund account are skipped (lines stay ACCRUED to retry next run);
+ *     transfers that error are marked FAILED and their lines stay ACCRUED.
+ */
+export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }): Promise<PayoutBatch> {
   const now = params.nowUtcMs ?? Date.now();
+  const provider = payoutsMode();
   const eligibleLines = [...store.ledgerLines.values()].filter(
     (l) => l.status === "ACCRUED" && l.payoutBatchCutoffUtcMs <= now
   );
@@ -1272,6 +1327,8 @@ export function runPayoutBatch(store: Store, params: { nowUtcMs?: number }): Pay
       createdAtUtcMs: now,
       totalNetToCarrierPaise: 0,
       lineIds: [],
+      provider,
+      transfers: [],
     };
     store.payoutBatches.set(empty.id, empty);
     return empty;
@@ -1281,17 +1338,95 @@ export function runPayoutBatch(store: Store, params: { nowUtcMs?: number }): Pay
   const earliestCutoff = Math.min(...eligibleLines.map((l) => l.payoutBatchCutoffUtcMs));
   const linesForBatch = eligibleLines.filter((l) => l.payoutBatchCutoffUtcMs === earliestCutoff);
 
+  const batchId = id("pay");
+
+  // One transfer per carrier (money goes to different carriers separately).
+  const linesByCarrier = new Map<string, LedgerLine[]>();
+  for (const l of linesForBatch) {
+    const arr = linesByCarrier.get(l.carrierId) ?? [];
+    arr.push(l);
+    linesByCarrier.set(l.carrierId, arr);
+  }
+
+  const transfers: PayoutTransfer[] = [];
+  const settledLineIds: string[] = [];
+
+  for (const [carrierId, lines] of linesByCarrier) {
+    const netToCarrierPaise = lines.reduce((sum, l) => sum + l.netToCarrierPaise, 0);
+    const lineIds = lines.map((l) => l.id);
+
+    if (provider === "BOOKKEEPING") {
+      for (const l of lines) store.ledgerLines.set(l.id, { ...l, status: "PAID", paidAtUtcMs: now });
+      settledLineIds.push(...lineIds);
+      transfers.push({ carrierId, netToCarrierPaise, lineIds, status: "BOOKKEEPING_PAID" });
+      continue;
+    }
+
+    // RAZORPAYX mode: needs a fund account on the carrier org.
+    const org = store.organizations.get(carrierId);
+    const fundAccountId = org?.payoutFundAccountId;
+    if (!fundAccountId) {
+      transfers.push({ carrierId, netToCarrierPaise, lineIds, status: "SKIPPED_NO_FUND_ACCOUNT" });
+      continue; // leave lines ACCRUED so they retry once payout setup completes
+    }
+    try {
+      const result = await createRazorpayPayout({
+        amountPaise: netToCarrierPaise,
+        fundAccountId,
+        referenceId: `${batchId}_${carrierId}`,
+        narration: "naviG8r payout",
+      });
+      const settledStatuses = new Set(["processed", "completed"]);
+      const failedStatuses = new Set(["rejected", "cancelled", "reversed"]);
+      let transferStatus: PayoutTransfer["status"] = "PROCESSING";
+      if (settledStatuses.has(result.status)) transferStatus = "PAID";
+      else if (failedStatuses.has(result.status)) transferStatus = "FAILED";
+
+      if (transferStatus === "FAILED") {
+        transfers.push({
+          carrierId,
+          netToCarrierPaise,
+          lineIds,
+          status: "FAILED",
+          providerPayoutId: result.id,
+          error: `payout_status_${result.status}`,
+        });
+        continue; // lines stay ACCRUED to retry
+      }
+      // PROCESSING or PAID: mark lines PAID (queued/processing payouts are in-flight, not reversible here).
+      for (const l of lines) store.ledgerLines.set(l.id, { ...l, status: "PAID", paidAtUtcMs: now });
+      settledLineIds.push(...lineIds);
+      transfers.push({
+        carrierId,
+        netToCarrierPaise,
+        lineIds,
+        status: transferStatus,
+        providerPayoutId: result.id,
+      });
+    } catch (err) {
+      transfers.push({
+        carrierId,
+        netToCarrierPaise,
+        lineIds,
+        status: "FAILED",
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // lines stay ACCRUED to retry on the next run
+    }
+  }
+
   const batch: PayoutBatch = {
-    id: id("pay"),
+    id: batchId,
     cutoffUtcMs: earliestCutoff,
     createdAtUtcMs: now,
-    totalNetToCarrierPaise: linesForBatch.reduce((sum, l) => sum + l.netToCarrierPaise, 0),
-    lineIds: linesForBatch.map((l) => l.id),
+    totalNetToCarrierPaise: transfers
+      .filter((t) => t.status === "BOOKKEEPING_PAID" || t.status === "PAID" || t.status === "PROCESSING")
+      .reduce((sum, t) => sum + t.netToCarrierPaise, 0),
+    lineIds: settledLineIds,
+    provider,
+    transfers,
   };
 
-  for (const l of linesForBatch) {
-    store.ledgerLines.set(l.id, { ...l, status: "PAID", paidAtUtcMs: now });
-  }
   store.payoutBatches.set(batch.id, batch);
   return batch;
 }

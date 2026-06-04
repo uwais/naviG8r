@@ -1352,12 +1352,14 @@ class DriverPayoutSetupScreen extends StatefulWidget {
 class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
   final _name = TextEditingController();
   final _ifsc = TextEditingController();
+  final _accountNumber = TextEditingController();
   bool _busy = false;
 
   @override
   void dispose() {
     _name.dispose();
     _ifsc.dispose();
+    _accountNumber.dispose();
     super.dispose();
   }
 
@@ -1365,9 +1367,15 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
     setState(() => _busy = true);
     try {
       final orgId = DriverSession.carrierOrgId ?? lastRegisteredOrgId ?? "";
+      final acct = _accountNumber.text.trim();
       final r = await api.post<Map<String, dynamic>>(
         "/v1/pilot/carrier/payout-setup",
-        data: {"orgId": orgId, "accountHolderName": _name.text.trim(), "ifsc": _ifsc.text.trim()},
+        data: {
+          "orgId": orgId,
+          "accountHolderName": _name.text.trim(),
+          "ifsc": _ifsc.text.trim(),
+          if (acct.isNotEmpty) "accountNumber": acct,
+        },
       );
       final msg = r.data?["message"]?.toString() ?? "Saved.";
       await DriverSession.refresh();
@@ -1395,6 +1403,14 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
           const SizedBox(height: 16),
           TextField(controller: _name, decoration: const InputDecoration(labelText: "Account holder name")),
           TextField(controller: _ifsc, decoration: const InputDecoration(labelText: "IFSC / bank identifier")),
+          TextField(
+            controller: _accountNumber,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: "Bank account number",
+              helperText: "Required to receive real transfers",
+            ),
+          ),
           const Spacer(),
           FilledButton(
             onPressed: _busy ? null : _save,

@@ -43,6 +43,7 @@ import {
   shipmentVisibleToCustomerUser,
 } from "./services.ts";
 import { verifyRazorpayWebhookSignature, razorpayPaymentsEnabled, publicRazorpayKeyId } from "./razorpayPayments.ts";
+import { payoutsMode } from "./razorpayPayouts.ts";
 import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
 
 async function readRawBody(req: http.IncomingMessage): Promise<string> {
@@ -490,10 +491,11 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname === "/v1/pilot/carrier/payout-setup") {
         const body = await readJson(req);
         const userId = requireUserId(req, store);
-        const out = pilotSubmitPayoutSetup(store, userId, {
+        const out = await pilotSubmitPayoutSetup(store, userId, {
           orgId: String(body?.orgId ?? ""),
           accountHolderName: String(body?.accountHolderName ?? ""),
           ifsc: String(body?.ifsc ?? ""),
+          accountNumber: body?.accountNumber != null ? String(body.accountNumber) : undefined,
         });
         await persist();
         return json(res, 200, out);
@@ -710,6 +712,15 @@ export async function createApp(): Promise<{
 
       <div class="card">
         <h2>Run payout batch</h2>
+        <p class="muted" style="margin:2px 0 8px;">
+          Mode: <code>${esc(payoutsMode())}</code>
+          ${
+            payoutsMode() === "RAZORPAYX"
+              ? "&mdash; real RazorpayX transfers per carrier (test keys)."
+              : "&mdash; bookkeeping only (marks ledger PAID, no money moves). Set <code>PAYOUTS_MODE=RAZORPAYX</code> to enable transfers."
+          }
+          <br/>Requires an Ops Admin/Agent login.
+        </p>
         <form method="post" action="/payout-batches/run" onsubmit="return submitJson(event)">
           <input name="nowUtcMs" placeholder="nowUtcMs (optional)" />
           <button type="submit">Run</button>
@@ -1223,19 +1234,25 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
+        const userId = requireUserId(req, store);
+        assertOpsAgent(store, userId);
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
       }
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
+        const userId = requireUserId(req, store);
+        assertOpsAgent(store, userId);
         const body = await readJson(req);
-        const batch = runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
+        const batch = await runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
         await persist();
         return json(res, 200, { batch });
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
+        const userId = requireUserId(req, store);
+        assertOpsAgent(store, userId);
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
