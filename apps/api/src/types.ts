@@ -106,6 +106,16 @@ export type GeoPoint = {
   label?: string;
 };
 
+/** Latest GPS ping from the driver while a trip is in progress. */
+export type TripLiveLocation = {
+  lat: number;
+  lng: number;
+  recordedAtUtcMs: number;
+  accuracyM?: number;
+  speedMps?: number;
+  headingDeg?: number;
+};
+
 export type AnchorTrip = {
   id: string;
   carrierId: string;
@@ -124,6 +134,8 @@ export type AnchorTrip = {
   reservedKg: number;
   status: AnchorTripStatus;
   createdAtUtcMs: number;
+  /** Updated by driver location pings during active trips. */
+  lastLiveLocation?: TripLiveLocation;
 };
 
 export type Shipment = {

@@ -59,7 +59,7 @@ void _defaultAnchorTripWindow(TextEditingController w1, TextEditingController w2
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  api = Api(kDefaultBaseUrl);
+  api = Api(resolveApiBaseUrl());
   runApp(const DriverPilotApp());
 }
 
@@ -284,10 +284,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _ping() async {
     setState(() => _loading = true);
     try {
+      final dns = await diagnoseApiDns(api.baseUrl);
+      if (dns.startsWith("DNS failed")) {
+        setState(() => _health = dns);
+        return;
+      }
       final r = await api.get<Map<String, dynamic>>("/health");
-      setState(() => _health = "${r.data}");
+      setState(() => _health = "$dns\n${r.data}");
     } catch (e) {
-      setState(() => _health = "error: $e");
+      setState(() => _health = formatApiError(e));
     } finally {
       setState(() => _loading = false);
     }
@@ -1927,6 +1932,10 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
   String? _error;
   Map<String, dynamic>? _shipment;
   Map<String, dynamic>? _payment;
+  Map<String, dynamic>? _trip;
+  Map<String, dynamic>? _liveLocation;
+  bool _isLive = false;
+  Timer? _trackingPoll;
 
   Future<void> _load() async {
     setState(() {
@@ -1941,6 +1950,7 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
         _shipment = (s is Map<String, dynamic>) ? s : null;
         _payment = (p is Map<String, dynamic>) ? p : null;
       });
+      await _loadTracking();
     } catch (e) {
       setState(() => _error = formatApiError(e));
     } finally {
@@ -1948,10 +1958,51 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
     }
   }
 
+  Future<void> _loadTracking() async {
+    try {
+      final r = await api.get<Map<String, dynamic>>("/shipments/${widget.shipmentId}/tracking");
+      final trip = r.data?["trip"];
+      final loc = r.data?["liveLocation"];
+      if (!mounted) return;
+      setState(() {
+        _trip = trip is Map<String, dynamic> ? trip : null;
+        _liveLocation = loc is Map<String, dynamic> ? loc : null;
+        _isLive = r.data?["isLive"] == true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _trip = null;
+        _liveLocation = null;
+        _isLive = false;
+      });
+    }
+  }
+
+  void _scheduleTrackingPoll() {
+    _trackingPoll?.cancel();
+    if (_shipment?["status"]?.toString() != "BOOKED") return;
+    _trackingPoll = Timer.periodic(const Duration(seconds: 15), (_) => _loadTracking());
+  }
+
+  LatLng? _latLngFromGeo(Map<String, dynamic>? g) {
+    if (g == null) return null;
+    final lat = g["lat"];
+    final lng = g["lng"];
+    if (lat is num && lng is num) return LatLng(lat.toDouble(), lng.toDouble());
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
-    _load();
+    _load().then((_) => _scheduleTrackingPoll());
+  }
+
+  @override
+  void dispose() {
+    _trackingPoll?.cancel();
+    super.dispose();
   }
 
   @override
@@ -1977,6 +2028,37 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
           const SizedBox(height: 12),
           if (_error != null) SelectableText(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           if (_shipment != null) ...[
+            if (_trip != null) ...[
+              Text(
+                _isLive ? "Live trip tracking" : "Trip tracking",
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              if (_latLngFromGeo(_trip!["origin"] as Map<String, dynamic>?) != null &&
+                  _latLngFromGeo(_trip!["destination"] as Map<String, dynamic>?) != null)
+                tripTrackingMap(
+                  origin: _latLngFromGeo(_trip!["origin"] as Map<String, dynamic>?)!,
+                  destination: _latLngFromGeo(_trip!["destination"] as Map<String, dynamic>?)!,
+                  pickup: _latLngFromGeo(_shipment!["pickup"] as Map<String, dynamic>?),
+                  drop: _latLngFromGeo(_shipment!["drop"] as Map<String, dynamic>?),
+                  driver: _isLive ? _latLngFromGeo(_liveLocation) : null,
+                )
+              else
+                Text(
+                  "Map unavailable until the carrier republishes the trip with map pins.",
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              const SizedBox(height: 8),
+              Text(
+                _isLive
+                    ? "Driver location updates every ~30s while the trip is in progress."
+                    : _shipment!["status"] == "BOOKED"
+                        ? "Waiting for driver GPS — open the driver app on an active trip."
+                        : "Live tracking ends after delivery is confirmed.",
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+            ],
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -2012,7 +2094,12 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
           ],
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: _loading ? null : _load,
+            onPressed: _loading
+                ? null
+                : () async {
+                    await _load();
+                    _scheduleTrackingPoll();
+                  },
             icon: const Icon(Icons.refresh),
             label: const Text("Refresh status"),
           ),

@@ -23,6 +23,8 @@ import {
   customerEligibleAnchorTripsPhaseA,
   pilotLoginDriverByPhone,
   pilotGetMyAnchorTrip,
+  reportAnchorTripLocation,
+  getShipmentTripTracking,
   pilotMe,
   pilotListMyAnchorTrips,
   pilotRatesEstimate,
@@ -250,6 +252,7 @@ function publicMarketplaceRouteAllowed(method: string, pathname: string): boolea
   if (method === "POST" && pathname === "/v1/payments/razorpay/webhook") return true;
   if (method === "GET" && pathname === "/shipments") return true;
   if (method === "GET" && segs.length === 2 && segs[0] === "shipments") return true;
+  if (method === "GET" && segs.length === 3 && segs[0] === "shipments" && segs[2] === "tracking") return true;
   if (method === "POST" && segs.length === 3 && segs[0] === "shipments" && segs[2] === "pod") return true;
   if (method === "POST" && segs.length === 3 && segs[0] === "shipments" && segs[2] === "fail-refund") return true;
   return false;
@@ -436,11 +439,33 @@ export async function createApp(): Promise<{
         return json(res, 200, { trips });
       }
 
+      if (method === "POST" && url.pathname.endsWith("/location")) {
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts.length === 5 && parts[0] === "v1" && parts[1] === "pilot" && parts[2] === "anchor-trips") {
+          const userId = requireUserId(req, store);
+          const tripId = parts[3] ?? "";
+          const body = await readJson(req);
+          const trip = reportAnchorTripLocation(store, userId, tripId, {
+            lat: Number(body?.lat),
+            lng: Number(body?.lng),
+            recordedAtUtcMs: body?.recordedAtUtcMs != null ? Number(body.recordedAtUtcMs) : undefined,
+            accuracyM: body?.accuracyM != null ? Number(body.accuracyM) : undefined,
+            speedMps: body?.speedMps != null ? Number(body.speedMps) : undefined,
+            headingDeg: body?.headingDeg != null ? Number(body.headingDeg) : undefined,
+          });
+          await persist();
+          return json(res, 200, { trip });
+        }
+      }
+
       if (method === "GET" && url.pathname.startsWith("/v1/pilot/anchor-trips/")) {
-        const userId = requireUserId(req, store);
-        const tripId = url.pathname.split("/").at(-1) ?? "";
-        const trip = pilotGetMyAnchorTrip(store, userId, String(tripId));
-        return json(res, 200, { trip });
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts.length === 4 && parts[0] === "v1" && parts[1] === "pilot" && parts[2] === "anchor-trips") {
+          const userId = requireUserId(req, store);
+          const tripId = parts[3] ?? "";
+          const trip = pilotGetMyAnchorTrip(store, userId, tripId);
+          return json(res, 200, { trip });
+        }
       }
 
       if (method === "POST" && url.pathname === "/v1/pilot/anchor-trips") {
@@ -1038,17 +1063,36 @@ export async function createApp(): Promise<{
         return json(res, 200, { shipments });
       }
 
-      if (method === "GET" && url.pathname.startsWith("/shipments/") && url.pathname.split("/").length === 3) {
-        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const userId = requireBearerUserId(req, res, store);
-        if (!userId) return;
-        const shipmentId = url.pathname.split("/")[2] ?? "";
-        const shipment = store.shipments.get(shipmentId);
-        if (!shipment || !shipmentVisibleToCustomerUser(store, shipment, userId)) {
-          return json(res, 404, { error: "shipment_not_found" });
+      if (method === "GET" && url.pathname.startsWith("/shipments/")) {
+        const segs = url.pathname.split("/").filter(Boolean);
+        if (segs.length === 3 && segs[0] === "shipments" && segs[2] === "tracking") {
+          if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+          const userId = requireBearerUserId(req, res, store);
+          if (!userId) return;
+          const shipmentId = segs[1] ?? "";
+          try {
+            const out = getShipmentTripTracking(store, userId, shipmentId);
+            return json(res, 200, out);
+          } catch (e: any) {
+            const msg = String(e?.message ?? "");
+            if (msg === "shipment_not_found" || msg === "anchor_trip_not_found") {
+              return json(res, 404, { error: msg });
+            }
+            throw e;
+          }
         }
-        const payment = store.payments.get(shipment.paymentId) ?? null;
-        return json(res, 200, { shipment, payment });
+        if (segs.length === 2 && segs[0] === "shipments") {
+          if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+          const userId = requireBearerUserId(req, res, store);
+          if (!userId) return;
+          const shipmentId = segs[1] ?? "";
+          const shipment = store.shipments.get(shipmentId);
+          if (!shipment || !shipmentVisibleToCustomerUser(store, shipment, userId)) {
+            return json(res, 404, { error: "shipment_not_found" });
+          }
+          const payment = store.payments.get(shipment.paymentId) ?? null;
+          return json(res, 200, { shipment, payment });
+        }
       }
 
       if (method === "POST" && url.pathname === "/shipments/book") {

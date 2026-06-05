@@ -136,6 +136,17 @@ Response:
 
 Trips are limited to **carrier orgs** your user belongs to (`CARRIER_SOLO`, `CARRIER_FLEET`, `CARRIER_LEGACY`), newest first.
 
+#### `POST /v1/pilot/anchor-trips/:tripId/location`
+Driver live GPS ping while a trip is in progress (Bearer; trip must belong to your carrier org). The server stores the latest point on the anchor trip (`lastLiveLocation`). The driver app sends pings about every 30s when on the active-trip map screen.
+
+Body:
+```json
+{ "lat": 28.47, "lng": 77.04, "accuracyM": 12, "speedMps": 8.5, "headingDeg": 90 }
+```
+
+#### `GET /shipments/:shipmentId/tracking`
+Customer (or ops / carrier driver on that trip) live tracking. Requires Bearer. Returns `{ shipment, trip, liveLocation, isLive, staleAfterUtcMs }`. **`isLive`** is true only when the shipment is **`BOOKED`** and the driver ping is fresher than 15 minutes (`TRIP_TRACKING_STALE_MS`).
+
 #### `POST /v1/pilot/anchor-trips`
 Headers:
 - `Authorization: Bearer <accessToken>`
@@ -203,7 +214,7 @@ Body:
 - `POST /shipments/book` books against an `anchorTripId`. With `Authorization: Bearer` from OTP for a user in a **CUSTOMER** org, the shipment is tagged with `customerOrgId` and `customerOrgName` from that org (otherwise anonymous booking uses only the body `customerOrgName`). Optional **`customerPhone`** or **`bookedByPhone`** (India mobile, same normalization as registration) stores `bookedByPhone` on the shipment so the same person can list it after OTP **without** relying on org name matching.
   - **`PAYMENT_PROVIDER=MOCK` (default):** response **`201`** `{ shipment, payment }` where `payment.status` is **`CAPTURED`** immediately.
   - **`PAYMENT_PROVIDER=RAZORPAY`:** after booking, server creates an order with **`payment_capture: false`**. Response **`201`** **`{ shipment, payment, razorpayKeyId? }`** — `payment.status` starts **`CREATED`** with **`razorpayOrderId`**. Flutter (or Web) opens Razorpay Standard Checkout with **`key`=`razorpayKeyId`**, **`order_id`=`razorpayOrderId`**, and amount from `payment.amountPaise`. After customer pays, **authorization** is applied when Razorpay calls **`POST /v1/payments/razorpay/webhook`** (`payment.authorized` / `payment.failed`). **Capture** happens on **`POST /shipments/:id/pod`** (server captures before ledger). Booking may be rolled back if order creation fails.
-- `GET /shipments` and `GET /shipments/:id` require `Authorization: Bearer`. Responses include shipments for your **CUSTOMER** org (`customerOrgId` match, or legacy match on `customerOrgName` vs org `displayName`) **or** shipments whose **`bookedByPhone`** equals your user’s phone.
+- `GET /shipments`, `GET /shipments/:id`, and **`GET /shipments/:id/tracking`** require `Authorization: Bearer`. Responses include shipments for your **CUSTOMER** org (`customerOrgId` match, or legacy match on `customerOrgName` vs org `displayName`) **or** shipments whose **`bookedByPhone`** equals your user’s phone.
 - `POST /shipments/:id/pod` and `POST /shipments/:id/fail-refund` require the same Bearer and the same visibility rules as GET. With Razorpay, POD triggers **capture** then delivery/ledger logic; **`fail-refund`** may refund an **AUTHORIZED** or **CAPTURED** payment where applicable.
 
 #### `GET /health`

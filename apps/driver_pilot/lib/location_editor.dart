@@ -57,6 +57,77 @@ Widget routePreviewMap({required LatLng a, required LatLng b}) {
   );
 }
 
+/// Route + optional live driver position (customer tracking).
+Widget tripTrackingMap({
+  required LatLng origin,
+  required LatLng destination,
+  LatLng? driver,
+  LatLng? pickup,
+  LatLng? drop,
+}) {
+  final markers = <Marker>{
+    Marker(
+      markerId: const MarkerId("track_origin"),
+      position: origin,
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+    ),
+    Marker(
+      markerId: const MarkerId("track_dest"),
+      position: destination,
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+    ),
+    if (pickup != null)
+      Marker(
+        markerId: const MarkerId("track_pickup"),
+        position: pickup,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+      ),
+    if (drop != null)
+      Marker(
+        markerId: const MarkerId("track_drop"),
+        position: drop,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+      ),
+    if (driver != null)
+      Marker(
+        markerId: const MarkerId("track_driver"),
+        position: driver,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
+        infoWindow: const InfoWindow(title: "Driver"),
+      ),
+  };
+  final points = <LatLng>[origin, destination, if (pickup != null) pickup, if (drop != null) drop, if (driver != null) driver];
+  final bounds = _boundsForPoints(points);
+  final polylines = <Polyline>{
+    Polyline(
+      polylineId: const PolylineId("track_lane"),
+      points: [origin, destination],
+      width: 4,
+      color: const Color(0xFF3F51B5),
+    ),
+  };
+
+  return SizedBox(
+    height: 220,
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: GoogleMap(
+        initialCameraPosition: CameraPosition(target: origin, zoom: 6),
+        markers: markers,
+        polylines: polylines,
+        myLocationButtonEnabled: false,
+        zoomControlsEnabled: false,
+        onMapCreated: (controller) async {
+          if (bounds == null) return;
+          try {
+            await controller.moveCamera(CameraUpdate.newLatLngBounds(bounds, 48));
+          } catch (_) {}
+        },
+      ),
+    ),
+  );
+}
+
 LatLng? latLngFromTripField(Map<String, dynamic>? trip, String field) {
   final g = trip?[field];
   if (g is! Map<String, dynamic>) return null;

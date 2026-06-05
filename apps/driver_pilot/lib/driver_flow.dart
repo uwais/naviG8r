@@ -1024,6 +1024,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   List<Map<String, dynamic>> _shipments = [];
   LatLng? _driverPos;
   StreamSubscription<Position>? _posSub;
+  DateTime? _lastLocationPostAt;
   String? _error;
   bool _loading = true;
 
@@ -1041,8 +1042,32 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     _posSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(distanceFilter: 25),
     ).listen((p) {
-      if (mounted) setState(() => _driverPos = LatLng(p.latitude, p.longitude));
+      if (!mounted) return;
+      setState(() => _driverPos = LatLng(p.latitude, p.longitude));
+      _maybePostLocation(p);
     });
+  }
+
+  Future<void> _maybePostLocation(Position p) async {
+    final now = DateTime.now();
+    if (_lastLocationPostAt != null && now.difference(_lastLocationPostAt!) < const Duration(seconds: 30)) {
+      return;
+    }
+    _lastLocationPostAt = now;
+    try {
+      await api.post<Map<String, dynamic>>(
+        "/v1/pilot/anchor-trips/${widget.tripId}/location",
+        data: {
+          "lat": p.latitude,
+          "lng": p.longitude,
+          "accuracyM": p.accuracy,
+          if (p.speed >= 0) "speedMps": p.speed,
+          if (p.heading >= 0) "headingDeg": p.heading,
+        },
+      );
+    } catch (_) {
+      // Best-effort; map still works locally if API is unreachable.
+    }
   }
 
   Future<void> _load() async {
@@ -1116,7 +1141,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 SizedBox(
                   height: 220,
                   child: origin != null && dest != null
-                      ? routePreviewMap(a: origin, b: dest)
+                      ? tripTrackingMap(
+                          origin: origin,
+                          destination: dest,
+                          driver: _driverPos,
+                        )
                       : Center(
                           child: Padding(
                             padding: const EdgeInsets.all(16),

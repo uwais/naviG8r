@@ -9,6 +9,9 @@ export const PAYOUT_BATCH_SCHEDULE: WeeklyBatchSchedule = {
 
 export const COMMISSION_BPS = 1000; // 10%
 
+/** Driver location older than this is not shown as "live" to customers. */
+export const TRIP_TRACKING_STALE_MS = 15 * 60 * 1000;
+
 /**
  * MVP quote: ₹5/kg (in paise).
  * Replace with lane-based rate cards + detour rules later.

@@ -89,6 +89,7 @@ model AnchorTripRow {
   reservedKg       Int
   status           String
   createdAtUtcMs   BigInt
+  lastLiveLocation Json?
 }
 
 model PaymentRow {
