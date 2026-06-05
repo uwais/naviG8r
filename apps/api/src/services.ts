@@ -446,6 +446,9 @@ export function shipmentVisibleToCustomerUser(store: Store, shipment: Shipment, 
   if (shipment.bookedByPhone != null && shipment.bookedByPhone !== "" && shipment.bookedByPhone === user.phone) {
     return true;
   }
+  if (shipment.bookedByUserId != null && shipment.bookedByUserId === userId) {
+    return true;
+  }
   return false;
 }
 
@@ -1050,6 +1053,8 @@ export function bookShipment(store: Store, params: {
   customerOrg?: { id: string; displayName: string };
   /** Same digits as `User.phone` after OTP; links anonymous bookings to that user for GET /shipments. */
   bookedByPhoneRaw?: string;
+  /** Authenticated booker (OTP session); scopes GET /shipments even without CUSTOMER org. */
+  bookedByUserId?: string;
   weightKg: number;
   pickupAddress: string;
   dropAddress: string;
@@ -1122,6 +1127,7 @@ export function bookShipment(store: Store, params: {
     ...(co != null ? { customerOrgId: co.id } : {}),
     customerOrgName,
     ...(bookedByPhone != null ? { bookedByPhone } : {}),
+    ...(params.bookedByUserId != null ? { bookedByUserId: params.bookedByUserId } : {}),
     weightKg: params.weightKg,
     pickupAddress: params.pickupAddress,
     dropAddress: params.dropAddress,

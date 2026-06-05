@@ -1099,20 +1099,27 @@ export async function createApp(): Promise<{
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
         let customerOrg: { id: string; displayName: string } | undefined;
+        let bookedByUserId: string | undefined;
+        let phoneField: string | undefined = body?.customerPhone ?? body?.bookedByPhone;
+        if (phoneField != null && String(phoneField).trim() === "") phoneField = undefined;
         try {
           const { userId } = verifyBearer(store, bearerToken(req));
+          bookedByUserId = userId;
           const org = customerPrimaryOrgForUser(store, userId);
           if (org) customerOrg = { id: org.id, displayName: org.displayName };
+          if (phoneField == null) {
+            const user = store.users.get(userId);
+            if (user?.phone) phoneField = user.phone;
+          }
         } catch {
-          /* anonymous booking: no customerOrgId on shipment */
+          /* anonymous booking: no customerOrgId / bookedByUserId on shipment */
         }
-        const phoneField = body?.customerPhone ?? body?.bookedByPhone;
         const shipment = bookShipment(store, {
           anchorTripId: String(body?.anchorTripId ?? ""),
           customerOrgName: String(body?.customerOrgName ?? ""),
           customerOrg,
-          bookedByPhoneRaw:
-            phoneField != null && String(phoneField).trim() !== "" ? String(phoneField) : undefined,
+          bookedByUserId,
+          bookedByPhoneRaw: phoneField != null ? String(phoneField) : undefined,
           weightKg: Number(body?.weightKg ?? 0),
           pickupAddress: String(body?.pickupAddress ?? ""),
           dropAddress: String(body?.dropAddress ?? ""),

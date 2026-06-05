@@ -112,6 +112,7 @@ model ShipmentRow {
   customerOrgId                  String?
   customerOrgName                String
   bookedByPhone                  String?
+  bookedByUserId                 String?
   weightKg                       Int
   pickupAddress                  String
   dropAddress                    String

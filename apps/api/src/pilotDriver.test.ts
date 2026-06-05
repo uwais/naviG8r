@@ -190,6 +190,40 @@ test("bookedByPhone links anonymous shipment to OTP user with same mobile", () =
   assert.ok(shipmentVisibleToCustomerUser(store, shipment, cust.user.id));
 });
 
+test("bookedByUserId links OTP session bookings without CUSTOMER org or customerPhone", () => {
+  const store = createStore();
+  const onboard = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Ravi Kumar",
+    phone: "9876543298",
+    orgDisplayName: "Ravi Transport UserIdTest",
+    vehicleRegistrationNumber: "HR26AB1298",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 5000,
+  });
+  const trip = publishAnchorTripAsPilotDriver(store, {
+    userId: onboard.user.id,
+    orgId: onboard.org.id,
+    originCity: "Gurugram",
+    destCity: "Jaipur",
+    windowStart: "2026-04-24T00:00:00+05:30",
+    windowEnd: "2026-04-25T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+  });
+  const shipment = bookShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: "Walk-in buyer",
+    bookedByUserId: onboard.user.id,
+    weightKg: 150,
+    pickupAddress: "Gurugram",
+    dropAddress: "Jaipur",
+  });
+  assert.equal(shipment.customerOrgId, undefined);
+  assert.equal(shipment.bookedByPhone, undefined);
+  assert.equal(shipment.bookedByUserId, onboard.user.id);
+  assert.ok(shipmentVisibleToCustomerUser(store, shipment, onboard.user.id));
+});
+
 test("carrier pilot can list org shipments, mark POD visibility, and submit payout setup", async () => {
   const store = createStore();
   const onboard = registerSoloOwnerOperatorDriver(store, {

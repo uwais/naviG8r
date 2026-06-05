@@ -7,6 +7,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "driver_session.dart";
 import "driver_theme.dart";
+import "google_geocoding.dart";
 import "location_editor.dart";
 import "maps_config.dart";
 import "pilot_api.dart";
@@ -1025,6 +1026,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   LatLng? _driverPos;
   StreamSubscription<Position>? _posSub;
   DateTime? _lastLocationPostAt;
+  LatLng? _geocodedOrigin;
+  LatLng? _geocodedDest;
   String? _error;
   bool _loading = true;
 
@@ -1039,6 +1042,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     var perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
     if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
+    try {
+      final p = await Geolocator.getCurrentPosition();
+      if (mounted) setState(() => _driverPos = LatLng(p.latitude, p.longitude));
+    } catch (_) {}
     _posSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(distanceFilter: 25),
     ).listen((p) {
@@ -1109,6 +1116,39 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+    await _geocodeTripCitiesIfNeeded();
+  }
+
+  Future<void> _geocodeTripCitiesIfNeeded() async {
+    final trip = _trip;
+    if (trip == null) return;
+    if (latLngFromGeoMap(trip, "origin") != null && latLngFromGeoMap(trip, "destination") != null) return;
+    if (kMapsApiKey.isEmpty) return;
+    final oc = trip["originCity"]?.toString().trim() ?? "";
+    final dc = trip["destCity"]?.toString().trim() ?? "";
+    if (oc.isEmpty || dc.isEmpty) return;
+    final o = await GoogleGeocodingService.forwardAddress("$oc, India");
+    final d = await GoogleGeocodingService.forwardAddress("$dc, India");
+    if (!mounted) return;
+    setState(() {
+      if (o.isOk) _geocodedOrigin = o.position;
+      if (d.isOk) _geocodedDest = d.position;
+    });
+  }
+
+  ({LatLng? laneStart, LatLng? laneEnd, LatLng? pickup, LatLng? drop}) _resolvedMapPoints() {
+    final trip = _trip;
+    var laneStart = latLngFromGeoMap(trip, "origin") ?? _geocodedOrigin;
+    var laneEnd = latLngFromGeoMap(trip, "destination") ?? _geocodedDest;
+    LatLng? pickup;
+    LatLng? drop;
+    for (final s in _shipments) {
+      pickup ??= latLngFromGeoMap(s, "pickup");
+      drop ??= latLngFromGeoMap(s, "drop");
+    }
+    laneStart ??= pickup;
+    laneEnd ??= drop;
+    return (laneStart: laneStart, laneEnd: laneEnd, pickup: pickup, drop: drop);
   }
 
   @override
@@ -1120,44 +1160,24 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   @override
   Widget build(BuildContext context) {
     final trip = _trip;
-    final origin = trip != null ? latLngFromTripField(trip, "origin") : null;
-    final dest = trip != null ? latLngFromTripField(trip, "destination") : null;
+    final pts = _resolvedMapPoints();
     final next = _shipments.isNotEmpty ? _shipments.first : null;
-
-    final mapsKeyMissing = kMapsApiKey.isEmpty;
-
     return _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                if (mapsKeyMissing)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: Text(
-                      "Maps key missing: set MAPS_API_KEY in android/local.properties or pass --dart-define=MAPS_API_KEY=… then rebuild.",
-                      style: TextStyle(fontSize: 12, color: Colors.orange),
-                    ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: activeTripMap(
+                    laneStart: pts.laneStart,
+                    laneEnd: pts.laneEnd,
+                    driver: _driverPos,
+                    pickup: pts.pickup,
+                    drop: pts.drop,
+                    emptyMessage: trip == null
+                        ? "Could not load trip."
+                        : "No coordinates yet — allow location, or republish trip with map pins.",
                   ),
-                SizedBox(
-                  height: 220,
-                  child: origin != null && dest != null
-                      ? tripTrackingMap(
-                          origin: origin,
-                          destination: dest,
-                          driver: _driverPos,
-                        )
-                      : Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Text(
-                              trip == null
-                                  ? "Could not load trip"
-                                  : "No map coordinates on this trip — republish with origin/destination pins.",
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: DriverTheme.muted),
-                            ),
-                          ),
-                        ),
                 ),
                 Expanded(
                   child: ListView(
