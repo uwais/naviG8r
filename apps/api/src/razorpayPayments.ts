@@ -68,10 +68,26 @@ export async function razorpayRefundPayment(paymentId: string, amountPaise?: num
 export function verifyRazorpayWebhookSignature(payload: string, signatureHeader: string | undefined, secret: string): boolean {
   if (!signatureHeader || !payload || !secret) return false;
   const expected = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+  return timingSafeHexEqual(signatureHeader, expected);
+}
+
+/** Standard Checkout success callback: HMAC-SHA256 of `order_id|payment_id`. */
+export function verifyRazorpayCheckoutSignature(
+  orderId: string,
+  paymentId: string,
+  signature: string,
+): boolean {
+  const secret = process.env.RAZORPAY_KEY_SECRET?.trim();
+  if (!secret || !orderId || !paymentId || !signature) return false;
+  const expected = crypto.createHmac("sha256", secret).update(`${orderId}|${paymentId}`).digest("hex");
+  return timingSafeHexEqual(signature, expected);
+}
+
+function timingSafeHexEqual(a: string, b: string): boolean {
   try {
-    const a = Buffer.from(signatureHeader);
-    const b = Buffer.from(expected);
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
+    const ba = Buffer.from(a);
+    const bb = Buffer.from(b);
+    return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
   } catch {
     return false;
   }
