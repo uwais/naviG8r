@@ -147,6 +147,8 @@ export type Shipment = {
   customerOrgName: string;
   /** Normalized India mobile; optional on anonymous book so the same user can list via OTP + phone match. */
   bookedByPhone?: string;
+  /** Set when POST /shipments/book includes a valid Bearer token (even without a CUSTOMER org). */
+  bookedByUserId?: string;
   weightKg: number;
   pickupAddress: string;
   dropAddress: string;

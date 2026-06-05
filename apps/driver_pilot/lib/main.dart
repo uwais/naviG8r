@@ -1394,6 +1394,19 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     _rzp!.on(Razorpay.EVENT_PAYMENT_SUCCESS, _onRzpPaymentSuccess);
     _rzp!.on(Razorpay.EVENT_PAYMENT_ERROR, _onRzpPaymentError);
     _rzp!.on(Razorpay.EVENT_EXTERNAL_WALLET, _onRzpExternalWallet);
+    _prefillLoggedInPhone();
+  }
+
+  Future<void> _prefillLoggedInPhone() async {
+    if (_customerPhone.text.trim().isNotEmpty) return;
+    try {
+      final r = await api.get<Map<String, dynamic>>("/v1/auth/me");
+      final phone = r.data?["user"];
+      if (phone is Map<String, dynamic>) {
+        final p = phone["phone"]?.toString().trim() ?? "";
+        if (p.isNotEmpty && mounted) setState(() => _customerPhone.text = p);
+      }
+    } catch (_) {}
   }
 
   void _onAnchorTripIdChanged() {
