@@ -128,13 +128,93 @@ Widget tripTrackingMap({
   );
 }
 
-LatLng? latLngFromTripField(Map<String, dynamic>? trip, String field) {
-  final g = trip?[field];
+LatLng? latLngFromGeoMap(Map<String, dynamic>? parent, String field) {
+  final g = parent?[field];
   if (g is! Map<String, dynamic>) return null;
   final lat = g["lat"];
   final lng = g["lng"];
-  if (lat is num && lng is num) return LatLng(lat.toDouble(), lng.toDouble());
-  return null;
+  double? parseCoord(Object? v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v.trim());
+    return null;
+  }
+  final la = parseCoord(lat);
+  final ln = parseCoord(lng);
+  if (la == null || ln == null) return null;
+  return LatLng(la, ln);
+}
+
+/// @deprecated Use [latLngFromGeoMap].
+LatLng? latLngFromTripField(Map<String, dynamic>? trip, String field) => latLngFromGeoMap(trip, field);
+
+/// Map centered on a single point (e.g. driver GPS while route coords load).
+Widget singlePointMap({required LatLng center, String label = "Location", double zoom = 13}) {
+  return SizedBox(
+    height: 220,
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: GoogleMap(
+        initialCameraPosition: CameraPosition(target: center, zoom: zoom),
+        markers: {
+          Marker(
+            markerId: const MarkerId("single_point"),
+            position: center,
+            infoWindow: InfoWindow(title: label),
+          ),
+        },
+        myLocationButtonEnabled: false,
+        zoomControlsEnabled: false,
+      ),
+    ),
+  );
+}
+
+/// Best-effort map for the driver active-trip screen.
+Widget activeTripMap({
+  LatLng? laneStart,
+  LatLng? laneEnd,
+  LatLng? driver,
+  LatLng? pickup,
+  LatLng? drop,
+  String? emptyMessage,
+}) {
+  if (laneStart != null && laneEnd != null) {
+    return tripTrackingMap(
+      origin: laneStart,
+      destination: laneEnd,
+      driver: driver,
+      pickup: pickup,
+      drop: drop,
+    );
+  }
+  if (driver != null) {
+    return singlePointMap(center: driver, label: "You", zoom: 12);
+  }
+  final fallback = laneStart ?? laneEnd ?? pickup ?? drop;
+  if (fallback != null) {
+    return singlePointMap(center: fallback, label: "Trip point", zoom: 10);
+  }
+  return SizedBox(
+    height: 220,
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F5F5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            emptyMessage ??
+                "No map coordinates yet. Republish the trip with map pins, or wait for GPS.",
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFF757575), fontSize: 13),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 LatLngBounds? _boundsForPoints(List<LatLng> points) {

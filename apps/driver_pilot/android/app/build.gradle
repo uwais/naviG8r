@@ -31,17 +31,9 @@ if (flutterVersionName == null) {
     flutterVersionName = "1.0"
 }
 
-// Prefer android/local.properties; fall back to `flutter run --dart-define=MAPS_API_KEY=...`
+// Native Maps SDK key — always from android/local.properties (Android app + SHA-1 restricted).
+// Do NOT override from --dart-define=MAPS_API_KEY; that dart-define is for Dart geocoding only.
 def mapsApiKey = localProperties.getProperty("MAPS_API_KEY") ?: ""
-if (project.hasProperty("dart-defines")) {
-    project.property("dart-defines").toString().split(",").each { entry ->
-        def decoded = new String(entry.decodeBase64(), "UTF-8")
-        def parts = decoded.split("=", 2)
-        if (parts.length == 2 && parts[0] == "MAPS_API_KEY") {
-            mapsApiKey = parts[1]
-        }
-    }
-}
 
 android {
     namespace = "com.navig8r.pilot"
