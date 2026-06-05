@@ -32,6 +32,7 @@ import {
   createAuthorizeOnlyOrder,
   razorpayPaymentsEnabled,
   razorpayRefundPayment,
+  verifyRazorpayCheckoutSignature,
 } from "./razorpayPayments.ts";
 import {
   createRazorpayBankFundAccount,
@@ -1311,6 +1312,47 @@ export function rollbackBooking(store: Store, shipmentId: string): void {
   }
   store.payments.delete(s.paymentId);
   store.shipments.delete(shipmentId);
+}
+
+/** Client callback after Razorpay Standard Checkout success (webhook may lag or be unset in pilot). */
+export function confirmRazorpayCheckoutAuthorization(
+  store: Store,
+  params: {
+    shipmentId: string;
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    razorpaySignature: string;
+  },
+): { payment: Payment } {
+  const s = store.shipments.get(params.shipmentId);
+  if (!s) throw new Error("shipment_not_found");
+  const pay = store.payments.get(s.paymentId);
+  if (!pay || pay.provider !== "RAZORPAY") throw new Error("not_razorpay_shipment");
+  if (!pay.razorpayOrderId || pay.razorpayOrderId !== params.razorpayOrderId) {
+    throw new ApiError("razorpay_order_mismatch", { expected: pay.razorpayOrderId ?? null });
+  }
+  if (!verifyRazorpayCheckoutSignature(
+    params.razorpayOrderId,
+    params.razorpayPaymentId,
+    params.razorpaySignature,
+  )) {
+    throw new ApiError("invalid_razorpay_signature", {});
+  }
+  if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
+    return { payment: pay };
+  }
+  if (pay.status !== "CREATED") {
+    throw new ApiError("payment_not_confirmable", { status: pay.status });
+  }
+  const now = nowUtcMs();
+  const updated: Payment = {
+    ...pay,
+    status: "AUTHORIZED",
+    razorpayPaymentId: params.razorpayPaymentId,
+    updatedAtUtcMs: now,
+  };
+  store.payments.set(pay.id, updated);
+  return { payment: updated };
 }
 
 export async function attachRazorpayOrderForShipment(store: Store, shipmentId: string): Promise<void> {

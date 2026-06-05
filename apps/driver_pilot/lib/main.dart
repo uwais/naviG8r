@@ -1472,8 +1472,31 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     super.dispose();
   }
 
-  void _onRzpPaymentSuccess(PaymentSuccessResponse response) {
+  Future<void> _onRzpPaymentSuccess(PaymentSuccessResponse response) async {
     final id = _pendingShipmentIdForCheckout;
+    if (!mounted) return;
+    final paymentId = response.paymentId?.trim() ?? "";
+    final orderId = response.orderId?.trim() ?? "";
+    final signature = response.signature?.trim() ?? "";
+    if (id != null && id.isNotEmpty && paymentId.isNotEmpty && orderId.isNotEmpty && signature.isNotEmpty) {
+      try {
+        await api.post<Map<String, dynamic>>(
+          "/v1/payments/razorpay/confirm",
+          data: {
+            "shipmentId": id,
+            "razorpayOrderId": orderId,
+            "razorpayPaymentId": paymentId,
+            "razorpaySignature": signature,
+          },
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Payment authorized in Razorpay but server confirm failed: ${formatApiError(e)}")),
+          );
+        }
+      }
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text("Authorized ${response.paymentId ?? "ok"} — funds captured at POD.")),

@@ -6,6 +6,7 @@ import {
   ApiError,
   attachRazorpayOrderForShipment,
   bookShipment,
+  confirmRazorpayCheckoutAuthorization,
   createCarrier,
   customerPrimaryOrgForUser,
   ensureRazorpayCapturedBeforePod,
@@ -250,6 +251,7 @@ function publicMarketplaceRouteAllowed(method: string, pathname: string): boolea
   if (method === "POST" && pathname === "/shipments/quote") return true;
   if (method === "POST" && pathname === "/shipments/book") return true;
   if (method === "POST" && pathname === "/v1/payments/razorpay/webhook") return true;
+  if (method === "POST" && pathname === "/v1/payments/razorpay/confirm") return true;
   if (method === "GET" && pathname === "/shipments") return true;
   if (method === "GET" && segs.length === 2 && segs[0] === "shipments") return true;
   if (method === "GET" && segs.length === 3 && segs[0] === "shipments" && segs[2] === "tracking") return true;
@@ -343,6 +345,39 @@ export async function createApp(): Promise<{
         applyRazorpayWebhookPayload(store, parsed);
         await persist();
         return json(res, 200, { ok: true });
+      }
+
+      if (method === "POST" && url.pathname === "/v1/payments/razorpay/confirm") {
+        if (!razorpayPaymentsEnabled()) {
+          return json(res, 503, { error: "razorpay_not_enabled" });
+        }
+        const body = await readJson(req);
+        const shipmentId = String(body?.shipmentId ?? "");
+        const razorpayOrderId = String(body?.razorpayOrderId ?? "");
+        const razorpayPaymentId = String(body?.razorpayPaymentId ?? "");
+        const razorpaySignature = String(body?.razorpaySignature ?? "");
+        if (!shipmentId || !razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+          return json(res, 400, { error: "missing_confirm_fields" });
+        }
+        try {
+          const out = confirmRazorpayCheckoutAuthorization(store, {
+            shipmentId,
+            razorpayOrderId,
+            razorpayPaymentId,
+            razorpaySignature,
+          });
+          await persist();
+          return json(res, 200, out);
+        } catch (e: any) {
+          if (e instanceof ApiError) {
+            const status = e.httpStatus ?? 400;
+            return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+          }
+          const msg = String(e?.message ?? "");
+          if (msg === "shipment_not_found") return json(res, 404, { error: msg });
+          if (msg === "not_razorpay_shipment") return json(res, 400, { error: msg });
+          throw e;
+        }
       }
 
       // --- v1 auth (pilot OTP + bearer token) ---
