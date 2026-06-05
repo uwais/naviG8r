@@ -30,6 +30,25 @@ def _write(p: Path, s: str) -> None:
     p.write_text(s, encoding="utf-8")
 
 
+def inject_internet_permission() -> None:
+    if not MANIFEST.exists():
+        raise SystemExit(f"Missing {MANIFEST} — run `flutter create .` first.")
+    m = _read(MANIFEST)
+    if 'android.permission.INTERNET' in m:
+        return
+    m2, n = re.subn(
+        r"<manifest[^>]*>",
+        lambda match: match.group(0)
+        + '\n    <uses-permission android:name="android.permission.INTERNET" />'
+        + '\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+        m,
+        count=1,
+    )
+    if n != 1:
+        raise SystemExit("Could not patch AndroidManifest.xml <manifest> tag")
+    _write(MANIFEST, m2)
+
+
 def inject_network_security() -> None:
     if not MANIFEST.exists():
         raise SystemExit(f"Missing {MANIFEST} — run `flutter create .` first.")
@@ -108,6 +127,7 @@ android {
 
 
 def main() -> None:
+    inject_internet_permission()
     inject_network_security()
     inject_gradle_signing_groovy()
     # Kotlin DSL templates vary; signing injection for .kts is left manual (see docs).

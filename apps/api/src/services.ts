@@ -4,6 +4,7 @@ import {
   FREIGHT_MODEL_VERSION,
   PAYOUT_BATCH_SCHEDULE,
   PRICE_PAISE_PER_KG,
+  TRIP_TRACKING_STALE_MS,
   freightMinGrossPaise,
   freightPaisePerKmForClass,
 } from "./config.ts";
@@ -20,6 +21,7 @@ import type {
   PayoutTransfer,
   Payment,
   Shipment,
+  TripLiveLocation,
   User,
   Vehicle,
   VehicleClass,
@@ -660,6 +662,86 @@ export function pilotGetMyAnchorTrip(store: Store, userId: string, tripId: strin
   const t = trips.find((x) => x.id === tripId);
   if (!t) throw new Error("anchor_trip_not_found");
   return t;
+}
+
+export function isTripLocationLive(
+  loc: TripLiveLocation | undefined,
+  nowUtcMs: number,
+  staleMs: number = TRIP_TRACKING_STALE_MS,
+): boolean {
+  if (!loc) return false;
+  return nowUtcMs - loc.recordedAtUtcMs <= staleMs;
+}
+
+/** Driver pings GPS while on an active trip; stored on the anchor trip for customer tracking. */
+export function reportAnchorTripLocation(
+  store: Store,
+  userId: string,
+  tripId: string,
+  params: {
+    lat: number;
+    lng: number;
+    recordedAtUtcMs?: number;
+    accuracyM?: number;
+    speedMps?: number;
+    headingDeg?: number;
+  },
+): AnchorTrip {
+  const trip = pilotGetMyAnchorTrip(store, userId, tripId);
+  const point: GeoPoint = { lat: params.lat, lng: params.lng };
+  assertGeoPoint(point, "location");
+  const recordedAtUtcMs = params.recordedAtUtcMs ?? nowUtcMs();
+  const lastLiveLocation: TripLiveLocation = {
+    lat: params.lat,
+    lng: params.lng,
+    recordedAtUtcMs,
+    ...(params.accuracyM != null && !Number.isNaN(params.accuracyM) ? { accuracyM: params.accuracyM } : {}),
+    ...(params.speedMps != null && !Number.isNaN(params.speedMps) ? { speedMps: params.speedMps } : {}),
+    ...(params.headingDeg != null && !Number.isNaN(params.headingDeg) ? { headingDeg: params.headingDeg } : {}),
+  };
+  const updated: AnchorTrip = { ...trip, lastLiveLocation };
+  store.anchorTrips.set(trip.id, updated);
+  return updated;
+}
+
+export function getShipmentTripTracking(
+  store: Store,
+  userId: string,
+  shipmentId: string,
+  params?: { nowUtcMs?: number },
+): {
+  shipment: Shipment;
+  trip: AnchorTrip;
+  liveLocation: TripLiveLocation | null;
+  isLive: boolean;
+  staleAfterUtcMs: number;
+} {
+  const shipment = store.shipments.get(shipmentId);
+  if (!shipment) throw new Error("shipment_not_found");
+  const visible =
+    shipmentVisibleToCustomerUser(store, shipment, userId) ||
+    isOpsAdmin(store, userId) ||
+    isOpsAgent(store, userId);
+  if (!visible) {
+    try {
+      pilotGetMyAnchorTrip(store, userId, shipment.anchorTripId);
+    } catch {
+      throw new Error("shipment_not_found");
+    }
+  }
+  const trip = store.anchorTrips.get(shipment.anchorTripId);
+  if (!trip) throw new Error("anchor_trip_not_found");
+  const now = params?.nowUtcMs ?? nowUtcMs();
+  const loc = trip.lastLiveLocation ?? null;
+  const fresh = isTripLocationLive(loc ?? undefined, now);
+  const isLive = fresh && shipment.status === "BOOKED";
+  return {
+    shipment,
+    trip,
+    liveLocation: loc,
+    isLive,
+    staleAfterUtcMs: TRIP_TRACKING_STALE_MS,
+  };
 }
 
 export function publishAnchorTrip(store: Store, params: {

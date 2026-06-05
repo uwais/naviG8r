@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { createStore, type Store } from "./store.ts";
 import type {
   AnchorTrip,
+  TripLiveLocation,
   AuthSession,
   Carrier,
   DriverProfile,
@@ -32,6 +33,20 @@ function asGeo(v: unknown): GeoPoint | undefined {
   const out: GeoPoint = { lat, lng };
   if (typeof o.placeId === "string") out.placeId = o.placeId;
   if (typeof o.label === "string") out.label = o.label;
+  return out;
+}
+
+function asTripLiveLocation(v: unknown): TripLiveLocation | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  const lat = o.lat;
+  const lng = o.lng;
+  const recordedAtUtcMs = o.recordedAtUtcMs;
+  if (typeof lat !== "number" || typeof lng !== "number" || typeof recordedAtUtcMs !== "number") return undefined;
+  const out: TripLiveLocation = { lat, lng, recordedAtUtcMs };
+  if (typeof o.accuracyM === "number") out.accuracyM = o.accuracyM;
+  if (typeof o.speedMps === "number") out.speedMps = o.speedMps;
+  if (typeof o.headingDeg === "number") out.headingDeg = o.headingDeg;
   return out;
 }
 
@@ -170,6 +185,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       reservedKg: t.reservedKg,
       status: t.status as AnchorTrip["status"],
       createdAtUtcMs: Number(t.createdAtUtcMs),
+      lastLiveLocation: asTripLiveLocation((t as { lastLiveLocation?: unknown }).lastLiveLocation),
     };
     store.anchorTrips.set(trip.id, trip);
   }
@@ -378,6 +394,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           reservedKg: t.reservedKg,
           status: t.status,
           createdAtUtcMs: BigInt(t.createdAtUtcMs),
+          lastLiveLocation: t.lastLiveLocation ?? undefined,
         },
       });
     }
