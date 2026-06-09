@@ -198,6 +198,17 @@ String vehicleClassLabel(String? vehicleClass) {
   }
 }
 
+String customerMemberRoleLabel(String role) {
+  switch (role) {
+    case "CUSTOMER_ADMIN":
+      return "Admin";
+    case "CUSTOMER_MEMBER":
+      return "Member";
+    default:
+      return role.isEmpty ? "—" : role;
+  }
+}
+
 String paymentStatusLabel(String status) {
   switch (status) {
     case "CREATED":

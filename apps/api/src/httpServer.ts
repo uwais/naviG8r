@@ -14,6 +14,8 @@ import {
   failCarrierAndRefund,
   grantOpsAdmin,
   inviteCarrierDriver,
+  inviteCustomerMember,
+  listCustomerOrgMembers,
   isOpsAdmin,
   listOpsAdmins,
   markPodDelivered,
@@ -44,6 +46,7 @@ import {
   publishAnchorTripAsPilotDriver,
   quoteShipmentMarketplace,
   registerCustomerOrgAdmin,
+  registerCustomerUser,
   registerSoloOwnerOperatorDriver,
   revokeOpsAdmin,
   rollbackBooking,
@@ -672,6 +675,63 @@ export async function createApp(): Promise<{
         });
         await persist();
         return json(res, 201, out);
+      }
+
+      if (method === "POST" && url.pathname === "/v1/pilot/customer/users/register") {
+        const body = await readJson(req);
+        try {
+          const out = registerCustomerUser(store, {
+            fullName: String(body?.fullName ?? ""),
+            phone: String(body?.phone ?? ""),
+          });
+          await persist();
+          return json(res, 201, out);
+        } catch (e) {
+          if (e instanceof ApiError) {
+            const status = e.httpStatus ?? 400;
+            return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+          }
+          const msg = e instanceof Error ? e.message : "error";
+          if (msg === "phone_already_registered") return json(res, 409, { error: msg });
+          if (msg === "invalid_fullName" || msg === "invalid_phone") return json(res, 400, { error: msg });
+          throw e;
+        }
+      }
+
+      if (method === "POST" && url.pathname === "/v1/pilot/customer/members/invite") {
+        const body = await readJson(req);
+        const userId = requireUserId(req, store);
+        try {
+          const out = inviteCustomerMember(store, userId, {
+            orgId: String(body?.orgId ?? ""),
+            phone: String(body?.phone ?? ""),
+            role: body?.role,
+          });
+          await persist();
+          return json(res, 201, out);
+        } catch (e) {
+          if (e instanceof ApiError) {
+            const status = e.httpStatus ?? 400;
+            return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+          }
+          const msg = e instanceof Error ? e.message : "error";
+          if (msg === "forbidden") return json(res, 403, { error: msg });
+          if (msg === "org_not_customer" || msg === "invalid_role") return json(res, 400, { error: msg });
+          throw e;
+        }
+      }
+
+      if (method === "GET" && url.pathname === "/v1/pilot/customer/members") {
+        const userId = requireUserId(req, store);
+        const orgId = url.searchParams.get("orgId") ?? "";
+        try {
+          const members = listCustomerOrgMembers(store, userId, orgId);
+          return json(res, 200, { members });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "error";
+          if (msg === "forbidden") return json(res, 403, { error: msg });
+          throw e;
+        }
       }
 
       if (method === "GET" && url.pathname === "/v1/orgs") {

@@ -10,6 +10,7 @@ export type MembershipRole =
   | "DISPATCHER"
   | "DRIVER"
   | "CUSTOMER_ADMIN"
+  | "CUSTOMER_MEMBER"
   | "OPS_ADMIN"
   | "OPS_AGENT";
 

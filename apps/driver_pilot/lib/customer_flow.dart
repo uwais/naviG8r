@@ -20,6 +20,8 @@ List<RouteBase> customerFlowRoutes() {
       routes: [
         GoRoute(path: "login", builder: (_, __) => const CustomerLoginScreen()),
         GoRoute(path: "register", builder: (_, __) => const CustomerRegisterScreen()),
+        GoRoute(path: "register-user", builder: (_, __) => const CustomerRegisterUserScreen()),
+        GoRoute(path: "team", builder: (_, __) => const CustomerTeamScreen()),
         GoRoute(path: "trips", builder: (_, __) => const CustomerTripsScreen()),
         GoRoute(path: "book", builder: (_, __) => const CustomerBookShipmentScreen()),
         GoRoute(
@@ -154,7 +156,31 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     FilledButton(onPressed: () => context.go("/customer/login"), child: const Text("Sign in with phone")),
                     const SizedBox(height: 8),
                     OutlinedButton(onPressed: () => context.go("/customer/register"), child: const Text("Register business")),
+                    const SizedBox(height: 8),
+                    OutlinedButton(onPressed: () => context.go("/customer/register-user"), child: const Text("Register as teammate")),
                   ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ] else if (CustomerSession.isOrgAdmin) ...[
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.groups_outlined),
+                title: Text(CustomerSession.customerOrgName ?? "Your org"),
+                subtitle: const Text("Manage who can book and view shipments"),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.go("/customer/team"),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ] else if (CustomerSession.hasCustomerOrg) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text(
+                  "Signed in to ${CustomerSession.customerOrgName ?? "your org"}. Shipments booked by your team appear under My shipments.",
+                  style: const TextStyle(color: DriverTheme.muted, height: 1.4),
                 ),
               ),
             ),
@@ -318,6 +344,231 @@ class CustomerRegisterScreen extends StatefulWidget {
   State<CustomerRegisterScreen> createState() => _CustomerRegisterScreenState();
 }
 
+class CustomerRegisterUserScreen extends StatefulWidget {
+  const CustomerRegisterUserScreen({super.key});
+
+  @override
+  State<CustomerRegisterUserScreen> createState() => _CustomerRegisterUserScreenState();
+}
+
+class _CustomerRegisterUserScreenState extends State<CustomerRegisterUserScreen> {
+  final _fullName = TextEditingController();
+  final _phone = TextEditingController();
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _fullName.dispose();
+    _phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      await api.post<Map<String, dynamic>>(
+        "/v1/pilot/customer/users/register",
+        data: {
+          "fullName": _fullName.text.trim(),
+          "phone": digitsOnly(_phone.text.trim()),
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Account created — ask your admin to invite you, then sign in.")),
+      );
+      context.go("/customer/login");
+    } catch (e) {
+      setState(() => _error = formatApiError(e));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomerScaffold(
+      title: "Join your team",
+      currentPath: "/customer/register-user",
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text(
+            "Create your personal account. Your business admin will invite your phone to the org so you can book and track shared shipments.",
+            style: TextStyle(color: DriverTheme.muted, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          TextField(controller: _fullName, decoration: const InputDecoration(labelText: "Your name")),
+          TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone (10 digits)"), keyboardType: TextInputType.phone),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+          ],
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: _submitting ? null : _submit,
+            child: _submitting
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text("Create account"),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CustomerTeamScreen extends StatefulWidget {
+  const CustomerTeamScreen({super.key});
+
+  @override
+  State<CustomerTeamScreen> createState() => _CustomerTeamScreenState();
+}
+
+class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
+  final _phone = TextEditingController();
+  bool _loading = false;
+  bool _inviting = false;
+  String? _error;
+  List<Map<String, dynamic>> _members = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    await CustomerSession.refresh();
+    if (!mounted) return;
+    if (!CustomerSession.isSignedIn) {
+      context.go("/customer/login");
+      return;
+    }
+    if (!CustomerSession.isOrgAdmin) {
+      setState(() => _error = "Only org admins can manage team members.");
+      return;
+    }
+    await _loadMembers();
+  }
+
+  Future<void> _loadMembers() async {
+    final orgId = CustomerSession.customerOrgId;
+    if (orgId == null || orgId.isEmpty) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final r = await api.get<Map<String, dynamic>>("/v1/pilot/customer/members?orgId=$orgId");
+      final raw = r.data?["members"];
+      final list = <Map<String, dynamic>>[];
+      if (raw is List) {
+        for (final item in raw) {
+          if (item is Map<String, dynamic>) list.add(item);
+        }
+      }
+      setState(() => _members = list);
+    } catch (e) {
+      setState(() => _error = formatApiError(e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _invite() async {
+    final orgId = CustomerSession.customerOrgId;
+    if (orgId == null) return;
+    setState(() {
+      _inviting = true;
+      _error = null;
+    });
+    try {
+      await api.post<Map<String, dynamic>>(
+        "/v1/pilot/customer/members/invite",
+        data: {"orgId": orgId, "phone": digitsOnly(_phone.text.trim())},
+      );
+      _phone.clear();
+      await _loadMembers();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Teammate invited.")));
+    } catch (e) {
+      setState(() => _error = formatApiError(e));
+    } finally {
+      if (mounted) setState(() => _inviting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomerScaffold(
+      title: "Team",
+      currentPath: "/customer/team",
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            CustomerSession.customerOrgName ?? "Your organization",
+            style: const TextStyle(fontWeight: FontWeight.w700, color: DriverTheme.navy, fontSize: 18),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            "Invite colleagues who have already registered their phone. They will see all org shipments after joining.",
+            style: TextStyle(color: DriverTheme.muted, height: 1.4),
+          ),
+          if (!CustomerSession.isOrgAdmin) ...[
+            const SizedBox(height: 12),
+            Text(_error ?? "Admin access required.", style: const TextStyle(color: Colors.red)),
+          ] else ...[
+            const SizedBox(height: 16),
+            TextField(
+              controller: _phone,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: "Teammate phone (10 digits)"),
+            ),
+            const SizedBox(height: 8),
+            FilledButton(
+              onPressed: _inviting ? null : _invite,
+              child: _inviting
+                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text("Invite to org"),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+            ],
+            const SizedBox(height: 16),
+            const Text("Members", style: TextStyle(fontWeight: FontWeight.w600)),
+            if (_loading) const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
+            ..._members.map((row) {
+              final user = row["user"];
+              final membership = row["membership"];
+              if (user is! Map<String, dynamic>) return const SizedBox.shrink();
+              final role = membership is Map<String, dynamic> ? membership["role"]?.toString() ?? "" : "";
+              return Card(
+                margin: const EdgeInsets.only(top: 8),
+                child: ListTile(
+                  title: Text(user["fullName"]?.toString() ?? "—"),
+                  subtitle: Text("${user["phone"]} · ${customerMemberRoleLabel(role)}"),
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
   final _fullName = TextEditingController();
   final _phone = TextEditingController();
@@ -365,6 +616,11 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          const Text(
+            "Create your business org. You become the admin and can invite teammates later.",
+            style: TextStyle(color: DriverTheme.muted, height: 1.4),
+          ),
+          const SizedBox(height: 16),
           TextField(controller: _fullName, decoration: const InputDecoration(labelText: "Your name")),
           TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone (10 digits)"), keyboardType: TextInputType.phone),
           TextField(controller: _org, decoration: const InputDecoration(labelText: "Business / org name")),
@@ -891,7 +1147,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
           ],
           const Text("Shipment details", style: TextStyle(fontWeight: FontWeight.w600, color: DriverTheme.navy)),
           const SizedBox(height: 8),
-          if (!CustomerSession.isSignedIn || CustomerSession.customerOrgName == null)
+          if (!CustomerSession.isSignedIn || !CustomerSession.hasCustomerOrg)
             TextField(controller: _customerOrgName, decoration: const InputDecoration(labelText: "Your business name")),
           TextField(controller: _weightKg, decoration: const InputDecoration(labelText: "Weight (kg)"), keyboardType: TextInputType.number),
           const SizedBox(height: 12),
