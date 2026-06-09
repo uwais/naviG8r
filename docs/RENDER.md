@@ -72,6 +72,43 @@ curl -i "https://<your-service>.onrender.com/health"
 
 ---
 
+### Customer web (Flutter Static Site)
+
+Render does **not** include Flutter. Use the repo build script (installs SDK, then `flutter build web`).
+
+#### Dashboard settings
+
+| Field | Value |
+|--------|--------|
+| **Service type** | Static Site |
+| **Branch** | `main` |
+| **Root directory** | *(repo root — folder with `scripts/` and `apps/driver_pilot/`)* |
+| **Build command** | `bash scripts/render-build-customer-web.sh` |
+| **Publish directory** | `apps/driver_pilot/build/web` |
+
+**Environment variables** (Static Site → Environment):
+
+- `API_BASE_URL` = `https://navig8r.onrender.com` (or your API URL)
+- `FLUTTER_VERSION` = `3.22.3` (optional pin)
+
+First build may take **8–15 minutes** (Flutter SDK + web precache).
+
+#### API CORS (required for hosted web)
+
+After the static site deploys, copy its URL (e.g. `https://navig8r-customer-web.onrender.com`) and on the **API** service set:
+
+```
+CORS_ALLOWED_ORIGINS=https://navig8r-customer-web.onrender.com
+```
+
+Localhost origins are already allowed for dev. Redeploy the API after changing env.
+
+#### Blueprint
+
+`render.yaml` includes a `navig8r-customer-web` static service with the same build command and publish path.
+
+---
+
 ### Troubleshooting
 
 - **Service crashes immediately**: missing/short `AUTH_SECRET` (the API exits on startup).
@@ -81,4 +118,5 @@ curl -i "https://<your-service>.onrender.com/health"
   - **Heroku / Node buildpack**: set **project root** / **PROCFILE** so the build runs from **`apps/api`** (the only `package.json`), not the monorepo root with no install.
   - **`prisma` is a runtime dependency** in `apps/api/package.json` so `postinstall` → `prisma generate` works even when the host uses `npm install --omit=dev`.
 - **Postgres**: set `PERSISTENCE=DB`, `DATABASE_URL`, and run migrations/schema (`npx prisma db push` once against that URL, or apply migrations in CI).
+- **Static site `flutter: command not found`**: do not call `flutter` directly — use `bash scripts/render-build-customer-web.sh` as the build command.
 
