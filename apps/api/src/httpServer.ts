@@ -40,6 +40,7 @@ import {
   pilotListCarrierPayoutBatches,
   shipmentVisibleToCarrierPilot,
   shipmentWithCarrierDisplay,
+  completeAnchorTripAsPilot,
   startAnchorTripAsPilot,
   tripWithCarrierDisplay,
   publishAnchorTrip,
@@ -518,6 +519,31 @@ export async function createApp(): Promise<{
           const tripId = parts[3] ?? "";
           try {
             const trip = startAnchorTripAsPilot(store, { userId, tripId });
+            await persist();
+            return json(res, 200, { trip: tripWithCarrierDisplay(store, trip) });
+          } catch (e) {
+            if (e instanceof ApiError) {
+              const status = e.httpStatus ?? 400;
+              return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+            }
+            throw e;
+          }
+        }
+      }
+
+      if (method === "POST" && url.pathname.endsWith("/complete")) {
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (
+          parts.length === 5 &&
+          parts[0] === "v1" &&
+          parts[1] === "pilot" &&
+          parts[2] === "anchor-trips" &&
+          parts[4] === "complete"
+        ) {
+          const userId = requireUserId(req, store);
+          const tripId = parts[3] ?? "";
+          try {
+            const trip = completeAnchorTripAsPilot(store, { userId, tripId });
             await persist();
             return json(res, 200, { trip: tripWithCarrierDisplay(store, trip) });
           } catch (e) {

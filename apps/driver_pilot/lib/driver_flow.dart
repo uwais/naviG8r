@@ -1157,7 +1157,15 @@ class _LoadCard extends StatelessWidget {
                 ],
                 FilledButton(
                   onPressed: onView,
-                  child: Text(status == "IN_PROGRESS" ? "Track" : hasBookings ? "View" : "View"),
+                  child: Text(
+                    status == "IN_PROGRESS"
+                        ? "Track"
+                        : status == "COMPLETED"
+                            ? "Summary"
+                            : hasBookings
+                                ? "View"
+                                : "View",
+                  ),
                 ),
               ],
             ),
@@ -1212,7 +1220,11 @@ class _DriverTrackScreenState extends State<DriverTrackScreen> {
       final list = <Map<String, dynamic>>[];
       if (raw is List) {
         for (final item in raw) {
-          if (item is Map<String, dynamic> && (item["reservedKg"] as num? ?? 0) > 0) list.add(item);
+          if (item is Map<String, dynamic> &&
+              (item["reservedKg"] as num? ?? 0) > 0 &&
+              item["status"]?.toString() == "IN_PROGRESS") {
+            list.add(item);
+          }
         }
       }
       setState(() => _trips = list);
@@ -1339,15 +1351,24 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   String? _error;
   bool _loading = true;
   bool _starting = false;
+  bool _completing = false;
 
   @override
   void initState() {
     super.initState();
-    _load();
-    _startLocation();
+    _load().then((_) {
+      if (!mounted) return;
+      if (_trip?["status"]?.toString() == "IN_PROGRESS") _startLocation();
+    });
+  }
+
+  void _stopLocationSharing() {
+    _posSub?.cancel();
+    _posSub = null;
   }
 
   Future<void> _startLocation() async {
+    if (_posSub != null) return;
     var perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
     if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
@@ -1376,6 +1397,37 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     }
   }
 
+  Future<void> _openPod(String shipmentId) async {
+    await context.push("/driver/shipment/$shipmentId/pod");
+    if (!mounted) return;
+    await _load();
+    if (_trip?["status"]?.toString() == "COMPLETED") {
+      _stopLocationSharing();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Load complete — all deliveries confirmed.")),
+      );
+    }
+  }
+
+  Future<void> _completeLoad() async {
+    setState(() => _completing = true);
+    try {
+      final r = await api.post<Map<String, dynamic>>("/v1/pilot/anchor-trips/${widget.tripId}/complete", data: {});
+      final t = r.data?["trip"];
+      if (t is Map<String, dynamic>) setState(() => _trip = t);
+      _stopLocationSharing();
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Load marked complete.")));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
+    } finally {
+      if (mounted) setState(() => _completing = false);
+    }
+  }
+
   Future<void> _startTrip() async {
     setState(() => _starting = true);
     try {
@@ -1383,6 +1435,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       final t = r.data?["trip"];
       if (t is Map<String, dynamic>) setState(() => _trip = t);
       if (!mounted) return;
+      if (_posSub == null) await _startLocation();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Load started.")));
     } catch (e) {
       if (!mounted) return;
@@ -1454,8 +1507,16 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+    if (mounted && _trip?["status"]?.toString() == "COMPLETED") {
+      _stopLocationSharing();
+    }
     await _geocodeTripCitiesIfNeeded();
   }
+
+  bool get _hasActiveShipments => _shipments.any((s) {
+        final st = s["status"]?.toString() ?? "";
+        return st == "BOOKED" || st == "PENDING_CARRIER_ACCEPT";
+      });
 
   Future<void> _geocodeTripCitiesIfNeeded() async {
     final trip = _trip;
@@ -1491,7 +1552,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
   @override
   void dispose() {
-    _posSub?.cancel();
+    _stopLocationSharing();
     super.dispose();
   }
 
@@ -1500,7 +1561,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     final trip = _trip;
     final tripStatus = trip?["status"]?.toString() ?? "";
     final tripStarted = tripStatus == "IN_PROGRESS";
+    final tripComplete = tripStatus == "COMPLETED";
     final hasAccepted = _shipments.any((s) => s["status"]?.toString() == "BOOKED");
+    final canCompleteLoad = tripStarted && _shipments.isNotEmpty && !_hasActiveShipments;
     final pts = _resolvedMapPoints();
     Map<String, dynamic>? next;
     for (final s in _shipments) {
@@ -1519,7 +1582,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   child: activeTripMap(
                     laneStart: pts.laneStart,
                     laneEnd: pts.laneEnd,
-                    driver: _driverPos,
+                    driver: tripStarted ? _driverPos : null,
                     pickup: pts.pickup,
                     drop: pts.drop,
                     emptyMessage: trip == null
@@ -1533,14 +1596,34 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                     children: [
                       if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
                       Text(
-                        tripStarted ? "Load in progress" : "Load not started",
+                        tripComplete
+                            ? "Load complete"
+                            : tripStarted
+                                ? "Load in progress"
+                                : "Load not started",
                         style: const TextStyle(color: DriverTheme.muted, fontWeight: FontWeight.w600),
                       ),
                       Text(
                         "Status: ${tripStatusLabel(tripStatus)}",
                         style: const TextStyle(color: DriverTheme.muted, fontSize: 13),
                       ),
-                      if (!tripStarted && hasAccepted) ...[
+                      if (tripComplete)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 6),
+                          child: Text(
+                            "All deliveries confirmed. GPS sharing has stopped.",
+                            style: TextStyle(color: DriverTheme.muted, fontSize: 13),
+                          ),
+                        ),
+                      if (tripStarted && !_hasActiveShipments)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 6),
+                          child: Text(
+                            "All bookings have proof of delivery — complete the load to stop tracking.",
+                            style: TextStyle(color: DriverTheme.muted, fontSize: 13),
+                          ),
+                        ),
+                      if (!tripStarted && !tripComplete && hasAccepted) ...[
                         const SizedBox(height: 12),
                         FilledButton(
                           onPressed: _starting ? null : _startTrip,
@@ -1549,7 +1632,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                               : const Text("Start load"),
                         ),
                       ],
-                      if (!tripStarted && !hasAccepted)
+                      if (!tripStarted && !tripComplete && !hasAccepted)
                         const Padding(
                           padding: EdgeInsets.only(top: 8),
                           child: Text(
@@ -1557,9 +1640,29 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                             style: TextStyle(color: DriverTheme.muted, fontSize: 13),
                           ),
                         ),
+                      if (canCompleteLoad) ...[
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: _completing ? null : _completeLoad,
+                          child: _completing
+                              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Text("Complete load"),
+                        ),
+                      ],
+                      if (tripComplete) ...[
+                        const SizedBox(height: 12),
+                        OutlinedButton(
+                          onPressed: () => context.go("/driver/loads"),
+                          child: const Text("Back to loads"),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       Text(
-                        next != null ? "Next pickup: ${next["pickupAddress"]}" : "No shipments on this trip yet",
+                        tripComplete
+                            ? "Trip summary"
+                            : next != null && next["status"]?.toString() == "BOOKED"
+                                ? "Next pickup: ${next["pickupAddress"]}"
+                                : "No pending deliveries on this load",
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: DriverTheme.navy),
                       ),
                       const SizedBox(height: 12),
@@ -1574,7 +1677,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                                 ? TextButton(onPressed: () => _acceptOnTrip(id), child: const Text("Accept"))
                                 : st == "BOOKED"
                                 ? TextButton(
-                                    onPressed: () => context.push("/driver/shipment/$id/pod"),
+                                    onPressed: () => _openPod(id),
                                     child: const Text("Confirm delivery"),
                                   )
                                 : st == "PENDING_RELEASE"
@@ -1583,21 +1686,28 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                           ),
                         );
                       }),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          OutlinedButton(onPressed: () {}, child: const Text("Share live")),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: next != null && next["status"] == "BOOKED"
-                                  ? () => context.push("/driver/shipment/${next!["id"]}/pod")
-                                  : null,
-                              child: const Text("Mark arrived / POD"),
+                      if (tripStarted && !_hasActiveShipments) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          "Live GPS is shared with customers while the load is in progress.",
+                          style: const TextStyle(fontSize: 12, color: DriverTheme.muted),
+                        ),
+                      ],
+                      if (tripStarted && _hasActiveShipments) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: next != null && next["status"]?.toString() == "BOOKED"
+                                    ? () => _openPod(next!["id"]?.toString() ?? "")
+                                    : null,
+                                child: const Text("Mark arrived / POD"),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),

@@ -1410,7 +1410,9 @@ class CustomerShipmentDetailScreen extends StatefulWidget {
 
 class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScreen> {
   bool _loading = false;
+  bool _refreshing = false;
   String? _error;
+  String? _trackingError;
   Map<String, dynamic>? _shipment;
   Map<String, dynamic>? _payment;
   Map<String, dynamic>? _trip;
@@ -1448,8 +1450,46 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
         _trip = r.data?["trip"] is Map<String, dynamic> ? r.data!["trip"] as Map<String, dynamic> : null;
         _liveLocation = r.data?["liveLocation"] is Map<String, dynamic> ? r.data!["liveLocation"] as Map<String, dynamic> : null;
         _isLive = r.data?["isLive"] == true;
+        _trackingError = null;
       });
-    } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _trackingError = formatApiError(e));
+    }
+  }
+
+  Future<void> _refreshTracking() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await _loadTracking();
+      if (!mounted) return;
+      if (_trackingError == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Tracking updated.")));
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _refreshAll() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      final r = await api.get<Map<String, dynamic>>("/shipments/${widget.shipmentId}");
+      if (!mounted) return;
+      setState(() {
+        _shipment = r.data?["shipment"] is Map<String, dynamic> ? r.data!["shipment"] as Map<String, dynamic> : null;
+        _payment = r.data?["payment"] is Map<String, dynamic> ? r.data!["payment"] as Map<String, dynamic> : null;
+        _error = null;
+      });
+      await _loadTracking();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = formatApiError(e));
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
   }
 
   void _schedulePoll() {
@@ -1457,8 +1497,13 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
     final st = _shipment?["status"]?.toString() ?? "";
     if (st == "DELIVERED" || st == "FAILED_CARRIER_REFUNDED") return;
     _poll = Timer.periodic(const Duration(seconds: 15), (_) async {
-      await _load(showSpinner: false);
+      await _refreshAll();
     });
+  }
+
+  bool get _canTrack {
+    final st = _shipment?["status"]?.toString() ?? "";
+    return st != "DELIVERED" && st != "FAILED_CARRIER_REFUNDED";
   }
 
   LatLng? _latLngFromGeo(Map<String, dynamic>? g) {
@@ -1491,71 +1536,99 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
         ? shipmentTimelineSteps(shipmentStatus: shipment["status"]?.toString() ?? "", tripStatus: tripStatus, isLive: _isLive)
         : <ShipmentTimelineStep>[];
 
+    final trackingMessage = shipment != null
+        ? customerTrackingStatusMessage(
+            shipmentStatus: shipment["status"]?.toString() ?? "",
+            tripStatus: tripStatus,
+            isLive: _isLive,
+            hasDriverPing: _liveLocation != null,
+            carrierDisplayName: shipment["carrierDisplayName"]?.toString(),
+          )
+        : "";
+
     return CustomerScaffold(
       title: shipment?["carrierDisplayName"]?.toString() ?? "Shipment",
       currentPath: "/customer/shipments/${widget.shipmentId}",
       bodyBuilder: (_) => _loading && shipment == null
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
-                if (shipment != null) ...[
-                  _ShipmentTimeline(steps: steps),
-                  const SizedBox(height: 12),
-                  if (_trip != null &&
-                      _latLngFromGeo(_trip!["origin"] as Map<String, dynamic>?) != null &&
-                      _latLngFromGeo(_trip!["destination"] as Map<String, dynamic>?) != null)
-                    tripTrackingMap(
-                      origin: _latLngFromGeo(_trip!["origin"] as Map<String, dynamic>?)!,
-                      destination: _latLngFromGeo(_trip!["destination"] as Map<String, dynamic>?)!,
-                      pickup: _latLngFromGeo(shipment["pickup"] as Map<String, dynamic>?),
-                      drop: _latLngFromGeo(shipment["drop"] as Map<String, dynamic>?),
-                      driver: _isLive ? _latLngFromGeo(_liveLocation) : null,
-                    )
-                  else
-                    const Text("Map will appear when the carrier lane has map coordinates.", style: TextStyle(color: DriverTheme.muted, fontSize: 12)),
-                  const SizedBox(height: 8),
-                  Text(
-                    _isLive
-                        ? "Live tracking — updates every ~30 seconds."
-                        : shipment["status"] == "PENDING_CARRIER_ACCEPT"
-                            ? "Waiting for ${shipment["carrierDisplayName"] ?? "carrier"} to accept your booking."
-                            : shipment["status"] == "BOOKED" && tripStatus != "IN_PROGRESS"
-                                ? "Carrier accepted — tracking starts when the load is started."
-                                : "Tracking unavailable for this status.",
-                    style: const TextStyle(fontSize: 12, color: DriverTheme.muted),
-                  ),
-                  const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+          : RefreshIndicator(
+              onRefresh: _refreshAll,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                children: [
+                  if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+                  if (shipment != null) ...[
+                    _ShipmentTimeline(steps: steps),
+                    const SizedBox(height: 12),
+                    if (_canTrack)
+                      Row(
                         children: [
-                          Text("${shipment["pickupAddress"]} → ${shipment["dropAddress"]}", style: const TextStyle(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 6),
-                          Text("${shipment["weightKg"]} kg · ${formatInrFromPaise(shipment["grossPaise"] as num? ?? 0)}"),
-                          if (_trip != null)
-                            Text(
-                              "Lane: ${_trip!["originCity"]} → ${_trip!["destCity"]}",
-                              style: const TextStyle(fontSize: 12, color: DriverTheme.muted),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _refreshing ? null : _refreshTracking,
+                              icon: _refreshing
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.refresh, size: 18),
+                              label: const Text("Refresh tracking"),
                             ),
+                          ),
                         ],
                       ),
+                    if (_canTrack) const SizedBox(height: 12),
+                    if (_trip != null &&
+                        _latLngFromGeo(_trip!["origin"] as Map<String, dynamic>?) != null &&
+                        _latLngFromGeo(_trip!["destination"] as Map<String, dynamic>?) != null)
+                      tripTrackingMap(
+                        origin: _latLngFromGeo(_trip!["origin"] as Map<String, dynamic>?)!,
+                        destination: _latLngFromGeo(_trip!["destination"] as Map<String, dynamic>?)!,
+                        pickup: _latLngFromGeo(shipment["pickup"] as Map<String, dynamic>?),
+                        drop: _latLngFromGeo(shipment["drop"] as Map<String, dynamic>?),
+                        driver: _isLive ? _latLngFromGeo(_liveLocation) : null,
+                      )
+                    else
+                      const Text("Map will appear when the carrier lane has map coordinates.", style: TextStyle(color: DriverTheme.muted, fontSize: 12)),
+                    const SizedBox(height: 8),
+                    Text(trackingMessage, style: const TextStyle(fontSize: 12, color: DriverTheme.muted, height: 1.4)),
+                    if (_trackingError != null) ...[
+                      const SizedBox(height: 6),
+                      Text("Tracking error: $_trackingError", style: const TextStyle(fontSize: 12, color: Colors.red, height: 1.35)),
+                    ],
+                    if (_canTrack && !_isLive) ...[
+                      const SizedBox(height: 4),
+                      const Text("Pull down to refresh shipment and tracking.", style: TextStyle(fontSize: 11, color: DriverTheme.muted)),
+                    ],
+                    const SizedBox(height: 12),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("${shipment["pickupAddress"]} → ${shipment["dropAddress"]}", style: const TextStyle(fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 6),
+                            Text("${shipment["weightKg"]} kg · ${formatInrFromPaise(shipment["grossPaise"] as num? ?? 0)}"),
+                            if (_trip != null)
+                              Text(
+                                "Lane: ${_trip!["originCity"]} → ${_trip!["destCity"]}",
+                                style: const TextStyle(fontSize: 12, color: DriverTheme.muted),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                    if (_payment != null) ...[
+                      const SizedBox(height: 12),
+                      Card(
+                        child: ListTile(
+                          title: Text(paymentStatusLabel(_payment!["status"]?.toString() ?? "")),
+                          subtitle: Text(formatInrFromPaise(_payment!["amountPaise"] as num? ?? 0)),
+                        ),
+                      ),
+                    ],
+                  ],
                 ],
-                if (_payment != null) ...[
-                  const SizedBox(height: 12),
-                  Card(
-                    child: ListTile(
-                      title: Text(paymentStatusLabel(_payment!["status"]?.toString() ?? "")),
-                      subtitle: Text(formatInrFromPaise(_payment!["amountPaise"] as num? ?? 0)),
-                    ),
-                  ),
-                ],
-              ],
+              ),
             ),
     );
   }

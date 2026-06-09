@@ -311,7 +311,11 @@ List<ShipmentTimelineStep> shipmentTimelineSteps({
     ),
     ShipmentTimelineStep(
       label: "In transit",
-      subtitle: isLive ? "Live tracking active" : "Tracking when the load is on the road",
+      subtitle: isLive
+          ? "Live tracking active"
+          : shipmentStatus == "BOOKED" && tripStatus == "IN_PROGRESS"
+              ? "Load started — waiting for driver GPS"
+              : "Tracking when the load is on the road",
       complete: delivered || pendingRelease,
       current: started && !delivered && !pendingRelease,
     ),
@@ -326,4 +330,39 @@ List<ShipmentTimelineStep> shipmentTimelineSteps({
       current: pendingRelease,
     ),
   ];
+}
+
+/// Customer-facing tracking hint on shipment detail (below the map).
+String customerTrackingStatusMessage({
+  required String shipmentStatus,
+  String? tripStatus,
+  required bool isLive,
+  bool hasDriverPing = false,
+  String? carrierDisplayName,
+}) {
+  if (isLive) return "Live tracking — updates every ~30 seconds.";
+
+  switch (shipmentStatus) {
+    case "PENDING_CARRIER_ACCEPT":
+      return "Waiting for ${carrierDisplayName ?? "carrier"} to accept your booking.";
+    case "BOOKED":
+      if (tripStatus == null) {
+        return "Tracking status unavailable — use Refresh or pull down to try again.";
+      }
+      if (tripStatus != "IN_PROGRESS") {
+        return "Carrier accepted — tracking starts when the load is started.";
+      }
+      if (!hasDriverPing) {
+        return "Load started — waiting for driver GPS. Pull down or tap Refresh to update.";
+      }
+      return "Load on the road — last GPS signal is stale. Pull down or tap Refresh.";
+    case "PENDING_RELEASE":
+      return "Delivered — proof submitted. Live tracking has ended while payment is processed.";
+    case "DELIVERED":
+      return "Shipment delivered. Tracking is no longer available.";
+    case "FAILED_CARRIER_REFUNDED":
+      return "Booking was cancelled and refunded. Tracking is not available.";
+    default:
+      return "Tracking unavailable for this status.";
+  }
 }
