@@ -1,6 +1,7 @@
 import "dart:async";
 
 import "package:dio/dio.dart";
+import "package:flutter/foundation.dart" show kIsWeb;
 import "package:flutter/material.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
 import "package:flutter/services.dart";
@@ -73,13 +74,13 @@ class DriverPilotApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final router = GoRouter(
       navigatorKey: _rootNavigatorKey,
-      initialLocation: "/driver",
+      initialLocation: kIsWeb ? "/customer" : "/driver",
       refreshListenable: CustomerSession.listenable,
       routes: [
         ...driverFlowRoutes(),
         ...customerFlowRoutes(),
         GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
-        GoRoute(path: "/", redirect: (_, __) => "/driver"),
+        GoRoute(path: "/", redirect: (_, __) => kIsWeb ? "/customer" : "/driver"),
         GoRoute(path: "/register", builder: (_, __) => const RegisterScreen()),
         GoRoute(
           path: "/login",
@@ -99,7 +100,7 @@ class DriverPilotApp extends StatelessWidget {
     );
 
     return MaterialApp.router(
-      title: "NaviG8r Driver",
+      title: kIsWeb ? "NaviG8r Customer" : "NaviG8r Driver",
       theme: DriverTheme.theme(),
       routerConfig: router,
     );

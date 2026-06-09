@@ -1,12 +1,12 @@
 {
-    "name": "driver_pilot",
-    "short_name": "driver_pilot",
+    "name": "NaviG8r Customer",
+    "short_name": "NaviG8r",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#0B1F3A",
+    "theme_color": "#0B1F3A",
+    "description": "Book freight, track shipments, and manage your customer team.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

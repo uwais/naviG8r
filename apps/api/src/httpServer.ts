@@ -64,6 +64,46 @@ async function readRawBody(req: http.IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+function isLocalDevOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    return u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1");
+  } catch {
+    return false;
+  }
+}
+
+function resolveCorsOrigin(req: http.IncomingMessage): string | null {
+  const origin = header(req, "origin");
+  if (!origin) return null;
+
+  const configured = process.env.CORS_ALLOWED_ORIGINS?.trim();
+  if (configured) {
+    const list = configured.split(",").map((s) => s.trim()).filter(Boolean);
+    if (list.includes("*")) return "*";
+    if (list.includes(origin)) return origin;
+    return null;
+  }
+
+  if (isLocalDevOrigin(origin)) return origin;
+  if (process.env.NODE_ENV !== "production") return origin;
+  return null;
+}
+
+function applyCors(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const allowOrigin = resolveCorsOrigin(req);
+  if (allowOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", allowOrigin);
+    if (allowOrigin !== "*") {
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Vary", "Origin");
+    }
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, x-razorpay-signature");
+  res.setHeader("Access-Control-Max-Age", "86400");
+}
+
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const data = JSON.stringify(body);
   res.statusCode = status;
@@ -326,6 +366,13 @@ export async function createApp(): Promise<{
     try {
       const method = req.method ?? "GET";
       const url = new URL(req.url ?? "/", "http://localhost");
+
+      applyCors(req, res);
+      if (method === "OPTIONS") {
+        res.statusCode = 204;
+        res.end();
+        return;
+      }
 
       if (method === "GET" && url.pathname === "/health") {
         return json(res, 200, {
