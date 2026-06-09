@@ -23,6 +23,7 @@ String driverShellTitle(String path) {
   if (path.startsWith("/driver/publish")) return "Publish trip";
   if (path.startsWith("/driver/track")) return "Track";
   if (path.startsWith("/driver/profile")) return "Profile";
+  if (path.startsWith("/driver/fleet")) return "Fleet";
   if (path.startsWith("/driver/trip/")) return "Active trip";
   if (path.startsWith("/driver/shipment/")) return "Proof of delivery";
   if (path.startsWith("/driver/earnings")) return "Earnings";
@@ -174,7 +175,7 @@ class DriverWelcomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           OutlinedButton(
-            onPressed: () => context.go("/driver/onboarding/phone"),
+            onPressed: () => context.go("/driver/onboarding/register"),
             child: const Text("Register as new carrier"),
           ),
           const SizedBox(height: 8),
@@ -192,6 +193,8 @@ class DriverWelcomeScreen extends StatelessWidget {
             },
             child: const Text("Continue as signed-in driver"),
           ),
+          const SizedBox(height: 8),
+          TextButton(onPressed: () => context.go("/driver/onboarding/join"), child: const Text("Join a carrier fleet")),
           const SizedBox(height: 8),
           TextButton(onPressed: () => context.go("/pilot-lab"), child: const Text("Developer lab")),
         ],
@@ -323,7 +326,12 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       if (DriverSession.hasCarrierOrg) {
         context.go("/driver/loads");
       } else {
-        context.go("/driver/onboarding/register");
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("No carrier org for this phone. Use Register as new carrier on the welcome screen."),
+          ),
+        );
+        context.go("/driver");
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
@@ -376,17 +384,13 @@ class DriverRegisterScreen extends StatefulWidget {
 }
 
 class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
-  final _fullName = TextEditingController(text: "Ravi Transport");
+  final _fullName = TextEditingController();
   final _phone = TextEditingController();
-  final _org = TextEditingController(text: "Ravi Transport");
-  final _reg = TextEditingController(text: "HR26AB1234");
+  final _org = TextEditingController();
+  final _reg = TextEditingController();
+  final _vehClass = TextEditingController(text: "MEDIUM");
+  final _cap = TextEditingController(text: "1000");
   bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (DriverSession.userPhone != null) _phone.text = DriverSession.userPhone!;
-  }
 
   @override
   void dispose() {
@@ -394,6 +398,8 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
     _phone.dispose();
     _org.dispose();
     _reg.dispose();
+    _vehClass.dispose();
+    _cap.dispose();
     super.dispose();
   }
 
@@ -401,6 +407,16 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
     setState(() => _busy = true);
     try {
       final phone = digitsOnly(_phone.text.trim());
+      if (phone.length != 10) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter a 10-digit phone number.")));
+        return;
+      }
+      final cap = int.tryParse(_cap.text.trim()) ?? 0;
+      if (cap <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter a positive vehicle capacity.")));
+        return;
+      }
+      final vc = _vehClass.text.trim().toUpperCase();
       final r = await api.post<Map<String, dynamic>>(
         "/v1/pilot/driver/register",
         data: {
@@ -408,15 +424,17 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
           "phone": phone,
           "orgDisplayName": _org.text.trim(),
           "vehicleRegistrationNumber": _reg.text.trim(),
-          "vehicleClass": "MEDIUM",
-          "vehicleCapacityKg": 1000,
+          "vehicleClass": vc,
+          "vehicleCapacityKg": cap,
         },
       );
       final orgId = orgIdFromRegisterResponse(r.data);
       if (orgId != null) lastRegisteredOrgId = orgId;
-      await DriverSession.refresh();
       if (!mounted) return;
-      context.go("/driver/loads");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Carrier created — verify your phone to continue.")),
+      );
+      context.go("/driver/onboarding/otp?phone=$phone");
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
     } finally {
@@ -427,28 +445,241 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Carrier organization")),
+      appBar: AppBar(title: const Text("Register carrier")),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            "Solo carrier or fleet admin name as customers see it. Banking is collected later before your first payout.",
-            style: TextStyle(color: DriverTheme.muted),
+            "Create your carrier organization and owner profile. You'll verify your phone next, then publish lanes and accept bookings.",
+            style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
           TextField(controller: _fullName, decoration: const InputDecoration(labelText: "Your full name")),
-          TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone")),
-          TextField(controller: _org, decoration: const InputDecoration(labelText: "Organization display name")),
-          TextField(controller: _reg, decoration: const InputDecoration(labelText: "Vehicle registration")),
+          TextField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: "Phone (10 digits)")),
+          TextField(controller: _org, decoration: const InputDecoration(labelText: "Carrier / org display name")),
+          TextField(controller: _reg, decoration: const InputDecoration(labelText: "Your vehicle registration")),
+          TextField(controller: _vehClass, decoration: const InputDecoration(labelText: "Vehicle class (SMALL|MEDIUM|LARGE)")),
+          TextField(controller: _cap, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Vehicle capacity (kg)")),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _busy ? null : _submit,
             child: _busy
                 ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text("Create carrier profile"),
+                : const Text("Create carrier & continue"),
           ),
+          TextButton(onPressed: () => context.go("/driver"), child: const Text("Back")),
         ],
       ),
+    );
+  }
+}
+
+class DriverJoinScreen extends StatefulWidget {
+  const DriverJoinScreen({super.key});
+
+  @override
+  State<DriverJoinScreen> createState() => _DriverJoinScreenState();
+}
+
+class _DriverJoinScreenState extends State<DriverJoinScreen> {
+  final _fullName = TextEditingController();
+  final _phone = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _fullName.dispose();
+    _phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() => _busy = true);
+    try {
+      final phone = digitsOnly(_phone.text.trim());
+      await api.post<Map<String, dynamic>>(
+        "/v1/pilot/customer/users/register",
+        data: {"fullName": _fullName.text.trim(), "phone": phone},
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Account created — ask your carrier admin to invite you, then sign in.")),
+      );
+      context.go("/driver/onboarding/phone");
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Join a fleet")),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const Text(
+            "Create a personal account so your carrier admin can invite you to their org. You do not get a carrier org from this step.",
+            style: TextStyle(color: DriverTheme.muted, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          TextField(controller: _fullName, decoration: const InputDecoration(labelText: "Your full name")),
+          TextField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: "Phone (10 digits)")),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: _busy ? null : _submit,
+            child: _busy
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text("Create account"),
+          ),
+          TextButton(onPressed: () => context.go("/driver"), child: const Text("Back")),
+        ],
+      ),
+    );
+  }
+}
+
+class DriverFleetInviteScreen extends StatefulWidget {
+  const DriverFleetInviteScreen({super.key});
+
+  @override
+  State<DriverFleetInviteScreen> createState() => _DriverFleetInviteScreenState();
+}
+
+class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
+  final _phone = TextEditingController();
+  final _reg = TextEditingController();
+  final _vehClass = TextEditingController(text: "MEDIUM");
+  final _cap = TextEditingController(text: "1000");
+  String _role = "DRIVER";
+  bool _loading = true;
+  bool _inviting = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _phone.dispose();
+    _reg.dispose();
+    _vehClass.dispose();
+    _cap.dispose();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    await DriverSession.refresh();
+    if (!mounted) return;
+    if (!DriverSession.canInviteDrivers) {
+      setState(() {
+        _loading = false;
+        _error = "Only carrier owners and dispatchers can invite drivers.";
+      });
+      return;
+    }
+    setState(() => _loading = false);
+  }
+
+  Future<void> _invite() async {
+    final orgId = DriverSession.carrierOrgId;
+    if (orgId == null) return;
+    setState(() {
+      _inviting = true;
+      _error = null;
+    });
+    try {
+      final payload = <String, dynamic>{
+        "orgId": orgId,
+        "phone": digitsOnly(_phone.text.trim()),
+        "role": _role,
+      };
+      if (_role == "DRIVER") {
+        final cap = int.tryParse(_cap.text.trim()) ?? 0;
+        payload["vehicleRegistrationNumber"] = _reg.text.trim();
+        payload["vehicleClass"] = _vehClass.text.trim().toUpperCase();
+        payload["vehicleCapacityKg"] = cap;
+      }
+      await api.post<Map<String, dynamic>>(
+        "/v1/pilot/carrier/drivers/invite",
+        data: payload,
+      );
+      _phone.clear();
+      _reg.clear();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Driver invited to your carrier org.")));
+    } catch (e) {
+      setState(() => _error = formatApiError(e));
+    } finally {
+      if (mounted) setState(() => _inviting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          DriverSession.carrierOrgName ?? "Your carrier",
+          style: const TextStyle(fontWeight: FontWeight.w700, color: DriverTheme.navy, fontSize: 18),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          "Invite a driver who already registered their phone (or used Join a fleet). Solo orgs become fleet when you add drivers.",
+          style: TextStyle(color: DriverTheme.muted, height: 1.4),
+        ),
+        if (!DriverSession.canInviteDrivers) ...[
+          const SizedBox(height: 12),
+          Text(_error ?? "Not authorized.", style: const TextStyle(color: Colors.red)),
+        ] else ...[
+          const SizedBox(height: 16),
+          TextField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: "Driver phone (10 digits)")),
+          DropdownButtonFormField<String>(
+            value: _role,
+            decoration: const InputDecoration(labelText: "Role"),
+            items: const [
+              DropdownMenuItem(value: "DRIVER", child: Text("Driver")),
+              DropdownMenuItem(value: "DISPATCHER", child: Text("Dispatcher")),
+            ],
+            onChanged: (v) {
+              if (v != null) setState(() => _role = v);
+            },
+          ),
+          if (_role == "DISPATCHER") ...[
+            const SizedBox(height: 8),
+            const Text(
+              "Dispatchers are linked to your carrier org's primary vehicle — no separate truck registration needed.",
+              style: TextStyle(fontSize: 12, color: DriverTheme.muted, height: 1.35),
+            ),
+          ] else ...[
+            TextField(controller: _reg, decoration: const InputDecoration(labelText: "Vehicle registration")),
+            TextField(controller: _vehClass, decoration: const InputDecoration(labelText: "Vehicle class (SMALL|MEDIUM|LARGE)")),
+            TextField(controller: _cap, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Vehicle capacity (kg)")),
+          ],
+          const SizedBox(height: 8),
+          OutlinedButton(onPressed: () => context.push("/driver/onboarding/join"), child: const Text("New driver? Register account first")),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _inviting ? null : _invite,
+            child: _inviting
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                : Text(_role == "DISPATCHER" ? "Invite dispatcher" : "Invite driver"),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+          ],
+        ],
+      ],
     );
   }
 }
@@ -1028,8 +1259,21 @@ class _DriverTrackScreenState extends State<DriverTrackScreen> {
   }
 }
 
-class DriverProfileScreen extends StatelessWidget {
+class DriverProfileScreen extends StatefulWidget {
   const DriverProfileScreen({super.key});
+
+  @override
+  State<DriverProfileScreen> createState() => _DriverProfileScreenState();
+}
+
+class _DriverProfileScreenState extends State<DriverProfileScreen> {
+  @override
+  void initState() {
+    super.initState();
+    DriverSession.refresh().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1054,6 +1298,14 @@ class DriverProfileScreen extends StatelessWidget {
           title: const Text("Publish anchor trip"),
           onTap: () => context.go("/driver/publish"),
         ),
+        if (DriverSession.canInviteDrivers)
+          ListTile(
+            leading: const Icon(Icons.groups_outlined, color: DriverTheme.navy),
+            title: const Text("Fleet — invite drivers"),
+            subtitle: const Text("Add drivers or dispatchers to your carrier org"),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push("/driver/fleet"),
+          ),
         ListTile(
           leading: const Icon(Icons.logout, color: DriverTheme.navy),
           title: const Text("Sign out"),
@@ -1839,6 +2091,7 @@ List<RouteBase> driverFlowRoutes() {
             GoRoute(path: "publish", builder: (_, __) => const DriverPublishTripScreen()),
             GoRoute(path: "track", builder: (_, __) => const DriverTrackScreen()),
             GoRoute(path: "profile", builder: (_, __) => const DriverProfileScreen()),
+            GoRoute(path: "fleet", builder: (_, __) => const DriverFleetInviteScreen()),
             GoRoute(
               path: "trip/:tripId/active",
               builder: (_, state) => DriverActiveTripScreen(tripId: state.pathParameters["tripId"] ?? ""),
@@ -1853,5 +2106,6 @@ List<RouteBase> driverFlowRoutes() {
     GoRoute(path: "/driver/onboarding/phone", builder: (_, __) => const DriverPhoneScreen()),
     GoRoute(path: "/driver/onboarding/otp", builder: (_, __) => const DriverOtpScreen()),
     GoRoute(path: "/driver/onboarding/register", builder: (_, __) => const DriverRegisterScreen()),
+    GoRoute(path: "/driver/onboarding/join", builder: (_, __) => const DriverJoinScreen()),
   ];
 }
