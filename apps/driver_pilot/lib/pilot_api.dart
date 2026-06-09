@@ -199,6 +199,21 @@ String vehicleClassLabel(String? vehicleClass) {
   }
 }
 
+String carrierMemberRoleLabel(String role) {
+  switch (role) {
+    case "OWNER_DRIVER":
+      return "Owner-driver";
+    case "OWNER":
+      return "Owner";
+    case "DISPATCHER":
+      return "Dispatcher";
+    case "DRIVER":
+      return "Driver";
+    default:
+      return role.isEmpty ? "—" : role;
+  }
+}
+
 String customerMemberRoleLabel(String role) {
   switch (role) {
     case "CUSTOMER_ADMIN":

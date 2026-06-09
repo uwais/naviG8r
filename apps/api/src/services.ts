@@ -179,6 +179,13 @@ function assertCarrierCanInviteStaff(store: Store, userId: string, orgId: string
   }
 }
 
+/** First vehicle provisioned for a carrier org (owner's solo register vehicle). */
+function primaryOrgVehicle(store: Store, orgId: string): Vehicle | null {
+  const vehicles = [...store.vehicles.values()].filter((v) => v.orgId === orgId);
+  vehicles.sort((a, b) => a.createdAtUtcMs - b.createdAtUtcMs);
+  return vehicles[0] ?? null;
+}
+
 export function carrierDisplayName(store: Store, carrierId: string): string {
   return store.organizations.get(carrierId)?.displayName ?? carrierId;
 }
@@ -1428,9 +1435,10 @@ export function inviteCarrierDriver(
     orgId: string;
     phone: string;
     role?: "DRIVER" | "DISPATCHER";
-    vehicleRegistrationNumber: string;
-    vehicleClass: VehicleClass;
-    vehicleCapacityKg: number;
+    /** Required for DRIVER; ignored for DISPATCHER (uses org's primary vehicle). */
+    vehicleRegistrationNumber?: string;
+    vehicleClass?: VehicleClass;
+    vehicleCapacityKg?: number;
   },
 ): { user: User; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
   assertCarrierCanInviteStaff(store, actingUserId, params.orgId);
@@ -1451,11 +1459,6 @@ export function inviteCarrierDriver(
   }
   const role = params.role ?? "DRIVER";
   if (role !== "DRIVER" && role !== "DISPATCHER") throw new Error("invalid_role");
-  assertVehicleClass(params.vehicleClass);
-  if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
-  if (!String(params.vehicleRegistrationNumber ?? "").trim()) {
-    throw new Error("invalid_vehicleRegistrationNumber");
-  }
 
   const now = nowUtcMs();
   const membership: Membership = {
@@ -1464,14 +1467,33 @@ export function inviteCarrierDriver(
     role,
     createdAtUtcMs: now,
   };
-  const vehicle: Vehicle = {
-    id: id("veh"),
-    orgId: params.orgId,
-    registrationNumber: String(params.vehicleRegistrationNumber).trim(),
-    vehicleClass: params.vehicleClass,
-    capacityKg: params.vehicleCapacityKg,
-    createdAtUtcMs: now,
-  };
+
+  let vehicle: Vehicle;
+  if (role === "DISPATCHER") {
+    const orgVehicle = primaryOrgVehicle(store, params.orgId);
+    if (!orgVehicle) {
+      throw new ApiError("org_has_no_vehicle", {
+        detail: "Carrier org has no vehicle on file; register the owner vehicle first.",
+      });
+    }
+    vehicle = orgVehicle;
+  } else {
+    assertVehicleClass(params.vehicleClass);
+    if ((params.vehicleCapacityKg ?? 0) <= 0) throw new Error("invalid_vehicleCapacityKg");
+    if (!String(params.vehicleRegistrationNumber ?? "").trim()) {
+      throw new Error("invalid_vehicleRegistrationNumber");
+    }
+    vehicle = {
+      id: id("veh"),
+      orgId: params.orgId,
+      registrationNumber: String(params.vehicleRegistrationNumber).trim(),
+      vehicleClass: params.vehicleClass!,
+      capacityKg: params.vehicleCapacityKg!,
+      createdAtUtcMs: now,
+    };
+    store.vehicles.set(vehicle.id, vehicle);
+  }
+
   const driverProfile: DriverProfile = {
     userId: user.id,
     orgId: params.orgId,
@@ -1484,7 +1506,6 @@ export function inviteCarrierDriver(
   }
 
   store.memberships.set(membershipKey(user.id, params.orgId), membership);
-  store.vehicles.set(vehicle.id, vehicle);
   store.driverProfiles.set(user.id, driverProfile);
 
   return { user, membership, vehicle, driverProfile };

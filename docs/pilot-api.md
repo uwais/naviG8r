@@ -175,6 +175,13 @@ Carrier accepts a customer booking (`PENDING_CARRIER_ACCEPT` → `BOOKED`). Paym
 #### `POST /v1/pilot/carrier/drivers/invite`
 Fleet: owner/dispatcher invites an **existing** user (by phone) to the carrier org as `DRIVER` or `DISPATCHER`, provisions a vehicle + driver profile, and upgrades `CARRIER_SOLO` → `CARRIER_FLEET` when applicable.
 
+Driver app: **Profile → Fleet — invite drivers** (owners/dispatchers). Invitee must register a user account first (`POST /v1/pilot/customer/users/register` or driver welcome **Join a carrier fleet**).
+
+For **`DISPATCHER`**, vehicle fields are optional in the request body — the server links the invitee to the carrier org's **primary vehicle** (owner's registration from solo register). For **`DRIVER`**, provide `vehicleRegistrationNumber`, `vehicleClass`, and `vehicleCapacityKg` as before.
+
+#### Carrier onboarding (driver app)
+New carriers: **Register as new carrier** → `POST /v1/pilot/driver/register` → OTP verify → signed-in driver shell. Sign-in alone is for existing users only.
+
 #### `POST /v1/pilot/rates/estimate`
 Pilot-only (Bearer token; user must belong to a **carrier** org). Advisory lane pricing samples for publishing — does **not** persist a trip rate.
 

@@ -5,7 +5,9 @@ import {
   ApiError,
   acceptCarrierShipment,
   bookShipment,
+  inviteCarrierDriver,
   publishAnchorTripAsPilotDriver,
+  registerCustomerUser,
   registerSoloOwnerOperatorDriver,
   startAnchorTripAsPilot,
 } from "./services.ts";
@@ -56,4 +58,35 @@ test("booking awaits carrier accept then trip start before live tracking", () =>
   const started = startAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
   assert.equal(started.status, "IN_PROGRESS");
   assert.ok(started.startedAtUtcMs);
+});
+
+test("dispatcher invite reuses carrier org primary vehicle", () => {
+  const store = createStore();
+  const onboard = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Owner",
+    phone: "9876543211",
+    orgDisplayName: "Fleet Co",
+    vehicleRegistrationNumber: "HR26FLEET1",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 5000,
+  });
+  const dispatcher = registerCustomerUser(store, {
+    fullName: "Ops Lead",
+    phone: "9876543212",
+  });
+  const ownerVehicleCount = [...store.vehicles.values()].filter((v) => v.orgId === onboard.org.id).length;
+
+  const out = inviteCarrierDriver(store, onboard.user.id, {
+    orgId: onboard.org.id,
+    phone: dispatcher.user.phone,
+    role: "DISPATCHER",
+  });
+
+  assert.equal(out.membership.role, "DISPATCHER");
+  assert.equal(out.vehicle.registrationNumber, "HR26FLEET1");
+  assert.equal(out.driverProfile.primaryVehicleId, onboard.vehicle.id);
+  assert.equal(
+    [...store.vehicles.values()].filter((v) => v.orgId === onboard.org.id).length,
+    ownerVehicleCount,
+  );
 });
