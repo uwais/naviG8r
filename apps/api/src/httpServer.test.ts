@@ -208,3 +208,34 @@ test("GET /ops returns ops portal HTML", async (t) => {
     assert.ok(html.includes("pending-release"));
   });
 });
+
+test("CORS preflight allows localhost web clients", async (t) => {
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+
+  await withApp(t, async (baseUrl) => {
+    const origin = "http://localhost:56901";
+    const preflight = await fetch(`${baseUrl}/v1/pilot/customer/register`, {
+      method: "OPTIONS",
+      headers: {
+        origin,
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type,authorization",
+      },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), origin);
+    assert.ok(preflight.headers.get("access-control-allow-methods")?.includes("POST"));
+
+    const post = await fetch(`${baseUrl}/v1/pilot/customer/register`, {
+      method: "POST",
+      headers: { origin, "content-type": "application/json" },
+      body: JSON.stringify({
+        fullName: "Web Test",
+        phone: "9812345678",
+        orgDisplayName: "CORS Co",
+      }),
+    });
+    assert.equal(post.headers.get("access-control-allow-origin"), origin);
+    assert.equal(post.status, 200);
+  });
+});

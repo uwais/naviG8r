@@ -1,10 +1,12 @@
 import "dart:async";
 
+import "package:flutter/foundation.dart" show kIsWeb;
 import "package:flutter/material.dart";
 import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
-import "package:razorpay_flutter/razorpay_flutter.dart";
 
+import "customer_checkout.dart";
+import "customer_layout.dart";
 import "customer_session.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
@@ -83,50 +85,78 @@ class CustomerScaffold extends StatelessWidget {
     return ListenableBuilder(
       listenable: CustomerSession.listenable,
       builder: (context, _) {
-        final selected = _indexForPath(currentPath);
-        final session = CustomerSession.isSignedIn
-            ? "${CustomerSession.userFullName ?? "Signed in"} · ${CustomerSession.userPhone ?? ""}"
-            : null;
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final selected = _indexForPath(currentPath);
+            final session = CustomerSession.isSignedIn
+                ? "${CustomerSession.userFullName ?? "Signed in"} · ${CustomerSession.userPhone ?? ""}"
+                : null;
+            final useRail = customerUseRail(constraints.maxWidth);
+            final page = CustomerPageFrame(child: bodyBuilder(context));
 
-        return Scaffold(
-          backgroundColor: DriverTheme.background,
-          appBar: AppBar(
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 20)),
-                if (session != null)
-                  Text(session, style: const TextStyle(fontSize: 11, color: DriverTheme.muted, fontWeight: FontWeight.w400)),
-              ],
-            ),
-            actions: [
-              if (CustomerSession.isSignedIn)
-                IconButton(
-                  tooltip: "Sign out",
-                  onPressed: () => signOutCustomer(context),
-                  icon: const Icon(Icons.logout),
-                ),
-              IconButton(
-                tooltip: "Switch to driver",
-                onPressed: () => context.go("/driver"),
-                icon: const Icon(Icons.local_shipping_outlined),
-              ),
-            ],
-          ),
-          body: SafeArea(child: bodyBuilder(context)),
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: selected,
-            onDestinationSelected: (index) {
+            void goToIndex(int index) {
               final target = _pathForIndex(index);
               if (target != currentPath) context.go(target);
-            },
-            destinations: const [
-              NavigationDestination(icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: "Home"),
-              NavigationDestination(icon: Icon(Icons.travel_explore_outlined), selectedIcon: Icon(Icons.travel_explore), label: "Trips"),
-              NavigationDestination(icon: Icon(Icons.shopping_cart_outlined), selectedIcon: Icon(Icons.shopping_cart), label: "Book"),
-              NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: "Shipments"),
-            ],
-          ),
+            }
+
+            final appBar = AppBar(
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 20)),
+                  if (session != null)
+                    Text(session, style: const TextStyle(fontSize: 11, color: DriverTheme.muted, fontWeight: FontWeight.w400)),
+                ],
+              ),
+              actions: [
+                if (CustomerSession.isSignedIn)
+                  IconButton(
+                    tooltip: "Sign out",
+                    onPressed: () => signOutCustomer(context),
+                    icon: const Icon(Icons.logout),
+                  ),
+                if (!kIsWeb)
+                  IconButton(
+                    tooltip: "Switch to driver",
+                    onPressed: () => context.go("/driver"),
+                    icon: const Icon(Icons.local_shipping_outlined),
+                  ),
+              ],
+            );
+
+            if (useRail) {
+              return Scaffold(
+                backgroundColor: DriverTheme.background,
+                appBar: appBar,
+                body: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    NavigationRail(
+                      extended: constraints.maxWidth >= 1080,
+                      selectedIndex: selected,
+                      onDestinationSelected: goToIndex,
+                      leading: const CustomerBrandHeader(),
+                      destinations: customerRailDestinations(),
+                      labelType: constraints.maxWidth >= 1080 ? NavigationRailLabelType.none : NavigationRailLabelType.all,
+                    ),
+                    const VerticalDivider(width: 1),
+                    Expanded(child: SafeArea(left: false, child: page)),
+                  ],
+                ),
+              );
+            }
+
+            return Scaffold(
+              backgroundColor: DriverTheme.background,
+              appBar: appBar,
+              body: SafeArea(child: page),
+              bottomNavigationBar: NavigationBar(
+                selectedIndex: selected,
+                onDestinationSelected: goToIndex,
+                destinations: kCustomerNavDestinations,
+              ),
+            );
+          },
         );
       },
     );
@@ -155,92 +185,109 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       title: "Book freight",
       currentPath: "/customer",
       bodyBuilder: (_) => ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(vertical: 16),
         children: [
           const Text(
             "Find carrier lanes, book a shipment, and track delivery from pickup to drop-off.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
-          if (!CustomerSession.isSignedIn) ...[
-            Card(
+          CustomerResponsiveRow(
+            primaryFlex: 3,
+            secondaryFlex: 2,
+            primary: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (!CustomerSession.isSignedIn)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text("Sign in to view your shipments and book with your org.", style: TextStyle(color: DriverTheme.muted)),
+                          const SizedBox(height: 12),
+                          FilledButton(onPressed: () => context.go("/customer/login"), child: const Text("Sign in with phone")),
+                          const SizedBox(height: 8),
+                          OutlinedButton(onPressed: () => context.go("/customer/register"), child: const Text("Register business")),
+                          const SizedBox(height: 8),
+                          OutlinedButton(onPressed: () => context.go("/customer/register-user"), child: const Text("Register as teammate")),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (CustomerSession.isOrgAdmin)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.groups_outlined),
+                      title: Text(CustomerSession.customerOrgName ?? "Your org"),
+                      subtitle: const Text("Manage who can book and view shipments"),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.go("/customer/team"),
+                    ),
+                  )
+                else if (CustomerSession.hasCustomerOrg)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Text(
+                        "Signed in to ${CustomerSession.customerOrgName ?? "your org"}. Shipments booked by your team appear under My shipments.",
+                        style: const TextStyle(color: DriverTheme.muted, height: 1.4),
+                      ),
+                    ),
+                  ),
+                if (CustomerSession.isSignedIn) ...[
+                  if (CustomerSession.hasCustomerOrg || CustomerSession.isOrgAdmin) const SizedBox(height: 12),
+                  Card(
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.person_outline, color: DriverTheme.navy),
+                          title: Text(CustomerSession.userFullName ?? "Signed in"),
+                          subtitle: Text(CustomerSession.userPhone ?? ""),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.logout, color: DriverTheme.navy),
+                          title: const Text("Sign out"),
+                          subtitle: const Text("Use a different phone number or account"),
+                          onTap: () => signOutCustomer(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            secondary: Card(
               child: Padding(
                 padding: const EdgeInsets.all(14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text("Sign in to view your shipments and book with your org.", style: TextStyle(color: DriverTheme.muted)),
+                    const Text("Get started", style: TextStyle(fontWeight: FontWeight.w600, color: DriverTheme.navy)),
                     const SizedBox(height: 12),
-                    FilledButton(onPressed: () => context.go("/customer/login"), child: const Text("Sign in with phone")),
+                    FilledButton.icon(
+                      onPressed: () => context.go("/customer/trips"),
+                      icon: const Icon(Icons.travel_explore),
+                      label: const Text("Browse open trips"),
+                    ),
                     const SizedBox(height: 8),
-                    OutlinedButton(onPressed: () => context.go("/customer/register"), child: const Text("Register business")),
+                    FilledButton.icon(
+                      onPressed: () => context.go("/customer/book"),
+                      icon: const Icon(Icons.shopping_cart_outlined),
+                      label: const Text("Book a shipment"),
+                    ),
                     const SizedBox(height: 8),
-                    OutlinedButton(onPressed: () => context.go("/customer/register-user"), child: const Text("Register as teammate")),
+                    OutlinedButton.icon(
+                      onPressed: () => context.go("/customer/shipments"),
+                      icon: const Icon(Icons.receipt_long_outlined),
+                      label: const Text("My shipments"),
+                    ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-          ] else if (CustomerSession.isOrgAdmin) ...[
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.groups_outlined),
-                title: Text(CustomerSession.customerOrgName ?? "Your org"),
-                subtitle: const Text("Manage who can book and view shipments"),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.go("/customer/team"),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ] else if (CustomerSession.hasCustomerOrg) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  "Signed in to ${CustomerSession.customerOrgName ?? "your org"}. Shipments booked by your team appear under My shipments.",
-                  style: const TextStyle(color: DriverTheme.muted, height: 1.4),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (CustomerSession.isSignedIn) ...[
-            Card(
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.person_outline, color: DriverTheme.navy),
-                    title: Text(CustomerSession.userFullName ?? "Signed in"),
-                    subtitle: Text(CustomerSession.userPhone ?? ""),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.logout, color: DriverTheme.navy),
-                    title: const Text("Sign out"),
-                    subtitle: const Text("Use a different phone number or account"),
-                    onTap: () => signOutCustomer(context),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          FilledButton.icon(
-            onPressed: () => context.go("/customer/trips"),
-            icon: const Icon(Icons.travel_explore),
-            label: const Text("Browse open trips"),
-          ),
-          const SizedBox(height: 8),
-          FilledButton.icon(
-            onPressed: () => context.go("/customer/book"),
-            icon: const Icon(Icons.shopping_cart_outlined),
-            label: const Text("Book a shipment"),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: () => context.go("/customer/shipments"),
-            icon: const Icon(Icons.receipt_long_outlined),
-            label: const Text("My shipments"),
           ),
         ],
       ),
@@ -1001,15 +1048,18 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
   bool _loadingTrip = false;
   String? _tripLoadError;
   bool _tripLocked = false;
-  Razorpay? _rzp;
+  CustomerCheckoutController? _checkout;
   String? _pendingShipmentIdForCheckout;
 
   @override
   void initState() {
     super.initState();
-    _rzp = Razorpay();
-    _rzp!.on(Razorpay.EVENT_PAYMENT_SUCCESS, _onRzpPaymentSuccess);
-    _rzp!.on(Razorpay.EVENT_PAYMENT_ERROR, _onRzpPaymentError);
+    _checkout = CustomerCheckoutController(
+      onSuccess: ({required orderId, required paymentId, required signature}) {
+        _onCheckoutSuccess(orderId: orderId, paymentId: paymentId, signature: signature);
+      },
+      onError: _onCheckoutError,
+    )..init();
     _bootstrap();
   }
 
@@ -1035,7 +1085,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
 
   @override
   void dispose() {
-    _rzp?.clear();
+    _checkout?.dispose();
     _anchorTripId.dispose();
     _customerOrgName.dispose();
     _customerPhone.dispose();
@@ -1066,7 +1116,11 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     }
   }
 
-  Future<void> _onRzpPaymentSuccess(PaymentSuccessResponse response) async {
+  Future<void> _onCheckoutSuccess({
+    required String orderId,
+    required String paymentId,
+    required String signature,
+  }) async {
     final id = _pendingShipmentIdForCheckout;
     if (id != null && id.isNotEmpty) {
       try {
@@ -1074,9 +1128,9 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
           "/v1/payments/razorpay/confirm",
           data: {
             "shipmentId": id,
-            "razorpayOrderId": response.orderId ?? "",
-            "razorpayPaymentId": response.paymentId ?? "",
-            "razorpaySignature": response.signature ?? "",
+            "razorpayOrderId": orderId,
+            "razorpayPaymentId": paymentId,
+            "razorpaySignature": signature,
           },
         );
       } catch (_) {}
@@ -1089,10 +1143,10 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     _pendingShipmentIdForCheckout = null;
   }
 
-  void _onRzpPaymentError(PaymentFailureResponse response) {
+  void _onCheckoutError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Payment did not go through. ${response.message ?? "Try again."}")),
+      SnackBar(content: Text("Payment did not go through. $message")),
     );
   }
 
@@ -1150,17 +1204,15 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
           orderId != null &&
           payStatus == "CREATED" &&
           amountPaise > 0 &&
-          _rzp != null) {
+          _checkout != null) {
         lastBookedShipmentId = shipmentId;
         _pendingShipmentIdForCheckout = shipmentId;
-        _rzp!.open({
-          "key": keyId,
-          "amount": amountPaise,
-          "currency": "INR",
-          "name": "NaviG8r",
-          "description": "Authorize shipment payment",
-          "order_id": orderId,
-        });
+        _checkout!.open(
+          keyId: keyId,
+          orderId: orderId,
+          amountPaise: amountPaise,
+          shipmentId: shipmentId,
+        );
       } else if (shipmentId != null) {
         lastBookedShipmentId = shipmentId;
         if (!mounted) return;
@@ -1181,7 +1233,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
       title: "Book shipment",
       currentPath: "/customer/book",
       bodyBuilder: (_) => ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(vertical: 16),
         children: [
           if (_anchorTrip == null && !_tripLocked) ...[
             OutlinedButton.icon(
@@ -1214,73 +1266,86 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
             ),
             const SizedBox(height: 12),
           ],
-          const Text("Shipment details", style: TextStyle(fontWeight: FontWeight.w600, color: DriverTheme.navy)),
-          const SizedBox(height: 8),
-          if (!CustomerSession.isSignedIn || !CustomerSession.hasCustomerOrg)
-            TextField(controller: _customerOrgName, decoration: const InputDecoration(labelText: "Your business name")),
-          TextField(controller: _weightKg, decoration: const InputDecoration(labelText: "Weight (kg)"), keyboardType: TextInputType.number),
-          const SizedBox(height: 12),
-          LocationEndpointEditor(
-            title: "Pickup",
-            hint: "Pickup address",
-            labelController: _pickup,
-            markerId: "book_pickup",
-            markerHue: BitmapDescriptor.hueGreen,
-            position: _pickupPos,
-            onPositionChanged: (p) => setState(() => _pickupPos = p),
-          ),
-          const SizedBox(height: 16),
-          LocationEndpointEditor(
-            title: "Drop",
-            hint: "Drop address",
-            labelController: _drop,
-            markerId: "book_drop",
-            markerHue: BitmapDescriptor.hueRed,
-            position: _dropPos,
-            onPositionChanged: (p) => setState(() => _dropPos = p),
-          ),
-          const SizedBox(height: 12),
-          bookShipmentRouteMap(
-            shipmentPickup: _pickupPos,
-            shipmentDrop: _dropPos,
-            anchorOrigin: ao,
-            anchorDestination: ad,
-          ),
-          if (_quote != null) ...[
-            const SizedBox(height: 12),
-            Card(
-              color: DriverTheme.navy.withOpacity(0.06),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          CustomerResponsiveRow(
+            primaryFlex: 3,
+            secondaryFlex: 2,
+            primary: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text("Shipment details", style: TextStyle(fontWeight: FontWeight.w600, color: DriverTheme.navy)),
+                const SizedBox(height: 8),
+                if (!CustomerSession.isSignedIn || !CustomerSession.hasCustomerOrg)
+                  TextField(controller: _customerOrgName, decoration: const InputDecoration(labelText: "Your business name")),
+                TextField(controller: _weightKg, decoration: const InputDecoration(labelText: "Weight (kg)"), keyboardType: TextInputType.number),
+                const SizedBox(height: 12),
+                LocationEndpointEditor(
+                  title: "Pickup",
+                  hint: "Pickup address",
+                  labelController: _pickup,
+                  markerId: "book_pickup",
+                  markerHue: BitmapDescriptor.hueGreen,
+                  position: _pickupPos,
+                  onPositionChanged: (p) => setState(() => _pickupPos = p),
+                ),
+                const SizedBox(height: 16),
+                LocationEndpointEditor(
+                  title: "Drop",
+                  hint: "Drop address",
+                  labelController: _drop,
+                  markerId: "book_drop",
+                  markerHue: BitmapDescriptor.hueRed,
+                  position: _dropPos,
+                  onPositionChanged: (p) => setState(() => _dropPos = p),
+                ),
+                const SizedBox(height: 12),
+                Row(
                   children: [
-                    const Text("Estimated price", style: TextStyle(fontWeight: FontWeight.w600)),
-                    Text(
-                      formatInrFromPaise(_quote!["grossPaise"] as num? ?? 0),
-                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: DriverTheme.navy),
+                    Expanded(
+                      child: OutlinedButton(onPressed: _quoting ? null : _fetchQuote, child: const Text("Get quote")),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _booking ? null : _book,
+                        child: _booking
+                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Text("Book & pay"),
+                      ),
                     ),
                   ],
                 ),
-              ),
+              ],
             ),
-          ],
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(onPressed: _quoting ? null : _fetchQuote, child: const Text("Get quote")),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  onPressed: _booking ? null : _book,
-                  child: _booking
-                      ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Text("Book & pay"),
+            secondary: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                bookShipmentRouteMap(
+                  shipmentPickup: _pickupPos,
+                  shipmentDrop: _dropPos,
+                  anchorOrigin: ao,
+                  anchorDestination: ad,
                 ),
-              ),
-            ],
+                if (_quote != null) ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    color: DriverTheme.navy.withOpacity(0.06),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text("Estimated price", style: TextStyle(fontWeight: FontWeight.w600)),
+                          Text(
+                            formatInrFromPaise(_quote!["grossPaise"] as num? ?? 0),
+                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: DriverTheme.navy),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),
