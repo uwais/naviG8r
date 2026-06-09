@@ -5,11 +5,13 @@ import {
   ApiError,
   acceptCarrierShipment,
   bookShipment,
+  completeAnchorTripAsPilot,
   inviteCarrierDriver,
   publishAnchorTripAsPilotDriver,
   registerCustomerUser,
   registerSoloOwnerOperatorDriver,
   startAnchorTripAsPilot,
+  submitDriverPod,
 } from "./services.ts";
 
 test("booking awaits carrier accept then trip start before live tracking", () => {
@@ -58,6 +60,84 @@ test("booking awaits carrier accept then trip start before live tracking", () =>
   const started = startAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
   assert.equal(started.status, "IN_PROGRESS");
   assert.ok(started.startedAtUtcMs);
+});
+
+test("POD on last booking auto-completes IN_PROGRESS trip", () => {
+  const store = createStore();
+  const onboard = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Ravi Kumar",
+    phone: "9876543220",
+    orgDisplayName: "Ravi Transport",
+    vehicleRegistrationNumber: "HR26AB9999",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 5000,
+  });
+  const trip = publishAnchorTripAsPilotDriver(store, {
+    userId: onboard.user.id,
+    orgId: onboard.org.id,
+    originCity: "Gurugram",
+    destCity: "Jaipur",
+    windowStart: "2026-04-24T00:00:00+05:30",
+    windowEnd: "2026-04-25T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+  });
+  const shipment = bookShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: "ACME",
+    weightKg: 100,
+    pickupAddress: "Gurugram",
+    dropAddress: "Jaipur",
+  });
+  acceptCarrierShipment(store, { shipmentId: shipment.id, userId: onboard.user.id });
+  startAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
+
+  submitDriverPod(store, { shipmentId: shipment.id, userId: onboard.user.id });
+
+  const updatedTrip = store.anchorTrips.get(trip.id)!;
+  assert.equal(updatedTrip.status, "COMPLETED");
+  assert.ok(updatedTrip.completedAtUtcMs);
+  assert.equal(updatedTrip.lastLiveLocation, undefined);
+});
+
+test("completeAnchorTripAsPilot requires all shipments POD'd", () => {
+  const store = createStore();
+  const onboard = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Ravi Kumar",
+    phone: "9876543221",
+    orgDisplayName: "Ravi Transport",
+    vehicleRegistrationNumber: "HR26AB9998",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 5000,
+  });
+  const trip = publishAnchorTripAsPilotDriver(store, {
+    userId: onboard.user.id,
+    orgId: onboard.org.id,
+    originCity: "Gurugram",
+    destCity: "Jaipur",
+    windowStart: "2026-04-24T00:00:00+05:30",
+    windowEnd: "2026-04-25T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+  });
+  const shipment = bookShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: "ACME",
+    weightKg: 100,
+    pickupAddress: "Gurugram",
+    dropAddress: "Jaipur",
+  });
+  acceptCarrierShipment(store, { shipmentId: shipment.id, userId: onboard.user.id });
+  startAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
+
+  assert.throws(
+    () => completeAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id }),
+    (e: unknown) => e instanceof ApiError && (e as ApiError).message === "shipments_still_active",
+  );
+
+  submitDriverPod(store, { shipmentId: shipment.id, userId: onboard.user.id });
+  const done = completeAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
+  assert.equal(done.status, "COMPLETED");
 });
 
 test("dispatcher invite reuses carrier org primary vehicle", () => {

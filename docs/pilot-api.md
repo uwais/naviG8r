@@ -169,6 +169,9 @@ Body:
 #### `POST /v1/pilot/anchor-trips/:tripId/start`
 Carrier explicitly starts a load (`OPEN`/`FULL` → `IN_PROGRESS`). Requires at least one **`BOOKED`** shipment on the trip (carrier must accept bookings first). Enables GPS pings and customer live tracking.
 
+#### `POST /v1/pilot/anchor-trips/:tripId/complete`
+Carrier marks the load done (`IN_PROGRESS` → `COMPLETED`). Requires every shipment on the trip to be **`PENDING_RELEASE`** or **`DELIVERED`** (no remaining **`BOOKED`** or **`PENDING_CARRIER_ACCEPT`**). Clears `lastLiveLocation` and stops live tracking. Submitting driver POD on the last active booking **auto-completes** the trip when these conditions are met.
+
 #### `POST /v1/pilot/carrier/shipments/:shipmentId/accept`
 Carrier accepts a customer booking (`PENDING_CARRIER_ACCEPT` → `BOOKED`). Payment must be authorized (or MOCK captured).
 

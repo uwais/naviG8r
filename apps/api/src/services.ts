@@ -1355,7 +1355,28 @@ export function submitDriverPod(
     updatedAtUtcMs: podAtUtcMs,
   };
   store.shipments.set(updated.id, updated);
+  maybeAutoCompleteAnchorTripAfterPod(store, s.anchorTripId, params.userId);
   return updated;
+}
+
+function shipmentsOnAnchorTrip(store: Store, tripId: string): Shipment[] {
+  return [...store.shipments.values()].filter((s) => s.anchorTripId === tripId);
+}
+
+function anchorTripHasActiveShipments(shipments: Shipment[]): boolean {
+  return shipments.some((s) => s.status === "BOOKED" || s.status === "PENDING_CARRIER_ACCEPT");
+}
+
+function maybeAutoCompleteAnchorTripAfterPod(store: Store, tripId: string, userId: string): void {
+  const trip = store.anchorTrips.get(tripId);
+  if (!trip || trip.status !== "IN_PROGRESS") return;
+  const onTrip = shipmentsOnAnchorTrip(store, tripId);
+  if (onTrip.length === 0 || anchorTripHasActiveShipments(onTrip)) return;
+  try {
+    completeAnchorTripAsPilot(store, { userId, tripId });
+  } catch {
+    /* leave IN_PROGRESS if manual completion preconditions fail */
+  }
 }
 
 function paymentAuthorizedForCarrierAccept(pay: Payment): boolean {
@@ -1419,6 +1440,39 @@ export function startAnchorTripAsPilot(
     status: "IN_PROGRESS",
     startedAtUtcMs: now,
     startedByUserId: params.userId,
+  };
+  store.anchorTrips.set(updated.id, updated);
+  return updated;
+}
+
+/** Carrier/driver marks load done when all trip shipments are POD'd or delivered (IN_PROGRESS → COMPLETED). */
+export function completeAnchorTripAsPilot(
+  store: Store,
+  params: { userId: string; tripId: string },
+): AnchorTrip {
+  const trip = pilotGetMyAnchorTrip(store, params.userId, params.tripId);
+  if (trip.status === "COMPLETED") return trip;
+  if (trip.status !== "IN_PROGRESS") {
+    throw new ApiError("trip_not_completable", { status: trip.status });
+  }
+  const onTrip = shipmentsOnAnchorTrip(store, trip.id);
+  if (onTrip.length === 0) {
+    throw new ApiError("no_shipments_on_trip", {
+      detail: "No shipments on this trip.",
+    });
+  }
+  if (anchorTripHasActiveShipments(onTrip)) {
+    throw new ApiError("shipments_still_active", {
+      detail: "Accept and confirm delivery (POD) for all bookings before completing the load.",
+    });
+  }
+  const now = nowUtcMs();
+  const updated: AnchorTrip = {
+    ...trip,
+    status: "COMPLETED",
+    completedAtUtcMs: now,
+    completedByUserId: params.userId,
+    lastLiveLocation: undefined,
   };
   store.anchorTrips.set(updated.id, updated);
   return updated;

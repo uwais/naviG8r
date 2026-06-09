@@ -139,6 +139,9 @@ export type AnchorTrip = {
   /** Set when carrier/driver explicitly starts the load (IN_PROGRESS). */
   startedAtUtcMs?: number;
   startedByUserId?: string;
+  /** Set when carrier/driver completes the load (IN_PROGRESS → COMPLETED). */
+  completedAtUtcMs?: number;
+  completedByUserId?: string;
   /** Updated by driver location pings during active trips. */
   lastLiveLocation?: TripLiveLocation;
 };
