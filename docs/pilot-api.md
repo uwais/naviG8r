@@ -210,6 +210,8 @@ Response (subset):
 - Distance + weight: `distanceKmForPrice × paisePerKm(vehicleClass) + weightKg × PRICE_PAISE_PER_KG` (defaults in `apps/api/src/config.ts`). Customer quotes prefer **shipment** pickup→drop km when pickup+drop are sent, else **lane** km from the anchor trip origin→destination.
 
 #### `POST /v1/pilot/customer/register` (not used by Driver app; defines customer org early)
+Creates a **new business org** and makes the registrant `CUSTOMER_ADMIN`.
+
 Body:
 ```json
 {
@@ -218,6 +220,38 @@ Body:
   "orgDisplayName": "ACME Manufacturing Pvt Ltd"
 }
 ```
+
+#### `POST /v1/pilot/customer/users/register`
+Creates a **user account only** (no org) for teammates who will be invited to an existing customer org. Same phone uniqueness rules as business register.
+
+Body:
+```json
+{
+  "fullName": "ACME Buyer",
+  "phone": "9988776655"
+}
+```
+
+#### `POST /v1/pilot/customer/members/invite`
+Customer org admin invites an **existing** user (by phone) to the org. Invitee must have registered first (`/users/register` or business register on another phone).
+
+Headers: `Authorization: Bearer <accessToken>` (caller must be `CUSTOMER_ADMIN` on `orgId`).
+
+Body:
+```json
+{
+  "orgId": "org_...",
+  "phone": "9988776655",
+  "role": "CUSTOMER_MEMBER"
+}
+```
+
+`role` optional — defaults to `CUSTOMER_MEMBER`; may also be `CUSTOMER_ADMIN`.
+
+#### `GET /v1/pilot/customer/members?orgId=...`
+Lists users + memberships for a customer org. Requires `CUSTOMER_ADMIN` on that org.
+
+**Multi-user visibility:** shipments booked while signed in with a CUSTOMER org are tagged with `customerOrgId`. Any user with a membership to that org (admin or member) can list/view them via `GET /shipments`.
 
 ### Existing marketplace endpoints (still available)
 - `GET /anchor-trips` (list + `GET /anchor-trips/:id`) lists trips for the customer pilot; **enabled in production** as part of the public marketplace.

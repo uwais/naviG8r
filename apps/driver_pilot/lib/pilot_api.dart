@@ -184,3 +184,130 @@ String tripStatusLabel(String status) {
       return status;
   }
 }
+
+String vehicleClassLabel(String? vehicleClass) {
+  switch (vehicleClass) {
+    case "SMALL":
+      return "Small truck";
+    case "MEDIUM":
+      return "Medium truck";
+    case "LARGE":
+      return "Large truck";
+    default:
+      return vehicleClass ?? "—";
+  }
+}
+
+String customerMemberRoleLabel(String role) {
+  switch (role) {
+    case "CUSTOMER_ADMIN":
+      return "Admin";
+    case "CUSTOMER_MEMBER":
+      return "Member";
+    default:
+      return role.isEmpty ? "—" : role;
+  }
+}
+
+String paymentStatusLabel(String status) {
+  switch (status) {
+    case "CREATED":
+      return "Awaiting checkout";
+    case "AUTHORIZED":
+      return "Payment authorized";
+    case "CAPTURED":
+      return "Payment captured";
+    case "FAILED":
+      return "Payment failed";
+    case "REFUNDED":
+      return "Refunded";
+    default:
+      return status;
+  }
+}
+
+/// Short human range from ISO window strings, e.g. "12–14 Jun".
+String formatTripWindowRange(String? windowStart, String? windowEnd) {
+  String dayMonth(String? iso) {
+    if (iso == null || iso.isEmpty) return "—";
+    final t = iso.indexOf("T");
+    final date = t > 0 ? iso.substring(0, t) : iso;
+    final parts = date.split("-");
+    if (parts.length < 3) return date;
+    const months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    final m = int.tryParse(parts[1]) ?? 0;
+    final d = int.tryParse(parts[2]) ?? 0;
+    if (m < 1 || m > 12 || d < 1) return date;
+    return "$d ${months[m]}";
+  }
+
+  final a = dayMonth(windowStart);
+  final b = dayMonth(windowEnd);
+  if (a == "—" && b == "—") return "Window not set";
+  if (a == b) return a;
+  return "$a – $b";
+}
+
+class ShipmentTimelineStep {
+  const ShipmentTimelineStep({
+    required this.label,
+    required this.subtitle,
+    required this.complete,
+    required this.current,
+  });
+
+  final String label;
+  final String subtitle;
+  final bool complete;
+  final bool current;
+}
+
+List<ShipmentTimelineStep> shipmentTimelineSteps({
+  required String shipmentStatus,
+  String? tripStatus,
+  bool isLive = false,
+}) {
+  final accepted = shipmentStatus == "BOOKED" ||
+      shipmentStatus == "PENDING_RELEASE" ||
+      shipmentStatus == "DELIVERED";
+  final started = tripStatus == "IN_PROGRESS" || tripStatus == "COMPLETED";
+  final delivered = shipmentStatus == "DELIVERED";
+  final pendingRelease = shipmentStatus == "PENDING_RELEASE";
+
+  return [
+    ShipmentTimelineStep(
+      label: "Booking placed",
+      subtitle: "Your request was submitted",
+      complete: true,
+      current: false,
+    ),
+    ShipmentTimelineStep(
+      label: "Carrier accepted",
+      subtitle: "Carrier confirmed they will carry your load",
+      complete: accepted || pendingRelease || delivered,
+      current: shipmentStatus == "PENDING_CARRIER_ACCEPT",
+    ),
+    ShipmentTimelineStep(
+      label: "Load started",
+      subtitle: "Carrier marked the trip as started",
+      complete: started || delivered || pendingRelease,
+      current: shipmentStatus == "BOOKED" && !started && !delivered && !pendingRelease,
+    ),
+    ShipmentTimelineStep(
+      label: "In transit",
+      subtitle: isLive ? "Live tracking active" : "Tracking when the load is on the road",
+      complete: delivered || pendingRelease,
+      current: started && !delivered && !pendingRelease,
+    ),
+    ShipmentTimelineStep(
+      label: delivered ? "Delivered" : pendingRelease ? "Delivered (processing)" : "Delivered",
+      subtitle: delivered
+          ? "Shipment complete"
+          : pendingRelease
+              ? "Proof of delivery submitted"
+              : "Confirmation after drop-off",
+      complete: delivered,
+      current: pendingRelease,
+    ),
+  ];
+}

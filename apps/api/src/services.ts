@@ -273,17 +273,29 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
  * Minimal customer org bootstrap for pilot bookings (Factories/SMBs).
  * Not used by the Driver app, but defines the API resource shape early.
  */
-/** First CUSTOMER org for this user (stable order if several). */
-export function customerPrimaryOrgForUser(store: Store, userId: string): Organization | null {
+/** All CUSTOMER orgs for this user (stable order). */
+export function customerOrgsForUser(store: Store, userId: string): Organization[] {
   const matches: Organization[] = [];
   for (const m of store.memberships.values()) {
     if (m.userId !== userId) continue;
     const o = store.organizations.get(m.orgId);
     if (o?.kind === "CUSTOMER") matches.push(o);
   }
-  if (matches.length === 0) return null;
   matches.sort((a, b) => a.id.localeCompare(b.id));
-  return matches[0]!;
+  return matches;
+}
+
+/** First CUSTOMER org for this user (stable order if several). Used when booking tags a single org. */
+export function customerPrimaryOrgForUser(store: Store, userId: string): Organization | null {
+  const orgs = customerOrgsForUser(store, userId);
+  return orgs[0] ?? null;
+}
+
+function assertCustomerCanInviteMember(store: Store, userId: string, orgId: string): void {
+  const m = store.memberships.get(membershipKey(userId, orgId));
+  if (!m || m.role !== "CUSTOMER_ADMIN") throw new Error("forbidden");
+  const org = store.organizations.get(orgId);
+  if (org?.kind !== "CUSTOMER") throw new Error("org_not_customer");
 }
 
 export function shipmentBelongsToCustomerOrg(shipment: Shipment, org: Organization): boolean {
@@ -465,8 +477,9 @@ export function revokeOpsAdmin(
 export function shipmentVisibleToCustomerUser(store: Store, shipment: Shipment, userId: string): boolean {
   const user = store.users.get(userId);
   if (!user) return false;
-  const org = customerPrimaryOrgForUser(store, userId);
-  if (org && shipmentBelongsToCustomerOrg(shipment, org)) return true;
+  for (const org of customerOrgsForUser(store, userId)) {
+    if (shipmentBelongsToCustomerOrg(shipment, org)) return true;
+  }
   if (shipment.bookedByPhone != null && shipment.bookedByPhone !== "" && shipment.bookedByPhone === user.phone) {
     return true;
   }
@@ -509,6 +522,85 @@ export function registerCustomerOrgAdmin(store: Store, params: {
   store.memberships.set(membershipKey(user.id, org.id), membership);
 
   return { user, org, membership };
+}
+
+/**
+ * Team member bootstrap: user account only (no org). They sign in with OTP after an admin invites them.
+ */
+export function registerCustomerUser(store: Store, params: {
+  fullName: string;
+  phone: string;
+}): { user: User } {
+  if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
+
+  const phone = normalizeInPhone(params.phone);
+  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  if (dup) throw new Error("phone_already_registered");
+
+  const now = nowUtcMs();
+  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  store.users.set(user.id, user);
+  return { user };
+}
+
+/**
+ * Customer org admin invites an existing user (by phone) to the org as CUSTOMER_MEMBER or CUSTOMER_ADMIN.
+ * Invitee must register first via POST /v1/pilot/customer/users/register (or business register).
+ */
+export function inviteCustomerMember(
+  store: Store,
+  actingUserId: string,
+  params: {
+    orgId: string;
+    phone: string;
+    role?: "CUSTOMER_MEMBER" | "CUSTOMER_ADMIN";
+  },
+): { user: User; membership: Membership; org: Organization } {
+  assertCustomerCanInviteMember(store, actingUserId, params.orgId);
+  const org = getOrgOrThrow(store, params.orgId);
+  if (org.kind !== "CUSTOMER") throw new Error("org_not_customer");
+
+  const phone = normalizeInPhone(params.phone);
+  const user = [...store.users.values()].find((u) => u.phone === phone);
+  if (!user) {
+    throw new ApiError("user_not_found", {
+      detail: "Teammate must register their phone first, then you can invite them to your org.",
+    });
+  }
+
+  const existing = store.memberships.get(membershipKey(user.id, params.orgId));
+  if (existing) {
+    throw new ApiError("membership_already_exists", { role: existing.role });
+  }
+
+  const role = params.role ?? "CUSTOMER_MEMBER";
+  if (role !== "CUSTOMER_MEMBER" && role !== "CUSTOMER_ADMIN") throw new Error("invalid_role");
+
+  const now = nowUtcMs();
+  const membership: Membership = {
+    userId: user.id,
+    orgId: params.orgId,
+    role,
+    createdAtUtcMs: now,
+  };
+  store.memberships.set(membershipKey(user.id, params.orgId), membership);
+  return { user, membership, org };
+}
+
+export function listCustomerOrgMembers(
+  store: Store,
+  actingUserId: string,
+  orgId: string,
+): Array<{ user: User; membership: Membership }> {
+  assertCustomerCanInviteMember(store, actingUserId, orgId);
+  const rows: Array<{ user: User; membership: Membership }> = [];
+  for (const m of store.memberships.values()) {
+    if (m.orgId !== orgId) continue;
+    const user = store.users.get(m.userId);
+    if (user) rows.push({ user, membership: m });
+  }
+  rows.sort((a, b) => a.user.fullName.localeCompare(b.user.fullName));
+  return rows;
 }
 
 export function pilotLoginDriverByPhone(store: Store, phone: string): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
