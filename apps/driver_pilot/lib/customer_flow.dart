@@ -1027,7 +1027,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     );
   }
 
-  Future<void> _quote() async {
+  Future<void> _fetchQuote() async {
     setState(() => _quoting = true);
     try {
       final w = int.tryParse(_weightKg.text.trim()) ?? 0;
@@ -1200,7 +1200,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(onPressed: _quoting ? null : _quote, child: const Text("Get quote")),
+                child: OutlinedButton(onPressed: _quoting ? null : _fetchQuote, child: const Text("Get quote")),
               ),
               const SizedBox(width: 12),
               Expanded(
