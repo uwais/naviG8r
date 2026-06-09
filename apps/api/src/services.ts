@@ -171,6 +171,29 @@ function assertPilotDriverCanManageOrg(store: Store, userId: string, orgId: stri
   }
 }
 
+function assertCarrierCanInviteStaff(store: Store, userId: string, orgId: string): void {
+  const m = store.memberships.get(membershipKey(userId, orgId));
+  if (!m) throw new Error("membership_not_found");
+  if (m.role !== "OWNER_DRIVER" && m.role !== "OWNER" && m.role !== "DISPATCHER") {
+    throw new Error("forbidden");
+  }
+}
+
+export function carrierDisplayName(store: Store, carrierId: string): string {
+  return store.organizations.get(carrierId)?.displayName ?? carrierId;
+}
+
+export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTrip & { carrierDisplayName: string } {
+  return { ...trip, carrierDisplayName: carrierDisplayName(store, trip.carrierId) };
+}
+
+export function shipmentWithCarrierDisplay(
+  store: Store,
+  shipment: Shipment,
+): Shipment & { carrierDisplayName: string } {
+  return { ...shipment, carrierDisplayName: carrierDisplayName(store, shipment.carrierId) };
+}
+
 export function createCarrier(store: Store, name: string): Carrier {
   const c: Carrier = { id: id("car"), name, createdAtUtcMs: nowUtcMs() };
   store.carriers.set(c.id, c);
@@ -250,17 +273,29 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
  * Minimal customer org bootstrap for pilot bookings (Factories/SMBs).
  * Not used by the Driver app, but defines the API resource shape early.
  */
-/** First CUSTOMER org for this user (stable order if several). */
-export function customerPrimaryOrgForUser(store: Store, userId: string): Organization | null {
+/** All CUSTOMER orgs for this user (stable order). */
+export function customerOrgsForUser(store: Store, userId: string): Organization[] {
   const matches: Organization[] = [];
   for (const m of store.memberships.values()) {
     if (m.userId !== userId) continue;
     const o = store.organizations.get(m.orgId);
     if (o?.kind === "CUSTOMER") matches.push(o);
   }
-  if (matches.length === 0) return null;
   matches.sort((a, b) => a.id.localeCompare(b.id));
-  return matches[0]!;
+  return matches;
+}
+
+/** First CUSTOMER org for this user (stable order if several). Used when booking tags a single org. */
+export function customerPrimaryOrgForUser(store: Store, userId: string): Organization | null {
+  const orgs = customerOrgsForUser(store, userId);
+  return orgs[0] ?? null;
+}
+
+function assertCustomerCanInviteMember(store: Store, userId: string, orgId: string): void {
+  const m = store.memberships.get(membershipKey(userId, orgId));
+  if (!m || m.role !== "CUSTOMER_ADMIN") throw new Error("forbidden");
+  const org = store.organizations.get(orgId);
+  if (org?.kind !== "CUSTOMER") throw new Error("org_not_customer");
 }
 
 export function shipmentBelongsToCustomerOrg(shipment: Shipment, org: Organization): boolean {
@@ -442,8 +477,9 @@ export function revokeOpsAdmin(
 export function shipmentVisibleToCustomerUser(store: Store, shipment: Shipment, userId: string): boolean {
   const user = store.users.get(userId);
   if (!user) return false;
-  const org = customerPrimaryOrgForUser(store, userId);
-  if (org && shipmentBelongsToCustomerOrg(shipment, org)) return true;
+  for (const org of customerOrgsForUser(store, userId)) {
+    if (shipmentBelongsToCustomerOrg(shipment, org)) return true;
+  }
   if (shipment.bookedByPhone != null && shipment.bookedByPhone !== "" && shipment.bookedByPhone === user.phone) {
     return true;
   }
@@ -486,6 +522,85 @@ export function registerCustomerOrgAdmin(store: Store, params: {
   store.memberships.set(membershipKey(user.id, org.id), membership);
 
   return { user, org, membership };
+}
+
+/**
+ * Team member bootstrap: user account only (no org). They sign in with OTP after an admin invites them.
+ */
+export function registerCustomerUser(store: Store, params: {
+  fullName: string;
+  phone: string;
+}): { user: User } {
+  if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
+
+  const phone = normalizeInPhone(params.phone);
+  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  if (dup) throw new Error("phone_already_registered");
+
+  const now = nowUtcMs();
+  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  store.users.set(user.id, user);
+  return { user };
+}
+
+/**
+ * Customer org admin invites an existing user (by phone) to the org as CUSTOMER_MEMBER or CUSTOMER_ADMIN.
+ * Invitee must register first via POST /v1/pilot/customer/users/register (or business register).
+ */
+export function inviteCustomerMember(
+  store: Store,
+  actingUserId: string,
+  params: {
+    orgId: string;
+    phone: string;
+    role?: "CUSTOMER_MEMBER" | "CUSTOMER_ADMIN";
+  },
+): { user: User; membership: Membership; org: Organization } {
+  assertCustomerCanInviteMember(store, actingUserId, params.orgId);
+  const org = getOrgOrThrow(store, params.orgId);
+  if (org.kind !== "CUSTOMER") throw new Error("org_not_customer");
+
+  const phone = normalizeInPhone(params.phone);
+  const user = [...store.users.values()].find((u) => u.phone === phone);
+  if (!user) {
+    throw new ApiError("user_not_found", {
+      detail: "Teammate must register their phone first, then you can invite them to your org.",
+    });
+  }
+
+  const existing = store.memberships.get(membershipKey(user.id, params.orgId));
+  if (existing) {
+    throw new ApiError("membership_already_exists", { role: existing.role });
+  }
+
+  const role = params.role ?? "CUSTOMER_MEMBER";
+  if (role !== "CUSTOMER_MEMBER" && role !== "CUSTOMER_ADMIN") throw new Error("invalid_role");
+
+  const now = nowUtcMs();
+  const membership: Membership = {
+    userId: user.id,
+    orgId: params.orgId,
+    role,
+    createdAtUtcMs: now,
+  };
+  store.memberships.set(membershipKey(user.id, params.orgId), membership);
+  return { user, membership, org };
+}
+
+export function listCustomerOrgMembers(
+  store: Store,
+  actingUserId: string,
+  orgId: string,
+): Array<{ user: User; membership: Membership }> {
+  assertCustomerCanInviteMember(store, actingUserId, orgId);
+  const rows: Array<{ user: User; membership: Membership }> = [];
+  for (const m of store.memberships.values()) {
+    if (m.orgId !== orgId) continue;
+    const user = store.users.get(m.userId);
+    if (user) rows.push({ user, membership: m });
+  }
+  rows.sort((a, b) => a.user.fullName.localeCompare(b.user.fullName));
+  return rows;
 }
 
 export function pilotLoginDriverByPhone(store: Store, phone: string): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
@@ -582,7 +697,9 @@ export function pilotCarrierEarningsSummary(store: Store, userId: string, carrie
     kycStatus: org.kycStatus,
     pendingAccruedPaise,
     paidPaise,
-    bookedCount: shipments.filter((s) => s.status === "BOOKED").length,
+    bookedCount: shipments.filter(
+      (s) => s.status === "PENDING_CARRIER_ACCEPT" || s.status === "BOOKED" || s.status === "PENDING_RELEASE",
+    ).length,
     deliveredCount: shipments.filter((s) => s.status === "DELIVERED").length,
   };
 }
@@ -692,6 +809,12 @@ export function reportAnchorTripLocation(
   },
 ): AnchorTrip {
   const trip = pilotGetMyAnchorTrip(store, userId, tripId);
+  if (trip.status !== "IN_PROGRESS") {
+    throw new ApiError("trip_not_started", {
+      detail: "Mark the load as started before sending live location.",
+      status: trip.status,
+    });
+  }
   const point: GeoPoint = { lat: params.lat, lng: params.lng };
   assertGeoPoint(point, "location");
   const recordedAtUtcMs = params.recordedAtUtcMs ?? nowUtcMs();
@@ -738,10 +861,11 @@ export function getShipmentTripTracking(
   const now = params?.nowUtcMs ?? nowUtcMs();
   const loc = trip.lastLiveLocation ?? null;
   const fresh = isTripLocationLive(loc ?? undefined, now);
-  const isLive = fresh && shipment.status === "BOOKED";
+  const tripStarted = trip.status === "IN_PROGRESS";
+  const isLive = fresh && shipment.status === "BOOKED" && tripStarted;
   return {
-    shipment,
-    trip,
+    shipment: shipmentWithCarrierDisplay(store, shipment),
+    trip: tripWithCarrierDisplay(store, trip),
     liveLocation: loc,
     isLive,
     staleAfterUtcMs: TRIP_TRACKING_STALE_MS,
@@ -1134,7 +1258,7 @@ export function bookShipment(store: Store, params: {
     dropAddress: params.dropAddress,
     pickup: params.pickup,
     drop: params.drop,
-    status: "BOOKED",
+    status: "PENDING_CARRIER_ACCEPT",
     grossPaise,
     commissionPaise,
     netToCarrierPaise,
@@ -1225,6 +1349,145 @@ export function submitDriverPod(
   };
   store.shipments.set(updated.id, updated);
   return updated;
+}
+
+function paymentAuthorizedForCarrierAccept(pay: Payment): boolean {
+  return pay.status === "AUTHORIZED" || (pay.provider === "MOCK" && pay.status === "CAPTURED");
+}
+
+/** Carrier accepts a customer booking (PENDING_CARRIER_ACCEPT → BOOKED). */
+export function acceptCarrierShipment(
+  store: Store,
+  params: { shipmentId: string; userId: string },
+): Shipment {
+  const s = store.shipments.get(params.shipmentId);
+  if (!s) throw new Error("shipment_not_found");
+  if (!shipmentVisibleToCarrierPilot(store, s, params.userId)) {
+    throw new Error("forbidden");
+  }
+  if (s.status !== "PENDING_CARRIER_ACCEPT") {
+    throw new ApiError("shipment_not_acceptable", { status: s.status });
+  }
+  const pay = store.payments.get(s.paymentId);
+  if (!pay) throw new Error("payment_not_found");
+  if (!paymentAuthorizedForCarrierAccept(pay)) {
+    throw new ApiError("checkout_not_completed_for_accept", {
+      detail: "Customer must complete payment authorization before carrier can accept.",
+      status: pay.status,
+    });
+  }
+  const now = nowUtcMs();
+  const updated: Shipment = {
+    ...s,
+    status: "BOOKED",
+    acceptedAtUtcMs: now,
+    acceptedByUserId: params.userId,
+    updatedAtUtcMs: now,
+  };
+  store.shipments.set(updated.id, updated);
+  return updated;
+}
+
+/** Carrier/driver explicitly starts a load (anchor trip → IN_PROGRESS). */
+export function startAnchorTripAsPilot(
+  store: Store,
+  params: { userId: string; tripId: string },
+): AnchorTrip {
+  const trip = pilotGetMyAnchorTrip(store, params.userId, params.tripId);
+  if (trip.status === "IN_PROGRESS") return trip;
+  if (trip.status !== "OPEN" && trip.status !== "FULL") {
+    throw new ApiError("trip_not_startable", { status: trip.status });
+  }
+  const hasAccepted = [...store.shipments.values()].some(
+    (s) => s.anchorTripId === trip.id && s.status === "BOOKED",
+  );
+  if (!hasAccepted) {
+    throw new ApiError("no_accepted_shipments", {
+      detail: "Accept at least one customer booking before starting the trip.",
+    });
+  }
+  const now = nowUtcMs();
+  const updated: AnchorTrip = {
+    ...trip,
+    status: "IN_PROGRESS",
+    startedAtUtcMs: now,
+    startedByUserId: params.userId,
+  };
+  store.anchorTrips.set(updated.id, updated);
+  return updated;
+}
+
+/**
+ * Fleet: link an existing user (by phone) to a carrier org as DRIVER or DISPATCHER.
+ * The invitee must already be registered; owner/dispatcher calls this.
+ */
+export function inviteCarrierDriver(
+  store: Store,
+  actingUserId: string,
+  params: {
+    orgId: string;
+    phone: string;
+    role?: "DRIVER" | "DISPATCHER";
+    vehicleRegistrationNumber: string;
+    vehicleClass: VehicleClass;
+    vehicleCapacityKg: number;
+  },
+): { user: User; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
+  assertCarrierCanInviteStaff(store, actingUserId, params.orgId);
+  const org = getOrgOrThrow(store, params.orgId);
+  if (org.kind !== "CARRIER_SOLO" && org.kind !== "CARRIER_FLEET" && org.kind !== "CARRIER_LEGACY") {
+    throw new Error("org_not_carrier");
+  }
+  const phone = normalizeInPhone(params.phone);
+  const user = [...store.users.values()].find((u) => u.phone === phone);
+  if (!user) {
+    throw new ApiError("user_not_found", {
+      detail: "Driver must register (OTP) before they can be invited to your carrier org.",
+    });
+  }
+  const existing = store.memberships.get(membershipKey(user.id, params.orgId));
+  if (existing) {
+    throw new ApiError("membership_already_exists", { role: existing.role });
+  }
+  const role = params.role ?? "DRIVER";
+  if (role !== "DRIVER" && role !== "DISPATCHER") throw new Error("invalid_role");
+  assertVehicleClass(params.vehicleClass);
+  if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
+  if (!String(params.vehicleRegistrationNumber ?? "").trim()) {
+    throw new Error("invalid_vehicleRegistrationNumber");
+  }
+
+  const now = nowUtcMs();
+  const membership: Membership = {
+    userId: user.id,
+    orgId: params.orgId,
+    role,
+    createdAtUtcMs: now,
+  };
+  const vehicle: Vehicle = {
+    id: id("veh"),
+    orgId: params.orgId,
+    registrationNumber: String(params.vehicleRegistrationNumber).trim(),
+    vehicleClass: params.vehicleClass,
+    capacityKg: params.vehicleCapacityKg,
+    createdAtUtcMs: now,
+  };
+  const driverProfile: DriverProfile = {
+    userId: user.id,
+    orgId: params.orgId,
+    primaryVehicleId: vehicle.id,
+    createdAtUtcMs: now,
+  };
+
+  if (org.kind === "CARRIER_SOLO") {
+    store.organizations.set(params.orgId, { ...org, kind: "CARRIER_FLEET" });
+  }
+
+  store.memberships.set(membershipKey(user.id, params.orgId), membership);
+  store.vehicles.set(vehicle.id, vehicle);
+  store.driverProfiles.set(user.id, driverProfile);
+
+  return { user, membership, vehicle, driverProfile };
 }
 
 /** Ops releases payment after driver POD; captures Razorpay then marks DELIVERED. */
@@ -1393,7 +1656,9 @@ export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: 
 export async function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Promise<Shipment> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
-  if (s.status !== "BOOKED") throw new Error("shipment_not_refundable");
+  if (s.status !== "BOOKED" && s.status !== "PENDING_CARRIER_ACCEPT") {
+    throw new Error("shipment_not_refundable");
+  }
 
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");

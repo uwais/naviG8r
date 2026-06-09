@@ -10,12 +10,14 @@ export type MembershipRole =
   | "DISPATCHER"
   | "DRIVER"
   | "CUSTOMER_ADMIN"
+  | "CUSTOMER_MEMBER"
   | "OPS_ADMIN"
   | "OPS_AGENT";
 
-export type AnchorTripStatus = "OPEN" | "FULL" | "COMPLETED";
+export type AnchorTripStatus = "OPEN" | "FULL" | "IN_PROGRESS" | "COMPLETED";
 
 export type ShipmentStatus =
+  | "PENDING_CARRIER_ACCEPT"
   | "BOOKED"
   | "PENDING_RELEASE"
   | "DELIVERED"
@@ -134,6 +136,9 @@ export type AnchorTrip = {
   reservedKg: number;
   status: AnchorTripStatus;
   createdAtUtcMs: number;
+  /** Set when carrier/driver explicitly starts the load (IN_PROGRESS). */
+  startedAtUtcMs?: number;
+  startedByUserId?: string;
   /** Updated by driver location pings during active trips. */
   lastLiveLocation?: TripLiveLocation;
 };
@@ -157,6 +162,9 @@ export type Shipment = {
   /** Optional location-based drop. */
   drop?: GeoPoint;
   status: ShipmentStatus;
+  /** When carrier accepted the customer booking (PENDING_CARRIER_ACCEPT → BOOKED). */
+  acceptedAtUtcMs?: number;
+  acceptedByUserId?: string;
   // Money in paise
   grossPaise: number;
   commissionPaise: number;
