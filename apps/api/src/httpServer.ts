@@ -4,6 +4,7 @@ import { pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import {
   ApiError,
+  acceptCarrierShipment,
   attachRazorpayOrderForShipment,
   bookShipment,
   confirmRazorpayCheckoutAuthorization,
@@ -12,6 +13,7 @@ import {
   ensureRazorpayCapturedBeforePod,
   failCarrierAndRefund,
   grantOpsAdmin,
+  inviteCarrierDriver,
   isOpsAdmin,
   listOpsAdmins,
   markPodDelivered,
@@ -35,6 +37,9 @@ import {
   pilotListCarrierLedger,
   pilotListCarrierPayoutBatches,
   shipmentVisibleToCarrierPilot,
+  shipmentWithCarrierDisplay,
+  startAnchorTripAsPilot,
+  tripWithCarrierDisplay,
   publishAnchorTrip,
   publishAnchorTripAsPilotDriver,
   quoteShipmentMarketplace,
@@ -470,7 +475,7 @@ export async function createApp(): Promise<{
 
       if (method === "GET" && url.pathname === "/v1/pilot/anchor-trips") {
         const userId = requireUserId(req, store);
-        const trips = pilotListMyAnchorTrips(store, userId);
+        const trips = pilotListMyAnchorTrips(store, userId).map((t) => tripWithCarrierDisplay(store, t));
         return json(res, 200, { trips });
       }
 
@@ -498,8 +503,27 @@ export async function createApp(): Promise<{
         if (parts.length === 4 && parts[0] === "v1" && parts[1] === "pilot" && parts[2] === "anchor-trips") {
           const userId = requireUserId(req, store);
           const tripId = parts[3] ?? "";
-          const trip = pilotGetMyAnchorTrip(store, userId, tripId);
+          const trip = tripWithCarrierDisplay(store, pilotGetMyAnchorTrip(store, userId, tripId));
           return json(res, 200, { trip });
+        }
+      }
+
+      if (method === "POST" && url.pathname.endsWith("/start")) {
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts.length === 5 && parts[0] === "v1" && parts[1] === "pilot" && parts[2] === "anchor-trips") {
+          const userId = requireUserId(req, store);
+          const tripId = parts[3] ?? "";
+          try {
+            const trip = startAnchorTripAsPilot(store, { userId, tripId });
+            await persist();
+            return json(res, 200, { trip: tripWithCarrierDisplay(store, trip) });
+          } catch (e) {
+            if (e instanceof ApiError) {
+              const status = e.httpStatus ?? 400;
+              return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+            }
+            throw e;
+          }
         }
       }
 
@@ -519,7 +543,7 @@ export async function createApp(): Promise<{
           capacityKg: Number(body?.capacityKg ?? 0),
         });
         await persist();
-        return json(res, 201, { trip });
+        return json(res, 201, { trip: tripWithCarrierDisplay(store, trip) });
       }
 
       if (method === "POST" && url.pathname === "/v1/pilot/rates/estimate") {
@@ -537,8 +561,55 @@ export async function createApp(): Promise<{
       if (method === "GET" && url.pathname === "/v1/pilot/carrier/shipments") {
         const userId = requireUserId(req, store);
         const anchorTripId = url.searchParams.get("anchorTripId") ?? undefined;
-        const shipments = pilotListCarrierShipments(store, userId, { anchorTripId });
+        const shipments = pilotListCarrierShipments(store, userId, { anchorTripId }).map((s) =>
+          shipmentWithCarrierDisplay(store, s),
+        );
         return json(res, 200, { shipments });
+      }
+
+      if (method === "POST" && url.pathname.endsWith("/accept")) {
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts.length === 5 && parts[0] === "v1" && parts[1] === "pilot" && parts[2] === "carrier" && parts[3] === "shipments") {
+          const userId = requireUserId(req, store);
+          const shipmentId = parts[4] ?? "";
+          try {
+            const shipment = acceptCarrierShipment(store, { shipmentId, userId });
+            await persist();
+            return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
+          } catch (e) {
+            if (e instanceof ApiError) {
+              const status = e.httpStatus ?? 400;
+              return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+            }
+            const msg = String((e as Error)?.message ?? "");
+            if (msg === "forbidden") return json(res, 403, { error: msg });
+            if (msg === "shipment_not_found") return json(res, 404, { error: msg });
+            throw e;
+          }
+        }
+      }
+
+      if (method === "POST" && url.pathname === "/v1/pilot/carrier/drivers/invite") {
+        const body = await readJson(req);
+        const userId = requireUserId(req, store);
+        try {
+          const out = inviteCarrierDriver(store, userId, {
+            orgId: String(body?.orgId ?? ""),
+            phone: String(body?.phone ?? ""),
+            role: body?.role,
+            vehicleRegistrationNumber: String(body?.vehicleRegistrationNumber ?? ""),
+            vehicleClass: body?.vehicleClass,
+            vehicleCapacityKg: Number(body?.vehicleCapacityKg ?? 0),
+          });
+          await persist();
+          return json(res, 201, out);
+        } catch (e) {
+          if (e instanceof ApiError) {
+            const status = e.httpStatus ?? 400;
+            return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+          }
+          throw e;
+        }
       }
 
       if (method === "GET" && url.pathname === "/v1/pilot/carrier/earnings") {
@@ -585,7 +656,10 @@ export async function createApp(): Promise<{
           pickup: { lat: pickupLat, lng: pickupLng },
           drop: { lat: dropLat, lng: dropLng },
           weightKg,
-        });
+        }).map((row) => ({
+          ...row,
+          trip: tripWithCarrierDisplay(store, row.trip),
+        }));
         return json(res, 200, { trips });
       }
 
@@ -1066,12 +1140,12 @@ export async function createApp(): Promise<{
         if (tripId.length > 0) {
           const trip = store.anchorTrips.get(tripId);
           if (!trip) return json(res, 404, { error: "trip_not_found" });
-          return json(res, 200, { trip });
+          return json(res, 200, { trip: tripWithCarrierDisplay(store, trip) });
         }
       }
 
       if (method === "GET" && url.pathname === "/anchor-trips") {
-        const trips = [...store.anchorTrips.values()];
+        const trips = [...store.anchorTrips.values()].map((t) => tripWithCarrierDisplay(store, t));
         return json(res, 200, { trips });
       }
 
@@ -1094,7 +1168,9 @@ export async function createApp(): Promise<{
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const userId = requireBearerUserId(req, res, store);
         if (!userId) return;
-        const shipments = [...store.shipments.values()].filter((s) => shipmentVisibleToCustomerUser(store, s, userId));
+        const shipments = [...store.shipments.values()]
+          .filter((s) => shipmentVisibleToCustomerUser(store, s, userId))
+          .map((s) => shipmentWithCarrierDisplay(store, s));
         return json(res, 200, { shipments });
       }
 
@@ -1126,7 +1202,10 @@ export async function createApp(): Promise<{
             return json(res, 404, { error: "shipment_not_found" });
           }
           const payment = store.payments.get(shipment.paymentId) ?? null;
-          return json(res, 200, { shipment, payment });
+          return json(res, 200, {
+            shipment: shipmentWithCarrierDisplay(store, shipment),
+            payment,
+          });
         }
       }
 
@@ -1176,7 +1255,10 @@ export async function createApp(): Promise<{
         const pay = store.payments.get(shipment.paymentId) ?? null;
         const rzpKey = publicRazorpayKeyId();
 
-        const bodyOut: Record<string, unknown> = { shipment, payment: pay };
+        const bodyOut: Record<string, unknown> = {
+          shipment: shipmentWithCarrierDisplay(store, shipment),
+          payment: pay,
+        };
         if (razorpayPaymentsEnabled() && rzpKey) bodyOut["razorpayKeyId"] = rzpKey;
         return json(res, 201, bodyOut);
       }

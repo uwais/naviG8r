@@ -20,6 +20,7 @@ String driverShellTitle(String path) {
   if (path == "/driver") return "NaviG8r";
   if (path.startsWith("/driver/shipments")) return "Shipments";
   if (path.startsWith("/driver/loads")) return "Loads";
+  if (path.startsWith("/driver/publish")) return "Publish trip";
   if (path.startsWith("/driver/track")) return "Track";
   if (path.startsWith("/driver/profile")) return "Profile";
   if (path.startsWith("/driver/trip/")) return "Active trip";
@@ -54,6 +55,7 @@ class DriverShell extends StatelessWidget {
     if (path.startsWith("/driver/loads") || path.startsWith("/driver/trip/")) {
       return 2;
     }
+    if (path.startsWith("/driver/publish")) return 3;
     if (path.startsWith("/driver/track")) return 3;
     if (path.startsWith("/driver/profile") ||
         path.startsWith("/driver/earnings") ||
@@ -70,7 +72,7 @@ class DriverShell extends StatelessWidget {
       case 2:
         return "/driver/loads";
       case 3:
-        return "/driver/track";
+        return "/driver/publish";
       case 4:
         return "/driver/profile";
       case 0:
@@ -131,7 +133,11 @@ class DriverShell extends StatelessWidget {
                     selectedIcon: Icon(Icons.local_shipping),
                     label: "Loads",
                   ),
-                  NavigationDestination(icon: Icon(Icons.map_outlined), selectedIcon: Icon(Icons.map), label: "Track"),
+                  NavigationDestination(
+                    icon: Icon(Icons.add_road_outlined),
+                    selectedIcon: Icon(Icons.add_road),
+                    label: "Publish",
+                  ),
                   NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: "Profile"),
                 ],
               )
@@ -164,7 +170,12 @@ class DriverWelcomeScreen extends StatelessWidget {
           const Spacer(),
           FilledButton(
             onPressed: () => context.go("/driver/onboarding/phone"),
-            child: const Text("Get started"),
+            child: const Text("Sign in with phone"),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () => context.go("/driver/onboarding/phone"),
+            child: const Text("Register as new carrier"),
           ),
           const SizedBox(height: 8),
           OutlinedButton(
@@ -467,7 +478,7 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
         for (final s in raw) {
           if (s is Map<String, dynamic>) {
             final st = s["status"]?.toString() ?? "";
-            if (st == "BOOKED" || st == "PENDING_RELEASE") list.add(s);
+            if (st == "PENDING_CARRIER_ACCEPT" || st == "BOOKED" || st == "PENDING_RELEASE") list.add(s);
           }
         }
       }
@@ -476,6 +487,18 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
       setState(() => _error = formatApiError(e));
     } finally {
       setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _acceptShipment(String shipmentId) async {
+    try {
+      await api.post<Map<String, dynamic>>("/v1/pilot/carrier/shipments/$shipmentId/accept");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Booking accepted.")));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
     }
   }
 
@@ -493,7 +516,7 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           const Text(
-            "Active bookings on your carrier — confirm delivery when drop-off is complete.",
+            "Customer bookings — accept new requests, then confirm delivery when drop-off is complete.",
             style: TextStyle(color: DriverTheme.muted),
           ),
           if (_error != null) ...[
@@ -504,12 +527,18 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
           ..._shipments.map((s) {
             final id = s["id"]?.toString() ?? "";
             final st = s["status"]?.toString() ?? "";
+            final stLabel = shipmentStatusLabel(st);
             return Card(
               child: ListTile(
                 title: Text("${s["customerOrgName"]} · ${s["weightKg"]} kg"),
-                subtitle: Text("$st · ${s["pickupAddress"]} → ${s["dropAddress"]}"),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push("/driver/shipment/$id"),
+                subtitle: Text("$stLabel · ${s["pickupAddress"]} → ${s["dropAddress"]}"),
+                trailing: st == "PENDING_CARRIER_ACCEPT"
+                    ? FilledButton(
+                        onPressed: () => _acceptShipment(id),
+                        child: const Text("Accept"),
+                      )
+                    : const Icon(Icons.chevron_right),
+                onTap: st == "PENDING_CARRIER_ACCEPT" ? null : () => context.push("/driver/shipment/$id"),
               ),
             );
           }),
@@ -531,11 +560,27 @@ class DriverShipmentDetailScreen extends StatefulWidget {
 
 class _DriverShipmentDetailScreenState extends State<DriverShipmentDetailScreen> {
   Map<String, dynamic>? _shipment;
+  bool _accepting = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  Future<void> _accept() async {
+    setState(() => _accepting = true);
+    try {
+      await api.post<Map<String, dynamic>>("/v1/pilot/carrier/shipments/${widget.shipmentId}/accept");
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Booking accepted.")));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
+    } finally {
+      if (mounted) setState(() => _accepting = false);
+    }
   }
 
   Future<void> _load() async {
@@ -567,12 +612,19 @@ class _DriverShipmentDetailScreenState extends State<DriverShipmentDetailScreen>
         children: [
           Text(s["customerOrgName"]?.toString() ?? "", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: DriverTheme.navy)),
           const SizedBox(height: 8),
-          Text("Status: $st", style: const TextStyle(color: DriverTheme.muted)),
+          Text("Status: ${shipmentStatusLabel(st)}", style: const TextStyle(color: DriverTheme.muted)),
           const SizedBox(height: 12),
           Text("Pickup: ${s["pickupAddress"]}"),
           Text("Drop: ${s["dropAddress"]}"),
           Text("Net to carrier: ${formatInrFromPaise(s["netToCarrierPaise"] as num? ?? 0)}"),
           const Spacer(),
+          if (st == "PENDING_CARRIER_ACCEPT")
+            FilledButton(
+              onPressed: _accepting ? null : _accept,
+              child: _accepting
+                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text("Accept booking"),
+            ),
           if (st == "BOOKED")
             FilledButton(
               onPressed: () => context.push("/driver/shipment/${widget.shipmentId}/pod"),
@@ -599,7 +651,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   String? _error;
   /// API `vehicleClass`: All | SMALL | MEDIUM | LARGE
   String _vehicleClass = "All";
-  /// API `status`: All | OPEN | FULL | COMPLETED
+  /// API `status`: All | OPEN | FULL | IN_PROGRESS | COMPLETED
   String _status = "All";
 
   Future<void> _load() async {
@@ -633,14 +685,28 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
 
   int _statusRank(String status) {
     switch (status) {
-      case "OPEN":
+      case "IN_PROGRESS":
         return 0;
-      case "FULL":
+      case "OPEN":
         return 1;
-      case "COMPLETED":
+      case "FULL":
         return 2;
-      default:
+      case "COMPLETED":
         return 3;
+      default:
+        return 4;
+    }
+  }
+
+  Future<void> _startTrip(String tripId) async {
+    try {
+      await api.post<Map<String, dynamic>>("/v1/pilot/anchor-trips/$tripId/start");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Load started — live tracking enabled.")));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
     }
   }
 
@@ -680,22 +746,13 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   }
 
   String _statusChipLabel(String apiValue) {
-    switch (apiValue) {
-      case "OPEN":
-        return "Open";
-      case "FULL":
-        return "Full";
-      case "COMPLETED":
-        return "Done";
-      default:
-        return apiValue;
-    }
+    return tripStatusLabel(apiValue);
   }
 
   String _loadsSummary() {
     final org = DriverSession.carrierOrgName ?? "Your carrier";
     if (_trips.isEmpty) {
-      return "$org · No anchor trips · publish from Profile";
+      return "$org · No anchor trips · tap Publish to add a lane";
     }
     final open = _trips.where((t) => t["status"] == "OPEN").length;
     final full = _trips.where((t) => t["status"] == "FULL").length;
@@ -762,7 +819,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: ["All", "OPEN", "FULL", "COMPLETED"].map((value) {
+                children: ["All", "IN_PROGRESS", "OPEN", "FULL", "COMPLETED"].map((value) {
                   final active = _status == value;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
@@ -788,7 +845,13 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
                 padding: EdgeInsets.only(top: 24),
                 child: Text("No trips match these filters.", style: TextStyle(color: DriverTheme.muted)),
               ),
-            ..._filtered.map((t) => _LoadCard(trip: t, onView: () => context.push("/driver/trip/${t["id"]}/active"))),
+            ..._filtered.map(
+              (t) => _LoadCard(
+                trip: t,
+                onView: () => context.push("/driver/trip/${t["id"]}/active"),
+                onStart: () => _startTrip(t["id"]?.toString() ?? ""),
+              ),
+            ),
             const SizedBox(height: 24),
           ],
         ),
@@ -797,10 +860,11 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
 }
 
 class _LoadCard extends StatelessWidget {
-  const _LoadCard({required this.trip, required this.onView});
+  const _LoadCard({required this.trip, required this.onView, required this.onStart});
 
   final Map<String, dynamic> trip;
   final VoidCallback onView;
+  final VoidCallback onStart;
 
   @override
   Widget build(BuildContext context) {
@@ -812,20 +876,8 @@ class _LoadCard extends StatelessWidget {
     final vClass = trip["vehicleClass"]?.toString() ?? "";
     final hasBookings = res > 0;
 
-    String statusLabel;
-    switch (status) {
-      case "OPEN":
-        statusLabel = "Open";
-        break;
-      case "FULL":
-        statusLabel = "Full";
-        break;
-      case "COMPLETED":
-        statusLabel = "Done";
-        break;
-      default:
-        statusLabel = status;
-    }
+    final statusLabel = tripStatusLabel(status);
+    final canStart = hasBookings && status != "IN_PROGRESS" && status != "COMPLETED";
 
     final tags = <Widget>[
       Chip(label: Text(statusLabel), visualDensity: VisualDensity.compact),
@@ -868,9 +920,13 @@ class _LoadCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (canStart) ...[
+                  OutlinedButton(onPressed: onStart, child: const Text("Start")),
+                  const SizedBox(width: 8),
+                ],
                 FilledButton(
                   onPressed: onView,
-                  child: Text(hasBookings ? "Track" : "View"),
+                  child: Text(status == "IN_PROGRESS" ? "Track" : hasBookings ? "View" : "View"),
                 ),
               ],
             ),
@@ -996,7 +1052,7 @@ class DriverProfileScreen extends StatelessWidget {
         ListTile(
           leading: const Icon(Icons.add_road, color: DriverTheme.navy),
           title: const Text("Publish anchor trip"),
-          onTap: () => context.go("/publish"),
+          onTap: () => context.go("/driver/publish"),
         ),
         ListTile(
           leading: const Icon(Icons.logout, color: DriverTheme.navy),
@@ -1030,6 +1086,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   LatLng? _geocodedDest;
   String? _error;
   bool _loading = true;
+  bool _starting = false;
 
   @override
   void initState() {
@@ -1055,7 +1112,36 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     });
   }
 
+  Future<void> _acceptOnTrip(String shipmentId) async {
+    try {
+      await api.post<Map<String, dynamic>>("/v1/pilot/carrier/shipments/$shipmentId/accept");
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Booking accepted.")));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
+    }
+  }
+
+  Future<void> _startTrip() async {
+    setState(() => _starting = true);
+    try {
+      final r = await api.post<Map<String, dynamic>>("/v1/pilot/anchor-trips/${widget.tripId}/start");
+      final t = r.data?["trip"];
+      if (t is Map<String, dynamic>) setState(() => _trip = t);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Load started.")));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
   Future<void> _maybePostLocation(Position p) async {
+    if (_trip?["status"]?.toString() != "IN_PROGRESS") return;
     final now = DateTime.now();
     if (_lastLocationPostAt != null && now.difference(_lastLocationPostAt!) < const Duration(seconds: 30)) {
       return;
@@ -1160,8 +1246,18 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   @override
   Widget build(BuildContext context) {
     final trip = _trip;
+    final tripStatus = trip?["status"]?.toString() ?? "";
+    final tripStarted = tripStatus == "IN_PROGRESS";
+    final hasAccepted = _shipments.any((s) => s["status"]?.toString() == "BOOKED");
     final pts = _resolvedMapPoints();
-    final next = _shipments.isNotEmpty ? _shipments.first : null;
+    Map<String, dynamic>? next;
+    for (final s in _shipments) {
+      if (s["status"]?.toString() == "BOOKED") {
+        next = s;
+        break;
+      }
+    }
+    next ??= _shipments.isNotEmpty ? _shipments.first : null;
     return _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -1184,7 +1280,32 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                     padding: const EdgeInsets.all(16),
                     children: [
                       if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
-                      const Text("Trip in progress", style: TextStyle(color: DriverTheme.muted, fontWeight: FontWeight.w600)),
+                      Text(
+                        tripStarted ? "Load in progress" : "Load not started",
+                        style: const TextStyle(color: DriverTheme.muted, fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        "Status: ${tripStatusLabel(tripStatus)}",
+                        style: const TextStyle(color: DriverTheme.muted, fontSize: 13),
+                      ),
+                      if (!tripStarted && hasAccepted) ...[
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: _starting ? null : _startTrip,
+                          child: _starting
+                              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Text("Start load"),
+                        ),
+                      ],
+                      if (!tripStarted && !hasAccepted)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text(
+                            "Accept customer bookings on Shipments before starting.",
+                            style: TextStyle(color: DriverTheme.muted, fontSize: 13),
+                          ),
+                        ),
+                      const SizedBox(height: 8),
                       Text(
                         next != null ? "Next pickup: ${next["pickupAddress"]}" : "No shipments on this trip yet",
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: DriverTheme.navy),
@@ -1196,8 +1317,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                         return Card(
                           child: ListTile(
                             title: Text("${s["customerOrgName"]} · ${s["weightKg"]}kg"),
-                            subtitle: Text("$st · ${formatInrFromPaise(s["netToCarrierPaise"] as num? ?? 0)} net"),
-                            trailing: st == "BOOKED"
+                            subtitle: Text("${shipmentStatusLabel(st)} · ${formatInrFromPaise(s["netToCarrierPaise"] as num? ?? 0)} net"),
+                            trailing: st == "PENDING_CARRIER_ACCEPT"
+                                ? TextButton(onPressed: () => _acceptOnTrip(id), child: const Text("Accept"))
+                                : st == "BOOKED"
                                 ? TextButton(
                                     onPressed: () => context.push("/driver/shipment/$id/pod"),
                                     child: const Text("Confirm delivery"),
@@ -1530,6 +1653,150 @@ class _DriverPayoutHistoryScreenState extends State<DriverPayoutHistoryScreen> {
   }
 }
 
+class DriverPublishTripScreen extends StatefulWidget {
+  const DriverPublishTripScreen({super.key});
+
+  @override
+  State<DriverPublishTripScreen> createState() => _DriverPublishTripScreenState();
+}
+
+class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
+  final _origin = TextEditingController(text: "Gurugram, Haryana");
+  final _dest = TextEditingController(text: "Jaipur, Rajasthan");
+  LatLng _originPos = const LatLng(28.4595, 77.0266);
+  LatLng _destPos = const LatLng(26.9124, 75.7873);
+  final _w1 = TextEditingController();
+  final _w2 = TextEditingController();
+  final _vehClass = TextEditingController(text: "MEDIUM");
+  final _cap = TextEditingController(text: "1000");
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    defaultAnchorTripWindow(_w1, _w2);
+    DriverSession.refresh();
+  }
+
+  @override
+  void dispose() {
+    _origin.dispose();
+    _dest.dispose();
+    _w1.dispose();
+    _w2.dispose();
+    _vehClass.dispose();
+    _cap.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      await DriverSession.refresh();
+      final orgId = DriverSession.carrierOrgId;
+      if (orgId == null || orgId.isEmpty) {
+        setState(() => _error = "Sign in and complete carrier registration first.");
+        return;
+      }
+      final cap = int.tryParse(_cap.text.trim()) ?? 0;
+      if (cap <= 0) {
+        setState(() => _error = "capacityKg must be a positive number.");
+        return;
+      }
+      final vc = _vehClass.text.trim().toUpperCase();
+      if (vc != "SMALL" && vc != "MEDIUM" && vc != "LARGE") {
+        setState(() => _error = "vehicleClass must be SMALL, MEDIUM, or LARGE.");
+        return;
+      }
+      await api.post<Map<String, dynamic>>(
+        "/v1/pilot/anchor-trips",
+        data: {
+          "orgId": orgId,
+          "originCity": _origin.text.trim(),
+          "destCity": _dest.text.trim(),
+          "origin": {"lat": _originPos.latitude, "lng": _originPos.longitude, "label": _origin.text.trim()},
+          "destination": {"lat": _destPos.latitude, "lng": _destPos.longitude, "label": _dest.text.trim()},
+          "windowStart": _w1.text.trim(),
+          "windowEnd": _w2.text.trim(),
+          "vehicleClass": vc,
+          "capacityKg": cap,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Trip published.")));
+      context.go("/driver/loads");
+    } catch (e) {
+      setState(() => _error = formatApiError(e));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          DriverSession.carrierOrgName ?? "Your carrier",
+          style: const TextStyle(fontWeight: FontWeight.w700, color: DriverTheme.navy, fontSize: 18),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          "Publish an anchor lane customers can book against. Set origin and destination on the map.",
+          style: TextStyle(color: DriverTheme.muted, height: 1.35),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: () => setState(() => defaultAnchorTripWindow(_w1, _w2)),
+          icon: const Icon(Icons.schedule),
+          label: const Text("Reset pickup window (today–tomorrow, IST)"),
+        ),
+        const SizedBox(height: 12),
+        LocationEndpointEditor(
+          title: "Origin",
+          hint: "Origin city or area",
+          labelController: _origin,
+          markerId: "pub_origin",
+          markerHue: BitmapDescriptor.hueOrange,
+          position: _originPos,
+          onPositionChanged: (p) => setState(() => _originPos = p),
+        ),
+        const SizedBox(height: 16),
+        LocationEndpointEditor(
+          title: "Destination",
+          hint: "Destination city or area",
+          labelController: _dest,
+          markerId: "pub_dest",
+          markerHue: BitmapDescriptor.hueAzure,
+          position: _destPos,
+          onPositionChanged: (p) => setState(() => _destPos = p),
+        ),
+        const SizedBox(height: 12),
+        TextField(controller: _w1, decoration: const InputDecoration(labelText: "windowStart (ISO)")),
+        TextField(controller: _w2, decoration: const InputDecoration(labelText: "windowEnd (ISO)")),
+        TextField(controller: _vehClass, decoration: const InputDecoration(labelText: "vehicleClass (SMALL|MEDIUM|LARGE)")),
+        TextField(controller: _cap, decoration: const InputDecoration(labelText: "capacityKg"), keyboardType: TextInputType.number),
+        if (_error != null) ...[
+          const SizedBox(height: 8),
+          Text(_error!, style: const TextStyle(color: Colors.red)),
+        ],
+        const SizedBox(height: 16),
+        FilledButton(
+          onPressed: _submitting ? null : _submit,
+          child: _submitting
+              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text("Publish trip"),
+        ),
+      ],
+    );
+  }
+}
+
 /// Driver navigation uses [ShellRoute] so the bottom nav stays mounted.
 ///
 /// Alternatives considered:
@@ -1569,6 +1836,7 @@ List<RouteBase> driverFlowRoutes() {
               ],
             ),
             GoRoute(path: "loads", builder: (_, __) => const DriverLoadsScreen()),
+            GoRoute(path: "publish", builder: (_, __) => const DriverPublishTripScreen()),
             GoRoute(path: "track", builder: (_, __) => const DriverTrackScreen()),
             GoRoute(path: "profile", builder: (_, __) => const DriverProfileScreen()),
             GoRoute(

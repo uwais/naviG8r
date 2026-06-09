@@ -1140,10 +1140,11 @@ class _CustomerBrowseTripsScreenState extends State<CustomerBrowseTripsScreen> {
             ..._trips.map((t) {
               final id = t["id"]?.toString() ?? "—";
               final route = "${t["originCity"]} → ${t["destCity"]}";
-              final status = t["status"]?.toString() ?? "—";
+              final status = tripStatusLabel(t["status"]?.toString() ?? "—");
+              final carrier = t["carrierDisplayName"]?.toString() ?? "Carrier";
               final cap = t["capacityKg"];
               final res = t["reservedKg"];
-              final isBookable = status == "OPEN";
+              final isBookable = t["status"]?.toString() == "OPEN";
               return Card(
                 margin: const EdgeInsets.only(top: 12),
                 child: Padding(
@@ -1162,16 +1163,7 @@ class _CustomerBrowseTripsScreenState extends State<CustomerBrowseTripsScreen> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Expanded(child: Text("id: $id", style: Theme.of(context).textTheme.bodySmall)),
-                          IconButton(
-                            tooltip: "Copy trip id",
-                            onPressed: id == "—" ? null : () => _copyToClipboard(context, "trip id", id),
-                            icon: const Icon(Icons.copy, size: 18),
-                          ),
-                        ],
-                      ),
+                      Text("Carrier: $carrier", style: Theme.of(context).textTheme.bodyMedium),
                       const SizedBox(height: 8),
                       Text("$status · capacity ${cap}kg (reserved ${res}kg)"),
                       const SizedBox(height: 8),
@@ -1319,6 +1311,7 @@ class _CustomerEligibleTripsScreenState extends State<CustomerEligibleTripsScree
             if (trip is! Map<String, dynamic> || elig is! Map<String, dynamic>) return const SizedBox.shrink();
             final id = trip["id"]?.toString() ?? "—";
             final route = "${trip["originCity"]} → ${trip["destCity"]}";
+            final carrier = trip["carrierDisplayName"]?.toString() ?? "Carrier";
             final eligible = elig["eligible"] == true;
             final reason = elig["reason"]?.toString() ?? "—";
             final pickupKm = elig["pickupDistanceKm"]?.toString() ?? "—";
@@ -1338,7 +1331,7 @@ class _CustomerEligibleTripsScreenState extends State<CustomerEligibleTripsScree
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text("id: $id", style: Theme.of(context).textTheme.bodySmall),
+                    Text("Carrier: $carrier", style: Theme.of(context).textTheme.bodyMedium),
                     Text("reason: $reason · pickup ${pickupKm}km · drop ${dropKm}km", style: Theme.of(context).textTheme.bodySmall),
                     const SizedBox(height: 8),
                     FilledButton.icon(
@@ -1716,7 +1709,12 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      "status ${_anchorTrip!["status"]} · ${_anchorTrip!["vehicleClass"]} · "
+                      "Carrier: ${_anchorTrip!["carrierDisplayName"] ?? "—"}",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "${tripStatusLabel(_anchorTrip!["status"]?.toString() ?? "")} · ${_anchorTrip!["vehicleClass"]} · "
                       "capacity ${_anchorTrip!["capacityKg"]}kg (reserved ${_anchorTrip!["reservedKg"]}kg)",
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
@@ -1926,9 +1924,9 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
             ],
             ..._shipments.map((s) {
               final id = s["id"]?.toString() ?? "—";
-              final status = s["status"]?.toString() ?? "—";
-              final org = s["customerOrgName"]?.toString() ?? "—";
-              final tripId = s["anchorTripId"]?.toString() ?? "—";
+              final status = shipmentStatusLabel(s["status"]?.toString() ?? "—");
+              final carrier = s["carrierDisplayName"]?.toString() ?? "Carrier";
+              final route = "${s["pickupAddress"]} → ${s["dropAddress"]}";
               return Card(
                 margin: const EdgeInsets.only(top: 12),
                 child: InkWell(
@@ -1938,10 +1936,10 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text("Shipment $id", style: Theme.of(context).textTheme.titleMedium),
+                        Text(carrier, style: Theme.of(context).textTheme.titleMedium),
                         const SizedBox(height: 4),
-                        Text("$status · $org", style: Theme.of(context).textTheme.bodySmall),
-                        Text("anchorTripId: $tripId", style: Theme.of(context).textTheme.bodySmall),
+                        Text("$status · ${s["weightKg"]} kg", style: Theme.of(context).textTheme.bodySmall),
+                        Text(route, style: Theme.of(context).textTheme.bodySmall),
                       ],
                     ),
                   ),
@@ -2086,10 +2084,10 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
                 ),
               const SizedBox(height: 8),
               Text(
-                _isLive
+                    _isLive
                     ? "Driver location updates every ~30s while the trip is in progress."
-                    : _shipment!["status"] == "BOOKED"
-                        ? "Waiting for driver GPS — open the driver app on an active trip."
+                    : _shipment!["status"] == "BOOKED" || _shipment!["status"] == "PENDING_CARRIER_ACCEPT"
+                        ? "Live tracking starts after the carrier accepts and starts the load."
                         : "Live tracking ends after delivery is confirmed.",
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -2101,10 +2099,16 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("status: ${_shipment!["status"]}"),
-                    Text("customerOrgName: ${_shipment!["customerOrgName"]}"),
-                    Text("anchorTripId: ${_shipment!["anchorTripId"]}"),
-                    Text("weightKg: ${_shipment!["weightKg"]}"),
+                    Text("Carrier: ${_shipment!["carrierDisplayName"] ?? "—"}", style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 6),
+                    Text("Status: ${shipmentStatusLabel(_shipment!["status"]?.toString() ?? "")}"),
+                    Text("Your org: ${_shipment!["customerOrgName"]}"),
+                    Text("Weight: ${_shipment!["weightKg"]} kg"),
+                    if (_trip != null)
+                      Text(
+                        "Lane: ${_trip!["originCity"]} → ${_trip!["destCity"]} (${tripStatusLabel(_trip!["status"]?.toString() ?? "")})",
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     const SizedBox(height: 8),
                     Text("pickup: ${_shipment!["pickupAddress"]}", style: Theme.of(context).textTheme.bodySmall),
                     Text("drop: ${_shipment!["dropAddress"]}", style: Theme.of(context).textTheme.bodySmall),

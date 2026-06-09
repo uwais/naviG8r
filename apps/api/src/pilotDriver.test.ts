@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import {
+  acceptCarrierShipment,
   ApiError,
   bookShipment,
   computeFreightGrossPaise,
@@ -57,7 +58,9 @@ test("pilot solo driver can register, publish trip, and shipments reference org 
   });
   assert.equal(shipment.grossPaise, 200 * 500);
   assert.equal(shipment.carrierId, onboard.org.id);
+  assert.equal(shipment.status, "PENDING_CARRIER_ACCEPT");
 
+  acceptCarrierShipment(store, { shipmentId: shipment.id, userId: onboard.user.id });
   const pod = markPodDelivered(store, { shipmentId: shipment.id });
   assert.equal(pod.ledgerLine.carrierId, onboard.org.id);
 });

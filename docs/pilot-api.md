@@ -35,6 +35,8 @@ The API keeps an in-memory **`Store`** and persists it either to **`DATA_FILE`**
 - `Membership` (user ↔ org, role)
 - `Vehicle` (owned by org)
 - `DriverProfile` (pilot assumes **one profile per user**)
+- Shipment lifecycle: `PENDING_CARRIER_ACCEPT` (customer booked) → carrier **accept** → `BOOKED` → driver POD → `PENDING_RELEASE` → ops release → `DELIVERED`
+- Anchor trip lifecycle: `OPEN` / `FULL` → carrier **start** → `IN_PROGRESS` (enables live GPS to customers)
 - `OtpChallenge` / `AuthSession` (pilot login)
 - `Payment`: `provider` **`MOCK` | `RAZORPAY`**, **`status`** `CREATED` → `AUTHORIZED` → `CAPTURED` (or `FAILED` / `REFUNDED`), **`razorpayOrderId`** / **`razorpayPaymentId`** when applicable
 
@@ -145,7 +147,7 @@ Body:
 ```
 
 #### `GET /shipments/:shipmentId/tracking`
-Customer (or ops / carrier driver on that trip) live tracking. Requires Bearer. Returns `{ shipment, trip, liveLocation, isLive, staleAfterUtcMs }`. **`isLive`** is true only when the shipment is **`BOOKED`** and the driver ping is fresher than 15 minutes (`TRIP_TRACKING_STALE_MS`).
+Customer (or ops / carrier driver on that trip) live tracking. Requires Bearer. Returns `{ shipment, trip, liveLocation, isLive, staleAfterUtcMs }` (shipment/trip include **`carrierDisplayName`**). **`isLive`** is true only when the shipment is **`BOOKED`**, the anchor trip is **`IN_PROGRESS`**, and the driver ping is fresher than 15 minutes (`TRIP_TRACKING_STALE_MS`).
 
 #### `POST /v1/pilot/anchor-trips`
 Headers:
@@ -163,6 +165,15 @@ Body:
   "capacityKg": 1000
 }
 ```
+
+#### `POST /v1/pilot/anchor-trips/:tripId/start`
+Carrier explicitly starts a load (`OPEN`/`FULL` → `IN_PROGRESS`). Requires at least one **`BOOKED`** shipment on the trip (carrier must accept bookings first). Enables GPS pings and customer live tracking.
+
+#### `POST /v1/pilot/carrier/shipments/:shipmentId/accept`
+Carrier accepts a customer booking (`PENDING_CARRIER_ACCEPT` → `BOOKED`). Payment must be authorized (or MOCK captured).
+
+#### `POST /v1/pilot/carrier/drivers/invite`
+Fleet: owner/dispatcher invites an **existing** user (by phone) to the carrier org as `DRIVER` or `DISPATCHER`, provisions a vehicle + driver profile, and upgrades `CARRIER_SOLO` → `CARRIER_FLEET` when applicable.
 
 #### `POST /v1/pilot/rates/estimate`
 Pilot-only (Bearer token; user must belong to a **carrier** org). Advisory lane pricing samples for publishing — does **not** persist a trip rate.

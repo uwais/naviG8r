@@ -131,3 +131,56 @@ String formatInrFromPaise(num paise) {
   if (rupees == rupees.roundToDouble()) return "₹${rupees.toStringAsFixed(0)}";
   return "₹${rupees.toStringAsFixed(2)}";
 }
+
+String formatIstIsoFromUtc(DateTime utc) {
+  final ist = utc.add(const Duration(hours: 5, minutes: 30));
+  final y = ist.year;
+  final m = ist.month.toString().padLeft(2, "0");
+  final d = ist.day.toString().padLeft(2, "0");
+  final h = ist.hour.toString().padLeft(2, "0");
+  final min = ist.minute.toString().padLeft(2, "0");
+  final s = ist.second.toString().padLeft(2, "0");
+  return "$y-$m-${d}T$h:$min:$s+05:30";
+}
+
+void defaultAnchorTripWindow(TextEditingController w1, TextEditingController w2) {
+  final utc = DateTime.now().toUtc();
+  final istNow = utc.add(const Duration(hours: 5, minutes: 30));
+  final y = istNow.year;
+  final m = istNow.month;
+  final d = istNow.day;
+  final startUtc = DateTime.utc(y, m, d).subtract(const Duration(hours: 5, minutes: 30));
+  final endUtc = DateTime.utc(y, m, d + 2).subtract(const Duration(hours: 5, minutes: 30)).subtract(const Duration(seconds: 1));
+  w1.text = formatIstIsoFromUtc(startUtc);
+  w2.text = formatIstIsoFromUtc(endUtc);
+}
+
+String shipmentStatusLabel(String status) {
+  switch (status) {
+    case "PENDING_CARRIER_ACCEPT":
+      return "Awaiting carrier acceptance";
+    case "BOOKED":
+      return "Accepted";
+    case "PENDING_RELEASE":
+      return "Awaiting ops release";
+    case "DELIVERED":
+      return "Delivered";
+    default:
+      return status;
+  }
+}
+
+String tripStatusLabel(String status) {
+  switch (status) {
+    case "OPEN":
+      return "Open";
+    case "FULL":
+      return "Full";
+    case "IN_PROGRESS":
+      return "In progress";
+    case "COMPLETED":
+      return "Done";
+    default:
+      return status;
+  }
+}
