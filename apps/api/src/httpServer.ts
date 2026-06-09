@@ -572,7 +572,14 @@ export async function createApp(): Promise<{
 
       if (method === "POST" && url.pathname.endsWith("/accept")) {
         const parts = url.pathname.split("/").filter(Boolean);
-        if (parts.length === 5 && parts[0] === "v1" && parts[1] === "pilot" && parts[2] === "carrier" && parts[3] === "shipments") {
+        if (
+          parts.length === 6 &&
+          parts[0] === "v1" &&
+          parts[1] === "pilot" &&
+          parts[2] === "carrier" &&
+          parts[3] === "shipments" &&
+          parts[5] === "accept"
+        ) {
           const userId = requireUserId(req, store);
           const shipmentId = parts[4] ?? "";
           try {
