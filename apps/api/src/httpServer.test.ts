@@ -119,6 +119,79 @@ test("POST /shipments/:id/driver-pod requires authenticated user", async (t) => 
   });
 });
 
+test("POST /v1/pilot/carrier/shipments/:id/accept accepts pending booking", async (t) => {
+  const prev = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    ALLOW_X_USER_ID: process.env.ALLOW_X_USER_ID,
+  };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+    process.env.ALLOW_X_USER_ID = prev.ALLOW_X_USER_ID;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "test";
+  process.env.ALLOW_X_USER_ID = "1";
+
+  async function authedPost(baseUrl: string, path: string, userId: string, body: unknown): Promise<Response> {
+    return fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-id": userId },
+      body: JSON.stringify(body),
+    });
+  }
+
+  await withApp(t, async (baseUrl) => {
+    const reg = await postJson(baseUrl, "/v1/pilot/driver/register", {
+      fullName: "Ravi Kumar",
+      phone: "9876543210",
+      orgDisplayName: "Ravi Transport",
+      vehicleRegistrationNumber: "HR26AB1234",
+      vehicleClass: "MEDIUM",
+      vehicleCapacityKg: 5000,
+    });
+    assert.equal(reg.status, 201);
+    const onboard = (await reg.json()) as { user: { id: string }; org: { id: string } };
+    const userId = onboard.user.id;
+
+    const tripRes = await authedPost(baseUrl, "/v1/pilot/anchor-trips", userId, {
+      orgId: onboard.org.id,
+      originCity: "Gurugram",
+      destCity: "Jaipur",
+      windowStart: "2026-04-24T00:00:00+05:30",
+      windowEnd: "2026-04-25T23:59:59+05:30",
+      vehicleClass: "MEDIUM",
+      capacityKg: 1000,
+    });
+    assert.equal(tripRes.status, 201);
+    const tripBody = (await tripRes.json()) as { trip: { id: string } };
+
+    const book = await postJson(baseUrl, "/shipments/book", {
+      anchorTripId: tripBody.trip.id,
+      customerOrgName: "ACME Manufacturing",
+      weightKg: 200,
+      pickupAddress: "Sector 44, Gurugram",
+      dropAddress: "Sitapura, Jaipur",
+    });
+    assert.equal(book.status, 201);
+    const shipment = (await book.json()) as { shipment: { id: string; status: string } };
+    assert.equal(shipment.shipment.status, "PENDING_CARRIER_ACCEPT");
+
+    const accept = await authedPost(
+      baseUrl,
+      `/v1/pilot/carrier/shipments/${shipment.shipment.id}/accept`,
+      userId,
+      {},
+    );
+    const acceptText = await accept.text();
+    assert.equal(accept.status, 200, acceptText);
+    const accepted = JSON.parse(acceptText) as { shipment: { status: string } };
+    assert.equal(accepted.shipment.status, "BOOKED");
+  });
+});
+
 test("GET /ops returns ops portal HTML", async (t) => {
   const prev = { DATA_FILE: process.env.DATA_FILE };
   t.after(() => {

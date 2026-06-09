@@ -8,6 +8,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 import "package:go_router/go_router.dart";
 
 import "customer_flow.dart";
+import "customer_session.dart";
 import "driver_flow.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
@@ -73,6 +74,7 @@ class DriverPilotApp extends StatelessWidget {
     final router = GoRouter(
       navigatorKey: _rootNavigatorKey,
       initialLocation: "/driver",
+      refreshListenable: CustomerSession.listenable,
       routes: [
         ...driverFlowRoutes(),
         ...customerFlowRoutes(),
@@ -594,7 +596,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return CustomerScaffold(
         title: "Sign in (OTP)",
         currentPath: loc.isEmpty ? "/login" : loc,
-        body: body,
+        bodyBuilder: (_) => body,
       );
     }
 

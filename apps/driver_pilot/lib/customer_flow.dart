@@ -12,6 +12,13 @@ import "pilot_api.dart";
 
 String? lastBookedShipmentId;
 
+Future<void> signOutCustomer(BuildContext context, {String? redirectTo}) async {
+  await CustomerSession.signOut();
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Signed out.")));
+  context.go(redirectTo ?? "/customer/login");
+}
+
 List<RouteBase> customerFlowRoutes() {
   return [
     GoRoute(
@@ -42,13 +49,13 @@ class CustomerScaffold extends StatelessWidget {
   const CustomerScaffold({
     required this.title,
     required this.currentPath,
-    required this.body,
+    required this.bodyBuilder,
     super.key,
   });
 
   final String title;
   final String currentPath;
-  final Widget body;
+  final WidgetBuilder bodyBuilder;
 
   int _indexForPath(String path) {
     if (path.startsWith("/customer/trips") || path.startsWith("/customer/eligible")) return 1;
@@ -73,44 +80,55 @@ class CustomerScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selected = _indexForPath(currentPath);
-    final session = CustomerSession.isSignedIn
-        ? "${CustomerSession.userFullName ?? "Signed in"} · ${CustomerSession.userPhone ?? ""}"
-        : null;
+    return ListenableBuilder(
+      listenable: CustomerSession.listenable,
+      builder: (context, _) {
+        final selected = _indexForPath(currentPath);
+        final session = CustomerSession.isSignedIn
+            ? "${CustomerSession.userFullName ?? "Signed in"} · ${CustomerSession.userPhone ?? ""}"
+            : null;
 
-    return Scaffold(
-      backgroundColor: DriverTheme.background,
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 20)),
-            if (session != null)
-              Text(session, style: const TextStyle(fontSize: 11, color: DriverTheme.muted, fontWeight: FontWeight.w400)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: "Switch to driver",
-            onPressed: () => context.go("/driver"),
-            icon: const Icon(Icons.local_shipping_outlined),
+        return Scaffold(
+          backgroundColor: DriverTheme.background,
+          appBar: AppBar(
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 20)),
+                if (session != null)
+                  Text(session, style: const TextStyle(fontSize: 11, color: DriverTheme.muted, fontWeight: FontWeight.w400)),
+              ],
+            ),
+            actions: [
+              if (CustomerSession.isSignedIn)
+                IconButton(
+                  tooltip: "Sign out",
+                  onPressed: () => signOutCustomer(context),
+                  icon: const Icon(Icons.logout),
+                ),
+              IconButton(
+                tooltip: "Switch to driver",
+                onPressed: () => context.go("/driver"),
+                icon: const Icon(Icons.local_shipping_outlined),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: SafeArea(child: body),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selected,
-        onDestinationSelected: (index) {
-          final target = _pathForIndex(index);
-          if (target != currentPath) context.go(target);
-        },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: "Home"),
-          NavigationDestination(icon: Icon(Icons.travel_explore_outlined), selectedIcon: Icon(Icons.travel_explore), label: "Trips"),
-          NavigationDestination(icon: Icon(Icons.shopping_cart_outlined), selectedIcon: Icon(Icons.shopping_cart), label: "Book"),
-          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: "Shipments"),
-        ],
-      ),
+          body: SafeArea(child: bodyBuilder(context)),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: selected,
+            onDestinationSelected: (index) {
+              final target = _pathForIndex(index);
+              if (target != currentPath) context.go(target);
+            },
+            destinations: const [
+              NavigationDestination(icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: "Home"),
+              NavigationDestination(icon: Icon(Icons.travel_explore_outlined), selectedIcon: Icon(Icons.travel_explore), label: "Trips"),
+              NavigationDestination(icon: Icon(Icons.shopping_cart_outlined), selectedIcon: Icon(Icons.shopping_cart), label: "Book"),
+              NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: "Shipments"),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -136,7 +154,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     return CustomerScaffold(
       title: "Book freight",
       currentPath: "/customer",
-      body: ListView(
+      bodyBuilder: (_) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
           const Text(
@@ -186,6 +204,27 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             ),
             const SizedBox(height: 12),
           ],
+          if (CustomerSession.isSignedIn) ...[
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.person_outline, color: DriverTheme.navy),
+                    title: Text(CustomerSession.userFullName ?? "Signed in"),
+                    subtitle: Text(CustomerSession.userPhone ?? ""),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.logout, color: DriverTheme.navy),
+                    title: const Text("Sign out"),
+                    subtitle: const Text("Use a different phone number or account"),
+                    onTap: () => signOutCustomer(context),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           FilledButton.icon(
             onPressed: () => context.go("/customer/trips"),
             icon: const Icon(Icons.travel_explore),
@@ -223,6 +262,14 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   bool _sending = false;
   bool _verifying = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    CustomerSession.refresh().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
@@ -289,11 +336,33 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
     return CustomerScaffold(
       title: "Sign in",
       currentPath: "/customer/login",
-      body: Padding(
+      bodyBuilder: (_) => Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (CustomerSession.isSignedIn) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        "Signed in as ${CustomerSession.userFullName ?? CustomerSession.userPhone ?? "this account"}.",
+                        style: const TextStyle(color: DriverTheme.muted, height: 1.4),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton(
+                        onPressed: () => signOutCustomer(context, redirectTo: "/customer/login"),
+                        child: const Text("Sign out to use another account"),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             const Text("Use the phone number you registered with.", style: TextStyle(color: DriverTheme.muted)),
             if (_debugCode != null) ...[
               const SizedBox(height: 8),
@@ -394,7 +463,7 @@ class _CustomerRegisterUserScreenState extends State<CustomerRegisterUserScreen>
     return CustomerScaffold(
       title: "Join your team",
       currentPath: "/customer/register-user",
-      body: ListView(
+      bodyBuilder: (_) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
           const Text(
@@ -513,7 +582,7 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
     return CustomerScaffold(
       title: "Team",
       currentPath: "/customer/team",
-      body: ListView(
+      bodyBuilder: (_) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text(
@@ -613,7 +682,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
     return CustomerScaffold(
       title: "Register",
       currentPath: "/customer/register",
-      body: ListView(
+      bodyBuilder: (_) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
           const Text(
@@ -679,7 +748,7 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
     return CustomerScaffold(
       title: "Find a lane",
       currentPath: "/customer/trips",
-      body: Column(
+      bodyBuilder: (_) => Column(
         children: [
           TabBar(
             controller: _tabs,
@@ -1111,7 +1180,7 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     return CustomerScaffold(
       title: "Book shipment",
       currentPath: "/customer/book",
-      body: ListView(
+      bodyBuilder: (_) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
           if (_anchorTrip == null && !_tripLocked) ...[
@@ -1271,7 +1340,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
     return CustomerScaffold(
       title: "My shipments",
       currentPath: "/customer/shipments",
-      body: RefreshIndicator(
+      bodyBuilder: (_) => RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -1425,7 +1494,7 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
     return CustomerScaffold(
       title: shipment?["carrierDisplayName"]?.toString() ?? "Shipment",
       currentPath: "/customer/shipments/${widget.shipmentId}",
-      body: _loading && shipment == null
+      bodyBuilder: (_) => _loading && shipment == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),

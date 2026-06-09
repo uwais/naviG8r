@@ -1,12 +1,21 @@
+import "package:flutter/foundation.dart";
+
 import "pilot_api.dart";
 
 /// In-memory customer session from `/v1/auth/me` + `/v1/pilot/me`.
 abstract final class CustomerSession {
+  /// Bumps when session fields change so customer screens rebuild.
+  static final Listenable listenable = ValueNotifier<int>(0);
+
   static String? userFullName;
   static String? userPhone;
   static String? customerOrgId;
   static String? customerOrgName;
   static String? customerRole;
+
+  static void _notifyListeners() {
+    (listenable as ValueNotifier<int>).value++;
+  }
 
   static bool get isSignedIn => userPhone != null && userPhone!.isNotEmpty;
   static bool get hasCustomerOrg => customerOrgId != null && customerOrgId!.isNotEmpty;
@@ -51,8 +60,10 @@ abstract final class CustomerSession {
           }
         }
       } catch (_) {}
+      _notifyListeners();
       return userPhone != null;
     } catch (_) {
+      clear();
       return false;
     }
   }
@@ -63,5 +74,11 @@ abstract final class CustomerSession {
     customerOrgId = null;
     customerOrgName = null;
     customerRole = null;
+    _notifyListeners();
+  }
+
+  static Future<void> signOut() async {
+    await api.clearToken();
+    clear();
   }
 }
