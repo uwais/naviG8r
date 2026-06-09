@@ -1339,7 +1339,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                           Expanded(
                             child: FilledButton(
                               onPressed: next != null && next["status"] == "BOOKED"
-                                  ? () => context.push("/driver/shipment/${next["id"]}/pod")
+                                  ? () => context.push("/driver/shipment/${next!["id"]}/pod")
                                   : null,
                               child: const Text("Mark arrived / POD"),
                             ),
