@@ -90,6 +90,22 @@ Render does **not** include Flutter. Use the repo build script (installs SDK, th
 
 - `API_BASE_URL` = `https://navig8r.onrender.com` (or your API URL)
 - `FLUTTER_VERSION` = `3.22.3` (optional pin)
+- `MAPS_API_KEY` = Google **Maps JavaScript API** key (HTTP referrer–restricted to this static site URL). Required for live tracking maps on web; build script injects it into `web/index.html`. Also passed as `--dart-define=MAPS_API_KEY` for Dart geocoding.
+
+**Google Cloud setup for web maps:** enable **Maps JavaScript API** (+ **Geocoding API** if using place search). Restrict the key to HTTP referrers such as `https://navig8r-customer-web.onrender.com/*` and `http://localhost:*`. Do not reuse the Android SDK key from `android/local.properties` (different restriction type).
+
+**Local web dev with maps:**
+
+```bash
+# Key lives in apps/driver_pilot/.env.maps (gitignored) or android/local.properties
+bash scripts/inject-maps-api-key.sh   # reads .env.maps automatically
+cd apps/driver_pilot
+flutter run -d chrome \
+  --dart-define=API_BASE_URL=https://navig8r.onrender.com \
+  --dart-define=MAPS_API_KEY="$MAPS_API_KEY"
+```
+
+Or export `MAPS_API_KEY` manually before `inject-maps-api-key.sh`.
 
 First build may take **8–15 minutes** (Flutter SDK + web precache).
 
@@ -119,4 +135,5 @@ Localhost origins are already allowed for dev. Redeploy the API after changing e
   - **`prisma` is a runtime dependency** in `apps/api/package.json` so `postinstall` → `prisma generate` works even when the host uses `npm install --omit=dev`.
 - **Postgres**: set `PERSISTENCE=DB`, `DATABASE_URL`, and run migrations/schema (`npx prisma db push` once against that URL, or apply migrations in CI).
 - **Static site `flutter: command not found`**: do not call `flutter` directly — use `bash scripts/render-build-customer-web.sh` as the build command.
+- **Customer web tracking map grey/blank**: set `MAPS_API_KEY` on the static site (Maps JavaScript API, HTTP referrer restricted) and redeploy. For local Chrome, run `bash scripts/inject-maps-api-key.sh` after exporting the key. Check DevTools for `RefererNotAllowedMapError`.
 

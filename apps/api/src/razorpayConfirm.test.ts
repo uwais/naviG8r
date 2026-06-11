@@ -4,6 +4,7 @@ import test from "node:test";
 import { createStore } from "./store.ts";
 import {
   attachRazorpayOrderForShipment,
+  acceptCarrierShipment,
   bookShipment,
   confirmRazorpayCheckoutAuthorization,
   publishAnchorTripAsPilotDriver,
@@ -57,7 +58,7 @@ test("confirmRazorpayCheckoutAuthorization moves CREATED to AUTHORIZED for drive
 
   assert.throws(
     () => submitDriverPod(store, { shipmentId: shipment.id, userId: onboard.user.id }),
-    (e: Error) => e.message.includes("checkout_not_completed_for_pod"),
+    (e: Error) => e.message === "shipment_not_deliverable",
   );
 
   const { payment } = confirmRazorpayCheckoutAuthorization(store, {
@@ -68,6 +69,8 @@ test("confirmRazorpayCheckoutAuthorization moves CREATED to AUTHORIZED for drive
   });
   assert.equal(payment.status, "AUTHORIZED");
   assert.equal(payment.razorpayPaymentId, paymentId);
+
+  acceptCarrierShipment(store, { shipmentId: shipment.id, userId: onboard.user.id });
 
   const updated = submitDriverPod(store, { shipmentId: shipment.id, userId: onboard.user.id });
   assert.equal(updated.status, "PENDING_RELEASE");

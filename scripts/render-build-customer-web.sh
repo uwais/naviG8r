@@ -3,6 +3,7 @@
 set -euo pipefail
 
 API_BASE_URL="${API_BASE_URL:-https://navig8r.onrender.com}"
+MAPS_API_KEY="${MAPS_API_KEY:-}"
 FLUTTER_VERSION="${FLUTTER_VERSION:-3.22.3}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,6 +14,11 @@ echo "==> NaviG8r customer web build"
 echo "    API_BASE_URL=$API_BASE_URL"
 echo "    FLUTTER_VERSION=$FLUTTER_VERSION"
 echo "    APP_DIR=$APP_DIR"
+if [ -n "$MAPS_API_KEY" ]; then
+  echo "    MAPS_API_KEY=(set)"
+else
+  echo "    MAPS_API_KEY=(unset — web maps will be blank)"
+fi
 
 if [ ! -x "$SDK_DIR/bin/flutter" ]; then
   echo "==> Installing Flutter SDK to $SDK_DIR"
@@ -28,9 +34,16 @@ flutter config --no-analytics --enable-web
 flutter --version
 flutter precache --web
 
+bash "$ROOT/scripts/inject-maps-api-key.sh"
+
 cd "$APP_DIR"
 flutter pub get
-flutter build web --release --dart-define="API_BASE_URL=$API_BASE_URL"
+
+DART_DEFINES=(--dart-define="API_BASE_URL=$API_BASE_URL")
+if [ -n "$MAPS_API_KEY" ]; then
+  DART_DEFINES+=(--dart-define="MAPS_API_KEY=$MAPS_API_KEY")
+fi
+flutter build web --release "${DART_DEFINES[@]}"
 
 echo "==> Build output: $APP_DIR/build/web"
 ls -la "$APP_DIR/build/web" | head -20

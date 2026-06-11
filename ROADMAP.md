@@ -32,6 +32,20 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - **POD / fail-refund**: logged-in **ops admin** can act on **any** shipment (not only customer-visible rows); customers remain org/phone scoped.
   - Admin header shows **Postgres (Prisma, PERSISTENCE=DB)** when not file-backed (fixes stray `Backed by null`).
 - [x] **Android pilot packaging (partial)**: `applicationId` / namespace **`com.navig8r.pilot`**, app label **naviG8r**, release signing wired via `key.properties` + keystore (see `docs/android-option-a-apk-pilot.md`).
+- [x] **Customer web portal (Flutter static site on Render)**:
+  - [x] Responsive customer shell (`/customer`) — rail on desktop, bottom nav on mobile.
+  - [x] Razorpay web checkout path for customer bookings.
+  - [x] Hosted at `navig8r-customer-web.onrender.com`; API CORS for static site origin.
+  - [x] **Google Maps on web**: build injects `MAPS_API_KEY` into `web/index.html` via `scripts/inject-maps-api-key.sh` (see `docs/RENDER.md`).
+- [x] **Shipper ERP integration v1 (generic API + webhooks)** — see **§ D** below:
+  - [x] M2M auth (`IntegrationApiKey`, Bearer / `X-Api-Key`).
+  - [x] `POST /v1/integrations/loads` with idempotency + auto lane match.
+  - [x] Poll APIs + signed webhook outbox + retry worker.
+  - [x] Lifecycle events from `services.ts` (create, accept, in-transit, POD, deliver, cancel, payment).
+  - [x] Customer portal **Integrations** admin (`/customer/integrations`) — keys, webhook URL, test ping, delivery log.
+  - [x] Docs: `docs/erp-integration.md`, `integrations/adapters/generic/README.md` (LoadIntent ↔ API mapping).
+  - [x] Webhook payload enrichment: `trip.startedAtUtcMs`, `carrier.vehicleNumber`, `carrier.driverName`.
+  - [x] API tests: `integration.test.ts` + full suite **41/41** green.
 
 ---
 
@@ -245,16 +259,21 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [x] **Production pilot deploy** on Render (Docker + Postgres + env from `docs/RENDER.md`).
 - [x] **Admin + ops**: OTP-gated `/admin`, **ops admin** DB grants + API, POD/fail-refund across all shipments for ops admins.
 - [x] **Android pilot packaging (partial)**: `com.navig8r.pilot`, naviG8r label, release signing pattern.
+- [x] **Customer web on Render** + **ERP integration v1** (generic API, webhooks, portal Integrations UI, adapter docs).
+- [x] **Web maps build pipeline** (`inject-maps-api-key.sh`, Flutter 3.22 `withOpacity` fix).
 
 ### What’s next (recommended priority)
 
-1. **Pilot hardening — payments & money** (**B0.1**): Razorpay **live** keys when ready, dashboard **webhook URL** on the public API host, **retry payment** if customer abandons checkout; optional reconciliation. Remember **POD still requires payment `AUTHORIZED`** for real captures — admin “Mark POD” over `CREATED` only works for unauthenticated legacy demo POSTs, not for logged-in flows unless checkout completed (or you introduce an explicit ops-only payment bypass later).
-2. **Pilot hardening — app** (**B1–B2**, **B5**): pilot **base URL** switch + visible env label; bump **versionCode** per drop; pick **distribution** (Firebase App Distribution vs internal track vs direct APK per `docs/android-option-a-apk-pilot.md`); **Google Maps** release restrictions (SHA-1 + package `com.navig8r.pilot`); emulator **RAM** for Maps + Razorpay WebView smoke.
-3. **Product gap (called out earlier, still open)**: **driver-side POD / trip completion** in the app vs admin-only — design + API + UI when you move past “MVP admin only.”
-4. **Data plane** (**A3–A4**, **A6**): Prisma **indexes** / uniqueness (`users.phone`, hot query paths); move off full-snapshot DB writes where it hurts; optional **CI** or manual **Postgres round-trip** regression beyond file-mode tests.
-5. **Optional staging**: separate Render service + DB if you want pre-prod before touching production pilot data (**A1**).
-6. **Observability** (**B3**): Crashlytics/Sentry + minimal analytics before widening beyond ~10 devices.
-7. **10-device rollout** (**B4–B5**): customer list, onboarding doc, day-0 test script, weekly feedback triage.
+1. **ERP pilot onboarding** (**D4**): first shipper on generic API; set Render `MAPS_API_KEY` on static site; verify tracking maps on mobile web.
+2. **Pilot hardening — payments & money** (**B0.1**): Razorpay **live** keys when ready, dashboard **webhook URL** on the public API host, **retry payment** if customer abandons checkout; optional reconciliation. Remember **POD still requires payment `AUTHORIZED`** for real captures — admin “Mark POD” over `CREATED` only works for unauthenticated legacy demo POSTs, not for logged-in flows unless checkout completed (or you introduce an explicit ops-only payment bypass later).
+3. **Phase 2 Integration Hub** (**D2**): Tally or first pilot ERP connector on LoadIntent mapping (no duplicate auth/retry in Hub).
+4. **India compliance fields** (**D3**): GSTIN, e-way, LR, POD URL when pilot requires them.
+5. **Pilot hardening — app** (**B1–B2**, **B5**): pilot **base URL** switch + visible env label; bump **versionCode** per drop; pick **distribution** (Firebase App Distribution vs internal track vs direct APK per `docs/android-option-a-apk-pilot.md`); **Google Maps** release restrictions (SHA-1 + package `com.navig8r.pilot`); emulator **RAM** for Maps + Razorpay WebView smoke.
+6. **Product gap (called out earlier, still open)**: **driver-side POD / trip completion** in the app vs admin-only — design + API + UI when you move past “MVP admin only.”
+7. **Data plane** (**A3–A4**, **A6**): Prisma **indexes** / uniqueness (`users.phone`, hot query paths); move off full-snapshot DB writes where it hurts; optional **CI** or manual **Postgres round-trip** regression beyond file-mode tests.
+8. **Optional staging**: separate Render service + DB if you want pre-prod before touching production pilot data (**A1**).
+9. **Observability** (**B3**): Crashlytics/Sentry + minimal analytics before widening beyond ~10 devices.
+10. **10-device rollout** (**B4–B5**): customer list, onboarding doc, day-0 test script, weekly feedback triage.
 
 ### Still on the checklist (unchanged themes)
 
@@ -262,4 +281,43 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [x] **B0.2 freight & pricing (phases 1–4)** — `rates/estimate`, **Publish** suggested freight, **Quote** breakdown + **`bookShipment` parity** when coords exist; tests + docs. **Still open:** optional eligible-trip ~₹ hints (**B0.2c**) + structured estimate logging/metrics.
 - [ ] **Pilot build (completion)**: versioning cadence + chosen distribution channel + crash reporting (**B2**, **B3**).
 - [ ] **10-device rollout** + weekly feedback triage.
+
+---
+
+## D) Shipper ERP integration (v1 shipped → Phase 2 planned)
+
+### D1 — v1 generic API (shipped)
+
+- [x] Data model: `IntegrationConnection`, `IntegrationApiKey`, `Shipment.externalLoadId`, `metadata`.
+- [x] Inbound: `POST /v1/integrations/loads` (idempotent `externalLoadId`, auto lane match, `metadata` pass-through).
+- [x] Outbound: webhook outbox, HMAC `X-NaviG8r-Signature`, exponential retry, `GET /v1/integrations/events`.
+- [x] Portal admin: `/customer/integrations` + `/v1/pilot/customer/integrations/*` (CUSTOMER_ADMIN).
+- [x] Generic adapter docs: LoadIntent ↔ API mapping + flat write-back flattening guide.
+- [x] Webhook enrichment: `trip.startedAtUtcMs`, `carrier.{name, vehicleNumber, driverName}`.
+
+**Coverage vs India ERP checklist:** core freight sync is covered; GSTIN, e-way, LR, POD URL, and Tally vouchers remain Phase 2 (**D3**).
+
+### D2 — Phase 2 Integration Hub (planned)
+
+Optional middleware for ERPs that cannot call REST (Tally XML, CSV). Hub owns format normalization + ERP write-back; **not** auth, dedup, or webhook retries (those stay in the API).
+
+- [ ] Stateless connectors: native format → **LoadIntent** → `POST /v1/integrations/loads`.
+- [ ] Webhook subscriber: lifecycle events → flat ERP delivered payload.
+- [ ] Named **Tally** adapter (first pilot ERP).
+
+### D3 — Schema / compliance gaps (when pilot selected)
+
+- [ ] GSTIN (origin / destination) + validation.
+- [ ] Invoice value + ₹50k e-way threshold on create.
+- [ ] LR number, e-way bill number at POD / dispatch.
+- [ ] POD document URL (artifact storage).
+- [ ] `required_by` in lane scoring (`matchCriteria.requiredByUtc`).
+- [ ] Volume / CBM on shipment.
+- [ ] Tally freight voucher auto-post (adapter layer).
+
+### D4 — ERP integration ops (planned)
+
+- [ ] Render env: `MAPS_API_KEY` on static site, `CORS_ALLOWED_ORIGINS` on API.
+- [ ] Onboard first pilot shipper; monitor webhook delivery rate.
+- [ ] Dead-letter alerting for failed webhook deliveries.
 

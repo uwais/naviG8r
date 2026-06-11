@@ -467,6 +467,38 @@ Eligibility computes and returns `detourKmEstimate` so the UI can explain why a 
 Future upgrade (non-MVP):
 - Use actual route distance deltas from Google Directions to compute detour cost.
 
+### Shipper ERP integration (v1)
+
+Machine-to-machine API for shippers to create loads from an ERP and receive writebacks. Full guide: **[erp-integration.md](./erp-integration.md)**.
+
+**Auth:** Integration API key (`Authorization: Bearer nvg8r_{keyId}_{secret}` or `X-Api-Key` / `X-Api-Secret`). Keys are created in the customer portal under **Integrations** (`CUSTOMER_ADMIN`).
+
+**Inbound**
+
+| Method | Path | Scope |
+|--------|------|-------|
+| `POST` | `/v1/integrations/loads` | `loads:write` |
+| `GET` | `/v1/integrations/loads` | `loads:read` |
+| `GET` | `/v1/integrations/shipments/:id` | `loads:read` |
+| `GET` | `/v1/integrations/shipments/:id/tracking` | `loads:read` |
+| `GET` | `/v1/integrations/events` | `loads:read` |
+
+**Portal admin (OTP Bearer, not integration key)**
+
+| Method | Path |
+|--------|------|
+| `GET` | `/v1/pilot/customer/integrations?orgId=` |
+| `POST` | `/v1/pilot/customer/integrations/keys?orgId=` |
+| `POST` | `/v1/pilot/customer/integrations/keys/revoke?orgId=` |
+| `PATCH` | `/v1/pilot/customer/integrations/connection?orgId=` |
+| `POST` | `/v1/pilot/customer/integrations/webhooks/test?orgId=` |
+| `GET` | `/v1/pilot/customer/integrations/deliveries?orgId=` |
+| `POST` | `/v1/pilot/customer/integrations/deliveries/:id/retry?orgId=` |
+
+**Webhooks:** NaviG8r POSTs signed events (`X-NaviG8r-Signature`) to the org webhook URL. Event types include `load.created`, `load.carrier_accepted`, `load.in_transit`, `load.delivered`, `load.cancelled`, etc. See erp-integration.md for payload schema and retry policy.
+
+**Generic adapter template:** [`integrations/adapters/generic/README.md`](../integrations/adapters/generic/README.md).
+
 ### Next auth upgrade (recommended)
 - Rate limit OTP
 - SMS provider integration

@@ -3,13 +3,20 @@ import test from "node:test";
 import { computePayoutBatchAssignment, utcMsFromIstWallParts } from "../../../packages/core/src/payoutSchedule.ts";
 import { PAYOUT_BATCH_SCHEDULE } from "./config.ts";
 import { createStore } from "./store.ts";
-import { bookShipment, createCarrier, markPodDelivered, publishAnchorTrip, runPayoutBatch } from "./services.ts";
+import { bookShipment, acceptCarrierShipment, markPodDelivered, publishAnchorTrip, registerSoloOwnerOperatorDriver, runPayoutBatch } from "./services.ts";
 
 test("vertical slice: publish trip -> book (capture) -> POD -> ledger -> weekly batch pays after cutoff", async () => {
   const store = createStore();
-  const carrier = createCarrier(store, "Carrier One");
+  const driver = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Carrier One",
+    phone: "9100000100",
+    orgDisplayName: "Carrier One",
+    vehicleRegistrationNumber: "HR10",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 5000,
+  });
   const trip = publishAnchorTrip(store, {
-    carrierId: carrier.id,
+    carrierId: driver.org.id,
     originCity: "Gurugram",
     destCity: "Jaipur",
     windowStart: "2026-04-24T00:00:00+05:30",
@@ -25,6 +32,8 @@ test("vertical slice: publish trip -> book (capture) -> POD -> ledger -> weekly 
     pickupAddress: "Sector 44, Gurugram",
     dropAddress: "Sitapura, Jaipur",
   });
+
+  acceptCarrierShipment(store, { shipmentId: shipment.id, userId: driver.user.id });
 
   const pay = store.payments.get(shipment.paymentId);
   assert.equal(pay?.status, "CAPTURED");

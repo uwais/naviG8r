@@ -5,13 +5,25 @@ import { createStore } from "./store.ts";
 import {
   bookShipment,
   createCarrier,
+  acceptCarrierShipment,
   getShipmentTripTracking,
   isTripLocationLive,
   publishAnchorTrip,
   registerCustomerOrgAdmin,
   registerSoloOwnerOperatorDriver,
   reportAnchorTripLocation,
+  startAnchorTripAsPilot,
 } from "./services.ts";
+
+function acceptAndStartTrip(
+  store: ReturnType<typeof createStore>,
+  driverUserId: string,
+  tripId: string,
+  shipmentId: string,
+) {
+  acceptCarrierShipment(store, { shipmentId, userId: driverUserId });
+  startAnchorTripAsPilot(store, { userId: driverUserId, tripId });
+}
 
 test("reportAnchorTripLocation stores ping on anchor trip", () => {
   const store = createStore();
@@ -34,6 +46,16 @@ test("reportAnchorTripLocation stores ping on anchor trip", () => {
     origin: { lat: 28.46, lng: 77.03 },
     destination: { lat: 26.91, lng: 75.79 },
   });
+  const shipment = bookShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: "Test Co",
+    weightKg: 50,
+    pickupAddress: "A",
+    dropAddress: "B",
+    pickup: { lat: 28.46, lng: 77.03 },
+    drop: { lat: 26.91, lng: 75.79 },
+  });
+  acceptAndStartTrip(store, driver.user.id, trip.id, shipment.id);
   const now = 1_700_000_000_000;
   const updated = reportAnchorTripLocation(store, driver.user.id, trip.id, {
     lat: 28.5,
@@ -79,6 +101,7 @@ test("getShipmentTripTracking: customer sees live driver when BOOKED and ping is
   store.shipments.set(shipment.id, { ...shipment, customerOrgId: cust.org.id });
 
   const now = 1_700_000_000_000;
+  acceptAndStartTrip(store, driver.user.id, trip.id, shipment.id);
   reportAnchorTripLocation(store, driver.user.id, trip.id, {
     lat: 28.47,
     lng: 77.04,
@@ -124,6 +147,7 @@ test("getShipmentTripTracking: stale ping is not live", () => {
   store.shipments.set(shipment.id, { ...shipment, customerOrgId: cust.org.id });
 
   const pingAt = 1_700_000_000_000;
+  acceptAndStartTrip(store, driver.user.id, trip.id, shipment.id);
   reportAnchorTripLocation(store, driver.user.id, trip.id, {
     lat: 28.47,
     lng: 77.04,

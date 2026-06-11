@@ -1,5 +1,6 @@
 import { createApp } from "./httpServer.ts";
 import { runPayoutBatch } from "./services.ts";
+import { processPendingWebhookDeliveries } from "./integrationWebhooks.ts";
 
 if (!process.env.AUTH_SECRET || process.env.AUTH_SECRET.length < 16) {
   // eslint-disable-next-line no-console
@@ -40,6 +41,22 @@ async function main(): Promise<void> {
       }
     })();
   }, 60_000);
+
+  setInterval(() => {
+    void (async () => {
+      try {
+        const n = await processPendingWebhookDeliveries(store);
+        if (n > 0) {
+          await persist();
+          // eslint-disable-next-line no-console
+          console.log(`Integration webhooks: processed ${n} delivery attempt(s)`);
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error("integration_webhook_runner_error", e);
+      }
+    })();
+  }, 30_000);
 }
 
 main().catch((e) => {
