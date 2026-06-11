@@ -209,6 +209,47 @@ Set in portal **Integrations → Payment policy**:
 | Payment | — | `payment.status` |
 | PO / cost center | `metadata.*` | Echoed in webhooks |
 
+## Verification
+
+### Automated tests (CI / local)
+
+From repo root:
+
+```bash
+# All API tests including ERP integration
+node --experimental-strip-types --test apps/api/src/*.test.ts
+
+# ERP-focused only
+node --experimental-strip-types --test \
+  apps/api/src/integration.test.ts \
+  apps/api/src/integrationHttp.test.ts \
+  apps/api/src/integrationWebhooks.test.ts
+```
+
+| Test file | Coverage |
+|-----------|----------|
+| `integration.test.ts` | Service-layer idempotency, events, auth headers, webhook payload fields |
+| `integrationHttp.test.ts` | Real HTTP: `POST /v1/integrations/loads`, portal `/v1/pilot/customer/integrations/*` |
+| `integrationWebhooks.test.ts` | Mock `fetch`: HMAC signature, retry backoff on failed delivery |
+
+Flutter widget tests:
+
+```bash
+cd apps/driver_pilot && flutter test test/customer_integrations_screen_test.dart
+```
+
+### Live smoke script (curl)
+
+Against a running API with `OTP_DEBUG=1` (or known OTP):
+
+```bash
+BASE_URL=https://navig8r.onrender.com bash scripts/test-erp-integration.sh
+# local:
+BASE_URL=http://127.0.0.1:3000 bash scripts/test-erp-integration.sh
+```
+
+The script registers customer + carrier, creates an integration key, posts a load, verifies idempotency, and polls loads/events.
+
 ## Environment (operators)
 
 | Variable | Purpose |

@@ -733,7 +733,9 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
   }
 
   Future<void> _bootstrap() async {
-    await CustomerSession.refresh();
+    if (!CustomerSession.skipRefreshInTests) {
+      await CustomerSession.refresh();
+    }
     if (!mounted) return;
     if (!CustomerSession.isSignedIn) {
       context.go("/customer/login");

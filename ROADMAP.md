@@ -45,7 +45,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - [x] Customer portal **Integrations** admin (`/customer/integrations`) — keys, webhook URL, test ping, delivery log.
   - [x] Docs: `docs/erp-integration.md`, `integrations/adapters/generic/README.md` (LoadIntent ↔ API mapping).
   - [x] Webhook payload enrichment: `trip.startedAtUtcMs`, `carrier.vehicleNumber`, `carrier.driverName`.
-  - [x] API tests: `integration.test.ts` + full suite **41/41** green.
+  - [x] API tests: `integration.test.ts`, `integrationHttp.test.ts`, `integrationWebhooks.test.ts` + full suite **47/47** green; Flutter `customer_integrations_screen_test.dart`; smoke script `scripts/test-erp-integration.sh`.
 
 ---
 
@@ -294,6 +294,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [x] Portal admin: `/customer/integrations` + `/v1/pilot/customer/integrations/*` (CUSTOMER_ADMIN).
 - [x] Generic adapter docs: LoadIntent ↔ API mapping + flat write-back flattening guide.
 - [x] Webhook enrichment: `trip.startedAtUtcMs`, `carrier.{name, vehicleNumber, driverName}`.
+- [x] HTTP + webhook delivery tests; executable curl smoke script; Flutter Integrations widget tests.
 
 **Coverage vs India ERP checklist:** core freight sync is covered; GSTIN, e-way, LR, POD URL, and Tally vouchers remain Phase 2 (**D3**).
 
