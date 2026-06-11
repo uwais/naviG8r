@@ -181,6 +181,15 @@ export type Shipment = {
   payoutBatchCutoffUtcMs: number | null;
   createdAtUtcMs: number;
   updatedAtUtcMs: number;
+  /** ERP load / dispatch order id (unique per customerOrgId when set). */
+  externalLoadId?: string;
+  /** Integration source label, e.g. generic, tally, zoho. */
+  externalSource?: string;
+  integrationConnectionId?: string;
+  /** ERP metadata (PO number, cost center, etc.). */
+  metadata?: Record<string, string>;
+  /** Monotonic sequence for integration webhooks per shipment. */
+  integrationSequence?: number;
 };
 
 export type PaymentProviderId = "MOCK" | "RAZORPAY";
@@ -243,5 +252,86 @@ export type PayoutBatch = {
   /** "BOOKKEEPING" (no money movement) or "RAZORPAYX" (real payouts). */
   provider: "BOOKKEEPING" | "RAZORPAYX";
   transfers: PayoutTransfer[];
+};
+
+export type IntegrationConnectionStatus = "ACTIVE" | "REVOKED";
+
+export type IntegrationPaymentPolicy = "erp_preauthorized" | "portal_checkout";
+
+export type IntegrationApiScope = "loads:read" | "loads:write" | "webhooks:manage";
+
+export type IntegrationConnection = {
+  id: string;
+  orgId: string;
+  displayName: string;
+  status: IntegrationConnectionStatus;
+  webhookUrl?: string;
+  webhookSecret?: string;
+  paymentPolicy: IntegrationPaymentPolicy;
+  externalSource: string;
+  createdAtUtcMs: number;
+  updatedAtUtcMs: number;
+};
+
+export type IntegrationApiKey = {
+  id: string;
+  keyId: string;
+  secretHash: string;
+  orgId: string;
+  connectionId: string;
+  scopes: IntegrationApiScope[];
+  status: "ACTIVE" | "REVOKED";
+  expiresAtUtcMs: number | null;
+  lastUsedAtUtcMs: number | null;
+  createdAtUtcMs: number;
+};
+
+export type IntegrationIdempotencyRecord = {
+  key: string;
+  orgId: string;
+  shipmentId: string;
+  createdAtUtcMs: number;
+};
+
+export type IntegrationEventType =
+  | "load.created"
+  | "load.payment_authorized"
+  | "load.carrier_assigned"
+  | "load.carrier_accepted"
+  | "load.in_transit"
+  | "load.location_updated"
+  | "load.pod_submitted"
+  | "load.delivered"
+  | "load.cancelled";
+
+export type IntegrationEvent = {
+  id: string;
+  orgId: string;
+  shipmentId: string;
+  externalLoadId?: string;
+  eventType: IntegrationEventType;
+  sequence: number;
+  payload: Record<string, unknown>;
+  occurredAtUtcMs: number;
+  createdAtUtcMs: number;
+};
+
+export type IntegrationWebhookDeliveryStatus = "PENDING" | "DELIVERED" | "DEAD";
+
+export type IntegrationWebhookDelivery = {
+  id: string;
+  eventId: string;
+  orgId: string;
+  connectionId: string;
+  webhookUrl: string;
+  payloadJson: string;
+  status: IntegrationWebhookDeliveryStatus;
+  attempts: number;
+  nextRetryAtUtcMs: number;
+  lastHttpStatus: number | null;
+  lastError: string | null;
+  deliveredAtUtcMs: number | null;
+  createdAtUtcMs: number;
+  updatedAtUtcMs: number;
 };
 

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import {
+  acceptCarrierShipment,
   assertOpsAgent,
   bookShipment,
-  createCarrier,
   grantOpsAdmin,
   publishAnchorTrip,
   registerSoloOwnerOperatorDriver,
@@ -14,9 +14,16 @@ import {
 } from "./services.ts";
 
 function seedBookedShipment(store: ReturnType<typeof createStore>) {
-  const carrier = createCarrier(store, "Carrier One");
+  const driver = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Carrier Driver",
+    phone: "9100000000",
+    orgDisplayName: "Carrier One",
+    vehicleRegistrationNumber: "HR01",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 500,
+  });
   const trip = publishAnchorTrip(store, {
-    carrierId: carrier.id,
+    carrierId: driver.org.id,
     originCity: "Gurugram",
     destCity: "Jaipur",
     windowStart: "2026-04-24T00:00:00+05:30",
@@ -33,23 +40,13 @@ function seedBookedShipment(store: ReturnType<typeof createStore>) {
   });
   const pay = store.payments.get(shipment.paymentId)!;
   store.payments.set(pay.id, { ...pay, status: "AUTHORIZED", razorpayPaymentId: "pay_test_1" });
-  return { carrier, trip, shipment };
+  const booked = acceptCarrierShipment(store, { shipmentId: shipment.id, userId: driver.user.id });
+  return { driver, trip, shipment: booked };
 }
 
 test("submitDriverPod: driver on carrier org moves BOOKED to PENDING_RELEASE", () => {
   const store = createStore();
-  const { shipment } = seedBookedShipment(store);
-  const driver = registerSoloOwnerOperatorDriver(store, {
-    fullName: "Ravi",
-    phone: "9100000001",
-    orgDisplayName: "Ravi Transport",
-    vehicleRegistrationNumber: "HR01",
-    vehicleClass: "MEDIUM",
-    vehicleCapacityKg: 500,
-  });
-  store.shipments.get(shipment.id)!.carrierId = driver.org.id;
-  const s = store.shipments.get(shipment.id)!;
-  store.shipments.set(s.id, { ...s, carrierId: driver.org.id });
+  const { driver, shipment } = seedBookedShipment(store);
 
   const out = submitDriverPod(store, {
     shipmentId: shipment.id,
@@ -77,17 +74,7 @@ test("submitDriverPod: customer user forbidden", () => {
 
 test("releasePaymentAndDeliver: requires PENDING_RELEASE then DELIVERED", async () => {
   const store = createStore();
-  const { shipment } = seedBookedShipment(store);
-  const driver = registerSoloOwnerOperatorDriver(store, {
-    fullName: "Ravi",
-    phone: "9100000011",
-    orgDisplayName: "Ravi2",
-    vehicleRegistrationNumber: "HR02",
-    vehicleClass: "MEDIUM",
-    vehicleCapacityKg: 500,
-  });
-  const s0 = store.shipments.get(shipment.id)!;
-  store.shipments.set(s0.id, { ...s0, carrierId: driver.org.id });
+  const { driver, shipment } = seedBookedShipment(store);
 
   submitDriverPod(store, { shipmentId: shipment.id, userId: driver.user.id });
 

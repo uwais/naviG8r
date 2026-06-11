@@ -3,6 +3,11 @@ import type {
   AuthSession,
   Carrier,
   DriverProfile,
+  IntegrationApiKey,
+  IntegrationConnection,
+  IntegrationEvent,
+  IntegrationIdempotencyRecord,
+  IntegrationWebhookDelivery,
   LedgerLine,
   Membership,
   Organization,
@@ -15,7 +20,7 @@ import type {
 } from "./types.ts";
 
 export type Store = {
-  version: 3;
+  version: 4;
   carriers: Map<string, Carrier>;
   organizations: Map<string, Organization>;
   users: Map<string, User>;
@@ -29,11 +34,16 @@ export type Store = {
   payments: Map<string, Payment>;
   ledgerLines: Map<string, LedgerLine>;
   payoutBatches: Map<string, PayoutBatch>;
+  integrationConnections: Map<string, IntegrationConnection>;
+  integrationApiKeys: Map<string, IntegrationApiKey>;
+  integrationIdempotency: Map<string, IntegrationIdempotencyRecord>;
+  integrationEvents: Map<string, IntegrationEvent>;
+  integrationWebhookDeliveries: Map<string, IntegrationWebhookDelivery>;
 };
 
 export function createStore(): Store {
   return {
-    version: 3,
+    version: 4,
     carriers: new Map(),
     organizations: new Map(),
     users: new Map(),
@@ -47,6 +57,10 @@ export function createStore(): Store {
     payments: new Map(),
     ledgerLines: new Map(),
     payoutBatches: new Map(),
+    integrationConnections: new Map(),
+    integrationApiKeys: new Map(),
+    integrationIdempotency: new Map(),
+    integrationEvents: new Map(),
+    integrationWebhookDeliveries: new Map(),
   };
 }
-

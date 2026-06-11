@@ -22,6 +22,10 @@ abstract final class CustomerSession {
   static bool get isOrgAdmin => customerRole == "CUSTOMER_ADMIN";
 
   static Future<bool> refresh() async {
+    if (skipRefreshInTests) {
+      _notifyListeners();
+      return userPhone != null;
+    }
     try {
       final r = await api.get<Map<String, dynamic>>("/v1/auth/me");
       final user = r.data?["user"];
@@ -81,4 +85,25 @@ abstract final class CustomerSession {
     await api.clearToken();
     clear();
   }
+
+  /// Seeds session fields for widget tests without network calls.
+  @visibleForTesting
+  static void applyForTest({
+    String? userFullName,
+    String? userPhone,
+    String? customerOrgId,
+    String? customerOrgName,
+    String? customerRole,
+  }) {
+    CustomerSession.userFullName = userFullName;
+    CustomerSession.userPhone = userPhone;
+    CustomerSession.customerOrgId = customerOrgId;
+    CustomerSession.customerOrgName = customerOrgName;
+    CustomerSession.customerRole = customerRole;
+    _notifyListeners();
+  }
+
+  /// When true, [refresh] returns immediately without HTTP (widget tests).
+  @visibleForTesting
+  static bool skipRefreshInTests = false;
 }

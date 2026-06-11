@@ -57,6 +57,7 @@ import {
 import { verifyRazorpayWebhookSignature, razorpayPaymentsEnabled, publicRazorpayKeyId } from "./razorpayPayments.ts";
 import { payoutsMode } from "./razorpayPayouts.ts";
 import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
+import { handleIntegrationPortalRoutes, handleIntegrationRoutes } from "./integrationHttp.ts";
 
 async function readRawBody(req: http.IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
@@ -811,6 +812,23 @@ export async function createApp(): Promise<{
           const msg = e instanceof Error ? e.message : "error";
           if (msg === "forbidden") return json(res, 403, { error: msg });
           throw e;
+        }
+      }
+
+      if (url.pathname.startsWith("/v1/pilot/customer/integrations")) {
+        const userId = requireUserId(req, store);
+        const handled = await handleIntegrationPortalRoutes(req, res, store, url, method, userId);
+        if (handled) {
+          await persist();
+          return;
+        }
+      }
+
+      if (url.pathname.startsWith("/v1/integrations/")) {
+        const handled = await handleIntegrationRoutes(req, res, store, url, method);
+        if (handled) {
+          await persist();
+          return;
         }
       }
 

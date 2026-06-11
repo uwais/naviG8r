@@ -40,6 +40,7 @@ import {
   payoutsMode,
   razorpayPayoutsEnabled,
 } from "./razorpayPayouts.ts";
+import { emitIntegrationEvent } from "./integrationWebhooks.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -835,6 +836,13 @@ export function reportAnchorTripLocation(
   };
   const updated: AnchorTrip = { ...trip, lastLiveLocation };
   store.anchorTrips.set(trip.id, updated);
+
+  for (const sh of shipmentsOnAnchorTrip(store, trip.id)) {
+    if (sh.status === "BOOKED" || sh.status === "PENDING_RELEASE") {
+      emitIntegrationEvent(store, { eventType: "load.location_updated", shipmentId: sh.id });
+    }
+  }
+
   return updated;
 }
 
@@ -1192,6 +1200,10 @@ export function bookShipment(store: Store, params: {
   dropAddress: string;
   pickup?: GeoPoint;
   drop?: GeoPoint;
+  externalLoadId?: string;
+  externalSource?: string;
+  integrationConnectionId?: string;
+  metadata?: Record<string, string>;
 }): Shipment {
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip) throw new Error("anchor_trip_not_found");
@@ -1260,6 +1272,10 @@ export function bookShipment(store: Store, params: {
     customerOrgName,
     ...(bookedByPhone != null ? { bookedByPhone } : {}),
     ...(params.bookedByUserId != null ? { bookedByUserId: params.bookedByUserId } : {}),
+    ...(params.externalLoadId != null ? { externalLoadId: params.externalLoadId.trim() } : {}),
+    ...(params.externalSource != null ? { externalSource: params.externalSource } : {}),
+    ...(params.integrationConnectionId != null ? { integrationConnectionId: params.integrationConnectionId } : {}),
+    ...(params.metadata != null ? { metadata: params.metadata } : {}),
     weightKg: params.weightKg,
     pickupAddress: params.pickupAddress,
     dropAddress: params.dropAddress,
@@ -1279,6 +1295,10 @@ export function bookShipment(store: Store, params: {
   payment.shipmentId = s.id;
   store.payments.set(payment.id, payment);
   store.shipments.set(s.id, s);
+  if (s.customerOrgId) {
+    emitIntegrationEvent(store, { eventType: "load.created", shipmentId: s.id });
+    emitIntegrationEvent(store, { eventType: "load.carrier_assigned", shipmentId: s.id });
+  }
   return s;
 }
 
@@ -1315,6 +1335,8 @@ function finalizeDeliveredShipment(
     paidAtUtcMs: null,
   };
   store.ledgerLines.set(line.id, line);
+
+  emitIntegrationEvent(store, { eventType: "load.delivered", shipmentId: updated.id });
 
   return { shipment: updated, ledgerLine: line };
 }
@@ -1356,6 +1378,7 @@ export function submitDriverPod(
   };
   store.shipments.set(updated.id, updated);
   maybeAutoCompleteAnchorTripAfterPod(store, s.anchorTripId, params.userId);
+  emitIntegrationEvent(store, { eventType: "load.pod_submitted", shipmentId: updated.id });
   return updated;
 }
 
@@ -1413,6 +1436,7 @@ export function acceptCarrierShipment(
     updatedAtUtcMs: now,
   };
   store.shipments.set(updated.id, updated);
+  emitIntegrationEvent(store, { eventType: "load.carrier_accepted", shipmentId: updated.id });
   return updated;
 }
 
@@ -1442,6 +1466,13 @@ export function startAnchorTripAsPilot(
     startedByUserId: params.userId,
   };
   store.anchorTrips.set(updated.id, updated);
+
+  for (const sh of shipmentsOnAnchorTrip(store, updated.id)) {
+    if (sh.status === "BOOKED") {
+      emitIntegrationEvent(store, { eventType: "load.in_transit", shipmentId: sh.id });
+    }
+  }
+
   return updated;
 }
 
@@ -1690,6 +1721,7 @@ export function confirmRazorpayCheckoutAuthorization(
     updatedAtUtcMs: now,
   };
   store.payments.set(pay.id, updated);
+  emitIntegrationEvent(store, { eventType: "load.payment_authorized", shipmentId: s.id });
   return { payment: updated };
 }
 
@@ -1771,6 +1803,7 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
     updatedAtUtcMs: now,
   };
   store.shipments.set(updated.id, updated);
+  emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: updated.id });
   return updated;
 }
 

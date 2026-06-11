@@ -59,3 +59,6 @@ services:
         value: https://navig8r.onrender.com
       - key: FLUTTER_VERSION
         value: "3.22.3"
+      # Browser-restricted Google Maps JavaScript API key (HTTP referrer = this static site URL).
+      - key: MAPS_API_KEY
+        sync: false

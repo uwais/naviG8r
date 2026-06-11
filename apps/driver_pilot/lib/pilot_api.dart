@@ -44,6 +44,7 @@ class Api {
 
   Future<Response<T>> get<T>(String path, {Map<String, dynamic>? query}) => dio.get<T>(path, queryParameters: query);
   Future<Response<T>> post<T>(String path, {Object? data}) => dio.post<T>(path, data: data);
+  Future<Response<T>> patch<T>(String path, {Object? data}) => dio.patch<T>(path, data: data);
 }
 
 late Api api;

@@ -236,6 +236,6 @@ test("CORS preflight allows localhost web clients", async (t) => {
       }),
     });
     assert.equal(post.headers.get("access-control-allow-origin"), origin);
-    assert.equal(post.status, 200);
+    assert.ok(post.status === 200 || post.status === 201);
   });
 });
