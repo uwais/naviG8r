@@ -1307,6 +1307,15 @@ function finalizeDeliveredShipment(
   s: Shipment,
   podAtUtcMs: number,
 ): { shipment: Shipment; ledgerLine: LedgerLine } {
+  const existingLedgerLine = [...store.ledgerLines.values()].find((line) => line.shipmentId === s.id);
+  const currentShipment = store.shipments.get(s.id) ?? s;
+  if (existingLedgerLine && currentShipment.status === "DELIVERED") {
+    return { shipment: currentShipment, ledgerLine: existingLedgerLine };
+  }
+  if (existingLedgerLine) {
+    throw new Error("ledger_line_already_exists");
+  }
+
   const assignment = computePayoutBatchAssignment(podAtUtcMs, PAYOUT_BATCH_SCHEDULE);
   const now = nowUtcMs();
 
@@ -1607,13 +1616,22 @@ export async function releasePaymentAndDeliver(
     throw new ApiError("shipment_not_pending_release", { status: s.status });
   }
   await ensureRazorpayCapturedBeforePod(store, params.shipmentId);
-  const pay = store.payments.get(s.paymentId);
+  const current = store.shipments.get(params.shipmentId);
+  if (!current) throw new Error("shipment_not_found");
+  const existingLedgerLine = [...store.ledgerLines.values()].find((line) => line.shipmentId === current.id);
+  if (current.status === "DELIVERED" && existingLedgerLine) {
+    return { shipment: current, ledgerLine: existingLedgerLine };
+  }
+  if (current.status !== "PENDING_RELEASE") {
+    throw new ApiError("shipment_not_pending_release", { status: current.status });
+  }
+  const pay = store.payments.get(current.paymentId);
   if (!pay) throw new Error("payment_not_found");
   if (pay.provider !== "MOCK" && pay.status !== "CAPTURED") {
     throw new Error("payment_not_captured");
   }
-  const podAtUtcMs = params.podAtUtcMs ?? s.podAtUtcMs ?? nowUtcMs();
-  return finalizeDeliveredShipment(store, s, podAtUtcMs);
+  const podAtUtcMs = params.podAtUtcMs ?? current.podAtUtcMs ?? nowUtcMs();
+  return finalizeDeliveredShipment(store, current, podAtUtcMs);
 }
 
 export function opsListPendingRelease(store: Store): Shipment[] {
