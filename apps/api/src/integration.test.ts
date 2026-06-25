@@ -7,7 +7,9 @@ import {
   publishAnchorTripAsPilotDriver,
   registerCustomerOrgAdmin,
   registerSoloOwnerOperatorDriver,
+  releasePaymentAndDeliver,
   startAnchorTripAsPilot,
+  submitDriverPod,
 } from "./services.ts";
 import {
   createIntegrationApiKey,
@@ -20,6 +22,27 @@ import { hashIntegrationSecret, resolveIntegrationAuth } from "./integrationAuth
 
 const GURGAON = { lat: 28.4595, lng: 77.0266, label: "Gurugram" };
 const JAIPUR = { lat: 26.9124, lng: 75.7873, label: "Jaipur" };
+
+function withEnv(t: { after(fn: () => void): void }, vars: Record<string, string | undefined>): void {
+  const prev = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(vars)) {
+    prev.set(key, process.env[key]);
+    if (value == null) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  t.after(() => {
+    for (const [key, value] of prev.entries()) {
+      if (value == null) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+}
 
 function seedOpenTrip(store: ReturnType<typeof createStore>) {
   const onboard = registerSoloOwnerOperatorDriver(store, {
@@ -76,6 +99,87 @@ test("integration load create is idempotent by externalLoadId", async () => {
   const second = await createIntegrationLoad(store, ctx, params);
   assert.equal(second.created, false);
   assert.equal(second.shipment.id, first.shipment.id);
+});
+
+test("integration portal checkout rolls back booking if Razorpay order creation fails", async (t) => {
+  withEnv(t, {
+    AUTH_SECRET: "test-secret-min-16-chars!!",
+    PAYMENT_PROVIDER: "RAZORPAY",
+    RAZORPAY_KEY_ID: undefined,
+    RAZORPAY_KEY_SECRET: undefined,
+  });
+  const store = createStore();
+  const { trip } = seedOpenTrip(store);
+  const admin = registerCustomerOrgAdmin(store, {
+    fullName: "ERP Admin",
+    phone: "9111001188",
+    orgDisplayName: "ERP Rollback Shipper",
+  });
+  const { token } = createIntegrationApiKey(store, admin.org.id);
+  updateIntegrationConnection(store, admin.org.id, {
+    webhookUrl: "https://erp.example.com/hook",
+    paymentPolicy: "portal_checkout",
+  });
+
+  const ctx = resolveIntegrationAuth(store, { bearerToken: token });
+  await assert.rejects(
+    () => createIntegrationLoad(store, ctx, {
+      externalLoadId: "ERP-RZP-FAIL-001",
+      weightKg: 120,
+      pickupAddress: "Warehouse A, Gurugram",
+      dropAddress: "Plant B, Jaipur",
+      pickup: GURGAON,
+      drop: JAIPUR,
+    }),
+    /missing_razorpay_credentials|razorpay_dependency_missing/,
+  );
+
+  const rolledBackTrip = store.anchorTrips.get(trip.id)!;
+  assert.equal(rolledBackTrip.reservedKg, 0);
+  assert.equal(rolledBackTrip.status, "OPEN");
+  assert.equal(store.shipments.size, 0);
+  assert.equal(store.payments.size, 0);
+  assert.equal(store.integrationEvents.size, 0);
+  assert.equal(store.integrationWebhookDeliveries.size, 0);
+});
+
+test("ERP preauthorized loads release without Razorpay capture when Razorpay is enabled", async (t) => {
+  withEnv(t, {
+    AUTH_SECRET: "test-secret-min-16-chars!!",
+    PAYMENT_PROVIDER: "RAZORPAY",
+    RAZORPAY_KEY_ID: undefined,
+    RAZORPAY_KEY_SECRET: undefined,
+  });
+  const store = createStore();
+  const { driver } = seedOpenTrip(store);
+  const admin = registerCustomerOrgAdmin(store, {
+    fullName: "ERP Admin",
+    phone: "9111001187",
+    orgDisplayName: "ERP Preauth Shipper",
+  });
+  const { token } = createIntegrationApiKey(store, admin.org.id);
+  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized" });
+
+  const ctx = resolveIntegrationAuth(store, { bearerToken: token });
+  const out = await createIntegrationLoad(store, ctx, {
+    externalLoadId: "ERP-PREAUTH-001",
+    weightKg: 120,
+    pickupAddress: "Warehouse A, Gurugram",
+    dropAddress: "Plant B, Jaipur",
+    pickup: GURGAON,
+    drop: JAIPUR,
+  });
+  const payment = store.payments.get(out.shipment.paymentId)!;
+  assert.equal(payment.provider, "MOCK");
+  assert.equal(payment.status, "CAPTURED");
+
+  acceptCarrierShipment(store, { shipmentId: out.shipment.id, userId: driver.user.id });
+  submitDriverPod(store, { shipmentId: out.shipment.id, userId: driver.user.id });
+  const delivered = await releasePaymentAndDeliver(store, { shipmentId: out.shipment.id });
+
+  assert.equal(delivered.shipment.status, "DELIVERED");
+  assert.equal(delivered.ledgerLine.shipmentId, out.shipment.id);
+  assert.ok(listIntegrationEvents(store, admin.org.id, {}).some((e) => e.eventType === "load.delivered"));
 });
 
 test("integration events emit on carrier accept", () => {

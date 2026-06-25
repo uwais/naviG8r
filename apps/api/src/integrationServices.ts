@@ -5,6 +5,7 @@ import {
   shipmentWithCarrierDisplay,
   tripWithCarrierDisplay,
   attachRazorpayOrderForShipment,
+  rollbackBooking,
 } from "./services.ts";
 import type {
   GeoPoint,
@@ -171,13 +172,10 @@ function recordIdempotency(store: Store, orgId: string, idempotencyKey: string, 
 function applyErpPreauthorizedPayment(store: Store, shipment: Shipment): void {
   const pay = store.payments.get(shipment.paymentId);
   if (!pay) return;
-  if (razorpayPaymentsEnabled()) {
-    pay.status = "AUTHORIZED";
-    pay.updatedAtUtcMs = nowUtcMs();
-  } else {
-    pay.status = "CAPTURED";
-    pay.updatedAtUtcMs = nowUtcMs();
-  }
+  pay.provider = "MOCK";
+  pay.providerRef = "erp_preauthorized";
+  pay.status = "CAPTURED";
+  pay.updatedAtUtcMs = nowUtcMs();
   store.payments.set(pay.id, pay);
 }
 
@@ -272,7 +270,12 @@ export async function createIntegrationLoad(
   });
 
   if (conn.paymentPolicy === "portal_checkout" && razorpayPaymentsEnabled()) {
-    await attachRazorpayOrderForShipment(store, shipment.id);
+    try {
+      await attachRazorpayOrderForShipment(store, shipment.id);
+    } catch (e) {
+      rollbackBooking(store, shipment.id);
+      throw e;
+    }
   }
 
   if (conn.paymentPolicy === "erp_preauthorized") {
