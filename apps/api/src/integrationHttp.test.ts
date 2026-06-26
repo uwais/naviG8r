@@ -202,6 +202,41 @@ test("GET /v1/pilot/customer/integrations requires CUSTOMER_ADMIN bearer", async
   });
 });
 
+test("POST /v1/pilot/customer/integrations/keys/revoke revokes displayed key id", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+
+    const keyRes = await postJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/keys?orgId=${orgId}`,
+      { scopes: ["loads:read"] },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(keyRes.status, 201);
+    const keyBody = (await keyRes.json()) as { token: string; key: { keyId: string } };
+
+    const before = await fetch(`${baseUrl}/v1/integrations/events`, {
+      headers: { authorization: `Bearer ${keyBody.token}` },
+    });
+    assert.equal(before.status, 200);
+
+    const revoke = await postJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/keys/revoke?orgId=${orgId}`,
+      { keyId: keyBody.key.keyId },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(revoke.status, 200);
+
+    const after = await fetch(`${baseUrl}/v1/integrations/events`, {
+      headers: { authorization: `Bearer ${keyBody.token}` },
+    });
+    assert.equal(after.status, 401);
+    assert.deepEqual(await after.json(), { error: "integration_unauthorized" });
+  });
+});
+
 test("POST /v1/integrations/loads without token returns 401", async (t) => {
   testEnv(t);
   await withApp(t, async (baseUrl) => {

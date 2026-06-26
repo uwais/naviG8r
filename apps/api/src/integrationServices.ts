@@ -132,8 +132,10 @@ export function createIntegrationApiKey(
   return { key, token, connection: conn };
 }
 
-export function revokeIntegrationApiKey(store: Store, orgId: string, keyRecordId: string): void {
-  const key = store.integrationApiKeys.get(keyRecordId);
+export function revokeIntegrationApiKey(store: Store, orgId: string, keyIdentifier: string): void {
+  const key =
+    store.integrationApiKeys.get(keyIdentifier) ??
+    [...store.integrationApiKeys.values()].find((k) => k.keyId === keyIdentifier);
   if (!key || key.orgId !== orgId) throw new Error("integration_key_not_found");
   key.status = "REVOKED";
   store.integrationApiKeys.set(key.id, key);
