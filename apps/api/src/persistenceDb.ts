@@ -7,6 +7,12 @@ import type {
   Carrier,
   DriverProfile,
   GeoPoint,
+  IntegrationApiKey,
+  IntegrationApiScope,
+  IntegrationConnection,
+  IntegrationEvent,
+  IntegrationWebhookDelivery,
+  IntegrationIdempotencyRecord,
   LedgerLine,
   Membership,
   Organization,
@@ -50,6 +56,26 @@ function asTripLiveLocation(v: unknown): TripLiveLocation | undefined {
   return out;
 }
 
+function asStringRecord(v: unknown): Record<string, string> | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val === "string") out[k] = val;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function asObjectRecord(v: unknown): Record<string, unknown> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  return v as Record<string, unknown>;
+}
+
+function asIntegrationScopes(v: unknown): IntegrationApiScope[] {
+  const valid = new Set<IntegrationApiScope>(["loads:read", "loads:write", "webhooks:manage"]);
+  if (!Array.isArray(v)) return [];
+  return v.filter((scope): scope is IntegrationApiScope => valid.has(scope as IntegrationApiScope));
+}
+
 export async function loadStoreFromDatabase(): Promise<Store> {
   const store = createStore();
 
@@ -67,6 +93,11 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     payments,
     ledgerLines,
     payoutBatches,
+    integrationConnections,
+    integrationApiKeys,
+    integrationIdempotency,
+    integrationEvents,
+    integrationWebhookDeliveries,
   ] = await Promise.all([
     prisma.carrier.findMany(),
     prisma.organization.findMany(),
@@ -81,6 +112,11 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     prisma.paymentRow.findMany(),
     prisma.ledgerLineRow.findMany(),
     prisma.payoutBatchRow.findMany(),
+    prisma.integrationConnectionRow.findMany(),
+    prisma.integrationApiKeyRow.findMany(),
+    prisma.integrationIdempotencyRow.findMany(),
+    prisma.integrationEventRow.findMany(),
+    prisma.integrationWebhookDeliveryRow.findMany(),
   ]);
 
   for (const c of carriers) {
@@ -185,6 +221,10 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       reservedKg: t.reservedKg,
       status: t.status as AnchorTrip["status"],
       createdAtUtcMs: Number(t.createdAtUtcMs),
+      startedAtUtcMs: t.startedAtUtcMs != null ? Number(t.startedAtUtcMs) : undefined,
+      startedByUserId: t.startedByUserId ?? undefined,
+      completedAtUtcMs: t.completedAtUtcMs != null ? Number(t.completedAtUtcMs) : undefined,
+      completedByUserId: t.completedByUserId ?? undefined,
       lastLiveLocation: asTripLiveLocation((t as { lastLiveLocation?: unknown }).lastLiveLocation),
     };
     store.anchorTrips.set(trip.id, trip);
@@ -207,6 +247,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
   }
 
   for (const row of shipments) {
+    const metadata = asStringRecord(row.metadata);
     const s: Shipment = {
       id: row.id,
       anchorTripId: row.anchorTripId,
@@ -234,6 +275,11 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       payoutBatchCutoffUtcMs: row.payoutBatchCutoffUtcMs != null ? Number(row.payoutBatchCutoffUtcMs) : null,
       createdAtUtcMs: Number(row.createdAtUtcMs),
       updatedAtUtcMs: Number(row.updatedAtUtcMs),
+      ...(row.externalLoadId != null ? { externalLoadId: row.externalLoadId } : {}),
+      ...(row.externalSource != null ? { externalSource: row.externalSource } : {}),
+      ...(row.integrationConnectionId != null ? { integrationConnectionId: row.integrationConnectionId } : {}),
+      ...(metadata != null ? { metadata } : {}),
+      ...(row.integrationSequence != null ? { integrationSequence: row.integrationSequence } : {}),
     };
     store.shipments.set(s.id, s);
   }
@@ -273,11 +319,93 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     store.payoutBatches.set(batch.id, batch);
   }
 
+  for (const row of integrationConnections) {
+    const conn: IntegrationConnection = {
+      id: row.id,
+      orgId: row.orgId,
+      displayName: row.displayName,
+      status: row.status as IntegrationConnection["status"],
+      ...(row.webhookUrl != null ? { webhookUrl: row.webhookUrl } : {}),
+      ...(row.webhookSecret != null ? { webhookSecret: row.webhookSecret } : {}),
+      paymentPolicy: row.paymentPolicy as IntegrationConnection["paymentPolicy"],
+      externalSource: row.externalSource,
+      createdAtUtcMs: Number(row.createdAtUtcMs),
+      updatedAtUtcMs: Number(row.updatedAtUtcMs),
+    };
+    store.integrationConnections.set(conn.id, conn);
+  }
+
+  for (const row of integrationApiKeys) {
+    const key: IntegrationApiKey = {
+      id: row.id,
+      keyId: row.keyId,
+      secretHash: row.secretHash,
+      orgId: row.orgId,
+      connectionId: row.connectionId,
+      scopes: asIntegrationScopes(row.scopes),
+      status: row.status as IntegrationApiKey["status"],
+      expiresAtUtcMs: row.expiresAtUtcMs != null ? Number(row.expiresAtUtcMs) : null,
+      lastUsedAtUtcMs: row.lastUsedAtUtcMs != null ? Number(row.lastUsedAtUtcMs) : null,
+      createdAtUtcMs: Number(row.createdAtUtcMs),
+    };
+    store.integrationApiKeys.set(key.id, key);
+  }
+
+  for (const row of integrationIdempotency) {
+    const rec: IntegrationIdempotencyRecord = {
+      key: row.key,
+      orgId: row.orgId,
+      shipmentId: row.shipmentId,
+      createdAtUtcMs: Number(row.createdAtUtcMs),
+    };
+    store.integrationIdempotency.set(rec.key, rec);
+  }
+
+  for (const row of integrationEvents) {
+    const event: IntegrationEvent = {
+      id: row.id,
+      orgId: row.orgId,
+      shipmentId: row.shipmentId,
+      ...(row.externalLoadId != null ? { externalLoadId: row.externalLoadId } : {}),
+      eventType: row.eventType as IntegrationEvent["eventType"],
+      sequence: row.sequence,
+      payload: asObjectRecord(row.payload),
+      occurredAtUtcMs: Number(row.occurredAtUtcMs),
+      createdAtUtcMs: Number(row.createdAtUtcMs),
+    };
+    store.integrationEvents.set(event.id, event);
+  }
+
+  for (const row of integrationWebhookDeliveries) {
+    const delivery: IntegrationWebhookDelivery = {
+      id: row.id,
+      eventId: row.eventId,
+      orgId: row.orgId,
+      connectionId: row.connectionId,
+      webhookUrl: row.webhookUrl,
+      payloadJson: row.payloadJson,
+      status: row.status as IntegrationWebhookDelivery["status"],
+      attempts: row.attempts,
+      nextRetryAtUtcMs: Number(row.nextRetryAtUtcMs),
+      lastHttpStatus: row.lastHttpStatus,
+      lastError: row.lastError,
+      deliveredAtUtcMs: row.deliveredAtUtcMs != null ? Number(row.deliveredAtUtcMs) : null,
+      createdAtUtcMs: Number(row.createdAtUtcMs),
+      updatedAtUtcMs: Number(row.updatedAtUtcMs),
+    };
+    store.integrationWebhookDeliveries.set(delivery.id, delivery);
+  }
+
   return store;
 }
 
 export async function saveStoreToDatabase(store: Store): Promise<void> {
   await prisma.$transaction(async (tx) => {
+    await tx.integrationWebhookDeliveryRow.deleteMany();
+    await tx.integrationEventRow.deleteMany();
+    await tx.integrationIdempotencyRow.deleteMany();
+    await tx.integrationApiKeyRow.deleteMany();
+    await tx.integrationConnectionRow.deleteMany();
     await tx.ledgerLineRow.deleteMany();
     await tx.payoutBatchRow.deleteMany();
     await tx.shipmentRow.deleteMany();
@@ -395,6 +523,10 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           reservedKg: t.reservedKg,
           status: t.status,
           createdAtUtcMs: BigInt(t.createdAtUtcMs),
+          startedAtUtcMs: t.startedAtUtcMs != null ? BigInt(t.startedAtUtcMs) : null,
+          startedByUserId: t.startedByUserId ?? null,
+          completedAtUtcMs: t.completedAtUtcMs != null ? BigInt(t.completedAtUtcMs) : null,
+          completedByUserId: t.completedByUserId ?? null,
           lastLiveLocation: t.lastLiveLocation ?? undefined,
         },
       });
@@ -444,6 +576,11 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           payoutBatchCutoffUtcMs: s.payoutBatchCutoffUtcMs != null ? BigInt(s.payoutBatchCutoffUtcMs) : null,
           createdAtUtcMs: BigInt(s.createdAtUtcMs),
           updatedAtUtcMs: BigInt(s.updatedAtUtcMs),
+          externalLoadId: s.externalLoadId ?? null,
+          externalSource: s.externalSource ?? null,
+          integrationConnectionId: s.integrationConnectionId ?? null,
+          metadata: s.metadata ?? undefined,
+          integrationSequence: s.integrationSequence ?? null,
         },
       });
     }
@@ -475,6 +612,83 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           lineIds: b.lineIds,
           provider: b.provider,
           transfers: b.transfers as unknown as object[],
+        },
+      });
+    }
+    for (const conn of store.integrationConnections.values()) {
+      await tx.integrationConnectionRow.create({
+        data: {
+          id: conn.id,
+          orgId: conn.orgId,
+          displayName: conn.displayName,
+          status: conn.status,
+          webhookUrl: conn.webhookUrl ?? null,
+          webhookSecret: conn.webhookSecret ?? null,
+          paymentPolicy: conn.paymentPolicy,
+          externalSource: conn.externalSource,
+          createdAtUtcMs: BigInt(conn.createdAtUtcMs),
+          updatedAtUtcMs: BigInt(conn.updatedAtUtcMs),
+        },
+      });
+    }
+    for (const key of store.integrationApiKeys.values()) {
+      await tx.integrationApiKeyRow.create({
+        data: {
+          id: key.id,
+          keyId: key.keyId,
+          secretHash: key.secretHash,
+          orgId: key.orgId,
+          connectionId: key.connectionId,
+          scopes: key.scopes,
+          status: key.status,
+          expiresAtUtcMs: key.expiresAtUtcMs != null ? BigInt(key.expiresAtUtcMs) : null,
+          lastUsedAtUtcMs: key.lastUsedAtUtcMs != null ? BigInt(key.lastUsedAtUtcMs) : null,
+          createdAtUtcMs: BigInt(key.createdAtUtcMs),
+        },
+      });
+    }
+    for (const rec of store.integrationIdempotency.values()) {
+      await tx.integrationIdempotencyRow.create({
+        data: {
+          key: rec.key,
+          orgId: rec.orgId,
+          shipmentId: rec.shipmentId,
+          createdAtUtcMs: BigInt(rec.createdAtUtcMs),
+        },
+      });
+    }
+    for (const event of store.integrationEvents.values()) {
+      await tx.integrationEventRow.create({
+        data: {
+          id: event.id,
+          orgId: event.orgId,
+          shipmentId: event.shipmentId,
+          externalLoadId: event.externalLoadId ?? null,
+          eventType: event.eventType,
+          sequence: event.sequence,
+          payload: event.payload,
+          occurredAtUtcMs: BigInt(event.occurredAtUtcMs),
+          createdAtUtcMs: BigInt(event.createdAtUtcMs),
+        },
+      });
+    }
+    for (const delivery of store.integrationWebhookDeliveries.values()) {
+      await tx.integrationWebhookDeliveryRow.create({
+        data: {
+          id: delivery.id,
+          eventId: delivery.eventId,
+          orgId: delivery.orgId,
+          connectionId: delivery.connectionId,
+          webhookUrl: delivery.webhookUrl,
+          payloadJson: delivery.payloadJson,
+          status: delivery.status,
+          attempts: delivery.attempts,
+          nextRetryAtUtcMs: BigInt(delivery.nextRetryAtUtcMs),
+          lastHttpStatus: delivery.lastHttpStatus,
+          lastError: delivery.lastError,
+          deliveredAtUtcMs: delivery.deliveredAtUtcMs != null ? BigInt(delivery.deliveredAtUtcMs) : null,
+          createdAtUtcMs: BigInt(delivery.createdAtUtcMs),
+          updatedAtUtcMs: BigInt(delivery.updatedAtUtcMs),
         },
       });
     }
