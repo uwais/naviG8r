@@ -13,6 +13,7 @@ import {
   createIntegrationApiKey,
   createIntegrationLoad,
   listIntegrationEvents,
+  revokeIntegrationApiKey,
   updateIntegrationConnection,
 } from "./integrationServices.ts";
 import { buildIntegrationEventPayload } from "./integrationWebhooks.ts";
@@ -43,6 +44,30 @@ function seedOpenTrip(store: ReturnType<typeof createStore>) {
     capacityKg: 1000,
   });
   return { trip, driver: onboard };
+}
+
+async function withEnv<T>(updates: Record<string, string | undefined>, fn: () => T | Promise<T>): Promise<T> {
+  const previous: Record<string, string | undefined> = {};
+  for (const key of Object.keys(updates)) {
+    previous[key] = process.env[key];
+    const value = updates[key];
+    if (value == null) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value == null) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 }
 
 test("integration load create is idempotent by externalLoadId", async () => {
@@ -177,4 +202,68 @@ test("resolveIntegrationAuth accepts X-Api-Key headers", () => {
   });
   assert.equal(ctx.orgId, admin.org.id);
   assert.equal(key.secretHash, hashIntegrationSecret(parsed![2]!));
+});
+
+test("integration API key revoke accepts public keyId", async () => {
+  await withEnv({ AUTH_SECRET: "test-secret-min-16-chars!!" }, () => {
+    const store = createStore();
+    const admin = registerCustomerOrgAdmin(store, {
+      fullName: "Key Revoke User",
+      phone: "9111001195",
+      orgDisplayName: "Key Revoke Co",
+    });
+    const { key, token } = createIntegrationApiKey(store, admin.org.id);
+
+    revokeIntegrationApiKey(store, admin.org.id, key.keyId);
+
+    assert.equal(store.integrationApiKeys.get(key.id)?.status, "REVOKED");
+    assert.throws(
+      () => resolveIntegrationAuth(store, { bearerToken: token }),
+      /integration_unauthorized/,
+    );
+  });
+});
+
+test("integration load rolls back booking when Razorpay order attach fails", async () => {
+  await withEnv(
+    {
+      AUTH_SECRET: "test-secret-min-16-chars!!",
+      PAYMENT_PROVIDER: "RAZORPAY",
+      RAZORPAY_KEY_ID: undefined,
+      RAZORPAY_KEY_SECRET: undefined,
+    },
+    async () => {
+      const store = createStore();
+      const { trip } = seedOpenTrip(store);
+      const admin = registerCustomerOrgAdmin(store, {
+        fullName: "ERP Rollback Admin",
+        phone: "9111001194",
+        orgDisplayName: "ERP Rollback Co",
+      });
+      const { token } = createIntegrationApiKey(store, admin.org.id);
+      const ctx = resolveIntegrationAuth(store, { bearerToken: token });
+      const params = {
+        externalLoadId: "ERP-ROLLBACK-001",
+        weightKg: 120,
+        pickupAddress: "Warehouse A, Gurugram",
+        dropAddress: "Plant B, Jaipur",
+        pickup: GURGAON,
+        drop: JAIPUR,
+      };
+
+      await assert.rejects(() => createIntegrationLoad(store, ctx, params));
+
+      assert.equal(store.shipments.size, 0);
+      assert.equal(store.payments.size, 0);
+      assert.equal(store.integrationEvents.size, 0);
+      assert.equal(store.integrationWebhookDeliveries.size, 0);
+      assert.equal(store.anchorTrips.get(trip.id)?.reservedKg, 0);
+      assert.equal(store.anchorTrips.get(trip.id)?.status, "OPEN");
+
+      updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized" });
+      const retry = await createIntegrationLoad(store, ctx, params);
+      assert.equal(retry.created, true);
+      assert.equal(retry.shipment.externalLoadId, "ERP-ROLLBACK-001");
+    },
+  );
 });

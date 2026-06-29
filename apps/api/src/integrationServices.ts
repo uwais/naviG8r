@@ -5,6 +5,7 @@ import {
   shipmentWithCarrierDisplay,
   tripWithCarrierDisplay,
   attachRazorpayOrderForShipment,
+  rollbackBooking,
 } from "./services.ts";
 import type {
   GeoPoint,
@@ -133,7 +134,10 @@ export function createIntegrationApiKey(
 }
 
 export function revokeIntegrationApiKey(store: Store, orgId: string, keyRecordId: string): void {
-  const key = store.integrationApiKeys.get(keyRecordId);
+  const lookup = keyRecordId.trim();
+  const key =
+    store.integrationApiKeys.get(lookup) ??
+    [...store.integrationApiKeys.values()].find((k) => k.keyId === lookup);
   if (!key || key.orgId !== orgId) throw new Error("integration_key_not_found");
   key.status = "REVOKED";
   store.integrationApiKeys.set(key.id, key);
@@ -272,7 +276,12 @@ export async function createIntegrationLoad(
   });
 
   if (conn.paymentPolicy === "portal_checkout" && razorpayPaymentsEnabled()) {
-    await attachRazorpayOrderForShipment(store, shipment.id);
+    try {
+      await attachRazorpayOrderForShipment(store, shipment.id);
+    } catch (e) {
+      rollbackBooking(store, shipment.id);
+      throw e;
+    }
   }
 
   if (conn.paymentPolicy === "erp_preauthorized") {
