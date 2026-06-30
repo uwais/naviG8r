@@ -1679,6 +1679,18 @@ export function rollbackBooking(store: Store, shipmentId: string): void {
     if (trip.status === "FULL" && trip.reservedKg < trip.capacityKg) trip.status = "OPEN";
     store.anchorTrips.set(trip.id, trip);
   }
+  const eventIds = new Set<string>();
+  for (const event of store.integrationEvents.values()) {
+    if (event.shipmentId === shipmentId) {
+      eventIds.add(event.id);
+      store.integrationEvents.delete(event.id);
+    }
+  }
+  for (const delivery of store.integrationWebhookDeliveries.values()) {
+    if (eventIds.has(delivery.eventId)) {
+      store.integrationWebhookDeliveries.delete(delivery.id);
+    }
+  }
   store.payments.delete(s.paymentId);
   store.shipments.delete(shipmentId);
 }
