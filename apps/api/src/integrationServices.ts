@@ -5,6 +5,7 @@ import {
   shipmentWithCarrierDisplay,
   tripWithCarrierDisplay,
   attachRazorpayOrderForShipment,
+  rollbackBooking,
 } from "./services.ts";
 import type {
   GeoPoint,
@@ -132,8 +133,10 @@ export function createIntegrationApiKey(
   return { key, token, connection: conn };
 }
 
-export function revokeIntegrationApiKey(store: Store, orgId: string, keyRecordId: string): void {
-  const key = store.integrationApiKeys.get(keyRecordId);
+export function revokeIntegrationApiKey(store: Store, orgId: string, keyIdOrRecordId: string): void {
+  const lookup = keyIdOrRecordId.trim();
+  const key = store.integrationApiKeys.get(lookup)
+    ?? [...store.integrationApiKeys.values()].find((k) => k.keyId === lookup);
   if (!key || key.orgId !== orgId) throw new Error("integration_key_not_found");
   key.status = "REVOKED";
   store.integrationApiKeys.set(key.id, key);
@@ -179,6 +182,20 @@ function applyErpPreauthorizedPayment(store: Store, shipment: Shipment): void {
     pay.updatedAtUtcMs = nowUtcMs();
   }
   store.payments.set(pay.id, pay);
+}
+
+function removeIntegrationArtifactsForShipment(store: Store, shipmentId: string): void {
+  const eventIds = new Set<string>();
+  for (const event of store.integrationEvents.values()) {
+    if (event.shipmentId === shipmentId) eventIds.add(event.id);
+  }
+  for (const eventId of eventIds) store.integrationEvents.delete(eventId);
+  for (const delivery of store.integrationWebhookDeliveries.values()) {
+    if (eventIds.has(delivery.eventId)) store.integrationWebhookDeliveries.delete(delivery.id);
+  }
+  for (const rec of store.integrationIdempotency.values()) {
+    if (rec.shipmentId === shipmentId) store.integrationIdempotency.delete(rec.key);
+  }
 }
 
 export function integrationLoadResponse(store: Store, shipment: Shipment, connection: IntegrationConnection) {
@@ -272,7 +289,13 @@ export async function createIntegrationLoad(
   });
 
   if (conn.paymentPolicy === "portal_checkout" && razorpayPaymentsEnabled()) {
-    await attachRazorpayOrderForShipment(store, shipment.id);
+    try {
+      await attachRazorpayOrderForShipment(store, shipment.id);
+    } catch (e) {
+      removeIntegrationArtifactsForShipment(store, shipment.id);
+      rollbackBooking(store, shipment.id);
+      throw e;
+    }
   }
 
   if (conn.paymentPolicy === "erp_preauthorized") {
