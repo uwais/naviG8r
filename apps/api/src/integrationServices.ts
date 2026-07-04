@@ -5,6 +5,7 @@ import {
   shipmentWithCarrierDisplay,
   tripWithCarrierDisplay,
   attachRazorpayOrderForShipment,
+  rollbackBooking,
 } from "./services.ts";
 import type {
   GeoPoint,
@@ -133,7 +134,10 @@ export function createIntegrationApiKey(
 }
 
 export function revokeIntegrationApiKey(store: Store, orgId: string, keyRecordId: string): void {
-  const key = store.integrationApiKeys.get(keyRecordId);
+  const lookup = keyRecordId.trim();
+  const key =
+    store.integrationApiKeys.get(lookup) ??
+    [...store.integrationApiKeys.values()].find((k) => k.keyId === lookup);
   if (!key || key.orgId !== orgId) throw new Error("integration_key_not_found");
   key.status = "REVOKED";
   store.integrationApiKeys.set(key.id, key);
@@ -233,6 +237,9 @@ export async function createIntegrationLoad(
   if (params.idempotencyKey?.trim()) {
     const existing = findShipmentByIdempotencyKey(store, ctx.orgId, params.idempotencyKey.trim());
     if (existing) {
+      if (existing.externalLoadId !== externalLoadId) {
+        throw new Error("integration_idempotency_conflict");
+      }
       return { shipment: existing, response: integrationLoadResponse(store, existing, conn), created: false };
     }
   }
@@ -272,7 +279,12 @@ export async function createIntegrationLoad(
   });
 
   if (conn.paymentPolicy === "portal_checkout" && razorpayPaymentsEnabled()) {
-    await attachRazorpayOrderForShipment(store, shipment.id);
+    try {
+      await attachRazorpayOrderForShipment(store, shipment.id);
+    } catch (e) {
+      rollbackBooking(store, shipment.id);
+      throw e;
+    }
   }
 
   if (conn.paymentPolicy === "erp_preauthorized") {
@@ -359,7 +371,7 @@ export function listIntegrationEvents(
     events = idx >= 0 ? events.slice(idx + 1) : events;
   }
   const limit = Math.min(params.limit ?? 100, 500);
-  return events.slice(-limit);
+  return params.sinceEventId ? events.slice(0, limit) : events.slice(-limit);
 }
 
 export function listWebhookDeliveries(

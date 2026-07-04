@@ -76,20 +76,24 @@ model AuthSessionRow {
 }
 
 model AnchorTripRow {
-  id               String @id
-  carrierId        String
-  originCity       String
-  destCity         String
-  origin           Json?
-  destination      Json?
-  windowStart      String
-  windowEnd        String
-  vehicleClass     String
-  capacityKg       Int
-  reservedKg       Int
-  status           String
-  createdAtUtcMs   BigInt
-  lastLiveLocation Json?
+  id                String  @id
+  carrierId         String
+  originCity        String
+  destCity          String
+  origin            Json?
+  destination       Json?
+  windowStart       String
+  windowEnd         String
+  vehicleClass      String
+  capacityKg        Int
+  reservedKg        Int
+  status            String
+  createdAtUtcMs    BigInt
+  startedAtUtcMs    BigInt?
+  startedByUserId   String?
+  completedAtUtcMs  BigInt?
+  completedByUserId String?
+  lastLiveLocation  Json?
 }
 
 model PaymentRow {
@@ -106,30 +110,35 @@ model PaymentRow {
 }
 
 model ShipmentRow {
-  id                             String @id
-  anchorTripId                   String
-  carrierId                      String
-  customerOrgId                  String?
-  customerOrgName                String
-  bookedByPhone                  String?
-  bookedByUserId                 String?
-  weightKg                       Int
-  pickupAddress                  String
-  dropAddress                    String
-  pickup                         Json?
-  drop                           Json?
-  status                         String
-  grossPaise                     Int
-  commissionPaise                Int
-  netToCarrierPaise             Int
-  paymentId                     String
-  podAtUtcMs                    BigInt?
-  podSubmittedByUserId          String?
-  podNotes                      String?
-  firstPayoutEligibleAtUtcMs    BigInt?
-  payoutBatchCutoffUtcMs        BigInt?
-  createdAtUtcMs                BigInt
-  updatedAtUtcMs                BigInt
+  id                         String  @id
+  anchorTripId               String
+  carrierId                  String
+  customerOrgId              String?
+  customerOrgName            String
+  bookedByPhone              String?
+  bookedByUserId             String?
+  weightKg                   Int
+  pickupAddress              String
+  dropAddress                String
+  pickup                     Json?
+  drop                       Json?
+  status                     String
+  grossPaise                 Int
+  commissionPaise            Int
+  netToCarrierPaise          Int
+  paymentId                  String
+  podAtUtcMs                 BigInt?
+  podSubmittedByUserId       String?
+  podNotes                   String?
+  firstPayoutEligibleAtUtcMs BigInt?
+  payoutBatchCutoffUtcMs     BigInt?
+  createdAtUtcMs             BigInt
+  updatedAtUtcMs             BigInt
+  externalLoadId             String?
+  externalSource             String?
+  integrationConnectionId    String?
+  metadata                   Json?
+  integrationSequence        Int?
 }
 
 model LedgerLineRow {
@@ -155,4 +164,66 @@ model PayoutBatchRow {
   lineIds                 Json // string[]
   provider                String? // "BOOKKEEPING" | "RAZORPAYX"
   transfers               Json? // PayoutTransfer[]
+}
+
+model IntegrationConnectionRow {
+  id             String  @id
+  orgId          String
+  displayName    String
+  status         String
+  webhookUrl     String?
+  webhookSecret  String?
+  paymentPolicy  String
+  externalSource String
+  createdAtUtcMs BigInt
+  updatedAtUtcMs BigInt
+}
+
+model IntegrationApiKeyRow {
+  id              String  @id
+  keyId           String  @unique
+  secretHash      String
+  orgId           String
+  connectionId    String
+  scopes          Json
+  status          String
+  expiresAtUtcMs  BigInt?
+  lastUsedAtUtcMs BigInt?
+  createdAtUtcMs  BigInt
+}
+
+model IntegrationIdempotencyRow {
+  key            String @id
+  orgId          String
+  shipmentId     String
+  createdAtUtcMs BigInt
+}
+
+model IntegrationEventRow {
+  id              String  @id
+  orgId           String
+  shipmentId      String
+  externalLoadId  String?
+  eventType       String
+  sequence        Int
+  payload         Json
+  occurredAtUtcMs BigInt
+  createdAtUtcMs  BigInt
+}
+
+model IntegrationWebhookDeliveryRow {
+  id               String  @id
+  eventId          String
+  orgId            String
+  connectionId     String
+  webhookUrl       String
+  payloadJson      String
+  status           String
+  attempts         Int
+  nextRetryAtUtcMs BigInt
+  lastHttpStatus   Int?
+  lastError        String?
+  deliveredAtUtcMs BigInt?
+  createdAtUtcMs   BigInt
+  updatedAtUtcMs   BigInt
 }

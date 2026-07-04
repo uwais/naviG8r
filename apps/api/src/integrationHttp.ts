@@ -50,6 +50,7 @@ function integrationErrorStatus(msg: string): number {
   if (msg === "shipment_not_found" || msg === "webhook_delivery_not_found" || msg === "integration_key_not_found") {
     return 404;
   }
+  if (msg === "integration_idempotency_conflict") return 409;
   if (msg === "no_eligible_lane") return 422;
   return 400;
 }
