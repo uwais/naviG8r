@@ -74,12 +74,15 @@ async function patchJson(
   });
 }
 
-async function customerBearer(baseUrl: string): Promise<{ token: string; orgId: string }> {
-  const phone = "9111008800";
+async function customerBearer(
+  baseUrl: string,
+  phone = "9111008800",
+  orgDisplayName = "ERP HTTP Shipper",
+): Promise<{ token: string; orgId: string }> {
   const reg = await postJson(baseUrl, "/v1/pilot/customer/register", {
     fullName: "ERP HTTP Admin",
     phone,
-    orgDisplayName: "ERP HTTP Shipper",
+    orgDisplayName,
   });
   assert.equal(reg.status, 201);
   const regBody = (await reg.json()) as { org: { id: string } };
@@ -199,6 +202,50 @@ test("GET /v1/pilot/customer/integrations requires CUSTOMER_ADMIN bearer", async
 
     const noAuth = await fetch(`${baseUrl}/v1/pilot/customer/integrations?orgId=${orgId}`);
     assert.equal(noAuth.status, 401);
+  });
+});
+
+test("POST /v1/pilot/customer/integrations delivery retry does not mutate another org delivery", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl, app) => {
+    const victim = await customerBearer(baseUrl, "9111008801", "Victim ERP Shipper");
+    const attacker = await customerBearer(baseUrl, "9111008802", "Attacker ERP Shipper");
+    const retryAt = Date.now() + 60 * 60_000;
+    const updatedAt = Date.now() - 60_000;
+
+    app.store.integrationWebhookDeliveries.set("whd_foreign", {
+      id: "whd_foreign",
+      eventId: "evt_foreign",
+      orgId: victim.orgId,
+      connectionId: "intconn_foreign",
+      webhookUrl: "https://erp.example.test/webhook",
+      payloadJson: "{}",
+      status: "DEAD",
+      attempts: 10,
+      nextRetryAtUtcMs: retryAt,
+      lastHttpStatus: 500,
+      lastError: "failed",
+      deliveredAtUtcMs: null,
+      createdAtUtcMs: updatedAt,
+      updatedAtUtcMs: updatedAt,
+    });
+
+    const retry = await postJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/deliveries/whd_foreign/retry?orgId=${attacker.orgId}`,
+      {},
+      { authorization: `Bearer ${attacker.token}` },
+    );
+
+    assert.equal(retry.status, 404);
+    assert.deepEqual(await retry.json(), { error: "webhook_delivery_not_found" });
+    const delivery = app.store.integrationWebhookDeliveries.get("whd_foreign");
+    assert.ok(delivery);
+    assert.equal(delivery.orgId, victim.orgId);
+    assert.equal(delivery.status, "DEAD");
+    assert.equal(delivery.attempts, 10);
+    assert.equal(delivery.nextRetryAtUtcMs, retryAt);
+    assert.equal(delivery.updatedAtUtcMs, updatedAt);
   });
 });
 
