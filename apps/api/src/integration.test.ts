@@ -13,6 +13,7 @@ import {
   createIntegrationApiKey,
   createIntegrationLoad,
   listIntegrationEvents,
+  revokeIntegrationApiKey,
   updateIntegrationConnection,
 } from "./integrationServices.ts";
 import { buildIntegrationEventPayload } from "./integrationWebhooks.ts";
@@ -20,6 +21,14 @@ import { hashIntegrationSecret, resolveIntegrationAuth } from "./integrationAuth
 
 const GURGAON = { lat: 28.4595, lng: 77.0266, label: "Gurugram" };
 const JAIPUR = { lat: 26.9124, lng: 75.7873, label: "Jaipur" };
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value == null) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
 
 function seedOpenTrip(store: ReturnType<typeof createStore>) {
   const onboard = registerSoloOwnerOperatorDriver(store, {
@@ -76,6 +85,156 @@ test("integration load create is idempotent by externalLoadId", async () => {
   const second = await createIntegrationLoad(store, ctx, params);
   assert.equal(second.created, false);
   assert.equal(second.shipment.id, first.shipment.id);
+});
+
+test("integration load idempotency key cannot alias a different external load", async () => {
+  process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  const store = createStore();
+  seedOpenTrip(store);
+  const admin = registerCustomerOrgAdmin(store, {
+    fullName: "ERP Idempotency Admin",
+    phone: "9111001193",
+    orgDisplayName: "ERP Idempotency Co",
+  });
+  const { token } = createIntegrationApiKey(store, admin.org.id);
+  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized" });
+
+  const ctx = resolveIntegrationAuth(store, { bearerToken: token });
+  const baseParams = {
+    weightKg: 120,
+    pickupAddress: "Warehouse A, Gurugram",
+    dropAddress: "Plant B, Jaipur",
+    pickup: GURGAON,
+    drop: JAIPUR,
+    idempotencyKey: "erp-retry-key-1",
+  };
+
+  const first = await createIntegrationLoad(store, ctx, {
+    ...baseParams,
+    externalLoadId: "ERP-IDEMPOTENT-001",
+  });
+  assert.equal(first.created, true);
+
+  await assert.rejects(
+    createIntegrationLoad(store, ctx, {
+      ...baseParams,
+      externalLoadId: "ERP-IDEMPOTENT-002",
+    }),
+    /idempotency_key_conflict/,
+  );
+  assert.equal(store.shipments.size, 1);
+});
+
+test("revokeIntegrationApiKey accepts public keyId from the customer portal", () => {
+  process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  const store = createStore();
+  const admin = registerCustomerOrgAdmin(store, {
+    fullName: "ERP Admin",
+    phone: "9111001195",
+    orgDisplayName: "ERP Revoke Co",
+  });
+  const { key, token } = createIntegrationApiKey(store, admin.org.id);
+
+  revokeIntegrationApiKey(store, admin.org.id, key.keyId);
+
+  assert.equal(store.integrationApiKeys.get(key.id)?.status, "REVOKED");
+  assert.throws(
+    () => resolveIntegrationAuth(store, { bearerToken: token }),
+    /integration_unauthorized/,
+  );
+});
+
+test("integration events pagination returns the next events after a cursor", () => {
+  process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  const store = createStore();
+  const { trip } = seedOpenTrip(store);
+  const admin = registerCustomerOrgAdmin(store, {
+    fullName: "ERP Events Admin",
+    phone: "9111001192",
+    orgDisplayName: "ERP Events Co",
+  });
+  const conn = updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized" });
+
+  for (let i = 0; i < 3; i += 1) {
+    bookShipment(store, {
+      anchorTripId: trip.id,
+      customerOrgName: admin.org.displayName,
+      customerOrg: { id: admin.org.id, displayName: admin.org.displayName },
+      weightKg: 50,
+      pickupAddress: "Gurugram",
+      dropAddress: "Jaipur",
+      pickup: GURGAON,
+      drop: JAIPUR,
+      externalLoadId: `ERP-EVENTS-${i}`,
+      integrationConnectionId: conn.id,
+    });
+  }
+
+  const ordered = [...store.integrationEvents.values()];
+  ordered.forEach((event, idx) => {
+    event.createdAtUtcMs = idx + 1;
+    store.integrationEvents.set(event.id, event);
+  });
+
+  const page = listIntegrationEvents(store, admin.org.id, {
+    sinceEventId: ordered[1]!.id,
+    limit: 2,
+  });
+
+  assert.deepEqual(
+    page.map((event) => event.id),
+    ordered.slice(2, 4).map((event) => event.id),
+  );
+});
+
+test("portal checkout load rolls back shipment when Razorpay order creation fails", async () => {
+  const prev = {
+    AUTH_SECRET: process.env.AUTH_SECRET,
+    PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER,
+    RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID,
+    RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET,
+  };
+  try {
+    process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+    process.env.PAYMENT_PROVIDER = "RAZORPAY";
+    delete process.env.RAZORPAY_KEY_ID;
+    delete process.env.RAZORPAY_KEY_SECRET;
+
+    const store = createStore();
+    const { trip } = seedOpenTrip(store);
+    const admin = registerCustomerOrgAdmin(store, {
+      fullName: "ERP Checkout Admin",
+      phone: "9111001194",
+      orgDisplayName: "ERP Checkout Co",
+    });
+    const { token } = createIntegrationApiKey(store, admin.org.id);
+    const ctx = resolveIntegrationAuth(store, { bearerToken: token });
+
+    await assert.rejects(
+      createIntegrationLoad(store, ctx, {
+        externalLoadId: "ERP-CHECKOUT-FAIL",
+        weightKg: 120,
+        pickupAddress: "Warehouse A, Gurugram",
+        dropAddress: "Plant B, Jaipur",
+        pickup: GURGAON,
+        drop: JAIPUR,
+      }),
+      /razorpay_dependency_missing|missing_razorpay_credentials/,
+    );
+
+    assert.equal(store.shipments.size, 0);
+    assert.equal(store.payments.size, 0);
+    assert.equal(store.integrationEvents.size, 0);
+    assert.equal(store.integrationWebhookDeliveries.size, 0);
+    assert.equal(store.integrationIdempotency.size, 0);
+    assert.equal(store.anchorTrips.get(trip.id)?.reservedKg, 0);
+    assert.equal(store.anchorTrips.get(trip.id)?.status, "OPEN");
+  } finally {
+    restoreEnv("AUTH_SECRET", prev.AUTH_SECRET);
+    restoreEnv("PAYMENT_PROVIDER", prev.PAYMENT_PROVIDER);
+    restoreEnv("RAZORPAY_KEY_ID", prev.RAZORPAY_KEY_ID);
+    restoreEnv("RAZORPAY_KEY_SECRET", prev.RAZORPAY_KEY_SECRET);
+  }
 });
 
 test("integration events emit on carrier accept", () => {
