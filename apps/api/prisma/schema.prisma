@@ -89,6 +89,10 @@ model AnchorTripRow {
   reservedKg       Int
   status           String
   createdAtUtcMs   BigInt
+  startedAtUtcMs   BigInt?
+  startedByUserId  String?
+  completedAtUtcMs BigInt?
+  completedByUserId String?
   lastLiveLocation Json?
 }
 
@@ -119,6 +123,8 @@ model ShipmentRow {
   pickup                         Json?
   drop                           Json?
   status                         String
+  acceptedAtUtcMs                BigInt?
+  acceptedByUserId               String?
   grossPaise                     Int
   commissionPaise                Int
   netToCarrierPaise             Int
@@ -128,8 +134,75 @@ model ShipmentRow {
   podNotes                      String?
   firstPayoutEligibleAtUtcMs    BigInt?
   payoutBatchCutoffUtcMs        BigInt?
+  externalLoadId                String?
+  externalSource                String?
+  integrationConnectionId       String?
+  metadata                      Json?
+  integrationSequence           Int?
   createdAtUtcMs                BigInt
   updatedAtUtcMs                BigInt
+}
+
+model IntegrationConnectionRow {
+  id             String @id
+  orgId          String
+  displayName    String
+  status         String
+  webhookUrl     String?
+  webhookSecret  String?
+  paymentPolicy  String
+  externalSource String
+  createdAtUtcMs BigInt
+  updatedAtUtcMs BigInt
+}
+
+model IntegrationApiKeyRow {
+  id              String @id
+  keyId           String @unique
+  secretHash      String
+  orgId           String
+  connectionId    String
+  scopes          Json
+  status          String
+  expiresAtUtcMs  BigInt?
+  lastUsedAtUtcMs BigInt?
+  createdAtUtcMs  BigInt
+}
+
+model IntegrationIdempotencyRow {
+  key            String @id
+  orgId          String
+  shipmentId     String
+  createdAtUtcMs BigInt
+}
+
+model IntegrationEventRow {
+  id              String @id
+  orgId           String
+  shipmentId      String
+  externalLoadId  String?
+  eventType       String
+  sequence        Int
+  payload         Json
+  occurredAtUtcMs BigInt
+  createdAtUtcMs  BigInt
+}
+
+model IntegrationWebhookDeliveryRow {
+  id                String @id
+  eventId           String
+  orgId             String
+  connectionId      String
+  webhookUrl        String
+  payloadJson       String
+  status            String
+  attempts          Int
+  nextRetryAtUtcMs  BigInt
+  lastHttpStatus    Int?
+  lastError         String?
+  deliveredAtUtcMs  BigInt?
+  createdAtUtcMs    BigInt
+  updatedAtUtcMs    BigInt
 }
 
 model LedgerLineRow {
