@@ -43,6 +43,7 @@ import {
   completeAnchorTripAsPilot,
   startAnchorTripAsPilot,
   tripWithCarrierDisplay,
+  tripForPublicListing,
   publishAnchorTrip,
   publishAnchorTripAsPilotDriver,
   quoteShipmentMarketplace,
@@ -742,7 +743,7 @@ export async function createApp(): Promise<{
           weightKg,
         }).map((row) => ({
           ...row,
-          trip: tripWithCarrierDisplay(store, row.trip),
+          trip: tripForPublicListing(store, row.trip),
         }));
         return json(res, 200, { trips });
       }
@@ -1298,12 +1299,12 @@ export async function createApp(): Promise<{
         if (tripId.length > 0) {
           const trip = store.anchorTrips.get(tripId);
           if (!trip) return json(res, 404, { error: "trip_not_found" });
-          return json(res, 200, { trip: tripWithCarrierDisplay(store, trip) });
+          return json(res, 200, { trip: tripForPublicListing(store, trip) });
         }
       }
 
       if (method === "GET" && url.pathname === "/anchor-trips") {
-        const trips = [...store.anchorTrips.values()].map((t) => tripWithCarrierDisplay(store, t));
+        const trips = [...store.anchorTrips.values()].map((t) => tripForPublicListing(store, t));
         return json(res, 200, { trips });
       }
 

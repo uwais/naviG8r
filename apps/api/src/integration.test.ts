@@ -7,7 +7,9 @@ import {
   publishAnchorTripAsPilotDriver,
   registerCustomerOrgAdmin,
   registerSoloOwnerOperatorDriver,
+  releasePaymentAndDeliver,
   startAnchorTripAsPilot,
+  submitDriverPod,
 } from "./services.ts";
 import {
   createIntegrationApiKey,
@@ -177,4 +179,48 @@ test("resolveIntegrationAuth accepts X-Api-Key headers", () => {
   });
   assert.equal(ctx.orgId, admin.org.id);
   assert.equal(key.secretHash, hashIntegrationSecret(parsed![2]!));
+});
+
+test("erp_preauthorized with PAYMENT_PROVIDER=RAZORPAY completes POD and ops release", async () => {
+  const prevProvider = process.env.PAYMENT_PROVIDER;
+  process.env.PAYMENT_PROVIDER = "RAZORPAY";
+  process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  try {
+    const store = createStore();
+    const { trip, driver } = seedOpenTrip(store);
+    const admin = registerCustomerOrgAdmin(store, {
+      fullName: "ERP Preauth Admin",
+      phone: "9111001188",
+      orgDisplayName: "ERP Preauth Co",
+    });
+    const { token } = createIntegrationApiKey(store, admin.org.id);
+    updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized" });
+    const ctx = resolveIntegrationAuth(store, { bearerToken: token });
+
+    const { shipment, created } = await createIntegrationLoad(store, ctx, {
+      externalLoadId: "ERP-PREAUTH-RZ",
+      weightKg: 80,
+      pickupAddress: "Warehouse A, Gurugram",
+      dropAddress: "Plant B, Jaipur",
+      pickup: GURGAON,
+      drop: JAIPUR,
+      anchorTripId: trip.id,
+      lanePreference: "explicit",
+    });
+    assert.equal(created, true);
+
+    const pay = store.payments.get(shipment.paymentId)!;
+    assert.equal(pay.status, "CAPTURED");
+    assert.equal(pay.provider, "MOCK");
+    assert.equal(pay.razorpayPaymentId, undefined);
+
+    acceptCarrierShipment(store, { shipmentId: shipment.id, userId: driver.user.id });
+    submitDriverPod(store, { shipmentId: shipment.id, userId: driver.user.id });
+    const released = await releasePaymentAndDeliver(store, { shipmentId: shipment.id });
+    assert.equal(released.shipment.status, "DELIVERED");
+    assert.ok(released.ledgerLine.id);
+  } finally {
+    if (prevProvider === undefined) delete process.env.PAYMENT_PROVIDER;
+    else process.env.PAYMENT_PROVIDER = prevProvider;
+  }
 });

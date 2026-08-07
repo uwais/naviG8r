@@ -195,6 +195,15 @@ export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTr
   return { ...trip, carrierDisplayName: carrierDisplayName(store, trip.carrierId) };
 }
 
+/** Marketplace / browse responses must not expose live driver GPS to unauthenticated clients. */
+export function tripForPublicListing(
+  store: Store,
+  trip: AnchorTrip,
+): Omit<AnchorTrip, "lastLiveLocation"> & { carrierDisplayName: string } {
+  const { lastLiveLocation: _omit, ...rest } = tripWithCarrierDisplay(store, trip);
+  return rest;
+}
+
 export function shipmentWithCarrierDisplay(
   store: Store,
   shipment: Shipment,

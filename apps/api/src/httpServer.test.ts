@@ -192,6 +192,71 @@ test("POST /v1/pilot/carrier/shipments/:id/accept accepts pending booking", asyn
   });
 });
 
+test("public GET /anchor-trips omits live driver GPS", async (t) => {
+  const prev = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    ALLOW_X_USER_ID: process.env.ALLOW_X_USER_ID,
+  };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+    process.env.ALLOW_X_USER_ID = prev.ALLOW_X_USER_ID;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "production";
+  process.env.ALLOW_X_USER_ID = "1";
+
+  await withApp(t, async (baseUrl, app) => {
+    const reg = await postJson(baseUrl, "/v1/pilot/driver/register", {
+      fullName: "GPS Driver",
+      phone: "9876500011",
+      orgDisplayName: "GPS Transport",
+      vehicleRegistrationNumber: "HR26GPS001",
+      vehicleClass: "MEDIUM",
+      vehicleCapacityKg: 5000,
+    });
+    assert.equal(reg.status, 201);
+    const onboard = (await reg.json()) as { user: { id: string }; org: { id: string } };
+
+    const tripRes = await fetch(`${baseUrl}/v1/pilot/anchor-trips`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-id": onboard.user.id },
+      body: JSON.stringify({
+        orgId: onboard.org.id,
+        originCity: "Gurugram",
+        destCity: "Jaipur",
+        windowStart: "2026-04-24T00:00:00+05:30",
+        windowEnd: "2026-04-25T23:59:59+05:30",
+        vehicleClass: "MEDIUM",
+        capacityKg: 1000,
+      }),
+    });
+    assert.equal(tripRes.status, 201);
+    const { trip } = (await tripRes.json()) as { trip: { id: string } };
+
+    const stored = app.store.anchorTrips.get(trip.id);
+    assert.ok(stored);
+    app.store.anchorTrips.set(trip.id, {
+      ...stored,
+      lastLiveLocation: { lat: 28.61, lng: 77.21, recordedAtUtcMs: Date.now() },
+    });
+
+    const list = await fetch(`${baseUrl}/anchor-trips`);
+    assert.equal(list.status, 200);
+    const listBody = (await list.json()) as { trips: Array<Record<string, unknown>> };
+    const listed = listBody.trips.find((t) => t.id === trip.id);
+    assert.ok(listed);
+    assert.equal("lastLiveLocation" in listed, false);
+
+    const detail = await fetch(`${baseUrl}/anchor-trips/${trip.id}`);
+    assert.equal(detail.status, 200);
+    const detailBody = (await detail.json()) as { trip: Record<string, unknown> };
+    assert.equal("lastLiveLocation" in detailBody.trip, false);
+  });
+});
+
 test("GET /ops returns ops portal HTML", async (t) => {
   const prev = { DATA_FILE: process.env.DATA_FILE };
   t.after(() => {
