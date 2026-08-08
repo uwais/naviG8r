@@ -1379,10 +1379,11 @@ export async function createApp(): Promise<{
           bookedByUserId = userId;
           const org = customerPrimaryOrgForUser(store, userId);
           if (org) customerOrg = { id: org.id, displayName: org.displayName };
-          if (phoneField == null) {
-            const user = store.users.get(userId);
-            if (user?.phone) phoneField = user.phone;
-          }
+          // Authenticated bookings must bind bookedByPhone to the session user.
+          // Accepting body.customerPhone / bookedByPhone would let a caller link
+          // (and later claim visibility for) another user's phone.
+          const user = store.users.get(userId);
+          phoneField = user?.phone;
         } catch {
           /* anonymous booking: no customerOrgId / bookedByUserId on shipment */
         }

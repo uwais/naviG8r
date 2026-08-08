@@ -3,12 +3,12 @@ import crypto from "node:crypto";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import {
-  attachRazorpayOrderForShipment,
   acceptCarrierShipment,
   bookShipment,
   confirmRazorpayCheckoutAuthorization,
   publishAnchorTripAsPilotDriver,
   registerSoloOwnerOperatorDriver,
+  startAnchorTripAsPilot,
   submitDriverPod,
 } from "./services.ts";
 
@@ -71,6 +71,7 @@ test("confirmRazorpayCheckoutAuthorization moves CREATED to AUTHORIZED for drive
   assert.equal(payment.razorpayPaymentId, paymentId);
 
   acceptCarrierShipment(store, { shipmentId: shipment.id, userId: onboard.user.id });
+  startAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
 
   const updated = submitDriverPod(store, { shipmentId: shipment.id, userId: onboard.user.id });
   assert.equal(updated.status, "PENDING_RELEASE");
