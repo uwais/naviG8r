@@ -47,7 +47,24 @@ abstract final class CustomerSession {
               customerOrgs.add(o);
             }
           }
-          customerOrgs.sort((a, b) => (a["id"]?.toString() ?? "").compareTo(b["id"]?.toString() ?? ""));
+          // Prefer earliest membership (not lexicographic org id) so a later invite
+          // cannot silently retarget bookings/ERP tagging to another org.
+          customerOrgs.sort((a, b) {
+            final aId = a["id"]?.toString() ?? "";
+            final bId = b["id"]?.toString() ?? "";
+            int joinedAt(Map<String, dynamic> org) {
+              for (final m in memberships) {
+                if (m is Map<String, dynamic> && m["orgId"]?.toString() == org["id"]?.toString()) {
+                  final raw = m["createdAtUtcMs"];
+                  if (raw is num) return raw.toInt();
+                }
+              }
+              return 1 << 62;
+            }
+            final byJoin = joinedAt(a).compareTo(joinedAt(b));
+            if (byJoin != 0) return byJoin;
+            return aId.compareTo(bId);
+          });
           if (customerOrgs.isNotEmpty) {
             final primary = customerOrgs.first;
             customerOrgId = primary["id"]?.toString();

@@ -1517,28 +1517,47 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     required String signature,
   }) async {
     final id = _pendingShipmentIdForCheckout;
-    if (id != null && id.isNotEmpty) {
-      try {
-        await api.post<Map<String, dynamic>>(
-          "/v1/payments/razorpay/confirm",
-          data: {
-            "shipmentId": id,
-            "razorpayOrderId": orderId,
-            "razorpayPaymentId": paymentId,
-            "razorpaySignature": signature,
-          },
-        );
-      } catch (_) {}
+    if (id == null || id.isEmpty) return;
+    try {
+      await api.post<Map<String, dynamic>>(
+        "/v1/payments/razorpay/confirm",
+        data: {
+          "shipmentId": id,
+          "razorpayOrderId": orderId,
+          "razorpayPaymentId": paymentId,
+          "razorpaySignature": signature,
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Payment succeeded at Razorpay but confirmation failed. "
+            "Do not re-pay — contact support with shipment $id. ${formatApiError(e)}",
+          ),
+        ),
+      );
+      return;
     }
     if (!mounted) return;
-    if (id != null) {
-      lastBookedShipmentId = id;
-      context.go("/customer/shipments/$id");
-    }
+    lastBookedShipmentId = id;
     _pendingShipmentIdForCheckout = null;
+    context.go("/customer/shipments/$id");
   }
 
   void _onCheckoutError(String message) {
+    final id = _pendingShipmentIdForCheckout;
+    _pendingShipmentIdForCheckout = null;
+    if (id != null && id.isNotEmpty) {
+      unawaited(() async {
+        try {
+          await api.post<Map<String, dynamic>>("/shipments/$id/fail-refund", data: {});
+        } catch (_) {
+          // Best-effort capacity release; webhook/ops can still recover.
+        }
+      }());
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text("Payment did not go through. $message")),

@@ -281,19 +281,20 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
  * Minimal customer org bootstrap for pilot bookings (Factories/SMBs).
  * Not used by the Driver app, but defines the API resource shape early.
  */
-/** All CUSTOMER orgs for this user (stable order). */
+/** All CUSTOMER orgs for this user (oldest membership first). */
 export function customerOrgsForUser(store: Store, userId: string): Organization[] {
-  const matches: Organization[] = [];
+  const matches: Array<{ org: Organization; joinedAtUtcMs: number }> = [];
   for (const m of store.memberships.values()) {
     if (m.userId !== userId) continue;
     const o = store.organizations.get(m.orgId);
-    if (o?.kind === "CUSTOMER") matches.push(o);
+    if (o?.kind === "CUSTOMER") matches.push({ org: o, joinedAtUtcMs: m.createdAtUtcMs });
   }
-  matches.sort((a, b) => a.id.localeCompare(b.id));
-  return matches;
+  // Prefer earliest membership so joining another org cannot retarget bookings by id lexicography.
+  matches.sort((a, b) => a.joinedAtUtcMs - b.joinedAtUtcMs || a.org.id.localeCompare(b.org.id));
+  return matches.map((row) => row.org);
 }
 
-/** First CUSTOMER org for this user (stable order if several). Used when booking tags a single org. */
+/** First CUSTOMER org for this user (earliest membership). Used when booking tags a single org. */
 export function customerPrimaryOrgForUser(store: Store, userId: string): Organization | null {
   const orgs = customerOrgsForUser(store, userId);
   return orgs[0] ?? null;
@@ -1356,9 +1357,7 @@ export function submitDriverPod(
   }
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
-  const payOk =
-    pay.status === "AUTHORIZED" || (pay.provider === "MOCK" && pay.status === "CAPTURED");
-  if (!payOk) {
+  if (!paymentAuthorizedForCarrierAccept(pay)) {
     throw new ApiError("checkout_not_completed_for_pod", {
       detail: "Customer must complete payment authorization before driver POD.",
       status: pay.status,
@@ -1402,8 +1401,9 @@ function maybeAutoCompleteAnchorTripAfterPod(store: Store, tripId: string, userI
   }
 }
 
+/** Funds are secured once authorized or already captured (early capture / webhook race). */
 function paymentAuthorizedForCarrierAccept(pay: Payment): boolean {
-  return pay.status === "AUTHORIZED" || (pay.provider === "MOCK" && pay.status === "CAPTURED");
+  return pay.status === "AUTHORIZED" || pay.status === "CAPTURED";
 }
 
 /** Carrier accepts a customer booking (PENDING_CARRIER_ACCEPT → BOOKED). */
@@ -1760,11 +1760,28 @@ export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: 
   store.payments.set(pay.id, { ...pay, status: "CAPTURED", updatedAtUtcMs: nowUtcMs() });
 }
 
+/** Free reserved trip capacity for a cancelled/failed booking (idempotent on trip maps). */
+export function releaseShipmentTripCapacity(store: Store, shipment: Shipment): void {
+  const trip = store.anchorTrips.get(shipment.anchorTripId);
+  if (!trip) return;
+  trip.reservedKg = Math.max(0, trip.reservedKg - shipment.weightKg);
+  if (trip.status === "FULL" && trip.reservedKg < trip.capacityKg) trip.status = "OPEN";
+  store.anchorTrips.set(trip.id, trip);
+}
+
 export async function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Promise<Shipment> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
   if (s.status !== "BOOKED" && s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new Error("shipment_not_refundable");
+  }
+
+  const trip = store.anchorTrips.get(s.anchorTripId);
+  if (trip && (trip.status === "IN_PROGRESS" || trip.status === "COMPLETED")) {
+    throw new ApiError("trip_already_started", {
+      detail: "Cannot fail-refund after the carrier has started the load.",
+      status: trip.status,
+    });
   }
 
   const pay = store.payments.get(s.paymentId);
@@ -1787,12 +1804,7 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
     throw new Error("payment_not_captured");
   }
 
-  const trip = store.anchorTrips.get(s.anchorTripId);
-  if (trip) {
-    trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
-    if (trip.status === "FULL") trip.status = "OPEN";
-    store.anchorTrips.set(trip.id, trip);
-  }
+  releaseShipmentTripCapacity(store, s);
 
   const now = nowUtcMs();
   store.payments.set(pay.id, { ...pay, status: "REFUNDED", updatedAtUtcMs: now });

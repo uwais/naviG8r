@@ -1,5 +1,5 @@
 import type { Store } from "./store.ts";
-import type { Payment } from "./types.ts";
+import type { Payment, Shipment } from "./types.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -15,6 +15,20 @@ function findPaymentByRazorpayPaymentId(store: Store, razorpayPayId: string): Pa
   for (const p of store.payments.values()) {
     if (p.razorpayPaymentId === razorpayPayId) return p;
   }
+}
+
+function findShipmentByPaymentId(store: Store, paymentId: string): Shipment | undefined {
+  for (const s of store.shipments.values()) {
+    if (s.paymentId === paymentId) return s;
+  }
+}
+
+function releasePendingCheckoutCapacity(store: Store, shipment: Shipment): void {
+  const trip = store.anchorTrips.get(shipment.anchorTripId);
+  if (!trip) return;
+  trip.reservedKg = Math.max(0, trip.reservedKg - shipment.weightKg);
+  if (trip.status === "FULL" && trip.reservedKg < trip.capacityKg) trip.status = "OPEN";
+  store.anchorTrips.set(trip.id, trip);
 }
 
 function paymentEntity(payload: Record<string, unknown>): { id?: string; order_id?: string; status?: string } | null {
@@ -78,12 +92,24 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     const pay = (razorpayPayId ? findPaymentByRazorpayPaymentId(store, razorpayPayId) : undefined)
       ?? (orderId ? findPaymentByRazorpayOrderId(store, orderId) : undefined);
     if (!pay || pay.provider !== "RAZORPAY") return;
-    if (pay.status === "CAPTURED" || pay.status === "REFUNDED") return;
+    // Do not downgrade secured/terminal payments (retry/late failed webhooks).
+    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED" || pay.status === "REFUNDED") return;
+    if (pay.status === "FAILED") return;
     store.payments.set(pay.id, {
       ...pay,
       ...(razorpayPayId ? { razorpayPaymentId: razorpayPayId } : {}),
       status: "FAILED",
       updatedAtUtcMs: now,
     });
+    // Abandoned/failed checkout: free reserved capacity so the trip is bookable again.
+    const shipment = findShipmentByPaymentId(store, pay.id);
+    if (shipment && shipment.status === "PENDING_CARRIER_ACCEPT") {
+      releasePendingCheckoutCapacity(store, shipment);
+      store.shipments.set(shipment.id, {
+        ...shipment,
+        status: "FAILED_CARRIER_REFUNDED",
+        updatedAtUtcMs: now,
+      });
+    }
   }
 }
