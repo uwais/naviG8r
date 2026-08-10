@@ -158,6 +158,59 @@ function assertVehicleClass(v: any): asserts v is VehicleClass {
   if (v !== "SMALL" && v !== "MEDIUM" && v !== "LARGE") throw new Error("invalid_vehicleClass");
 }
 
+/** Reject NaN/Infinity/non-positive kg values that would poison capacity math (`NaN <= 0` is false). */
+function assertPositiveFiniteKg(value: number, errorCode: string): void {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error(errorCode);
+  }
+}
+
+function userHasAuthSession(store: Store, userId: string): boolean {
+  for (const s of store.authSessions.values()) {
+    if (s.userId === userId) return true;
+  }
+  return false;
+}
+
+/**
+ * Remove a never-verified registration so the phone can be reclaimed.
+ * Only safe when the user has never obtained an auth session (OTP not completed).
+ */
+function purgeUnverifiedUserRegistration(store: Store, userId: string): void {
+  if (userHasAuthSession(store, userId)) {
+    throw new Error("phone_already_registered");
+  }
+
+  const memberships = [...store.memberships.values()].filter((m) => m.userId === userId);
+  const orgIds = new Set(memberships.map((m) => m.orgId));
+
+  for (const m of memberships) {
+    store.memberships.delete(membershipKey(m.userId, m.orgId));
+  }
+
+  for (const orgId of orgIds) {
+    const remaining = [...store.memberships.values()].some((m) => m.orgId === orgId);
+    if (remaining) continue;
+    for (const [vehId, veh] of store.vehicles) {
+      if (veh.orgId === orgId) store.vehicles.delete(vehId);
+    }
+    store.organizations.delete(orgId);
+    store.carriers.delete(orgId);
+  }
+
+  store.driverProfiles.delete(userId);
+  store.users.delete(userId);
+}
+
+function claimPhoneForRegistration(store: Store, phone: string): string {
+  const normalized = normalizeInPhone(phone);
+  const dup = [...store.users.values()].find((u) => u.phone === normalized);
+  if (dup) {
+    purgeUnverifiedUserRegistration(store, dup.id);
+  }
+  return normalized;
+}
+
 function getOrgOrThrow(store: Store, orgId: string): Organization {
   const org = store.organizations.get(orgId);
   if (!org) throw new Error("org_not_found");
@@ -232,11 +285,9 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
   if (!String(params.vehicleRegistrationNumber ?? "").trim()) throw new Error("invalid_vehicleRegistrationNumber");
   assertVehicleClass(params.vehicleClass);
-  if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
+  assertPositiveFiniteKg(params.vehicleCapacityKg, "invalid_vehicleCapacityKg");
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
-  if (dup) throw new Error("phone_already_registered");
+  const phone = claimPhoneForRegistration(store, params.phone);
 
   const now = nowUtcMs();
   const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
@@ -505,9 +556,7 @@ export function registerCustomerOrgAdmin(store: Store, params: {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
-  if (dup) throw new Error("phone_already_registered");
+  const phone = claimPhoneForRegistration(store, params.phone);
 
   const now = nowUtcMs();
   const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
@@ -541,9 +590,7 @@ export function registerCustomerUser(store: Store, params: {
 }): { user: User } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
-  if (dup) throw new Error("phone_already_registered");
+  const phone = claimPhoneForRegistration(store, params.phone);
 
   const now = nowUtcMs();
   const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
@@ -900,7 +947,7 @@ export function publishAnchorTrip(store: Store, params: {
 }): AnchorTrip {
   // `carrierId` is legacy naming; it is the Organization id for carrier-side entities.
   getOrgOrThrow(store, params.carrierId);
-  if (params.capacityKg <= 0) throw new Error("invalid_capacityKg");
+  assertPositiveFiniteKg(params.capacityKg, "invalid_capacityKg");
   if (params.origin) assertGeoPoint(params.origin, "origin");
   if (params.destination) assertGeoPoint(params.destination, "destination");
   const t: AnchorTrip = {
@@ -964,7 +1011,7 @@ export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
 }> {
   assertGeoPoint(params.pickup, "pickup");
   assertGeoPoint(params.drop, "drop");
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  assertPositiveFiniteKg(params.weightKg, "invalid_weightKg");
 
   const radii = phaseAEndpointRadiiKm();
   const maxPickup = params.maxPickupDistanceKm ?? radii.maxPickupKm;
@@ -1037,7 +1084,7 @@ export function computeFreightGrossPaise(params: {
   shipmentKm?: number | null;
 }): { grossPaise: number; breakdown: FreightBreakdown } {
   assertVehicleClass(params.vehicleClass);
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  assertPositiveFiniteKg(params.weightKg, "invalid_weightKg");
 
   const laneKm = params.laneKm != null && params.laneKm > 0 ? params.laneKm : null;
   const shipmentKm = params.shipmentKm != null && params.shipmentKm > 0 ? params.shipmentKm : null;
@@ -1084,7 +1131,7 @@ export function quoteShipmentMarketplace(store: Store, params: {
   drop?: unknown;
   anchorTripId?: string;
 }): { grossPaise: number; breakdown: FreightBreakdown } {
-  if (params.weightKg <= 0) throw new ApiError("invalid_weightKg", {});
+  assertPositiveFiniteKg(params.weightKg, "invalid_weightKg");
 
   let vehicleClass: VehicleClass = "MEDIUM";
   let laneKm: number | null = null;
@@ -1208,7 +1255,10 @@ export function bookShipment(store: Store, params: {
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  assertPositiveFiniteKg(params.weightKg, "invalid_weightKg");
+  if (!Number.isFinite(trip.capacityKg) || !Number.isFinite(trip.reservedKg)) {
+    throw new Error("trip_capacity_corrupt");
+  }
   if (trip.reservedKg + params.weightKg > trip.capacityKg) throw new Error("insufficient_capacity");
 
   assertPhaseABookingEligible({
@@ -1564,7 +1614,7 @@ export function inviteCarrierDriver(
     vehicle = orgVehicle;
   } else {
     assertVehicleClass(params.vehicleClass);
-    if ((params.vehicleCapacityKg ?? 0) <= 0) throw new Error("invalid_vehicleCapacityKg");
+    assertPositiveFiniteKg(params.vehicleCapacityKg ?? NaN, "invalid_vehicleCapacityKg");
     if (!String(params.vehicleRegistrationNumber ?? "").trim()) {
       throw new Error("invalid_vehicleRegistrationNumber");
     }
@@ -1675,8 +1725,12 @@ export function rollbackBooking(store: Store, shipmentId: string): void {
   if (!s) return;
   const trip = store.anchorTrips.get(s.anchorTripId);
   if (trip) {
-    trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
-    if (trip.status === "FULL" && trip.reservedKg < trip.capacityKg) trip.status = "OPEN";
+    const next = trip.reservedKg - s.weightKg;
+    // Guard against NaN/Infinity poisoning capacity for the rest of the trip lifetime.
+    trip.reservedKg = Number.isFinite(next) ? Math.max(0, next) : 0;
+    if (trip.status === "FULL" && Number.isFinite(trip.capacityKg) && trip.reservedKg < trip.capacityKg) {
+      trip.status = "OPEN";
+    }
     store.anchorTrips.set(trip.id, trip);
   }
   store.payments.delete(s.paymentId);
@@ -1770,41 +1824,55 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
 
-  if (pay.provider === "RAZORPAY") {
-    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
-      if (!pay.razorpayPaymentId) {
-        throw new ApiError("razorpay_payment_id_missing", { status: pay.status });
-      }
-      try {
-        await razorpayRefundPayment(pay.razorpayPaymentId, pay.amountPaise);
-      } catch (e: any) {
-        throw new ApiError("razorpay_refund_failed", { detail: String(e?.message ?? e) });
-      }
-    } else if (pay.status !== "CREATED" && pay.status !== "FAILED") {
-      throw new ApiError("payment_not_refundable", { status: pay.status });
-    }
-  } else if (pay.status !== "CAPTURED") {
-    throw new Error("payment_not_captured");
-  }
-
-  const trip = store.anchorTrips.get(s.anchorTripId);
-  if (trip) {
-    trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
-    if (trip.status === "FULL") trip.status = "OPEN";
-    store.anchorTrips.set(trip.id, trip);
-  }
-
+  // Claim synchronously before any await so concurrent fail-refund cannot double-free capacity.
   const now = nowUtcMs();
-  store.payments.set(pay.id, { ...pay, status: "REFUNDED", updatedAtUtcMs: now });
-
-  const updated: Shipment = {
+  const claimed: Shipment = {
     ...s,
     status: "FAILED_CARRIER_REFUNDED",
     updatedAtUtcMs: now,
   };
-  store.shipments.set(updated.id, updated);
-  emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: updated.id });
-  return updated;
+  store.shipments.set(claimed.id, claimed);
+
+  try {
+    if (pay.provider === "RAZORPAY") {
+      if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
+        if (!pay.razorpayPaymentId) {
+          throw new ApiError("razorpay_payment_id_missing", { status: pay.status });
+        }
+        try {
+          await razorpayRefundPayment(pay.razorpayPaymentId, pay.amountPaise);
+        } catch (e: any) {
+          throw new ApiError("razorpay_refund_failed", { detail: String(e?.message ?? e) });
+        }
+      } else if (pay.status === "CREATED" && pay.razorpayPaymentId) {
+        // Checkout succeeded but local confirm lagged — still refund at the gateway.
+        try {
+          await razorpayRefundPayment(pay.razorpayPaymentId, pay.amountPaise);
+        } catch (e: any) {
+          throw new ApiError("razorpay_refund_failed", { detail: String(e?.message ?? e) });
+        }
+      } else if (pay.status !== "CREATED" && pay.status !== "FAILED") {
+        throw new ApiError("payment_not_refundable", { status: pay.status });
+      }
+    } else if (pay.status !== "CAPTURED") {
+      throw new Error("payment_not_captured");
+    }
+  } catch (e) {
+    store.shipments.set(s.id, s);
+    throw e;
+  }
+
+  const trip = store.anchorTrips.get(s.anchorTripId);
+  if (trip) {
+    const next = trip.reservedKg - s.weightKg;
+    trip.reservedKg = Number.isFinite(next) ? Math.max(0, next) : 0;
+    if (trip.status === "FULL") trip.status = "OPEN";
+    store.anchorTrips.set(trip.id, trip);
+  }
+
+  store.payments.set(pay.id, { ...pay, status: "REFUNDED", updatedAtUtcMs: now });
+  emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: claimed.id });
+  return claimed;
 }
 
 /**

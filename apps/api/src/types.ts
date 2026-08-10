@@ -91,6 +91,8 @@ export type OtpChallenge = {
   status: OtpChallengeStatus;
   expiresAtUtcMs: number;
   createdAtUtcMs: number;
+  /** Wrong-code attempts; challenge is expired after the configured lockout threshold. */
+  failedAttempts?: number;
 };
 
 export type AuthSession = {

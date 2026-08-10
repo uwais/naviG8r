@@ -115,6 +115,13 @@ export function pilotOtpStart(store: Store, params: { phone: string }): {
   return out;
 }
 
+const DEFAULT_OTP_MAX_ATTEMPTS = 5;
+
+function otpMaxAttempts(): number {
+  const n = Number(process.env.OTP_MAX_ATTEMPTS ?? DEFAULT_OTP_MAX_ATTEMPTS);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_OTP_MAX_ATTEMPTS;
+}
+
 export function pilotOtpVerify(store: Store, params: { phone: string; challengeId: string; code: string }): {
   user: User;
   accessToken: string;
@@ -132,9 +139,18 @@ export function pilotOtpVerify(store: Store, params: { phone: string; challengeI
     store.otpChallenges.set(ch.id, { ...ch, status: "EXPIRED" });
     throw new Error("otp_expired");
   }
-  if (String(params.code ?? "") !== ch.code) throw new Error("otp_incorrect");
+  if (String(params.code ?? "") !== ch.code) {
+    const failedAttempts = (ch.failedAttempts ?? 0) + 1;
+    const maxAttempts = otpMaxAttempts();
+    if (failedAttempts >= maxAttempts) {
+      store.otpChallenges.set(ch.id, { ...ch, failedAttempts, status: "EXPIRED" });
+      throw new Error("otp_locked");
+    }
+    store.otpChallenges.set(ch.id, { ...ch, failedAttempts });
+    throw new Error("otp_incorrect");
+  }
 
-  store.otpChallenges.set(ch.id, { ...ch, status: "CONSUMED" });
+  store.otpChallenges.set(ch.id, { ...ch, status: "CONSUMED", failedAttempts: ch.failedAttempts ?? 0 });
 
   const sessionTtlMs = Number(process.env.SESSION_TTL_MS ?? `${30 * 24 * 60 * 60 * 1000}`);
   const session: AuthSession = {
