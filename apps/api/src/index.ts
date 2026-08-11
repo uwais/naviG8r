@@ -24,7 +24,10 @@ async function main(): Promise<void> {
     console.log(`Admin UI: http://localhost:${port}/admin`);
   });
 
+  let payoutRunnerBusy = false;
   setInterval(() => {
+    if (payoutRunnerBusy) return;
+    payoutRunnerBusy = true;
     void (async () => {
       try {
         const batch = await runPayoutBatch(store, { nowUtcMs: Date.now() });
@@ -38,6 +41,8 @@ async function main(): Promise<void> {
       } catch (e) {
         // eslint-disable-next-line no-console
         console.error("payout_batch_runner_error", e);
+      } finally {
+        payoutRunnerBusy = false;
       }
     })();
   }, 60_000);

@@ -1807,6 +1807,24 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
   return updated;
 }
 
+/** Serialize payout runs so overlapping timer/HTTP callers cannot double-pay ACCRUED lines. */
+let payoutBatchTail: Promise<unknown> = Promise.resolve();
+
+function isRazorpayxDuplicateReferenceError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes("reference_id") ||
+    msg.includes("reference id") ||
+    (msg.includes("duplicate") && msg.includes("reference")) ||
+    msg.includes("already been used")
+  );
+}
+
+/** Stable RazorpayX reference so crash-retry of the same cutoff+carrier does not create a second transfer. */
+export function razorpayxPayoutReferenceId(cutoffUtcMs: number, carrierId: string): string {
+  return `n8_${cutoffUtcMs}_${carrierId}`.replace(/[^\w]/g, "").slice(0, 40);
+}
+
 /**
  * Run the next due payout batch.
  *
@@ -1815,8 +1833,21 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
  *   - RAZORPAYX: a real RazorpayX payout is created per carrier (test keys in dev).
  *     Carriers missing a fund account are skipped (lines stay ACCRUED to retry next run);
  *     transfers that error are marked FAILED and their lines stay ACCRUED.
+ *
+ * Concurrent callers are queued (in-process mutex). RazorpayX `reference_id` is deterministic per
+ * cutoff+carrier so a crash-retry after a successful provider transfer does not pay twice.
  */
 export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }): Promise<PayoutBatch> {
+  const run = () => runPayoutBatchUnlocked(store, params);
+  const result = payoutBatchTail.then(run, run);
+  payoutBatchTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+async function runPayoutBatchUnlocked(store: Store, params: { nowUtcMs?: number }): Promise<PayoutBatch> {
   const now = params.nowUtcMs ?? Date.now();
   const provider = payoutsMode();
   const eligibleLines = [...store.ledgerLines.values()].filter(
@@ -1872,11 +1903,12 @@ export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }
       transfers.push({ carrierId, netToCarrierPaise, lineIds, status: "SKIPPED_NO_FUND_ACCOUNT" });
       continue; // leave lines ACCRUED so they retry once payout setup completes
     }
+    const referenceId = razorpayxPayoutReferenceId(earliestCutoff, carrierId);
     try {
       const result = await createRazorpayPayout({
         amountPaise: netToCarrierPaise,
         fundAccountId,
-        referenceId: `${batchId}_${carrierId}`,
+        referenceId,
         narration: "naviG8r payout",
       });
       const settledStatuses = new Set(["processed", "completed"]);
@@ -1907,6 +1939,19 @@ export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }
         providerPayoutId: result.id,
       });
     } catch (err) {
+      // Same cutoff+carrier reference already accepted by RazorpayX (prior run paid then crashed).
+      if (isRazorpayxDuplicateReferenceError(err)) {
+        for (const l of lines) store.ledgerLines.set(l.id, { ...l, status: "PAID", paidAtUtcMs: now });
+        settledLineIds.push(...lineIds);
+        transfers.push({
+          carrierId,
+          netToCarrierPaise,
+          lineIds,
+          status: "PAID",
+          error: "duplicate_reference_assumed_paid",
+        });
+        continue;
+      }
       transfers.push({
         carrierId,
         netToCarrierPaise,

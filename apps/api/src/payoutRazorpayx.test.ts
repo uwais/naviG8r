@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import type { Store } from "./store.ts";
-import { runPayoutBatch } from "./services.ts";
+import { razorpayxPayoutReferenceId, runPayoutBatch } from "./services.ts";
 import type { LedgerLine, Organization } from "./types.ts";
 
 // This file runs in its own test process, so setting RAZORPAYX env here does not
@@ -48,14 +48,14 @@ function addLine(store: Store, lineId: string, carrierId: string, netPaise: numb
 
 type FetchCall = { url: string; body: any };
 
-function mockFetch(handler: (url: string, body: any) => { status: number; json: any }) {
+function mockFetch(handler: (url: string, body: any) => { status: number; json: any } | Promise<{ status: number; json: any }>) {
   const calls: FetchCall[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: any, init?: any) => {
     const url = String(input);
     const body = init?.body ? JSON.parse(init.body) : {};
     calls.push({ url, body });
-    const { status, json } = handler(url, body);
+    const { status, json } = await handler(url, body);
     return new Response(JSON.stringify(json), {
       status,
       headers: { "content-type": "application/json" },
@@ -86,6 +86,7 @@ test("RAZORPAYX: one payout per carrier; carrier without fund account is skipped
   assert.equal(calls[0]!.body.fund_account_id, "fa_aaa");
   assert.equal(calls[0]!.body.amount, 50000);
   assert.equal(calls[0]!.body.account_number, "2323230000000000");
+  assert.equal(calls[0]!.body.reference_id, razorpayxPayoutReferenceId(CUTOFF, "org_a"));
 
   assert.equal(batch.provider, "RAZORPAYX");
   const byCarrier = new Map(batch.transfers.map((tr) => [tr.carrierId, tr]));
@@ -145,4 +146,53 @@ test("RAZORPAYX: provider error marks transfer FAILED and leaves lines ACCRUED t
   assert.equal(store.ledgerLines.get("ll_a1")!.status, "ACCRUED");
   assert.equal(batch.totalNetToCarrierPaise, 0);
   assert.deepEqual(batch.lineIds, []);
+});
+
+test("RAZORPAYX: concurrent runPayoutBatch does not double-pay the same ACCRUED lines", async (t) => {
+  const store = createStore();
+  addOrg(store, "org_a", "fa_aaa");
+  addLine(store, "ll_a1", "org_a", 50000);
+
+  let payoutCalls = 0;
+  const { calls, restore } = mockFetch(async (url) => {
+    if (url.endsWith("/payouts")) {
+      payoutCalls += 1;
+      await new Promise((r) => setTimeout(r, 40));
+      return { status: 200, json: { id: `pout_${payoutCalls}`, status: "processed" } };
+    }
+    return { status: 200, json: {} };
+  });
+  t.after(restore);
+
+  const [b1, b2] = await Promise.all([
+    runPayoutBatch(store, { nowUtcMs: CUTOFF }),
+    runPayoutBatch(store, { nowUtcMs: CUTOFF }),
+  ]);
+
+  assert.equal(payoutCalls, 1, "only one RazorpayX payout must be created");
+  assert.equal(calls.filter((c) => c.url.endsWith("/payouts")).length, 1);
+  assert.equal(store.ledgerLines.get("ll_a1")!.status, "PAID");
+
+  const paidBatches = [b1, b2].filter((b) => b.lineIds.includes("ll_a1"));
+  assert.equal(paidBatches.length, 1, "only one batch should settle the line");
+  const emptyOrSkip = [b1, b2].find((b) => !b.lineIds.includes("ll_a1"));
+  assert.ok(emptyOrSkip);
+  assert.deepEqual(emptyOrSkip!.lineIds, []);
+});
+
+test("RAZORPAYX: duplicate reference_id after crash-retry marks lines PAID without new transfer intent", async (t) => {
+  const store = createStore();
+  addOrg(store, "org_a", "fa_aaa");
+  addLine(store, "ll_a1", "org_a", 50000);
+
+  const { restore } = mockFetch(() => ({
+    status: 400,
+    json: { error: { description: "The reference_id has already been used" } },
+  }));
+  t.after(restore);
+
+  const batch = await runPayoutBatch(store, { nowUtcMs: CUTOFF });
+  assert.equal(batch.transfers[0]!.status, "PAID");
+  assert.match(batch.transfers[0]!.error ?? "", /duplicate_reference/);
+  assert.equal(store.ledgerLines.get("ll_a1")!.status, "PAID");
 });
