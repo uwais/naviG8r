@@ -2,6 +2,8 @@
 
 This is the execution checklist for taking the MVP from **file-backed JSON persistence** to a real database, and shipping an **Android pilot (~10 installs)** for customer feedback.
 
+**PRD alignment:** For gap analysis vs Product Requirements Document v2.0, technical design for launch blockers, and a phased commercial-pilot roadmap, see [`docs/NaviG8r_Launch_Plan_PRD_v2.md`](docs/NaviG8r_Launch_Plan_PRD_v2.md).
+
 ---
 
 ### What we’ve achieved (so far)
