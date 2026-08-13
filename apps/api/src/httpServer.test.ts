@@ -206,6 +206,11 @@ test("GET /ops returns ops portal HTML", async (t) => {
     const html = await res.text();
     assert.ok(html.includes("naviG8r Ops"));
     assert.ok(html.includes("pending-release"));
+    // Stored XSS: customerOrgName is attacker-controlled at booking and must be escaped
+    // before innerHTML (otherwise an ops session token in localStorage can be stolen).
+    assert.ok(html.includes("function esc("));
+    assert.ok(html.includes("esc(s.customerOrgName)"));
+    assert.equal(html.includes("(s.customerOrgName||\"\")"), false);
   });
 });
 

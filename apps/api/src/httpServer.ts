@@ -166,6 +166,14 @@ function opsPortalHtml(): string {
       const LS_TOKEN = "n8r_ops_token";
       const LS_PHONE = "n8r_ops_phone";
       let _challengeId = null;
+      function esc(s) {
+        return String(s ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
       function authHeaders() {
         const h = { "content-type": "application/json" };
         const t = localStorage.getItem(LS_TOKEN);
@@ -228,9 +236,9 @@ function opsPortalHtml(): string {
         if (!rows.length) { el.innerHTML = "<em>None</em>"; return; }
         el.innerHTML = "<table><thead><tr><th>Shipment</th><th>Customer</th><th>Carrier</th><th>Gross</th><th>POD at</th><th></th></tr></thead><tbody>" +
           rows.map(function(s) {
-            return "<tr><td><code>" + s.id + "</code></td><td>" + (s.customerOrgName||"") + "</td><td>" + (s.carrierId||"") +
-              "</td><td>" + fmtInr(s.grossPaise) + "</td><td>" + fmtTime(s.podAtUtcMs) +
-              "</td><td><button onclick=\\"release('" + s.id + "')\\">Release payment</button></td></tr>";
+            return "<tr><td><code>" + esc(s.id) + "</code></td><td>" + esc(s.customerOrgName) + "</td><td>" + esc(s.carrierId) +
+              "</td><td>" + fmtInr(s.grossPaise) + "</td><td>" + esc(fmtTime(s.podAtUtcMs)) +
+              "</td><td><button onclick=\\"release(" + JSON.stringify(String(s.id)) + ")\\">Release payment</button></td></tr>";
           }).join("") + "</tbody></table>";
       }
       async function loadDelivered() {
@@ -242,12 +250,12 @@ function opsPortalHtml(): string {
         if (!rows.length) { el.innerHTML = "<em>None recent</em>"; return; }
         el.innerHTML = "<table><thead><tr><th>Shipment</th><th>Customer</th><th>Delivered</th></tr></thead><tbody>" +
           rows.map(function(s) {
-            return "<tr><td><code>" + s.id + "</code></td><td>" + (s.customerOrgName||"") + "</td><td>" + fmtTime(s.podAtUtcMs) + "</td></tr>";
+            return "<tr><td><code>" + esc(s.id) + "</code></td><td>" + esc(s.customerOrgName) + "</td><td>" + esc(fmtTime(s.podAtUtcMs)) + "</td></tr>";
           }).join("") + "</tbody></table>";
       }
       async function release(id) {
         if (!confirm("Capture payment and mark " + id + " delivered?")) return;
-        const res = await fetch("/ops/shipments/" + id + "/release", { method: "POST", headers: authHeaders(), body: "{}" });
+        const res = await fetch("/ops/shipments/" + encodeURIComponent(id) + "/release", { method: "POST", headers: authHeaders(), body: "{}" });
         const out = await res.json();
         alert(JSON.stringify(out, null, 2));
         loadPending();
