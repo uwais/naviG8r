@@ -781,7 +781,17 @@ export function pilotListCarrierPayoutBatches(store: Store, userId: string, carr
   const lineIds = new Set(
     [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierOrgId).map((l) => l.id),
   );
-  const batches = [...store.payoutBatches.values()].filter((b) => b.lineIds.some((id) => lineIds.has(id)));
+  const settled = new Set(["BOOKKEEPING_PAID", "PAID", "PROCESSING"]);
+  const batches = [...store.payoutBatches.values()]
+    .filter((b) => b.lineIds.some((id) => lineIds.has(id)))
+    .map((b) => {
+      const transfers = b.transfers.filter((t) => t.carrierId === carrierOrgId);
+      const scopedLineIds = transfers.flatMap((t) => t.lineIds);
+      const totalNetToCarrierPaise = transfers
+        .filter((t) => settled.has(t.status))
+        .reduce((sum, t) => sum + t.netToCarrierPaise, 0);
+      return { ...b, transfers, lineIds: scopedLineIds, totalNetToCarrierPaise };
+    });
   batches.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
   return batches;
 }
