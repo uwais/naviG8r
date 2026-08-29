@@ -37,7 +37,7 @@ Roughly 8,600 lines including tests. Two files hold most of it.
 | File | Lines | Responsibility |
 |---|---|---|
 | `services.ts` | 1936 | All domain logic: onboarding, trips, booking, pricing, POD, ledger, payouts, tracking. 64 exported symbols. **Holds many concerns — see the split proposal in `docs/IMPROVEMENTS.md`.** |
-| `httpServer.ts` | 1602 | The whole HTTP surface. A hand-rolled `node:http` handler with an if-chain over `url.pathname`. Also contains ~420 lines of inline HTML/JS for the `/admin` and `/ops` portals. |
+| `httpServer.ts` | 1602 | The whole HTTP surface. A hand-rolled `node:http` handler with an if-chain over `url.pathname`. Also contains roughly 560 lines of inline HTML/JS across two portal functions (`opsPortalHtml` at 122-260, the `/admin` document at 847-1265). |
 | `persistenceDb.ts` | 486 | Postgres load and save via Prisma. **Covers 13 of the store's 18 collections.** |
 | `integrationServices.ts` | 436 | ERP connections, API keys, load intake, idempotency |
 | `types.ts` | 337 | Every domain type and status union. Read this first. |

@@ -736,6 +736,33 @@ gains, since nothing will check.
 validate `body.scopes` against the allowed set at the edge, rejecting unknown values instead of
 storing them.
 
+### M13. Four helpers are defined fifteen times across eight files
+
+Verified by grepping for the definitions, not the call sites:
+
+| Helper | Definitions | Where |
+|---|---|---|
+| `nowUtcMs` | 6 | `auth.ts:5`, `integrationAuth.ts:5`, `integrationServices.ts:34`, `integrationWebhooks.ts:15`, `razorpayWebhook.ts:4`, `services.ts:45` |
+| `id(prefix)` | 4 | `auth.ts:9`, `integrationWebhooks.ts:19`, `integrationServices.ts:38`, `services.ts:134` |
+| `membershipKey` | 3 | `persistence.ts:108`, `persistenceDb.ts:23`, `services.ts:143` |
+| `normalizeInPhone` | 2 | `auth.ts:65`, `services.ts:147` |
+
+`nowUtcMs` and `id` are trivial and duplicating them costs little — three similar lines beat a
+premature abstraction, and these barely qualify as abstractions. **The other two are different,
+because they encode rules that must agree:**
+
+- **`membershipKey`** is the key format for the `memberships` map. If the copy in `persistence.ts`
+  ever drifts from the one in `services.ts`, memberships silently stop resolving after a reload —
+  users appear to lose their org, with no error.
+- **`normalizeInPhone`** is an identity rule. `auth.ts` uses it to decide *who you are* at OTP
+  time; `services.ts` uses it to decide *which shipments you can see* (H7's phone linkage). If
+  those two ever disagree about, say, a `+91` prefix or a leading zero, a user authenticates as one
+  identity and is matched as another.
+
+**Fix:** move `membershipKey` and `normalizeInPhone` into a single shared module and import them.
+Leave `nowUtcMs` and `id` alone unless they are already being touched — consolidating them buys
+nothing and costs an import hop.
+
 ---
 
 ## Structural refactors
@@ -770,7 +797,7 @@ expect it to reduce complexity, only to make it findable.
 
 ### R2. Extract the portal HTML out of `httpServer.ts` (1,602 lines)
 
-Roughly 420 lines of the file are template-literal HTML and browser JavaScript for `/admin` and
+Roughly 560 lines of the file are template-literal HTML and browser JavaScript for `/admin` and
 `/ops`. They are not server logic and they defeat editor tooling — the XSS in H2 survived
 partly because it is JavaScript inside a string inside a route handler.
 
