@@ -248,8 +248,27 @@ double-book, and the pending delivery outbox is lost. No error is raised.
 production is on the file store and this data is durable there today. It is a landmine on the
 path roadmap section A is walking toward.
 
-**Fix:** add the five Prisma models and their load/save, or fail startup loudly when
-`PERSISTENCE=DB` is set while integration connections exist.
+**The gap is wider than five collections — the modelled ones lose fields too.** File-mode
+persistence dumps whole objects (`persistence.ts:96`: `shipments: [...store.shipments.values()]`),
+so every field survives automatically. `persistenceDb.ts` maps fields one by one against
+`schema.prisma`, and `ShipmentRow` declares none of `externalLoadId`, `externalSource`,
+`integrationConnectionId` or `metadata` — the entire ERP linkage on a shipment.
+
+So even for the 13 collections that *are* modelled, a DB round-trip silently strips the ERP
+identity from every shipment. Together with the missing `integrationIdempotency` collection, an
+ERP that retries a load after a restart double-books and double-charges, with nothing left in the
+system to recognise the duplicate.
+
+One more shape mismatch in the same model: `weightKg` is declared `Int`, while the domain only
+validates `weightKg > 0` and accepts fractional values (`services.ts:1211`). I did **not** test
+which way that fails — Prisma may reject the write or coerce it — but the declared type and the
+domain contract disagree, and that is worth resolving alongside M2 (which proposes integer grams).
+
+**Fix:** add the five missing Prisma models and their load/save, add the missing `ShipmentRow`
+columns, and add a round-trip test that saves a fully-populated store and asserts equality after
+loading it back. That test is what would have caught all of this — see M5.
+
+Until then, treat `PERSISTENCE=DB` as unsafe and fail startup loudly if it is set.
 
 ### C3. A redelivered `payment.captured` webhook can resurrect a refunded payment
 
