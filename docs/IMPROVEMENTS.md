@@ -45,7 +45,7 @@ the **whole** `AnchorTrip`. And `AnchorTrip` carries `lastLiveLocation?: TripLiv
 ```
 
 The route is not an oversight of the demo-surface gate — it is *deliberately* public.
-`publicMarketplaceRouteAllowed` (`httpServer.ts:298`) allowlists it by name so the customer
+`publicMarketplaceRouteAllowed` (`httpServer.ts:297`) allowlists it by name so the customer
 marketplace keeps working in production.
 
 **Failure scenario:** anyone on the internet polls `GET https://navig8r.onrender.com/anchor-trips`

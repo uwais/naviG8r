@@ -36,7 +36,7 @@ Roughly 8,600 lines including tests. Two files hold most of it.
 
 | File | Lines | Responsibility |
 |---|---|---|
-| `services.ts` | 1936 | All domain logic: onboarding, trips, booking, pricing, POD, ledger, payouts, tracking. ~66 exported functions. **Holds many concerns — see the split proposal in `docs/IMPROVEMENTS.md`.** |
+| `services.ts` | 1936 | All domain logic: onboarding, trips, booking, pricing, POD, ledger, payouts, tracking. 64 exported symbols. **Holds many concerns — see the split proposal in `docs/IMPROVEMENTS.md`.** |
 | `httpServer.ts` | 1602 | The whole HTTP surface. A hand-rolled `node:http` handler with an if-chain over `url.pathname`. Also contains ~420 lines of inline HTML/JS for the `/admin` and `/ops` portals. |
 | `persistenceDb.ts` | 486 | Postgres load and save via Prisma. **Covers 13 of the store's 18 collections.** |
 | `integrationServices.ts` | 436 | ERP connections, API keys, load intake, idempotency |
@@ -62,7 +62,7 @@ Roughly 7,000 lines. Three files hold 78% of it.
 | File | Lines | Responsibility |
 |---|---|---|
 | `driver_flow.dart` | 2221 | 18 driver and carrier screens plus the driver shell and route table |
-| `customer_flow.dart` | 2149 | 13 customer screens plus the customer route table |
+| `customer_flow.dart` | 2149 | 11 customer screens, two private tab widgets, and the customer route table |
 | `main.dart` | 1151 | App bootstrap and the `go_router` config — **plus a legacy "pilot lab" surface of 6 more screens that duplicates the driver flow** |
 | `location_editor.dart` | 494 | Map-based address and coordinate picker |
 | `pilot_api.dart` | 353 | Dio HTTP client, token storage, error formatting |
@@ -111,7 +111,7 @@ Node **22 or newer is mandatory**. See gotcha 1.
    `method === "GET" && url.pathname === "/v1/..."`. Order matters — the first match wins.
 3. Decide the auth. `requireUserId(req, store)` for a logged-in user, then `assertOpsAgent`
    for ops-only. For public marketplace routes, also add the path to
-   `isPublicMarketplaceRoute` (`httpServer.ts:298`) or it will 403 in production.
+   `publicMarketplaceRouteAllowed` (`httpServer.ts:297`) or it will 403 in production.
 4. Call `await persist()` after any write, or the change is lost on restart.
 5. Add a test in `apps/api/src/*.test.ts` following the existing pattern.
 6. Document it in `docs/pilot-api.md`.
@@ -186,7 +186,7 @@ someone switches to Postgres, every restart wipes partner API keys, webhook subs
 idempotency records and pending deliveries, with no error.*
 
 **3. Public routes return whole domain objects, so a new field is public by default.**
-`GET /anchor-trips` is allowlisted as public (`httpServer.ts:298`) and returns
+`GET /anchor-trips` is allowlisted as public (`httpServer.ts:297`) and returns
 `{ ...trip, carrierDisplayName }` — the entire `AnchorTrip`, including `lastLiveLocation`. Any
 field added to `AnchorTrip` is immediately world-readable. *Consequence: driver GPS is exposed
 today (see C0 in `docs/IMPROVEMENTS.md`), and the next field added will be too unless the route
