@@ -144,6 +144,65 @@ Never call `otp/start` inside a verify handler. In the driver flow, stop discard
 `:232` and drop the automatic `_resend()` in `didChangeDependencies`, leaving resend as an
 explicit user action.
 
+### C0d. Carriers and customers can bypass the ops release gate on live production routes
+
+The intended settlement flow is three-party: driver submits POD (`BOOKED → PENDING_RELEASE`, no
+money moves), then an **ops agent** calls `/ops/shipments/:id/release`, which captures the
+customer's payment and accrues the carrier's ledger line. `submitDriverPod` (`services.ts:1345`)
+respects this — it only sets `PENDING_RELEASE`.
+
+The legacy route `POST /shipments/:id/pod` does not. It runs
+`ensureRazorpayCapturedBeforePod` and then `markPodDelivered`, which **captures the payment,
+writes the carrier's ledger line, and marks the shipment `DELIVERED`** in one call
+(`httpServer.ts:1504-1533`).
+
+Two things combine to make this reachable in production:
+
+**1. The demo-surface gate never fires for it.** `requireLegacyDemoSurface` (`:317`) calls
+`publicMarketplaceRouteAllowed` first and returns `true` immediately if it matches. That function
+explicitly allowlists both routes (`:308-309`):
+
+```
+if (method === "POST" && segs.length === 3 && segs[0] === "shipments" && segs[2] === "pod") return true;
+if (method === "POST" && segs.length === 3 && segs[0] === "shipments" && segs[2] === "fail-refund") return true;
+```
+
+So `ENABLE_LEGACY_DEMO_SURFACE` and `NODE_ENV=production` are both irrelevant here — the comment
+above the function says these routes "stay available when NODE_ENV=production".
+
+**2. The authorization check accepts the carrier and the customer, not just ops.** With a bearer
+token present, the route allows the call when *any* of these hold:
+
+```
+const visible = opsAdmin
+  || shipmentVisibleToCustomerUser(store, shipment, userId)
+  || shipmentVisibleToCarrierPilot(store, shipment, userId);
+```
+
+**Failure scenario A — carrier self-settles.** While a shipment is still `BOOKED`, the carrier
+calls `POST /shipments/:id/pod` with their own token. The customer's payment is captured, the
+carrier's ledger line is written, and the shipment goes straight to `DELIVERED`. It never enters
+`PENDING_RELEASE`, so no operator ever sees it. The carrier has charged the customer and booked
+their own payout for freight nobody verified was delivered.
+
+**Failure scenario B — customer self-refunds.** `POST /shipments/:id/fail-refund` has the same
+open gate and allows the customer (`opsAdmin || shipmentVisibleToCustomerUser`). A customer can
+refund their own completed shipment and mark the carrier as failed, with no operator involved.
+
+The one thing that *is* handled: with no bearer token at all, both routes 401 in production.
+Unauthenticated abuse is blocked; authenticated abuse by the two parties with the most financial
+motive is not.
+
+Note `markPodDelivered` refuses when the status is already `PENDING_RELEASE` (`:1660`), so this
+only works *before* a driver submits POD normally — which is exactly when a carrier would use it.
+
+Related to **open draft PR #82** ("DRIVER payout hijack, POD-before-start").
+
+**Fix:** remove `/shipments/:id/pod` and `/shipments/:id/fail-refund` from
+`publicMarketplaceRouteAllowed` — they are not marketplace routes and never should have been on
+that list — and restrict both to `assertOpsAgent`. The pilot app already uses
+`POST /shipments/:id/driver-pod` for the driver path, so nothing legitimate should break.
+
 ### C1. A queued RazorpayX payout is recorded as PAID and can never be corrected
 
 `services.ts:1882-1899`. The payout batch maps RazorpayX statuses to three outcomes:
@@ -807,7 +866,7 @@ described here.
 
 ## Suggested order
 
-0. **C0 and C0b, today.** Both are reachable in production right now, both need no account, and
+0. **C0, C0b and C0d, today.** Both are reachable in production right now, both need no account, and
    both have small fixes — a projection function and an input validator. C0b is the more urgent
    of the two: one malformed request permanently destroys a trip with no recovery path.
 1. **Unblock the pilot:** H3 (SMS and OTP rate limiting) **together with C0c** (the OTP
