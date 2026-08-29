@@ -138,7 +138,17 @@ ERP integration, these two workstreams currently contradict each other. This is 
 thing to fix in the codebase.
 
 The deployed blueprint (`render.yaml`) sets `DATA_FILE` and does not set `PERSISTENCE=DB`, so
-production runs the file store today — despite `ROADMAP.md` stating Postgres is live.
+production runs the file store today — despite `ROADMAP.md` stating Postgres is live. Note that
+the blueprint is not the last word: a variable added in the Render dashboard would not appear
+here. `GET /health` settles it empirically, since it reports the mode the process is actually
+running in (`httpServer.ts:378-384`):
+
+```
+curl -s https://navig8r.onrender.com/health
+# {"ok":true,"persistence":"file"|"db","paymentProvider":"mock"|"razorpay"}
+```
+
+Run that before trusting either this document or the roadmap on the question.
 
 ---
 
