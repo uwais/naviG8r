@@ -212,6 +212,60 @@ in the header, and document that receivers must reject timestamps outside a tole
 This is a breaking change to the partner contract, so do it before the first real ERP partner
 rather than after.
 
+### H7. Anonymous shipments are visible to anyone who registers a matching organization name
+
+`services.ts:309-314`. Shipment ownership falls back to a **free-text name comparison** when no
+org id is set:
+
+```
+export function shipmentBelongsToCustomerOrg(shipment: Shipment, org: Organization): boolean {
+  if (shipment.customerOrgId != null && shipment.customerOrgId !== "") {
+    return shipment.customerOrgId === org.id;
+  }
+  return shipment.customerOrgName === org.displayName;
+}
+```
+
+`customerOrgName` is a string the booker types at `POST /shipments/book`. `customerOrgId` is set
+only when the booking carried a valid bearer token, so every anonymous booking is matched by
+name alone.
+
+Nothing prevents duplicate organization names. `registerCustomerOrgAdmin` (`:500`) rejects a
+duplicate *phone* but never checks `displayName`, and `schema.prisma` declares no `@unique` on
+it.
+
+**Failure scenario:** an attacker registers a customer org with `displayName` set to a target
+company's exact name. `GET /shipments` then returns that company's anonymous bookings —
+pickup and drop addresses, weights, prices, and live tracking.
+
+**This compounds with M1.** A real customer whose 30-day session has lapsed books "anonymously"
+without being told, so their shipment is tagged by name only and becomes readable by anyone who
+claims that name.
+
+**Fix:** drop the name fallback and match on `customerOrgId` alone. For genuinely anonymous
+bookings the phone linkage (`bookedByPhone`, already present and verified by OTP) is the correct
+mechanism. Add a uniqueness constraint on customer org display names regardless.
+
+### H8. Carriers can read every other carrier's settlement amounts
+
+`services.ts:779-787`. `pilotListCarrierPayoutBatches` authorizes the caller for the requested
+org correctly (`assertPilotDriverCanManageOrg`) and correctly selects the batches containing that
+carrier's ledger lines. Then it returns the **entire `PayoutBatch` object**.
+
+A `PayoutBatch` carries `transfers[]`, and `runPayoutBatch` pushes one entry per carrier in the
+batch with `carrierId`, `netToCarrierPaise` and `providerPayoutId` — plus a batch-wide
+`totalNetToCarrierPaise`.
+
+**Failure scenario:** a carrier opens the payout history screen in the driver app. The response
+contains what every other carrier in that weekly batch was paid. In a marketplace where carriers
+compete for the same lanes, that is commercially sensitive information about rivals' volumes and
+rates.
+
+Already found by **open draft PR #98**, which nobody has reviewed.
+
+**Fix:** project the batch before returning it — keep `id`, `cutoffUtcMs`, `createdAtUtcMs` and
+the caller's own transfer and line ids, and drop everyone else's.
+
 ---
 
 ## High — scale and availability
@@ -588,16 +642,52 @@ A review that only lists problems misleads. These are decisions worth keeping, a
 
 ---
 
+## The open draft PR backlog
+
+Thirty-plus draft PRs are open, the oldest from 10 July, none reviewed. Most of the volume is
+noise, and it is hiding a handful of real fixes.
+
+**PRs #65 through #80 are sixteen near-duplicate PRs**, titled "Fix critical ERP integration
+state regressions" or a close variant, opened roughly daily. That is an automated agent
+re-running the same analysis and opening a fresh PR each time rather than updating one. Whatever
+it found, it found once.
+
+**Suggested triage, oldest first:**
+
+| PRs | Action |
+|---|---|
+| #65–#80 | Read the newest one (#80) only. If its fix is sound, take it and close #65–#79 as superseded. Then stop or rate-limit whatever opens these. |
+| #81–#85, #87, #98 | Distinct findings, several confirmed independently below. Review individually. |
+| #86, #89 | Documentation PRs (a PRD, an AGENTS.md). #86 overlaps the rewritten README in this PR — worth reconciling rather than merging both. |
+| #93, #95, #96, #97 | Marketing site and build notes, small and self-contained. Quick to clear. |
+
+**Where those PRs meet the findings in this document** — three were confirmed here by reading
+the source independently, so they are real and worth taking seriously:
+
+| PR | Finding here | Confirmed |
+|---|---|---|
+| #87 stored XSS in ops portal | H2 | Yes — `httpServer.ts:232`, `:245` |
+| #98 carrier payout history leak | H8 | Yes — `services.ts:779` returns the whole batch |
+| #85 concurrent RazorpayX payout double-pay | S4 | Yes — two unguarded timers, no re-entrancy flag |
+| #84 OTP lockout, capacity NaN, phone squat | H3, M2, H7 | Related; not verified line-by-line against the PR |
+| #83 checkout capacity leaks | C4 | Related; not verified line-by-line against the PR |
+| #82 payout hijack, POD-before-start | H1, C1 | Related; not verified line-by-line against the PR |
+
+The last three rows are title-level matches only. Read the PRs before assuming they fix what is
+described here.
+
 ## Suggested order
 
 1. **Unblock the pilot:** H3 (SMS and OTP rate limiting). Nothing else matters until a real user
    can log in.
 2. **The quick wins table.** An afternoon, and it removes two money-correctness bugs and an
    impersonation switch.
-3. **Review the open draft PRs.** #82 through #98 have been accumulating since July. #87 (XSS)
-   and #85 (payout double-pay) match findings here and may already contain the fix.
-4. **C1 and C4** before `PAYOUTS_MODE=RAZORPAYX` or any real capacity pressure.
-5. **C2 and S1** before `PERSISTENCE=DB`. Postgres is not currently a safe switch.
-6. **R3**, the deletion. Cheap, and it makes the Flutter code honest.
-7. **R1 step one and R2 step one** — `domain/pricing.ts` and the portal HTML extraction — then
+3. **Triage the draft PR backlog** using the table above. Sixteen of them are duplicates; three
+   contain fixes for findings confirmed here.
+4. **H7**, the organization-name IDOR. It is a data-exposure bug between customers, and the fix
+   is small.
+5. **C1 and C4** before `PAYOUTS_MODE=RAZORPAYX` or any real capacity pressure.
+6. **C2 and S1** before `PERSISTENCE=DB`. Postgres is not currently a safe switch.
+7. **R3**, the deletion. Cheap, and it makes the Flutter code honest.
+8. **R1 step one and R2 step one** — `domain/pricing.ts` and the portal HTML extraction — then
    reassess whether the rest is worth it.
