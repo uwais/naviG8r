@@ -7,7 +7,7 @@ the defect, a concrete failure scenario, and a specific change. Nothing here is 
 preference — where something is a matter of taste it is marked as such and put at the bottom.
 
 **Nothing in this document has been fixed.** This pass is documentation only. Several findings
-overlap with the open draft PRs (#82–#98) that nobody has reviewed; those are noted inline.
+overlap with the open draft PRs (#81–#98) that nobody has reviewed; those are noted inline.
 
 Verified against commit `0fc4ad0`. Test suite: 53/53 passing (47 API + 6 core) on Node 24.
 
@@ -744,7 +744,7 @@ These are the largest files. Each proposal names the new files, what moves, and 
 harder** — a split with no stated cost has not been thought through. None of these should be
 done while other work is in flight; they conflict with everything.
 
-### R1. Split `services.ts` (1,936 lines, ~66 exports) along its real seams
+### R1. Split `services.ts` (1,936 lines, 64 exports) along its real seams
 
 One file currently holds onboarding, ops administration, geofencing, pricing, booking, capacity,
 delivery, refunds, tracking and payouts. It fails the one-sentence test badly.
@@ -837,6 +837,9 @@ Each of these is under an hour and has real payoff.
 
 | Fix | Why it earns the hour |
 |---|---|
+| Reject non-finite `weightKg` at the edge (C0b) | One `Number.isFinite` check; closes an unauthenticated, unrecoverable trip-destroying bug |
+| Drop `/pod` and `/fail-refund` from the marketplace allowlist (C0d) | Two deleted lines; restores the ops release gate. The app uses `driver-pod`, so nothing breaks |
+| Add `publicTripView()` for the two public trip routes (C0) | One projection function; stops serving driver GPS to the world |
 | Add `.github/workflows/ci.yml` (M5) | Nothing currently enforces 53 passing tests |
 | `>=` instead of `===` in the FULL check (M2) | One character; prevents stuck trips |
 | Guard `payment.captured` on `REFUNDED` (C3) | One line; prevents money-state corruption |
