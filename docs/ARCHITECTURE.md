@@ -240,8 +240,14 @@ shortcut** — India has never observed DST, which the file states explicitly an
    `{v, sid, uid, exp}` with a 30-day default lifetime.
 
 Verification checks the HMAC with `crypto.timingSafeEqual` after a length check, then looks the
-session up in the store and re-checks expiry and revocation. **Server-side session lookup means
-tokens are genuinely revocable** — a real advantage over a stateless JWT, and worth preserving.
+session up in the store and re-checks expiry and revocation.
+
+The server-side session lookup is the good part of this design: unlike a stateless JWT, a token
+*can* be invalidated before it expires. **But nothing uses it.** `revokedAtUtcMs` is initialised
+to `null` (`auth.ts:145`) and read on every verify (`auth.ts:158`), and no code path anywhere
+ever sets it. There is no logout endpoint and no revoke endpoint. In practice a leaked token is
+valid for its full 30-day lifetime with no way to kill it short of rotating `AUTH_SECRET`, which
+also breaks every ERP partner key. The mechanism is built; the door is missing.
 
 *Inferred rationale for rolling this rather than using a JWT library:* one fewer dependency for
 a token format that never leaves this system.
