@@ -180,46 +180,55 @@ nothing warns you. *Consequence: an hour lost before anyone thinks to check the 
 The in-memory store has 18 collections. `persistenceDb.ts` handles 13. The five it does not
 touch are `integrationConnections`, `integrationApiKeys`, `integrationIdempotency`,
 `integrationEvents` and `integrationWebhookDeliveries` — the whole ERP feature. File-mode
-persistence handles all five. *Consequence: switch to Postgres and every restart wipes partner
-API keys, webhook subscriptions, idempotency records and pending deliveries, with no error.*
+persistence handles all five. Production runs file mode today (`render.yaml` sets `DATA_FILE`
+and never sets `PERSISTENCE=DB`), so this data is durable right now. *Consequence: the day
+someone switches to Postgres, every restart wipes partner API keys, webhook subscriptions,
+idempotency records and pending deliveries, with no error.*
 
-**3. The Flutter app defaults to production.**
+**3. Public routes return whole domain objects, so a new field is public by default.**
+`GET /anchor-trips` is allowlisted as public (`httpServer.ts:298`) and returns
+`{ ...trip, carrierDisplayName }` — the entire `AnchorTrip`, including `lastLiveLocation`. Any
+field added to `AnchorTrip` is immediately world-readable. *Consequence: driver GPS is exposed
+today (see C0 in `docs/IMPROVEMENTS.md`), and the next field added will be too unless the route
+is changed to project explicitly.* The same shape applies to `shipmentWithCarrierDisplay`.
+
+**4. The Flutter app defaults to production.**
 `kDefaultBaseUrl` in `pilot_api.dart:10` is `https://navig8r.onrender.com`. Forget
 `--dart-define=API_BASE_URL` and your test bookings land in live data. *Consequence: fake
 shipments in the real store.*
 
-**4. Rotating `AUTH_SECRET` logs out every user and breaks every ERP key.**
+**5. Rotating `AUTH_SECRET` logs out every user and breaks every ERP key.**
 It signs session tokens *and* salts the hash for integration API keys
 (`integrationAuth.ts:16`). *Consequence: rotating it as routine hygiene silently breaks every
 partner integration until keys are reissued.*
 
-**5. `packages/core` is imported by relative path, not as a package.**
+**6. `packages/core` is imported by relative path, not as a package.**
 `import ... from "../../../packages/core/src/payoutSchedule.ts"`. The npm `workspaces`
 declaration does not participate. *Consequence: moving `apps/api` breaks the import, and the
 Dockerfile must copy `packages/` to the exact matching depth.*
 
-**6. `ALLOW_X_USER_ID=1` is a complete authentication bypass and is not gated on `NODE_ENV`.**
+**7. `ALLOW_X_USER_ID=1` is a complete authentication bypass and is not gated on `NODE_ENV`.**
 It makes `requireUserId` accept an `x-user-id` header with no token, across ~20 authenticated
 routes including ops-admin ones (`httpServer.ts:284`). *Consequence: setting it anywhere
 reachable hands over every account.*
 
-**7. Route order in `httpServer.ts` is load-bearing.**
+**8. Route order in `httpServer.ts` is load-bearing.**
 It is a linear if-chain, so a broad `startsWith` match placed above a specific one shadows it
 permanently, with no error. *Consequence: a new route that never fires and no clue why.*
 
-**8. Two background timers run in every process.**
+**9. Two background timers run in every process.**
 `index.ts` starts a payout batch runner every 60s and a webhook delivery runner every 30s.
 Neither has a re-entrancy guard, and webhook delivery is sequential with a 30s timeout each.
 *Consequence: scaling to two Render instances races both runners; and ten dead webhook
 endpoints take 300s, so runs overlap and deliver duplicates.*
 
-**9. `main.dart` contains a second, older set of driver screens.**
+**10. `main.dart` contains a second, older set of driver screens.**
 `PilotScaffold`, `HomeScreen`, `RegisterScreen`, `LoginScreen`, `MyTripsScreen`,
 `TripDetailScreen` and `PublishTripScreen` are a legacy "pilot lab" surface at `/pilot-lab`,
 `/register`, `/trips` and `/publish`. They duplicate the `driver_flow.dart` screens and are not
 linked from either shell. *Consequence: you fix a bug in the wrong copy.*
 
-**10. `docs/` claims things the deployment does not do.**
+**11. `docs/` claims things the deployment does not do.**
 `ROADMAP.md` states Postgres is live in production, but `render.yaml` sets `DATA_FILE` and never
 sets `PERSISTENCE=DB` or `DATABASE_URL`. *Consequence: reasoning about production from the
 roadmap gives the wrong answer.* Trust `render.yaml` and the Render dashboard.
