@@ -69,6 +69,81 @@ Matches **open draft PR #81** ("public trip GPS leak"), unreviewed since 7 Augus
 use it for both `GET /anchor-trips` and `GET /anchor-trips/:id`, so a future field added to
 `AnchorTrip` is private by default rather than public by default.
 
+### C0b. One malformed booking request permanently destroys an anchor trip
+
+`httpServer.ts:1394` passes `weightKg: Number(body?.weightKg ?? 0)` straight into `bookShipment`.
+Send `{"weightKg": "abc"}` — or any non-numeric value such as `{}` or `[1,2]` — and `Number()`
+yields `NaN`. **Every guard downstream is a comparison, and every comparison against `NaN` is
+false**, so nothing stops it:
+
+| Guard | Location | With `NaN` |
+|---|---|---|
+| `if (params.weightKg <= 0) throw` | `services.ts:1211` | `NaN <= 0` is `false` — passes |
+| `if (trip.reservedKg + weightKg > capacityKg) throw` | `services.ts:1212` | `NaN > n` is `false` — passes |
+| `if (params.weightKg <= 0) throw` | `computeFreightGrossPaise`, `services.ts:1041` | passes; `Math.round(NaN * 500)` → `NaN` |
+
+Then `services.ts:1239` runs `trip.reservedKg += NaN` and the trip is poisoned for good:
+
+- `trip.reservedKg` is `NaN` permanently.
+- The trip **disappears from the marketplace** — `customerEligibleAnchorTripsPhaseA:980`
+  computes `capacityKg - reservedKg >= weightKg`, and `NaN >= n` is `false`.
+- Every later booking passes the capacity guard too, since `NaN + n > capacity` is also `false`.
+- The payment is created with `amountPaise: NaN`.
+- **It cannot be repaired.** Both release paths use `Math.max(0, trip.reservedKg - s.weightKg)`
+  (`:1678`, `:1792`), and `Math.max(0, NaN)` is `NaN`. There is no admin endpoint that sets
+  `reservedKg` directly.
+
+*Verified by running the comparisons in Node 24 against the guards as written; the guard lines
+are quoted above from source.*
+
+**Failure scenario:** one unauthenticated `POST /shipments/book` with a non-numeric `weightKg`
+silently and permanently removes a carrier's trip from the marketplace. Loop over the trip list
+from C0 and the entire marketplace goes dark. Recovery means hand-editing `store.json`.
+
+This is the most cheaply exploitable finding in this document: no account, one request, permanent,
+unrecoverable. Related to **open draft PR #84** ("capacity NaN poison").
+
+**Fix:** validate at the edge. Reject the request unless
+`Number.isFinite(weightKg) && weightKg > 0`, and change the internal guards from `<= 0` to
+`!Number.isFinite(w) || w <= 0` so the domain layer is safe independently of its caller. The
+same treatment is needed anywhere `Number(body?.…)` feeds arithmetic.
+
+### C0c. The customer login flow cannot work with real OTP codes
+
+`customer_flow.dart:378-384`. The verify handler calls `/v1/auth/otp/start` **again**, takes the
+`challengeId` from that brand-new challenge, and submits it together with the code the user
+typed — which came from the *previous* challenge:
+
+```dart
+final start = await api.post(".../v1/auth/otp/start", data: {"phone": phone});
+final challengeId = start.data?["challengeId"] as String?;
+final r = await api.post(".../v1/auth/otp/verify",
+    data: {"phone": phone, "challengeId": challengeId, "code": _code.text.trim()});
+```
+
+Server-side, `pilotOtpVerify` compares the submitted code against **that new challenge's** code
+(`auth.ts:135`). With real random codes the two can never match, so customer login always fails.
+
+It works today only because `OTP_DEBUG=1` makes every challenge return the same fixed code
+(`OTP_FIXED_CODE ?? "123456"`, `auth.ts:97`).
+
+The driver flow has a milder version of the same shape. `DriverPhoneScreen` calls `otp/start`
+and discards the challenge id (`driver_flow.dart:232`), then `_DriverOtpScreenState
+.didChangeDependencies` calls `_resend()`, which calls `otp/start` a second time (`:300`).
+`_verify()` then correctly uses the stored id — so driver login *works*, but **every sign-in
+sends two SMS and only the second code is valid.** The first code to arrive is the one the user
+will naturally type, and it fails.
+
+**Why this matters more than it looks:** it means the login flows have only ever been exercised
+with the fixed debug code. Integrating an SMS provider (H3) will *not* be enough on its own —
+customer login will still fail, and driver login will bill two messages per attempt and confuse
+the user. Fix these together or the pilot stalls twice.
+
+**Fix:** carry the `challengeId` from the screen that started the challenge into the verify call.
+Never call `otp/start` inside a verify handler. In the driver flow, stop discarding the id at
+`:232` and drop the automatic `_resend()` in `didChangeDependencies`, leaving resend as an
+explicit user action.
+
 ### C1. A queued RazorpayX payout is recorded as PAID and can never be corrected
 
 `services.ts:1882-1899`. The payout batch maps RazorpayX statuses to three outcomes:
@@ -732,10 +807,12 @@ described here.
 
 ## Suggested order
 
-0. **C0, today.** It is the only critical finding currently live in production, it exposes
-   drivers physically, and the fix is a projection function. Everything else can wait a day.
-1. **Unblock the pilot:** H3 (SMS and OTP rate limiting). Nothing else matters until a real user
-   can log in.
+0. **C0 and C0b, today.** Both are reachable in production right now, both need no account, and
+   both have small fixes — a projection function and an input validator. C0b is the more urgent
+   of the two: one malformed request permanently destroys a trip with no recovery path.
+1. **Unblock the pilot:** H3 (SMS and OTP rate limiting) **together with C0c** (the OTP
+   challenge mismatch). Doing H3 alone will not produce a working login — customer sign-in will
+   still fail and driver sign-in will send two messages per attempt.
 2. **The quick wins table.** An afternoon, and it removes two money-correctness bugs and an
    impersonation switch.
 3. **Triage the draft PR backlog** using the table above. Sixteen of them are duplicates; three
