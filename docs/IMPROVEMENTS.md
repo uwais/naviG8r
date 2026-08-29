@@ -17,8 +17,8 @@ Verified against commit `0fc4ad0`. Test suite: 53/53 passing (47 API + 6 core) o
 
 ### C0. Every driver's live GPS position is readable by anyone, unauthenticated
 
-**This is the only critical finding that is reachable in production as configured.** The others
-are latent, waiting on a config switch.
+**Reachable in production as configured**, along with C0b and C0d. C1 through C4 are latent,
+waiting on a config switch.
 
 *Scope of verification:* this is confirmed **in the source** — the route, the spread, and the
 field are all cited below. I did **not** call the deployed API to confirm live coordinates are
