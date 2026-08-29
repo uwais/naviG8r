@@ -15,6 +15,60 @@ Verified against commit `0fc4ad0`. Test suite: 53/53 passing (47 API + 6 core) o
 
 ## Critical — money correctness and data loss
 
+### C0. Every driver's live GPS position is readable by anyone, unauthenticated
+
+**This is the only critical finding that is reachable in production as configured.** The others
+are latent, waiting on a config switch.
+
+*Scope of verification:* this is confirmed **in the source** — the route, the spread, and the
+field are all cited below. I did **not** call the deployed API to confirm live coordinates are
+actually being served, so whether any trip currently carries a `lastLiveLocation` is unchecked.
+That only affects how many drivers are exposed today, not whether the endpoint exposes them.
+Someone with access should run `curl -s https://navig8r.onrender.com/anchor-trips | grep -c
+lastLiveLocation` before deciding how fast to move.
+
+`httpServer.ts:1305-1308`:
+
+```
+if (method === "GET" && url.pathname === "/anchor-trips") {
+  const trips = [...store.anchorTrips.values()].map((t) => tripWithCarrierDisplay(store, t));
+  return json(res, 200, { trips });
+}
+```
+
+`tripWithCarrierDisplay` (`services.ts:194`) is `{ ...trip, carrierDisplayName }` — it spreads
+the **whole** `AnchorTrip`. And `AnchorTrip` carries `lastLiveLocation?: TripLiveLocation`
+(`types.ts:146`), which is:
+
+```
+{ lat, lng, recordedAtUtcMs, accuracyM?, speedMps?, headingDeg? }
+```
+
+The route is not an oversight of the demo-surface gate — it is *deliberately* public.
+`publicMarketplaceRouteAllowed` (`httpServer.ts:298`) allowlists it by name so the customer
+marketplace keeps working in production.
+
+**Failure scenario:** anyone on the internet polls `GET https://navig8r.onrender.com/anchor-trips`
+on a loop and receives the real-time latitude, longitude, speed and heading of every driver on
+the platform, with the carrier's name attached. No account, no token.
+
+For a freight platform this is worse than an ordinary data leak. It is continuous physical
+tracking of identifiable drivers and their cargo — a cargo-theft and driver-safety problem, not
+only a privacy one.
+
+The contrast makes it clear this is unintended: the *authenticated* tracking endpoint
+`getShipmentTripTracking` (`services.ts:849`) carefully scopes visibility to the customer who
+booked the shipment and applies a 15-minute staleness rule before showing a position. All of
+that care is bypassed by the public list route.
+
+Matches **open draft PR #81** ("public trip GPS leak"), unreviewed since 7 August.
+
+**Fix:** project the trip before returning it on any public route. The marketplace needs
+`id`, `carrierId`, `carrierDisplayName`, `origin`, `destination`, window, `vehicleClass`,
+`capacityKg`, `reservedKg` and `status` — and nothing else. Add a `publicTripView()` helper and
+use it for both `GET /anchor-trips` and `GET /anchor-trips/:id`, so a future field added to
+`AnchorTrip` is private by default rather than public by default.
+
 ### C1. A queued RazorpayX payout is recorded as PAID and can never be corrected
 
 `services.ts:1882-1899`. The payout batch maps RazorpayX statuses to three outcomes:
@@ -678,6 +732,8 @@ described here.
 
 ## Suggested order
 
+0. **C0, today.** It is the only critical finding currently live in production, it exposes
+   drivers physically, and the fix is a projection function. Everything else can wait a day.
 1. **Unblock the pilot:** H3 (SMS and OTP rate limiting). Nothing else matters until a real user
    can log in.
 2. **The quick wins table.** An afternoon, and it removes two money-correctness bugs and an
