@@ -713,6 +713,31 @@ entirely.
 
 ---
 
+### M12. `webhooks:manage` is a scope that can be granted but is never checked
+
+`types.ts:261` declares three scopes: `loads:read`, `loads:write`, `webhooks:manage`. Grepping
+every call site of `assertIntegrationScope` shows only the first two are ever enforced
+(`integrationHttp.ts:81, 107, 124, 132, 145`). **`webhooks:manage` is checked nowhere.**
+
+Separately, `POST .../keys` passes `body?.scopes` straight into `createIntegrationApiKey`
+(`integrationHttp.ts:201` → `integrationServices.ts:111`) with no runtime membership check. The
+TypeScript union is not a guard here, because `--experimental-strip-types` never typechecks
+anything (see M4).
+
+**To be clear about severity: this is not a privilege escalation.** Enforcement is
+`ctx.scopes.includes(scope)`, so a junk scope produces a *less* capable key, not a more capable
+one. The real cost is that the partner-facing contract advertises least-privilege it does not
+implement: a key issued with only `webhooks:manage` can still call every `loads:*` route it was
+never granted, because those routes check for scopes the key does not have and therefore reject —
+while a key issued `loads:read` alone can do anything webhook-related that the M2M surface ever
+gains, since nothing will check.
+
+**Fix:** either enforce `webhooks:manage` on the webhook routes or delete it from the union, and
+validate `body.scopes` against the allowed set at the edge, rejecting unknown values instead of
+storing them.
+
+---
+
 ## Structural refactors
 
 These are the largest files. Each proposal names the new files, what moves, and **what gets
