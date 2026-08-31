@@ -192,6 +192,52 @@ test("POST /v1/pilot/carrier/shipments/:id/accept accepts pending booking", asyn
   });
 });
 
+test("production OTP start does not return debugCode even when OTP_DEBUG=1", async (t) => {
+  const prev = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    OTP_DEBUG: process.env.OTP_DEBUG,
+    OTP_FIXED_CODE: process.env.OTP_FIXED_CODE,
+  };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+    process.env.OTP_DEBUG = prev.OTP_DEBUG;
+    process.env.OTP_FIXED_CODE = prev.OTP_FIXED_CODE;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "production";
+  process.env.OTP_DEBUG = "1";
+  process.env.OTP_FIXED_CODE = "123456";
+
+  await withApp(t, async (baseUrl) => {
+    const reg = await postJson(baseUrl, "/v1/pilot/driver/register", {
+      fullName: "Ravi Kumar",
+      phone: "9876543210",
+      orgDisplayName: "Ravi Transport",
+      vehicleRegistrationNumber: "HR26AB1234",
+      vehicleClass: "MEDIUM",
+      vehicleCapacityKg: 5000,
+    });
+    assert.equal(reg.status, 201);
+
+    const start = await postJson(baseUrl, "/v1/auth/otp/start", { phone: "9876543210" });
+    assert.equal(start.status, 200);
+    const body = (await start.json()) as { challengeId?: string; debugCode?: string };
+    assert.ok(body.challengeId);
+    assert.equal(body.debugCode, undefined);
+
+    const verify = await postJson(baseUrl, "/v1/auth/otp/verify", {
+      phone: "9876543210",
+      challengeId: body.challengeId,
+      code: "123456",
+    });
+    assert.equal(verify.status, 400);
+    assert.deepEqual(await verify.json(), { error: "otp_incorrect" });
+  });
+});
+
 test("GET /ops returns ops portal HTML", async (t) => {
   const prev = { DATA_FILE: process.env.DATA_FILE };
   t.after(() => {

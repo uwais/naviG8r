@@ -81,10 +81,15 @@ function randomOtp6(): string {
   return String(n).padStart(6, "0");
 }
 
+/** Fixed/debug OTP is local-dev only. Production must never honor OTP_DEBUG. */
+function otpDebugEnabled(): boolean {
+  return process.env.OTP_DEBUG === "1" && process.env.NODE_ENV !== "production";
+}
+
 export function pilotOtpStart(store: Store, params: { phone: string }): {
   challengeId: string;
   expiresAtUtcMs: number;
-  /** Only returned when OTP_DEBUG=1 (never in production pilots). */
+  /** Only returned when OTP_DEBUG=1 and NODE_ENV is not production. */
   debugCode?: string;
 } {
   const user = findUserByPhone(store, params.phone);
@@ -92,10 +97,10 @@ export function pilotOtpStart(store: Store, params: { phone: string }): {
 
   const now = nowUtcMs();
   const ttlMs = Number(process.env.OTP_TTL_MS ?? `${10 * 60 * 1000}`);
-  const code =
-    process.env.OTP_DEBUG === "1"
-      ? String(process.env.OTP_FIXED_CODE ?? "123456").padStart(6, "0").slice(-6)
-      : randomOtp6();
+  const debug = otpDebugEnabled();
+  const code = debug
+    ? String(process.env.OTP_FIXED_CODE ?? "123456").padStart(6, "0").slice(-6)
+    : randomOtp6();
 
   const ch: OtpChallenge = {
     id: id("otp"),
@@ -111,7 +116,7 @@ export function pilotOtpStart(store: Store, params: { phone: string }): {
     challengeId: ch.id,
     expiresAtUtcMs: ch.expiresAtUtcMs,
   };
-  if (process.env.OTP_DEBUG === "1") out.debugCode = code;
+  if (debug) out.debugCode = code;
   return out;
 }
 

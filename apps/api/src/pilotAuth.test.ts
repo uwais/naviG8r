@@ -7,16 +7,19 @@ import { publishAnchorTripAsPilotDriver, registerSoloOwnerOperatorDriver } from 
 test("OTP + bearer auth: verify issues token usable for protected pilot routes", (t) => {
   const prev = {
     AUTH_SECRET: process.env.AUTH_SECRET,
+    NODE_ENV: process.env.NODE_ENV,
     OTP_DEBUG: process.env.OTP_DEBUG,
     OTP_FIXED_CODE: process.env.OTP_FIXED_CODE,
   };
   t.after(() => {
     process.env.AUTH_SECRET = prev.AUTH_SECRET;
+    process.env.NODE_ENV = prev.NODE_ENV;
     process.env.OTP_DEBUG = prev.OTP_DEBUG;
     process.env.OTP_FIXED_CODE = prev.OTP_FIXED_CODE;
   });
 
   process.env.AUTH_SECRET = process.env.AUTH_SECRET ?? "test_secret_minimum_16_chars";
+  process.env.NODE_ENV = "test";
   process.env.OTP_DEBUG = "1";
   process.env.OTP_FIXED_CODE = "123456";
 
@@ -55,4 +58,48 @@ test("OTP + bearer auth: verify issues token usable for protected pilot routes",
     capacityKg: 1000,
   });
   assert.equal(trip.carrierId, onboard.org.id);
+});
+
+test("production ignores OTP_DEBUG so the fixed code cannot sign anyone in", (t) => {
+  const prev = {
+    AUTH_SECRET: process.env.AUTH_SECRET,
+    NODE_ENV: process.env.NODE_ENV,
+    OTP_DEBUG: process.env.OTP_DEBUG,
+    OTP_FIXED_CODE: process.env.OTP_FIXED_CODE,
+  };
+  t.after(() => {
+    process.env.AUTH_SECRET = prev.AUTH_SECRET;
+    process.env.NODE_ENV = prev.NODE_ENV;
+    process.env.OTP_DEBUG = prev.OTP_DEBUG;
+    process.env.OTP_FIXED_CODE = prev.OTP_FIXED_CODE;
+  });
+
+  process.env.AUTH_SECRET = process.env.AUTH_SECRET ?? "test_secret_minimum_16_chars";
+  process.env.NODE_ENV = "production";
+  process.env.OTP_DEBUG = "1";
+  process.env.OTP_FIXED_CODE = "999999";
+
+  const store = createStore();
+  const onboard = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Ravi Kumar",
+    phone: "9876543210",
+    orgDisplayName: "Ravi Transport",
+    vehicleRegistrationNumber: "HR26AB1234",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 5000,
+  });
+
+  const start = pilotOtpStart(store, { phone: onboard.user.phone });
+  assert.ok(start.challengeId);
+  assert.equal(start.debugCode, undefined);
+
+  assert.throws(
+    () =>
+      pilotOtpVerify(store, {
+        phone: onboard.user.phone,
+        challengeId: start.challengeId,
+        code: "999999",
+      }),
+    /otp_incorrect/,
+  );
 });
