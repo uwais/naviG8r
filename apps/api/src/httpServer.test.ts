@@ -238,6 +238,7 @@ test("production OTP start does not return debugCode even when OTP_DEBUG=1", asy
   });
 });
 
+test("GET /ops returns ops portal HTML", async (t) => {
   const prev = { DATA_FILE: process.env.DATA_FILE };
   t.after(() => {
     process.env.DATA_FILE = prev.DATA_FILE;
