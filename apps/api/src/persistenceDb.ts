@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { createStore, type Store } from "./store.ts";
+import { createStore, pruneEmptyPayoutBatches, type Store } from "./store.ts";
 import type {
   AnchorTrip,
   TripLiveLocation,
@@ -277,6 +277,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
 }
 
 export async function saveStoreToDatabase(store: Store): Promise<void> {
+  pruneEmptyPayoutBatches(store);
   await prisma.$transaction(async (tx) => {
     await tx.ledgerLineRow.deleteMany();
     await tx.payoutBatchRow.deleteMany();

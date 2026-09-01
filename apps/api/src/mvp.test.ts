@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { computePayoutBatchAssignment, utcMsFromIstWallParts } from "../../../packages/core/src/payoutSchedule.ts";
 import { PAYOUT_BATCH_SCHEDULE } from "./config.ts";
-import { createStore } from "./store.ts";
+import { createStore, pruneEmptyPayoutBatches } from "./store.ts";
 import { bookShipment, acceptCarrierShipment, markPodDelivered, publishAnchorTrip, registerSoloOwnerOperatorDriver, runPayoutBatch } from "./services.ts";
 
 test("vertical slice: publish trip -> book (capture) -> POD -> ledger -> weekly batch pays after cutoff", async () => {
@@ -47,9 +47,11 @@ test("vertical slice: publish trip -> book (capture) -> POD -> ledger -> weekly 
   assert.equal(out.ledgerLine.firstPayoutEligibleAtUtcMs, expected.firstPayoutEligibleAtUtcMs);
   assert.equal(out.ledgerLine.payoutBatchCutoffUtcMs, expected.payoutBatchCutoffUtcMs);
 
-  // Before cutoff: not paid
+  // Before cutoff: not paid, and the dry run must not insert a store row.
   const before = await runPayoutBatch(store, { nowUtcMs: expected.payoutBatchCutoffUtcMs - 1 });
   assert.equal(before.totalNetToCarrierPaise, 0);
+  assert.equal(before.lineIds.length, 0);
+  assert.equal(store.payoutBatches.size, 0);
   assert.equal(store.ledgerLines.get(out.ledgerLine.id)?.status, "ACCRUED");
 
   // At/after cutoff: paid
@@ -63,5 +65,55 @@ test("vertical slice: publish trip -> book (capture) -> POD -> ledger -> weekly 
   assert.equal(after.transfers[0]!.status, "BOOKKEEPING_PAID");
   assert.equal(after.transfers[0]!.carrierId, out.ledgerLine.carrierId);
   assert.equal(after.transfers[0]!.netToCarrierPaise, out.ledgerLine.netToCarrierPaise);
+  assert.equal(store.payoutBatches.size, 1);
+});
+
+test("empty payout-batch ticks are not stored; prune drops heartbeat rows only", async () => {
+  const store = createStore();
+  const empty = await runPayoutBatch(store, { nowUtcMs: Date.now() });
+  assert.equal(empty.lineIds.length, 0);
+  assert.equal(empty.transfers.length, 0);
+  assert.equal(store.payoutBatches.size, 0);
+
+  store.payoutBatches.set("pay_heartbeat", {
+    id: "pay_heartbeat",
+    cutoffUtcMs: 1,
+    createdAtUtcMs: 1,
+    totalNetToCarrierPaise: 0,
+    lineIds: [],
+    provider: "BOOKKEEPING",
+    transfers: [],
+  });
+  store.payoutBatches.set("pay_failed_provider", {
+    id: "pay_failed_provider",
+    cutoffUtcMs: 1,
+    createdAtUtcMs: 1,
+    totalNetToCarrierPaise: 0,
+    lineIds: [],
+    provider: "RAZORPAYX",
+    transfers: [
+      {
+        carrierId: "org_a",
+        netToCarrierPaise: 50000,
+        lineIds: ["ll_a1"],
+        status: "FAILED",
+        error: "insufficient_balance",
+      },
+    ],
+  });
+  store.payoutBatches.set("pay_real", {
+    id: "pay_real",
+    cutoffUtcMs: 1,
+    createdAtUtcMs: 1,
+    totalNetToCarrierPaise: 100,
+    lineIds: ["ll_1"],
+    provider: "BOOKKEEPING",
+    transfers: [{ carrierId: "org_a", netToCarrierPaise: 100, lineIds: ["ll_1"], status: "BOOKKEEPING_PAID" }],
+  });
+
+  assert.equal(pruneEmptyPayoutBatches(store), 1);
+  assert.equal(store.payoutBatches.has("pay_heartbeat"), false);
+  assert.equal(store.payoutBatches.has("pay_failed_provider"), true);
+  assert.equal(store.payoutBatches.has("pay_real"), true);
 });
 

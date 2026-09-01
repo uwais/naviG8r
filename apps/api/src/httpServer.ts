@@ -2,6 +2,7 @@ import http from "node:http";
 import { URL } from "node:url";
 import { pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
+import { pruneEmptyPayoutBatches } from "./store.ts";
 import {
   ApiError,
   acceptCarrierShipment,
@@ -356,11 +357,17 @@ export async function createApp(): Promise<{
     persist = async () => {
       await db.saveStoreToDatabase(store);
     };
+    if (pruneEmptyPayoutBatches(store) > 0) {
+      await persist();
+    }
   } else {
     store = loadStoreFromDisk(dataFilePath!);
     persist = async () => {
       saveStoreToDisk(dataFilePath!, store);
     };
+    if (pruneEmptyPayoutBatches(store) > 0) {
+      saveStoreToDisk(dataFilePath!, store);
+    }
   }
 
   const server = http.createServer(async (req, res) => {
