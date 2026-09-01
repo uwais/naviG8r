@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createStore, type Store } from "./store.ts";
+import { createStore, pruneEmptyPayoutBatches, type Store } from "./store.ts";
 import type {
   AnchorTrip,
   AuthSession,
@@ -225,6 +225,7 @@ export function loadStoreFromDisk(dataFilePath: string): Store {
 }
 
 export function saveStoreToDisk(dataFilePath: string, store: Store): void {
+  pruneEmptyPayoutBatches(store);
   const dir = path.dirname(dataFilePath);
   fs.mkdirSync(dir, { recursive: true });
 

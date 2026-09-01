@@ -64,3 +64,21 @@ export function createStore(): Store {
     integrationWebhookDeliveries: new Map(),
   };
 }
+
+/**
+ * Drop heartbeat rows with no lines and no transfers.
+ * The 1-minute payout timer used to insert one of these per tick; they must not
+ * be confused with real batches that settled nothing (those still have transfers).
+ */
+export function pruneEmptyPayoutBatches(store: Store): number {
+  let removed = 0;
+  for (const [id, batch] of store.payoutBatches) {
+    const noLines = (batch.lineIds?.length ?? 0) === 0;
+    const noTransfers = (batch.transfers?.length ?? 0) === 0;
+    if (noLines && noTransfers) {
+      store.payoutBatches.delete(id);
+      removed += 1;
+    }
+  }
+  return removed;
+}

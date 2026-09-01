@@ -1823,8 +1823,9 @@ export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }
     (l) => l.status === "ACCRUED" && l.payoutBatchCutoffUtcMs <= now
   );
   if (eligibleLines.length === 0) {
-    // Still create an empty batch for determinism in MVP.
-    const empty: PayoutBatch = {
+    // Return a snapshot for callers, but do not insert it. The 1-minute runner
+    // plus any later persist() would otherwise accumulate unbounded empty rows.
+    return {
       id: id("pay"),
       cutoffUtcMs: now,
       createdAtUtcMs: now,
@@ -1833,8 +1834,6 @@ export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }
       provider,
       transfers: [],
     };
-    store.payoutBatches.set(empty.id, empty);
-    return empty;
   }
 
   // Group by cutoff timestamp; for MVP we run one cutoff at a time: the earliest due.
