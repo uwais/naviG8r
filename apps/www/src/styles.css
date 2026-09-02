@@ -360,7 +360,26 @@ textarea {
   margin: 1.25rem 0 0;
   max-width: 34rem;
   font-size: 1.05rem;
+  line-height: 1.55;
   color: rgba(243, 239, 232, 0.88);
+}
+
+/* Phones (iPhone 15 is 393×852): the background route at bottom:28%
+   shows through the transparent lede and reads as a strikethrough. */
+@media (max-width: 700px) {
+  .hero-route {
+    display: none;
+  }
+
+  .hero-grid {
+    mask-image: linear-gradient(180deg, #000 10%, transparent 42%);
+  }
+
+  .hero-lede {
+    margin-top: 1.6rem;
+    padding-top: 1.35rem;
+    border-top: 1px solid rgba(232, 223, 210, 0.45);
+  }
 }
 
 .hero-actions {
