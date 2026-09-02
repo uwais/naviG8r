@@ -72,8 +72,7 @@ services:
     buildCommand: bash scripts/render-build-www.sh
     staticPublishPath: apps/www/dist
     # Bake at build time (set in Render Dashboard → Environment):
-    #   VITE_ZOHO_FORM_PERMA — Zoho Forms iframe src (forms.zohopublic.*)
-    #   VITE_TURNSTILE_SITE_KEY — optional Explore-portal Turnstile site key
+    #   VITE_TURNSTILE_SITE_KEY — contact + Explore Turnstile site key (skips FormSubmit captcha)
     routes:
       - type: rewrite
         source: /*

@@ -9,48 +9,25 @@ Owner sign-off received. Ship by merging this work to `main`, deploying Render s
 | App | `apps/www` (Vite static) |
 | Render service | `navig8r-www` |
 | Deploy branch | `main` (after merge) |
-| Contact | Zoho Forms embed → email notification to `hello@navig8r.org` |
+| Contact | In-page form → FormSubmit hash → `hello@navig8r.org` (FormSubmit reCAPTCHA until Turnstile) |
 | Explore CTA | Human check gate → `https://navig8r-customer.onrender.com/` |
 | Registrar | OpenSRS |
 | Logo / brand | Typographic wordmark in layout; official files in `apps/www/public/brand/` for selective manual use |
 | Claims | Soft / professional; do not overstate unshipped features |
 | Domains | `navig8r.org` + `www.navig8r.org` |
-| Bot guard | Zoho Forms CAPTCHA on contact; Explore portal uses Turnstile when `VITE_TURNSTILE_SITE_KEY` is set, otherwise math + checkbox |
+| Bot guard | Contact: FormSubmit reCAPTCHA now; Cloudflare Turnstile when `VITE_TURNSTILE_SITE_KEY` is set. Explore: Turnstile or math/checkbox. Next backend contender: Formspree (Render integration). |
 
-## Zoho Forms (contact)
+## Contact form (FormSubmit → Turnstile → Formspree)
 
-Contact is a [Zoho Forms](https://www.zoho.com/forms/) **Free** embed (1 user, 3 forms, 500 submissions/month). Mail stays in the same Zoho org / `hello@navig8r.org` inbox.
+Contact is the in-page NaviG8r form again (not Zoho Forms). Submissions go to [FormSubmit](https://formsubmit.co) using the random string (not a naked email) and land in `hello@navig8r.org`.
 
-### Create the form (once)
+**Bot check today:** FormSubmit’s own reCAPTCHA. Submit leaves the page briefly for that captcha, then `_next` returns to `#contact?sent=1`.
 
-Sign in to Forms on the **same Zoho account / data center as Zoho Mail** (India mail is typically [forms.zoho.in](https://forms.zoho.in)).
+**Turnstile cutover:** set `VITE_TURNSTILE_SITE_KEY` on Render `navig8r-www` and redeploy. Contact then stays on-page (AJAX) and skips FormSubmit’s captcha page. Explore portal already uses the same key.
 
-1. **New form** named `NaviG8r contact`.
-2. Fields:
-   - Name (single line, required)
-   - Work email (email, required)
-   - I am a… (dropdown, required): Shipper / manufacturer / trader; Carrier / fleet / owner-operator; Investor / fund; Press / partner / other
-   - Company (single line, optional)
-   - How can we help? (multi-line, required)
-3. **Settings → Form settings → CAPTCHA** → enable **Zoho Forms CAPTCHA** (included on Free; reCAPTCHA / Turnstile are paid).
-4. **Settings → Email notifications** → on submit, send to **`hello@navig8r.org`** (include all answers in the body).
-5. Optional: Themes → light / cream so the iframe sits on the marketing page.
-6. **Share → Embed → iframe** → copy the `src` URL (already wired in `apps/www/src/main.js`; override with `VITE_ZOHO_FORM_PERMA` if you recreate the form).
+**Next backend (not wired):** [Formspree](https://formspree.io) if we leave FormSubmit. It has a [Render integration](https://render.com/docs/formspree) / marketplace path and keeps the same in-page form; swap the POST endpoint and env key. Do not iframe a builder that injects a “create your own form” ad.
 
-### Wire it into Render (optional)
-
-The production iframe URL is baked into the site build. To override (e.g. after recreating the form), set on **navig8r-www** → **Environment**:
-
-- `VITE_ZOHO_FORM_PERMA` = iframe `src` URL
-
-Redeploy only if you override. Otherwise merge + deploy is enough.
-
-Local:
-
-```bash
-cd apps/www
-VITE_ZOHO_FORM_PERMA='https://forms.zohopublic.in/.../formperma/...' npm run dev
-```
+Zoho Forms Free was dropped because the post-submit upsell cannot be removed without a paid Forms plan.
 
 ## Explore portal human check
 
@@ -76,8 +53,7 @@ Without the key, Explore uses a checkbox + simple math challenge, honeypot, and 
 - [ ] PR merged to `main` + Render deploy green
 - [ ] Custom domains added on Render `navig8r-www`
 - [ ] OpenSRS DNS records live + TLS issued
-- [x] Zoho Forms created; CAPTCHA on; notify `hello@navig8r.org`
-- [x] Contact iframe URL wired in site (override via `VITE_ZOHO_FORM_PERMA` if needed)
+- [ ] Contact submit: FormSubmit captcha → mail at `hello@navig8r.org`
 
 ## Production cutover (Render + OpenSRS)
 
@@ -129,7 +105,7 @@ If OpenSRS has no ALIAS/ANAME for apex, use the **A** records Render provides fo
 
 - [ ] `https://www.navig8r.org` loads
 - [ ] `https://navig8r.org` loads (and redirects or serves same site as preferred)
-- [ ] Contact form: submit once; confirm Zoho notification arrives at `hello@`
+- [ ] Contact form: submit once; complete FormSubmit captcha; confirm mail at `hello@`
 - [ ] Mobile + desktop smoke on Products / Contact
 - [ ] Optional: set preferred canonical to `https://navig8r.org` or `www` consistently
 

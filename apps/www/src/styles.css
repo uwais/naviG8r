@@ -937,37 +937,6 @@ h2 {
   padding: 1.25rem;
 }
 
-.zoho-form-wrap {
-  display: block;
-  padding: 0.35rem;
-  overflow: hidden;
-}
-
-.zoho-form-wrap iframe {
-  display: block;
-  width: 100%;
-  min-height: 42rem;
-  border: 0;
-  background: transparent;
-}
-
-.zoho-form-fallback {
-  display: grid;
-  gap: 1rem;
-  justify-items: start;
-  padding: 1.5rem 1.15rem;
-}
-
-.zoho-form-fallback p {
-  margin: 0;
-  color: var(--navy);
-  line-height: 1.45;
-}
-
-.zoho-form-wrap:has(iframe) .zoho-form-fallback {
-  display: none;
-}
-
 .contact-form label {
   display: grid;
   gap: 0.4rem;

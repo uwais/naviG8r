@@ -392,12 +392,55 @@
             </ul>
           </div>
 
-          <div class="contact-form zoho-form-wrap" data-zoho-form>
-            <div class="zoho-form-fallback" data-zoho-fallback>
-              <p>Until the Zoho form is connected, email us directly — we read every note.</p>
-              <a class="btn btn-primary" href="mailto:hello@navig8r.org">Email hello@navig8r.org</a>
+          <form
+            class="contact-form"
+            data-contact-form
+            action="https://formsubmit.co/7eadc0879f93ea0c161305caca38dbf2"
+            method="POST"
+            novalidate
+          >
+            <input type="hidden" name="_subject" value="NaviG8r.org contact request" />
+            <input type="hidden" name="_template" value="table" />
+            <input type="hidden" name="_next" data-form-next value="https://navig8r.org/?sent=1#contact" />
+            <input type="text" name="_gotcha" tabindex="-1" autocomplete="off" class="hp" aria-hidden="true" />
+
+            <label>
+              <span>Name</span>
+              <input name="name" type="text" required autocomplete="name" placeholder="Your name" />
+            </label>
+            <label>
+              <span>Work email</span>
+              <input name="email" type="email" required autocomplete="email" placeholder="you@company.com" />
+            </label>
+            <label>
+              <span>I am a…</span>
+              <select name="role" required>
+                <option value="" disabled selected>Select one</option>
+                <option>Shipper / manufacturer / trader</option>
+                <option>Carrier / fleet / owner-operator</option>
+                <option>Investor / fund</option>
+                <option>Press / partner / other</option>
+              </select>
+            </label>
+            <label>
+              <span>Company (optional)</span>
+              <input name="company" type="text" autocomplete="organization" placeholder="Organization" />
+            </label>
+            <label class="full">
+              <span>How can we help?</span>
+              <textarea name="message" required rows="5" placeholder="Corridors, volumes, timeline, or questions…"></textarea>
+            </label>
+            <div class="human-inline full" data-contact-human>
+              <p class="human-inline-label" data-contact-human-label>
+                You’ll complete a captcha on the next screen — keeps automated traffic out.
+              </p>
+              <div class="turnstile-slot" data-turnstile-contact></div>
             </div>
-          </div>
+            <div class="form-footer full">
+              <button class="btn btn-primary" type="submit" data-submit>Send message</button>
+              <p class="form-status" data-form-status role="status" aria-live="polite"></p>
+            </div>
+          </form>
         </div>
       </section>
     </main>

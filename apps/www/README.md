@@ -21,9 +21,11 @@ npm run build
 
 ## Contact form
 
-The contact form is a [Zoho Forms](https://www.zoho.com/forms/) Free embed. Submissions notify `hello@navig8r.org` (same Zoho Mail inbox).
+The contact form posts to [FormSubmit](https://formsubmit.co) using their random string (not a naked email). Mail lands at `hello@navig8r.org`.
 
-**Setup:** CAPTCHA and email notification are configured in Zoho Forms. The iframe URL is baked into the site; override with `VITE_ZOHO_FORM_PERMA` if you recreate the form (see [`docs/MARKETING_SITE.md`](../../docs/MARKETING_SITE.md)).
+Until Cloudflare Turnstile is configured (`VITE_TURNSTILE_SITE_KEY`), submit uses **FormSubmit’s reCAPTCHA**. After Turnstile is set, contact stays on-page and skips that captcha screen.
+
+Next backend if we leave FormSubmit: **Formspree** (Render integration). See [`docs/MARKETING_SITE.md`](../../docs/MARKETING_SITE.md).
 
 ## Preview vs production
 
