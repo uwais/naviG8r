@@ -209,6 +209,42 @@ function migrateV1ToStore(v1: StoreJsonV1): Store {
   return store;
 }
 
+/**
+ * FILE-store location.
+ *
+ * Render mounts a persistent disk at `/data` (`render.yaml`). The API Docker
+ * image's WORKDIR is `/app/apps/api`, so the historic default `./data/store.json`
+ * is on the ephemeral container filesystem and is wiped on every deploy.
+ * Live `/admin` has shown `Backed by ./data/store.json` while `DATA_FILE` was
+ * unset — matching full store resets after main deploys.
+ *
+ * Production therefore prefers `/data/store.json` when that directory exists,
+ * unless `DATA_FILE` is set explicitly. `PERSISTENCE=DB` disables the file store.
+ */
+export function resolveDataFilePath(
+  env: NodeJS.ProcessEnv = process.env,
+  opts?: { persistentDirExists?: boolean },
+): string | null {
+  if (env.PERSISTENCE === "DB") return null;
+  const explicit = env.DATA_FILE?.trim();
+  if (explicit) return explicit;
+
+  const persistentDirExists =
+    opts?.persistentDirExists ??
+    (() => {
+      try {
+        return fs.existsSync("/data") && fs.statSync("/data").isDirectory();
+      } catch {
+        return false;
+      }
+    })();
+
+  if (env.NODE_ENV === "production" && persistentDirExists) {
+    return "/data/store.json";
+  }
+  return "./data/store.json";
+}
+
 export function loadStoreFromDisk(dataFilePath: string): Store {
   try {
     const raw = fs.readFileSync(dataFilePath, "utf8");

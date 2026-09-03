@@ -1,7 +1,7 @@
 import http from "node:http";
 import { URL } from "node:url";
 import { pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
-import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
+import { loadStoreFromDisk, resolveDataFilePath, saveStoreToDisk } from "./persistence.ts";
 import {
   ApiError,
   acceptCarrierShipment,
@@ -342,7 +342,7 @@ export async function createApp(): Promise<{
   persist: () => Promise<void>;
   dataFilePath: string | null;
 }> {
-  const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (process.env.DATA_FILE ?? "./data/store.json");
+  const dataFilePath = resolveDataFilePath();
 
   let store: ReturnType<typeof loadStoreFromDisk>;
   let persist: () => Promise<void>;
