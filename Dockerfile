@@ -18,5 +18,8 @@ RUN cd apps/api && npx prisma generate
 
 WORKDIR /app/apps/api
 ENV NODE_ENV=production
+# Render disk is mounted at /data. Do not default to ./data/store.json — that path
+# is inside the container overlay and is destroyed on every deploy.
+ENV DATA_FILE=/data/store.json
 EXPOSE 3000
 CMD ["node", "--experimental-strip-types", "src/index.ts"]
