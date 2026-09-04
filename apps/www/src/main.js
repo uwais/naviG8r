@@ -527,6 +527,12 @@ function initYear() {
   if (el) el.textContent = String(new Date().getFullYear());
 }
 
+function initPortalLinks() {
+  qsa("[data-portal-gate]").forEach((link) => {
+    link.href = PORTAL_URL;
+  });
+}
+
 async function boot() {
   initHeader();
   initProductTabs();
@@ -534,6 +540,7 @@ async function boot() {
   initAudience();
   initReveal();
   initYear();
+  initPortalLinks();
 
   const contactHuman = await initContactHuman();
   const humanGate = initHumanGate();
