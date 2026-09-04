@@ -2,6 +2,7 @@
 
 FROM debian:bookworm-slim AS build
 
+LABEL org.opencontainers.image.source="https://github.com/uwais/naviG8r"
 ARG FLUTTER_VERSION=3.22.3
 ARG RELEASE_SHA=unknown
 
