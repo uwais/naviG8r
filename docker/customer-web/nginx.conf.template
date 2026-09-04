@@ -2,6 +2,9 @@ server {
     listen 10000;
     server_name _;
 
+    root /usr/share/nginx/html;
+    index index.html;
+
     location = /api {
         return 308 /api/;
     }
@@ -16,7 +19,11 @@ server {
         proxy_ssl_server_name on;
     }
 
+    location = / {
+        try_files /index.html =404;
+    }
+
     location / {
-        try_files $uri $uri/ /index.html;
+        try_files $uri $uri/ /index.html =404;
     }
 }
