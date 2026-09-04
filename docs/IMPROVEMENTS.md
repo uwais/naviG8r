@@ -506,6 +506,11 @@ re-serialises the entire store on every write.
 **Failure scenario:** after a few months of quiet running, `store.json` is dominated by empty
 payout batches and every booking pays to re-serialise them.
 
+**This is no longer a prediction — it is measured.** Open PR **#101** reports **21,832** of these
+rows already in live production, with `GET /admin` returning roughly **7 MB** that is almost
+entirely this list. (Those figures are from that PR, not something I measured myself.) The
+event-loop cost of re-serialising them is being paid on every OTP, booking and GPS ping today.
+
 **Fix:** return the empty batch without storing it, or store it only when `lineIds.length > 0`.
 The determinism the comment wants is satisfied by the return value.
 
@@ -928,6 +933,7 @@ the source independently, so they are real and worth taking seriously:
 
 | PR | Finding here | Confirmed |
 |---|---|---|
+| #101 empty payout batches | S2 | Yes — and it supplies live figures I could not get: 21,832 rows, ~7MB `/admin` |
 | #87 stored XSS in ops portal | H2 | Yes — `httpServer.ts:232`, `:245` |
 | #98 carrier payout history leak | H8 | Yes — `services.ts:779` returns the whole batch |
 | #85 concurrent RazorpayX payout double-pay | S4 | Yes — two unguarded timers, no re-entrancy flag |
