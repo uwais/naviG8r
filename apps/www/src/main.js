@@ -1,6 +1,15 @@
 const CONTACT_ENDPOINT = "https://formsubmit.co/ajax/7eadc0879f93ea0c161305caca38dbf2";
-const PORTAL_URL = "https://navig8r-customer.onrender.com/";
-const TURNSTILE_SITE_KEY = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
+const runtimeConfig = window.__NAVI8R_CONFIG__ || {};
+const TURNSTILE_SITE_KEY = String(
+  runtimeConfig.TURNSTILE_SITE_KEY ||
+  import.meta.env.VITE_TURNSTILE_SITE_KEY ||
+  ""
+).trim();
+const PORTAL_URL = String(
+  runtimeConfig.PORTAL_URL ||
+  "https://navig8r-customer.onrender.com/"
+).trim();
+
 const MIN_INTERACTION_MS = 1600;
 
 function qs(sel, root = document) {
@@ -518,6 +527,12 @@ function initYear() {
   if (el) el.textContent = String(new Date().getFullYear());
 }
 
+function initPortalLinks() {
+  qsa("[data-portal-gate]").forEach((link) => {
+    link.href = PORTAL_URL;
+  });
+}
+
 async function boot() {
   initHeader();
   initProductTabs();
@@ -525,6 +540,7 @@ async function boot() {
   initAudience();
   initReveal();
   initYear();
+  initPortalLinks();
 
   const contactHuman = await initContactHuman();
   const humanGate = initHumanGate();

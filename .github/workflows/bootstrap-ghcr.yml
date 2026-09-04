@@ -1,0 +1,62 @@
+name: Bootstrap GHCR Images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            RELEASE_SHA=${{ github.sha }}
+          tags: |
+            ghcr.io/uwais/navig8r-api:bootstrap
+            ghcr.io/uwais/navig8r-api:${{ github.sha }}
+
+      - name: Build and push customer web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.customer-web
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            RELEASE_SHA=${{ github.sha }}
+          tags: |
+            ghcr.io/uwais/navig8r-customer-web:bootstrap
+            ghcr.io/uwais/navig8r-customer-web:${{ github.sha }}
+
+      - name: Build and push WWW
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.www
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            RELEASE_SHA=${{ github.sha }}
+          tags: |
+            ghcr.io/uwais/navig8r-www:bootstrap
+            ghcr.io/uwais/navig8r-www:${{ github.sha }}
