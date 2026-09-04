@@ -929,14 +929,45 @@ it found, it found once.
 | #93, #95, #96, #97 | Marketing site and build notes, small and self-contained. Quick to clear. |
 | #101, #102 | Newest, and the two most worth reading first. #101 carries real production measurements; #102 makes a claim about production data durability that outranks most of this document if true. |
 
-**#102 deserves a direct answer before anything else here.** It argues the production store lives
-on the ephemeral Docker overlay rather than the mounted Render disk — which would mean the JSON
-store is discarded on every deploy. Reading `render.yaml` alone I could not reproduce that: the
-blueprint declares `disk: { mountPath: /data }` and sets `DATA_FILE=/data/store.json`, which is
-the correct pairing. I have no Render dashboard access and did not investigate further, so I am
-not contradicting it — only recording that the repo alone does not show the problem. If #102 is
-right, production has been losing data all along and that is the single most important fact about
-this system. Someone with dashboard access should settle it directly.
+**#102 is correct, and it outranks everything else in this document.** It argues the production
+store lives on the ephemeral Docker container layer rather than the mounted Render disk, so the
+JSON store is discarded on every deploy.
+
+I initially could not reproduce this because I checked `render.yaml`, which *is* correct — it
+pairs `disk: { mountPath: /data }` with `DATA_FILE=/data/store.json`. That was the wrong file to
+look at. The failure is in the code's fallback:
+
+```ts
+// httpServer.ts:345
+const dataFilePath = process.env.PERSISTENCE === "DB"
+  ? null
+  : (process.env.DATA_FILE ?? "./data/store.json");
+```
+
+The Dockerfile's final `WORKDIR` is `/app/apps/api` (`Dockerfile:19`). So whenever `DATA_FILE` is
+*not actually set in the running process*, the store is written to
+`/app/apps/api/data/store.json` — inside the container's writable layer, which is destroyed on
+every deploy. The blueprint being right does not help if the dashboard never applied it.
+
+**The empty payout batches from S2 independently corroborate this**, which is worth spelling out
+because it turns a config suspicion into measured evidence. Those rows accrue at exactly one per
+minute and are never pruned, so the count is a monotonic clock of time-since-last-wipe:
+
+| Report | Rows | Implied uptime |
+|---|---|---|
+| #101 | 21,832 | 15 days 3 hours |
+| #102 (2026-09-03) | 808 | 13 hours |
+
+A monotonically increasing counter cannot fall from 21,832 to 808. The store was reset between
+the two observations. S2's bug is, accidentally, this system's only deploy-wipe detector.
+
+**A second consequence #102 does not draw out.** It reports that `GET /admin` rendered live. In
+production `/admin` is supposed to return 403 unless `ENABLE_LEGACY_DEMO_SURFACE=1`
+(`httpServer.ts:317`). If it rendered, then either that flag is set or `NODE_ENV` is not
+`production` in the running process — and `/admin` dumps the **entire** store as HTML: every
+user, phone number, membership, shipment, payment and ledger line, with no authentication. That
+is a live PII exposure, and it is the same dashboard-drift root cause. Confirm it with a status
+code before assuming either way.
 
 **Where those PRs meet the findings in this document** — four were confirmed here by reading
 the source independently, so they are real and worth taking seriously:
