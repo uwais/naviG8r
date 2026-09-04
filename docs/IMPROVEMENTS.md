@@ -927,8 +927,18 @@ it found, it found once.
 | #81–#85, #87, #98 | Distinct findings, several confirmed independently below. Review individually. |
 | #86, #89 | Documentation PRs (a PRD, an AGENTS.md). #86 overlaps the rewritten README in this PR — worth reconciling rather than merging both. |
 | #93, #95, #96, #97 | Marketing site and build notes, small and self-contained. Quick to clear. |
+| #101, #102 | Newest, and the two most worth reading first. #101 carries real production measurements; #102 makes a claim about production data durability that outranks most of this document if true. |
 
-**Where those PRs meet the findings in this document** — three were confirmed here by reading
+**#102 deserves a direct answer before anything else here.** It argues the production store lives
+on the ephemeral Docker overlay rather than the mounted Render disk — which would mean the JSON
+store is discarded on every deploy. Reading `render.yaml` alone I could not reproduce that: the
+blueprint declares `disk: { mountPath: /data }` and sets `DATA_FILE=/data/store.json`, which is
+the correct pairing. I have no Render dashboard access and did not investigate further, so I am
+not contradicting it — only recording that the repo alone does not show the problem. If #102 is
+right, production has been losing data all along and that is the single most important fact about
+this system. Someone with dashboard access should settle it directly.
+
+**Where those PRs meet the findings in this document** — four were confirmed here by reading
 the source independently, so they are real and worth taking seriously:
 
 | PR | Finding here | Confirmed |
