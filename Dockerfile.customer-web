@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+
+FROM debian:bookworm-slim AS build
+
+ARG FLUTTER_VERSION=3.22.3
+ARG RELEASE_SHA=unknown
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH
+ENV FLUTTER_SUPPRESS_ANALYTICS=true
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       bash ca-certificates curl git unzip xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch "${FLUTTER_VERSION}" \
+      https://github.com/flutter/flutter.git /opt/flutter
+
+WORKDIR /src
+COPY . .
+
+RUN flutter config --no-analytics --enable-web \
+    && flutter precache --web
+
+WORKDIR /src/apps/driver_pilot
+
+RUN flutter pub get \
+    && flutter build web --release \
+       --dart-define=API_BASE_URL=/api
+
+FROM nginx:1.27-alpine
+
+ARG RELEASE_SHA=unknown
+ENV RELEASE_SHA=${RELEASE_SHA}
+
+RUN apk add --no-cache gettext
+
+COPY --from=build /src/apps/driver_pilot/build/web /usr/share/nginx/html
+COPY docker/customer-web/nginx.conf.template /etc/nginx/navi8r-nginx.conf.template
+COPY docker/customer-web/entrypoint.sh /docker-entrypoint.d/99-navig8r.sh
+
+RUN chmod +x /docker-entrypoint.d/99-navig8r.sh
+
+EXPOSE 10000
