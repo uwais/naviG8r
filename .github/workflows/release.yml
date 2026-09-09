@@ -1,0 +1,314 @@
+name: NaviG8r Release
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: navig8r-main-release
+  cancel-in-progress: true
+
+env:
+  API_IMAGE: ghcr.io/uwais/navig8r-api
+  CUSTOMER_WEB_IMAGE: ghcr.io/uwais/navig8r-customer-web
+  WWW_IMAGE: ghcr.io/uwais/navig8r-www
+
+jobs:
+
+  test:
+    name: Repository Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+  build:
+    name: Build and Publish Images
+    needs: test
+    runs-on: ubuntu-latest
+
+    outputs:
+      api_digest: ${{ steps.api.outputs.digest }}
+      customer_web_digest: ${{ steps.customer_web.outputs.digest }}
+      www_digest: ${{ steps.www.outputs.digest }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API
+        id: api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            RELEASE_SHA=${{ github.sha }}
+          tags: |
+            ${{ env.API_IMAGE }}:${{ github.sha }}
+            ${{ env.API_IMAGE }}:alpha
+
+      - name: Build and push Customer Web
+        id: customer_web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.customer-web
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            RELEASE_SHA=${{ github.sha }}
+          tags: |
+            ${{ env.CUSTOMER_WEB_IMAGE }}:${{ github.sha }}
+            ${{ env.CUSTOMER_WEB_IMAGE }}:alpha
+
+      - name: Build and push WWW
+        id: www
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.www
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            RELEASE_SHA=${{ github.sha }}
+          tags: |
+            ${{ env.WWW_IMAGE }}:${{ github.sha }}
+            ${{ env.WWW_IMAGE }}:alpha
+
+  deploy-alpha:
+    name: Deploy Alpha
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: alpha
+      url: https://navig8r-www-alpha.onrender.com
+
+    steps:
+      - name: Deploy Alpha API
+        env:
+          HOOK: ${{ secrets.ALPHA_API_DEPLOY_HOOK }}
+          IMAGE: ${{ env.API_IMAGE }}
+          DIGEST: ${{ needs.build.outputs.api_digest }}
+
+        run: |
+          curl --fail-with-body --get \
+            --data-urlencode "imgURL=${IMAGE}@${DIGEST}" \
+            "$HOOK"
+
+      - name: Deploy Alpha Customer Web
+        env:
+          HOOK: ${{ secrets.ALPHA_CUSTOMER_WEB_DEPLOY_HOOK }}
+          IMAGE: ${{ env.CUSTOMER_WEB_IMAGE }}
+          DIGEST: ${{ needs.build.outputs.customer_web_digest }}
+
+        run: |
+          curl --fail-with-body --get \
+            --data-urlencode "imgURL=${IMAGE}@${DIGEST}" \
+            "$HOOK"
+
+      - name: Deploy Alpha WWW
+        env:
+          HOOK: ${{ secrets.ALPHA_WWW_DEPLOY_HOOK }}
+          IMAGE: ${{ env.WWW_IMAGE }}
+          DIGEST: ${{ needs.build.outputs.www_digest }}
+
+        run: |
+          curl --fail-with-body --get \
+            --data-urlencode "imgURL=${IMAGE}@${DIGEST}" \
+            "$HOOK"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare wait script
+        run: chmod +x scripts/wait-for-release.sh
+
+      - name: Wait for Alpha API
+        run: |
+          ./scripts/wait-for-release.sh \
+            "https://navig8r-api-alpha.onrender.com/health" \
+            "${{ github.sha }}" \
+            "Alpha API"
+
+      - name: Wait for Alpha Customer Web
+        run: |
+          ./scripts/wait-for-release.sh \
+            "https://navig8r-customer-web-alpha.onrender.com/release.json" \
+            "${{ github.sha }}" \
+            "Alpha Customer Web"
+
+      - name: Wait for Alpha WWW
+        run: |
+          ./scripts/wait-for-release.sh \
+            "https://navig8r-www-alpha.onrender.com/release.json" \
+            "${{ github.sha }}" \
+            "Alpha WWW"
+
+      - name: Run Alpha integration tests
+        env:
+          ALPHA_API_URL: https://navig8r-api-alpha.onrender.com
+          EXPECTED_RELEASE: ${{ github.sha }}
+
+        run: |
+          node scripts/alpha-integration.mjs
+
+  deploy-beta:
+    name: Deploy Beta
+    needs:
+      - build
+      - deploy-alpha
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: beta
+      url: https://navig8r-www-beta.onrender.com
+
+    steps:
+      - name: Deploy Beta API
+        env:
+          HOOK: ${{ secrets.BETA_API_DEPLOY_HOOK }}
+          IMAGE: ${{ env.API_IMAGE }}
+          DIGEST: ${{ needs.build.outputs.api_digest }}
+
+        run: |
+          curl --fail-with-body --get \
+            --data-urlencode "imgURL=${IMAGE}@${DIGEST}" \
+            "$HOOK"
+
+      - name: Deploy Beta Customer Web
+        env:
+          HOOK: ${{ secrets.BETA_CUSTOMER_WEB_DEPLOY_HOOK }}
+          IMAGE: ${{ env.CUSTOMER_WEB_IMAGE }}
+          DIGEST: ${{ needs.build.outputs.customer_web_digest }}
+
+        run: |
+          curl --fail-with-body --get \
+            --data-urlencode "imgURL=${IMAGE}@${DIGEST}" \
+            "$HOOK"
+
+      - name: Deploy Beta WWW
+        env:
+          HOOK: ${{ secrets.BETA_WWW_DEPLOY_HOOK }}
+          IMAGE: ${{ env.WWW_IMAGE }}
+          DIGEST: ${{ needs.build.outputs.www_digest }}
+
+        run: |
+          curl --fail-with-body --get \
+            --data-urlencode "imgURL=${IMAGE}@${DIGEST}" \
+            "$HOOK"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare wait script
+        run: chmod +x scripts/wait-for-release.sh
+
+      - name: Wait for Beta API
+        run: |
+          ./scripts/wait-for-release.sh \
+            "https://navig8r-api-beta.onrender.com/health" \
+            "${{ github.sha }}" \
+            "Beta API"
+
+      - name: Wait for Beta Customer Web
+        run: |
+          ./scripts/wait-for-release.sh \
+            "https://navig8r-customer-web-beta.onrender.com/release.json" \
+            "${{ github.sha }}" \
+            "Beta Customer Web"
+
+      - name: Wait for Beta WWW
+        run: |
+          ./scripts/wait-for-release.sh \
+            "https://navig8r-www-beta.onrender.com/release.json" \
+            "${{ github.sha }}" \
+            "Beta WWW"
+
+      - name: Run Beta smoke tests
+        env:
+          BETA_API_URL: https://navig8r-api-beta.onrender.com
+          EXPECTED_RELEASE: ${{ github.sha }}
+
+        run: |
+          node scripts/beta-smoke.mjs
+
+  deploy-production:
+    name: Deploy Production
+
+    needs:
+      - build
+      - deploy-beta
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+      url: https://navig8r.org
+
+    steps:
+      - name: Deploy Production API
+        env:
+          HOOK: ${{ secrets.PROD_API_DEPLOY_HOOK }}
+          IMAGE: ${{ env.API_IMAGE }}
+          DIGEST: ${{ needs.build.outputs.api_digest }}
+
+        run: |
+          curl --fail-with-body --get \
+            --data-urlencode "imgURL=${IMAGE}@${DIGEST}" \
+            "$HOOK"
+
+      - name: Deploy Production Customer Web
+        env:
+          HOOK: ${{ secrets.PROD_CUSTOMER_WEB_DEPLOY_HOOK }}
+          IMAGE: ${{ env.CUSTOMER_WEB_IMAGE }}
+          DIGEST: ${{ needs.build.outputs.customer_web_digest }}
+
+        run: |
+          curl --fail-with-body --get \
+            --data-urlencode "imgURL=${IMAGE}@${DIGEST}" \
+            "$HOOK"
+
+      - name: Deploy Production WWW
+        env:
+          HOOK: ${{ secrets.PROD_WWW_DEPLOY_HOOK }}
+          IMAGE: ${{ env.WWW_IMAGE }}
+          DIGEST: ${{ needs.build.outputs.www_digest }}
+
+        run: |
+          curl --fail-with-body --get \
+            --data-urlencode "imgURL=${IMAGE}@${DIGEST}" \
+            "$HOOK"

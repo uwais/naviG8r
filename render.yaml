@@ -1,79 +1,285 @@
-# Render Blueprint — https://render.com/docs/blueprint-spec
-# After first deploy, set AUTH_SECRET in the Render dashboard (Environment).
-services:
-  - type: web
-    name: navig8r-api
-    runtime: docker
-    region: singapore
-    plan: starter
-    branch: main
-    dockerfilePath: ./Dockerfile
-    healthCheckPath: /health
-    disk:
-      name: navig8r-data
-      mountPath: /data
-      sizeGB: 1
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: OTP_DEBUG
-        value: "0"
-      # Must be set manually in dashboard (do not commit secrets):
-      # AUTH_SECRET = openssl rand -hex 32
-      - key: AUTH_SECRET
-        sync: false
-      # Persist JSON store across deploys (attach a Render Disk mounted at /data):
-      - key: DATA_FILE
-        value: /data/store.json
-      # Carrier payout settlement mode:
-      #   BOOKKEEPING (default) = mark ledger PAID only, no money moves (MVP).
-      #   RAZORPAYX             = real RazorpayX payouts per carrier (test keys in dev).
-      - key: PAYOUTS_MODE
-        value: BOOKKEEPING
-      # Required only when PAYOUTS_MODE=RAZORPAYX. Reuses RAZORPAY_KEY_ID/SECRET below.
-      # RAZORPAYX_ACCOUNT_NUMBER = the RazorpayX source/virtual account number (dashboard).
-      - key: RAZORPAYX_ACCOUNT_NUMBER
-        sync: false
-      # Optional payout rail: IMPS (default) | NEFT | RTGS | UPI.
-      - key: RAZORPAYX_PAYOUT_MODE
-        value: IMPS
-      # Razorpay test keys (set in dashboard; required for customer payments and RAZORPAYX payouts):
-      - key: PAYMENT_PROVIDER
-        value: RAZORPAY
-      - key: RAZORPAY_KEY_ID
-        sync: false
-      - key: RAZORPAY_KEY_SECRET
-        sync: false
+# NaviG8r Render Blueprint
+#
+# Steady-state release model:
+#
+#   merge to main
+#       -> GitHub Actions builds 3 images
+#       -> GHCR (commit SHA tags)
+#       -> Alpha
+#       -> Alpha integration tests
+#       -> Beta (same image digests)
+#       -> GitHub production approval
+#       -> Production (same image digests)
+#
+# IMPORTANT:
+# - Alpha/Beta/Production are Render environments, NOT Git branches.
+# - All services below are image-backed; Render does not build from Git.
+# - Environment tags (:alpha/:beta/:production) are moving pointers.
+# - The release identity is the exact image digest, which GitHub Actions
+#   passes to the Render deploy hook.
+# - The existing production static customer-web/www services cannot be
+#   converted in-place to image runtime. New production image-backed
+#   services use temporary migration names and should be cut over only
+#   after they have been validated.
+# - Replace "uwais" below only if your GitHub owner differs.
+#
+# Required GHCR image repositories:
+#   ghcr.io/uwais/navig8r-api
+#   ghcr.io/uwais/navig8r-customer-web
+#   ghcr.io/uwais/navig8r-www
+#
+# Required Render registry credential:
+#   ghcr-navig8r
 
-  # Customer web (Flutter static site). After first deploy, set CORS_ALLOWED_ORIGINS on
-  # navig8r-api to this site's https URL (comma-separated if multiple).
-  - type: web
-    name: navig8r-customer-web
-    runtime: static
-    region: singapore
-    branch: main
-    buildCommand: bash scripts/render-build-customer-web.sh
-    staticPublishPath: apps/driver_pilot/build/web
-    envVars:
-      - key: API_BASE_URL
-        value: https://navig8r.onrender.com
-      - key: FLUTTER_VERSION
-        value: "3.22.3"
-      # Browser-restricted Google Maps JavaScript API key (HTTP referrer = this static site URL).
-      - key: MAPS_API_KEY
-        sync: false
+projects:
+  - name: navig8r
+    environments:
 
-  # Marketing site — production. Custom domains: navig8r.org + www.navig8r.org (see docs/MARKETING_SITE.md).
-  - type: web
-    name: navig8r-www
-    runtime: static
-    region: singapore
-    branch: main
-    buildCommand: bash scripts/render-build-www.sh
-    staticPublishPath: apps/www/dist
-    # Bake at build time (set in Render Dashboard → Environment):
-    #   VITE_TURNSTILE_SITE_KEY — contact + Explore Turnstile site key (skips FormSubmit captcha)
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
+      # ============================================================
+      # ALPHA — internal testing / automated integration testing
+      # ============================================================
+      - name: alpha
+        services:
+
+          - type: web
+            name: navig8r-api-alpha
+            runtime: image
+            region: singapore
+            plan: starter
+            image:
+              url: ghcr.io/uwais/navig8r-api:alpha
+              creds:
+                fromRegistryCreds:
+                  name: ghcr-navig8r
+            healthCheckPath: /health
+            disk:
+              name: navig8r-data-alpha
+              mountPath: /data
+              sizeGB: 1
+            envVars:
+              - key: NODE_ENV
+                value: alpha
+              - key: OTP_DEBUG
+                value: "1"
+              - key: DATA_FILE
+                value: /data/store.json
+              - key: PAYMENT_PROVIDER
+                value: MOCK
+              - key: PAYOUTS_MODE
+                value: BOOKKEEPING
+              - key: ENABLE_LEGACY_DEMO_SURFACE
+                value: "1"
+              - key: CORS_ALLOWED_ORIGINS
+                value: https://navig8r-customer-web-alpha.onrender.com
+              - key: AUTH_SECRET
+                sync: false
+              - key: RAZORPAY_KEY_ID
+                sync: false
+              - key: RAZORPAY_KEY_SECRET
+                sync: false
+              - key: RAZORPAY_WEBHOOK_SECRET
+                sync: false
+
+          - type: web
+            name: navig8r-customer-web-alpha
+            runtime: image
+            region: singapore
+            plan: starter
+            image:
+              url: ghcr.io/uwais/navig8r-customer-web:alpha
+              creds:
+                fromRegistryCreds:
+                  name: ghcr-navig8r
+            healthCheckPath: /
+            envVars:
+              - key: API_UPSTREAM
+                value: https://navig8r-api-alpha.onrender.com
+              - key: MAPS_API_KEY
+                sync: false
+
+          - type: web
+            name: navig8r-www-alpha
+            runtime: image
+            region: singapore
+            plan: starter
+            image:
+              url: ghcr.io/uwais/navig8r-www:alpha
+              creds:
+                fromRegistryCreds:
+                  name: ghcr-navig8r
+            healthCheckPath: /
+            envVars:
+              - key: PORTAL_URL
+                value: https://navig8r-customer-web-alpha.onrender.com
+              - key: VITE_TURNSTILE_SITE_KEY
+                sync: false
+
+      # ============================================================
+      # BETA — UAT / Razorpay test
+      # ============================================================
+      - name: beta
+        services:
+
+          - type: web
+            name: navig8r-api-beta
+            runtime: image
+            region: singapore
+            plan: starter
+            image:
+              url: ghcr.io/uwais/navig8r-api:beta
+              creds:
+                fromRegistryCreds:
+                  name: ghcr-navig8r
+            healthCheckPath: /health
+            disk:
+              name: navig8r-data-beta
+              mountPath: /data
+              sizeGB: 1
+            envVars:
+              - key: NODE_ENV
+                value: beta
+              - key: OTP_DEBUG
+                value: "0"
+              - key: DATA_FILE
+                value: /data/store.json
+              - key: PAYMENT_PROVIDER
+                value: RAZORPAY
+              - key: PAYOUTS_MODE
+                value: BOOKKEEPING
+              - key: ENABLE_LEGACY_DEMO_SURFACE
+                value: "0"
+              - key: CORS_ALLOWED_ORIGINS
+                value: https://navig8r-customer-web-beta.onrender.com
+              - key: AUTH_SECRET
+                sync: false
+              - key: RAZORPAY_KEY_ID
+                sync: false
+              - key: RAZORPAY_KEY_SECRET
+                sync: false
+              - key: RAZORPAY_WEBHOOK_SECRET
+                sync: false
+
+          - type: web
+            name: navig8r-customer-web-beta
+            runtime: image
+            region: singapore
+            plan: starter
+            image:
+              url: ghcr.io/uwais/navig8r-customer-web:beta
+              creds:
+                fromRegistryCreds:
+                  name: ghcr-navig8r
+            healthCheckPath: /
+            envVars:
+              - key: API_UPSTREAM
+                value: https://navig8r-api-beta.onrender.com
+              - key: MAPS_API_KEY
+                sync: false
+
+          - type: web
+            name: navig8r-www-beta
+            runtime: image
+            region: singapore
+            plan: starter
+            image:
+              url: ghcr.io/uwais/navig8r-www:beta
+              creds:
+                fromRegistryCreds:
+                  name: ghcr-navig8r
+            healthCheckPath: /
+            envVars:
+              - key: PORTAL_URL
+                value: https://navig8r-customer-web-beta.onrender.com
+              - key: VITE_TURNSTILE_SITE_KEY
+                sync: false
+
+      # ============================================================
+      # PRODUCTION — live
+      #
+      # navig8r-api is the existing production API service and can
+      # be migrated from Dockerfile/Git build to image runtime.
+      #
+      # The existing static customer-web/www services cannot have
+      # their runtime switched in-place. These "-image" services
+      # are the safe migration targets.
+      # ============================================================
+      - name: production
+        services:
+
+          - type: web
+            name: navig8r-api
+            runtime: image
+            region: singapore
+            plan: starter
+            image:
+              url: ghcr.io/uwais/navig8r-api:production
+              creds:
+                fromRegistryCreds:
+                  name: ghcr-navig8r
+            healthCheckPath: /health
+            disk:
+              name: navig8r-data
+              mountPath: /data
+              sizeGB: 1
+            envVars:
+              - key: NODE_ENV
+                value: production
+              - key: OTP_DEBUG
+                value: "0"
+              - key: DATA_FILE
+                value: /data/store.json
+              - key: PAYMENT_PROVIDER
+                value: RAZORPAY
+              - key: PAYOUTS_MODE
+                value: RAZORPAYX
+              - key: CORS_ALLOWED_ORIGINS
+                value: https://navig8r-customer-web-image.onrender.com
+              - key: AUTH_SECRET
+                sync: false
+              - key: RAZORPAY_KEY_ID
+                sync: false
+              - key: RAZORPAY_KEY_SECRET
+                sync: false
+              - key: RAZORPAY_WEBHOOK_SECRET
+                sync: false
+              - key: RAZORPAYX_ACCOUNT_NUMBER
+                sync: false
+              - key: RAZORPAYX_PAYOUT_MODE
+                value: IMPS
+
+          - type: web
+            name: navig8r-customer-web-image
+            runtime: image
+            region: singapore
+            plan: starter
+            image:
+              url: ghcr.io/uwais/navig8r-customer-web:production
+              creds:
+                fromRegistryCreds:
+                  name: ghcr-navig8r
+            healthCheckPath: /
+            envVars:
+              - key: API_UPSTREAM
+                value: https://navig8r.onrender.com
+              - key: MAPS_API_KEY
+                sync: false
+
+          - type: web
+            name: navig8r-www-image
+            runtime: image
+            region: singapore
+            plan: starter
+            image:
+              url: ghcr.io/uwais/navig8r-www:production
+              creds:
+                fromRegistryCreds:
+                  name: ghcr-navig8r
+            healthCheckPath: /
+            domains:
+              - navig8r.org
+              - www.navig8r.org
+            envVars:
+              - key: PORTAL_URL
+                value: https://navig8r-customer-web-image.onrender.com
+              - key: VITE_TURNSTILE_SITE_KEY
+                sync: false

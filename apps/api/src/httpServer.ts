@@ -380,6 +380,7 @@ export async function createApp(): Promise<{
           ok: true,
           persistence: process.env.PERSISTENCE === "DB" ? "db" : "file",
           paymentProvider: razorpayPaymentsEnabled() ? "razorpay" : "mock",
+          release: process.env.RELEASE_SHA ?? "unknown",
         });
       }
 

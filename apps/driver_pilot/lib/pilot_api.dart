@@ -1,6 +1,7 @@
 import "package:dio/dio.dart";
 
 export "pilot_api_dns.dart";
+import 'package:flutter/foundation.dart';
 import "package:flutter/material.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
 
@@ -12,6 +13,11 @@ const String kDefaultBaseUrl = "https://navig8r.onrender.com";
 String resolveApiBaseUrl() {
   const fromEnv = String.fromEnvironment("API_BASE_URL");
   if (fromEnv.trim().isNotEmpty) return fromEnv.trim();
+  
+  if (kIsWeb) {
+    return '/api';
+  }
+
   return kDefaultBaseUrl;
 }
 
