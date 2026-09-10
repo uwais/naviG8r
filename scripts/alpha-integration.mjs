@@ -56,6 +56,7 @@ const verify = await request("/v1/auth/otp/verify", {
   method: "POST",
   body: JSON.stringify({
     challengeId: start.challengeId,
+    phone,
     code: start.debugCode,
   }),
 });
