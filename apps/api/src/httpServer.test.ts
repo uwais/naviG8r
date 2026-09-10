@@ -79,6 +79,62 @@ test("production disables legacy demo routes that expose or mutate operator stat
   });
 });
 
+test("ENABLE_LEGACY_DEMO_SURFACE=0 disables demo routes when NODE_ENV is beta", async (t) => {
+  const prev = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    ENABLE_LEGACY_DEMO_SURFACE: process.env.ENABLE_LEGACY_DEMO_SURFACE,
+  };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+    process.env.ENABLE_LEGACY_DEMO_SURFACE = prev.ENABLE_LEGACY_DEMO_SURFACE;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "beta";
+  process.env.ENABLE_LEGACY_DEMO_SURFACE = "0";
+
+  await withApp(t, async (baseUrl) => {
+    const users = await fetch(`${baseUrl}/v1/users`);
+    assert.equal(users.status, 403);
+    assert.deepEqual(await users.json(), { error: "legacy_demo_surface_disabled" });
+
+    const orgs = await fetch(`${baseUrl}/v1/orgs`);
+    assert.equal(orgs.status, 403);
+
+    const admin = await fetch(`${baseUrl}/admin`);
+    assert.equal(admin.status, 403);
+
+    const carriers = await fetch(`${baseUrl}/carriers`);
+    assert.equal(carriers.status, 403);
+
+    const createCarrier = await postJson(baseUrl, "/carriers", { name: "Should Not Create" });
+    assert.equal(createCarrier.status, 403);
+
+    const publish = await postJson(baseUrl, "/anchor-trips", {
+      carrierId: "org_x",
+      originCity: "A",
+      destCity: "B",
+      windowStart: "2026-04-24T00:00:00+05:30",
+      windowEnd: "2026-04-25T23:59:59+05:30",
+    });
+    assert.equal(publish.status, 403);
+
+    const login = await postJson(baseUrl, "/v1/pilot/driver/login", { phone: "9876543210" });
+    assert.equal(login.status, 403);
+    assert.deepEqual(await login.json(), { error: "legacy_demo_surface_disabled" });
+
+    // Public marketplace still works; unauthenticated fail-refund stays 401 (not 403).
+    const trips = await fetch(`${baseUrl}/anchor-trips`);
+    assert.equal(trips.status, 200);
+
+    const refund = await postJson(baseUrl, "/shipments/shp_123/fail-refund", {});
+    assert.equal(refund.status, 401);
+    assert.deepEqual(await refund.json(), { error: "unauthorized" });
+  });
+});
+
 test("legacy demo surface remains available outside production", async (t) => {
   const prev = {
     DATA_FILE: process.env.DATA_FILE,
