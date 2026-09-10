@@ -646,6 +646,60 @@ export function pilotMe(store: Store, userId: string): {
 }
 
 /**
+ * Update the signed-in driver's primary vehicle (registration / class / capacity).
+ * Partial updates allowed — omit a field to leave it unchanged.
+ */
+export function updatePilotDriverVehicle(
+  store: Store,
+  userId: string,
+  params: {
+    vehicleRegistrationNumber?: string;
+    vehicleClass?: VehicleClass;
+    vehicleCapacityKg?: number;
+  },
+): { vehicle: Vehicle; driverProfile: DriverProfile } {
+  const profile = store.driverProfiles.get(userId);
+  if (!profile) throw new Error("driver_profile_missing");
+  assertPilotDriverCanManageOrg(store, userId, profile.orgId);
+
+  const vehicle = store.vehicles.get(profile.primaryVehicleId);
+  if (!vehicle) throw new Error("vehicle_missing");
+
+  const hasReg = params.vehicleRegistrationNumber !== undefined;
+  const hasClass = params.vehicleClass !== undefined;
+  const hasCap = params.vehicleCapacityKg !== undefined;
+  if (!hasReg && !hasClass && !hasCap) throw new Error("nothing_to_update");
+
+  let registrationNumber = vehicle.registrationNumber;
+  let vehicleClass = vehicle.vehicleClass;
+  let capacityKg = vehicle.capacityKg;
+
+  if (hasReg) {
+    const reg = String(params.vehicleRegistrationNumber).trim();
+    if (!reg) throw new Error("invalid_vehicleRegistrationNumber");
+    registrationNumber = reg;
+  }
+  if (hasClass) {
+    assertVehicleClass(params.vehicleClass);
+    vehicleClass = params.vehicleClass as VehicleClass;
+  }
+  if (hasCap) {
+    const cap = Number(params.vehicleCapacityKg);
+    if (!(cap > 0)) throw new Error("invalid_vehicleCapacityKg");
+    capacityKg = cap;
+  }
+
+  const updated: Vehicle = {
+    ...vehicle,
+    registrationNumber,
+    vehicleClass,
+    capacityKg,
+  };
+  store.vehicles.set(updated.id, updated);
+  return { vehicle: updated, driverProfile: profile };
+}
+
+/**
  * Anchor trips published under any carrier org the user belongs to (pilot driver context).
  */
 export function pilotListMyAnchorTrips(store: Store, userId: string): AnchorTrip[] {

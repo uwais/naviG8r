@@ -8,6 +8,10 @@ abstract final class DriverSession {
   static String? userFullName;
   static String? userPhone;
   static String? kycStatus;
+  static String? vehicleId;
+  static String? vehicleRegistrationNumber;
+  static String? vehicleClass;
+  static double? vehicleCapacityKg;
 
   static bool get hasCarrierOrg => carrierOrgId != null && carrierOrgId!.isNotEmpty;
 
@@ -55,6 +59,28 @@ abstract final class DriverSession {
         carrierOrgName = null;
         kycStatus = null;
       }
+
+      vehicleId = null;
+      vehicleRegistrationNumber = null;
+      vehicleClass = null;
+      vehicleCapacityKg = null;
+      final profile = r.data?["driverProfile"];
+      final vehicles = r.data?["vehicles"];
+      if (profile is Map<String, dynamic> && vehicles is List) {
+        final primaryId = profile["primaryVehicleId"]?.toString();
+        if (primaryId != null && primaryId.isNotEmpty) {
+          for (final v in vehicles) {
+            if (v is Map<String, dynamic> && v["id"]?.toString() == primaryId) {
+              vehicleId = primaryId;
+              vehicleRegistrationNumber = v["registrationNumber"]?.toString();
+              vehicleClass = v["vehicleClass"]?.toString();
+              final cap = v["capacityKg"];
+              if (cap is num) vehicleCapacityKg = cap.toDouble();
+              break;
+            }
+          }
+        }
+      }
       return true;
     } catch (_) {
       return false;
@@ -68,5 +94,9 @@ abstract final class DriverSession {
     userFullName = null;
     userPhone = null;
     kycStatus = null;
+    vehicleId = null;
+    vehicleRegistrationNumber = null;
+    vehicleClass = null;
+    vehicleCapacityKg = null;
   }
 }

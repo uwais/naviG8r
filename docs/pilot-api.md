@@ -111,6 +111,28 @@ Body:
 Headers:
 - `Authorization: Bearer <accessToken>`
 
+Returns the signed-in user, memberships, organizations, vehicles on those orgs, and `driverProfile` (if any).
+
+#### `PATCH /v1/pilot/me/vehicle`
+Update the signed-in driver's **primary vehicle** (registration, class, and/or capacity). Requires Bearer and an existing driver profile. Partial updates are allowed — omit a field to leave it unchanged.
+
+Body (any subset):
+```json
+{
+  "vehicleRegistrationNumber": "HR26CD5678",
+  "vehicleClass": "MEDIUM",
+  "vehicleCapacityKg": 4500
+}
+```
+
+Response:
+```json
+{
+  "vehicle": { "id": "veh_...", "orgId": "org_...", "registrationNumber": "HR26CD5678", "vehicleClass": "MEDIUM", "capacityKg": 4500, "createdAtUtcMs": 123 },
+  "driverProfile": { "userId": "usr_...", "orgId": "org_...", "primaryVehicleId": "veh_...", "createdAtUtcMs": 123 }
+}
+```
+
 #### `GET /v1/pilot/anchor-trips`
 Headers:
 - `Authorization: Bearer <accessToken>`

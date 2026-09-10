@@ -1279,16 +1279,79 @@ class DriverProfileScreen extends StatefulWidget {
 }
 
 class _DriverProfileScreenState extends State<DriverProfileScreen> {
+  final _reg = TextEditingController();
+  final _vehClass = TextEditingController(text: "MEDIUM");
+  final _capacity = TextEditingController();
+  bool _saving = false;
+  bool _loading = true;
+
   @override
   void initState() {
     super.initState();
-    DriverSession.refresh().then((_) {
-      if (mounted) setState(() {});
-    });
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    await DriverSession.refresh();
+    if (!mounted) return;
+    _reg.text = DriverSession.vehicleRegistrationNumber ?? "";
+    _vehClass.text = DriverSession.vehicleClass ?? "MEDIUM";
+    final cap = DriverSession.vehicleCapacityKg;
+    _capacity.text = cap != null ? (cap == cap.roundToDouble() ? "${cap.round()}" : "$cap") : "";
+    setState(() => _loading = false);
+  }
+
+  @override
+  void dispose() {
+    _reg.dispose();
+    _vehClass.dispose();
+    _capacity.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveVehicle() async {
+    final reg = _reg.text.trim();
+    final vc = _vehClass.text.trim().toUpperCase();
+    final cap = double.tryParse(_capacity.text.trim());
+    if (reg.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter a vehicle registration number.")));
+      return;
+    }
+    if (vc != "SMALL" && vc != "MEDIUM" && vc != "LARGE") {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("vehicleClass must be SMALL, MEDIUM, or LARGE.")));
+      return;
+    }
+    if (cap == null || cap <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter a positive vehicle capacity.")));
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await api.patch<Map<String, dynamic>>(
+        "/v1/pilot/me/vehicle",
+        data: {
+          "vehicleRegistrationNumber": reg,
+          "vehicleClass": vc,
+          "vehicleCapacityKg": cap,
+        },
+      );
+      await DriverSession.refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Vehicle updated.")));
+      setState(() {});
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -1298,6 +1361,27 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             subtitle: Text("${DriverSession.userFullName ?? "—"} · ${DriverSession.userPhone ?? "—"}"),
           ),
         ),
+        const SizedBox(height: 16),
+        Text("Your vehicle", style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Text(
+          "Update registration, class, or capacity for your primary truck. Changes apply to new trips and ERP writebacks.",
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 12),
+        TextField(controller: _reg, decoration: const InputDecoration(labelText: "Vehicle registration")),
+        TextField(controller: _vehClass, decoration: const InputDecoration(labelText: "Vehicle class (SMALL|MEDIUM|LARGE)")),
+        TextField(
+          controller: _capacity,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: "Vehicle capacity (kg)"),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(
+          onPressed: _saving ? null : _saveVehicle,
+          child: Text(_saving ? "Saving…" : "Save vehicle"),
+        ),
+        const SizedBox(height: 24),
         ListTile(
           leading: const Icon(Icons.payments_outlined, color: DriverTheme.navy),
           title: const Text("Earnings & payouts"),

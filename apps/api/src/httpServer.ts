@@ -31,6 +31,7 @@ import {
   reportAnchorTripLocation,
   getShipmentTripTracking,
   pilotMe,
+  updatePilotDriverVehicle,
   pilotListMyAnchorTrips,
   pilotRatesEstimate,
   pilotListCarrierShipments,
@@ -522,6 +523,22 @@ export async function createApp(): Promise<{
       if (method === "GET" && url.pathname === "/v1/pilot/me") {
         const userId = requireUserId(req, store);
         const out = pilotMe(store, userId);
+        return json(res, 200, out);
+      }
+
+      if (method === "PATCH" && url.pathname === "/v1/pilot/me/vehicle") {
+        const userId = requireUserId(req, store);
+        const body = await readJson(req);
+        const out = updatePilotDriverVehicle(store, userId, {
+          vehicleRegistrationNumber:
+            body?.vehicleRegistrationNumber !== undefined
+              ? String(body.vehicleRegistrationNumber)
+              : undefined,
+          vehicleClass: body?.vehicleClass,
+          vehicleCapacityKg:
+            body?.vehicleCapacityKg !== undefined ? Number(body.vehicleCapacityKg) : undefined,
+        });
+        await persist();
         return json(res, 200, out);
       }
 
