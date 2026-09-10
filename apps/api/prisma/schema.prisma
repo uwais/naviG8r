@@ -11,9 +11,11 @@ datasource db {
 }
 
 model Carrier {
-  id             String @id
-  name           String
-  createdAtUtcMs BigInt
+  id               String  @id
+  name             String
+  createdAtUtcMs   BigInt
+  inactiveAtUtcMs  BigInt?
+  inactiveReason   String?
 }
 
 model Organization {
@@ -24,38 +26,48 @@ model Organization {
   createdAtUtcMs       BigInt
   payoutContactId      String?
   payoutFundAccountId  String?
+  inactiveAtUtcMs      BigInt?
+  inactiveReason       String?
 }
 
 model UserRow {
-  id             String @id
-  phone          String
-  fullName       String
-  createdAtUtcMs BigInt
+  id               String  @id
+  phone            String
+  fullName         String
+  createdAtUtcMs   BigInt
+  inactiveAtUtcMs  BigInt?
+  inactiveReason   String?
 }
 
 model Membership {
-  userId         String
-  orgId          String
-  role           String
-  createdAtUtcMs BigInt
+  userId           String
+  orgId            String
+  role             String
+  createdAtUtcMs   BigInt
+  inactiveAtUtcMs  BigInt?
+  inactiveReason   String?
 
   @@id([userId, orgId])
 }
 
 model Vehicle {
-  id                    String @id
+  id                    String  @id
   orgId                 String
   registrationNumber    String
   vehicleClass          String
   capacityKg            Int
   createdAtUtcMs        BigInt
+  inactiveAtUtcMs       BigInt?
+  inactiveReason        String?
 }
 
 model DriverProfileRow {
-  userId                  String @id
-  orgId                   String
-  primaryVehicleId      String
-  createdAtUtcMs        BigInt
+  userId             String  @id
+  orgId              String
+  primaryVehicleId   String
+  createdAtUtcMs     BigInt
+  inactiveAtUtcMs    BigInt?
+  inactiveReason     String?
 }
 
 model OtpChallengeRow {
@@ -76,7 +88,7 @@ model AuthSessionRow {
 }
 
 model AnchorTripRow {
-  id               String @id
+  id               String  @id
   carrierId        String
   originCity       String
   destCity         String
@@ -90,6 +102,8 @@ model AnchorTripRow {
   status           String
   createdAtUtcMs   BigInt
   lastLiveLocation Json?
+  inactiveAtUtcMs  BigInt?
+  inactiveReason   String?
 }
 
 model PaymentRow {
@@ -103,10 +117,12 @@ model PaymentRow {
   razorpayPaymentId  String?
   createdAtUtcMs     BigInt
   updatedAtUtcMs     BigInt
+  inactiveAtUtcMs    BigInt?
+  inactiveReason     String?
 }
 
 model ShipmentRow {
-  id                             String @id
+  id                             String  @id
   anchorTripId                   String
   carrierId                      String
   customerOrgId                  String?
@@ -130,10 +146,12 @@ model ShipmentRow {
   payoutBatchCutoffUtcMs        BigInt?
   createdAtUtcMs                BigInt
   updatedAtUtcMs                BigInt
+  inactiveAtUtcMs               BigInt?
+  inactiveReason                String?
 }
 
 model LedgerLineRow {
-  id                          String @id
+  id                          String  @id
   shipmentId                  String
   carrierId                   String
   grossPaise                  Int
@@ -145,6 +163,8 @@ model LedgerLineRow {
   status                      String
   createdAtUtcMs              BigInt
   paidAtUtcMs                 BigInt?
+  inactiveAtUtcMs             BigInt?
+  inactiveReason              String?
 }
 
 model PayoutBatchRow {

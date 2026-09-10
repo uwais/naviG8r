@@ -51,6 +51,7 @@ import {
   registerCustomerUser,
   registerSoloOwnerOperatorDriver,
   revokeOpsAdmin,
+  opsDeleteUser,
   rollbackBooking,
   runPayoutBatch,
   shipmentVisibleToCustomerUser,
@@ -494,6 +495,42 @@ export async function createApp(): Promise<{
         if (!isOpsAdmin(store, userId)) return json(res, 403, { error: "forbidden" });
         const phone = decodeURIComponent(url.pathname.split("/")[3] ?? "");
         const out = revokeOpsAdmin(store, { phone, actingUserId: userId });
+        await persist();
+        return json(res, 200, out);
+      }
+
+      if (method === "DELETE" && (url.pathname === "/v1/ops/users" || url.pathname.startsWith("/v1/ops/users/"))) {
+        const actingUserId = requireBearerUserId(req, res, store);
+        if (!actingUserId) return;
+        try {
+          assertOpsAgent(store, actingUserId);
+        } catch {
+          return json(res, 403, { error: "forbidden" });
+        }
+        const force =
+          url.searchParams.get("force") === "1" ||
+          url.searchParams.get("force") === "true";
+        let targetUserId = "";
+        if (url.pathname.startsWith("/v1/ops/users/")) {
+          const rest = url.pathname.slice("/v1/ops/users/".length);
+          targetUserId = decodeURIComponent(rest.split("/")[0] ?? "").trim();
+        }
+        if (!targetUserId) {
+          const phoneRaw = String(url.searchParams.get("phone") ?? "").trim();
+          if (!phoneRaw) {
+            return json(res, 400, {
+              error: "invalid_userId",
+              detail: "Pass /v1/ops/users/:userId or ?phone=",
+            });
+          }
+          const digits = phoneRaw.replace(/[^\d]/g, "");
+          const phone =
+            digits.length === 12 && digits.startsWith("91") ? digits.slice(-10) : digits;
+          const found = [...store.users.values()].find((u) => u.phone === phone);
+          if (!found) return json(res, 404, { error: "user_not_found" });
+          targetUserId = found.id;
+        }
+        const out = opsDeleteUser(store, { actingUserId, userId: targetUserId, force });
         await persist();
         return json(res, 200, out);
       }
@@ -966,6 +1003,14 @@ export async function createApp(): Promise<{
         <button onclick="grantOps()">Grant Ops Admin</button>
       </div>
       <p class="muted" style="margin:6px 0 0;">User must already be registered (customer or driver) before granting.</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:14px 0;" />
+      <h2>Deactivate user <span class="muted">(soft-delete / tombstone)</span></h2>
+      <p class="muted">Marks the account INACTIVE and cascade-tombstones sole-owned orgs (vehicles, trips, shipments, payments, ledger, integrations). Data is retained for audit — not hard-deleted. Shared orgs keep other members. Active work requires Force.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input id="deleteUserPhone" placeholder="10-digit phone to deactivate" style="flex:1;margin:0;min-width:160px;" />
+        <label class="muted" style="white-space:nowrap;"><input type="checkbox" id="deleteUserForce" /> Force</label>
+        <button onclick="deleteUserByPhone()" style="background:#a8071a;color:#fff;border:1px solid #a8071a;">Deactivate user</button>
+      </div>
     </div>
 
     <div class="row">
@@ -1210,6 +1255,33 @@ export async function createApp(): Promise<{
         const out = await res.json().catch(() => ({}));
         if (!res.ok) { alert("Revoke failed: " + (out.error || res.status) + (out.detail ? " — " + out.detail : "")); return; }
         loadOpsAdmins();
+      }
+
+      async function deleteUserByPhone() {
+        const phone = document.getElementById("deleteUserPhone").value.trim();
+        if (!phone) { alert("Enter a phone."); return; }
+        const force = document.getElementById("deleteUserForce").checked;
+        const msg = force
+          ? "FORCE deactivate user " + phone + " (including active shipments/trips if any)? Data is tombstoned, not erased."
+          : "Deactivate (soft-delete) user " + phone + "? Sole-owned orgs are tombstoned for audit; active work blocked unless Force.";
+        if (!confirm(msg)) return;
+        const qs = new URLSearchParams({ phone });
+        if (force) qs.set("force", "1");
+        const res = await fetch("/v1/ops/users?" + qs.toString(), {
+          method: "DELETE",
+          headers: authHeaders()
+        });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert("Deactivate failed: " + (out.error || res.status) + (out.detail ? " — " + out.detail : ""));
+          return;
+        }
+        document.getElementById("deleteUserPhone").value = "";
+        document.getElementById("deleteUserForce").checked = false;
+        alert("Deactivated " + (out.deactivatedPhone || out.deletedPhone || phone) +
+          "\\nCascaded orgs: " + ((out.cascadedOrgIds || []).length) +
+          "\\nShipments tombstoned: " + ((out.deactivatedShipmentIds || out.deletedShipmentIds || []).length));
+        location.reload();
       }
 
       function enterAdmin() {
@@ -1609,6 +1681,9 @@ export async function createApp(): Promise<{
       const msg = String(e?.message ?? "bad_request");
       if (msg === "unauthorized" || msg === "invalid_token" || msg === "token_expired") {
         return json(res, 401, { error: "unauthorized" });
+      }
+      if (msg === "account_inactive") {
+        return json(res, 403, { error: "account_inactive" });
       }
       return json(res, 400, { error: msg });
     }

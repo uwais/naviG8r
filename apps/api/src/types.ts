@@ -27,6 +27,12 @@ export type LedgerLineStatus = "ACCRUED" | "PAID";
 
 export type PaymentStatus = "CREATED" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "REFUNDED";
 
+/** Soft-delete tombstone (INACTIVE). Omitted / null = ACTIVE. */
+export type SoftDeleteFields = {
+  inactiveAtUtcMs?: number | null;
+  inactiveReason?: string | null;
+};
+
 /**
  * @deprecated Legacy demo entity. Prefer {@link Organization}.
  * Kept for backwards compatibility with older store.json files and /carriers routes.
@@ -35,7 +41,7 @@ export type Carrier = {
   id: string;
   name: string;
   createdAtUtcMs: number;
-};
+} & SoftDeleteFields;
 
 export type Organization = {
   id: string;
@@ -47,21 +53,21 @@ export type Organization = {
   payoutContactId?: string;
   /** RazorpayX fund account id; required to send this carrier a real payout. */
   payoutFundAccountId?: string;
-};
+} & SoftDeleteFields;
 
 export type User = {
   id: string;
   phone: string;
   fullName: string;
   createdAtUtcMs: number;
-};
+} & SoftDeleteFields;
 
 export type Membership = {
   userId: string;
   orgId: string;
   role: MembershipRole;
   createdAtUtcMs: number;
-};
+} & SoftDeleteFields;
 
 export type Vehicle = {
   id: string;
@@ -70,14 +76,14 @@ export type Vehicle = {
   vehicleClass: VehicleClass;
   capacityKg: number;
   createdAtUtcMs: number;
-};
+} & SoftDeleteFields;
 
 export type DriverProfile = {
   userId: string;
   orgId: string;
   primaryVehicleId: string;
   createdAtUtcMs: number;
-};
+} & SoftDeleteFields;
 
 export type OtpChallengeStatus = "PENDING" | "CONSUMED" | "EXPIRED";
 
@@ -144,7 +150,7 @@ export type AnchorTrip = {
   completedByUserId?: string;
   /** Updated by driver location pings during active trips. */
   lastLiveLocation?: TripLiveLocation;
-};
+} & SoftDeleteFields;
 
 export type Shipment = {
   id: string;
@@ -190,7 +196,7 @@ export type Shipment = {
   metadata?: Record<string, string>;
   /** Monotonic sequence for integration webhooks per shipment. */
   integrationSequence?: number;
-};
+} & SoftDeleteFields;
 
 export type PaymentProviderId = "MOCK" | "RAZORPAY";
 
@@ -208,7 +214,7 @@ export type Payment = {
   razorpayPaymentId?: string;
   createdAtUtcMs: number;
   updatedAtUtcMs: number;
-};
+} & SoftDeleteFields;
 
 export type LedgerLine = {
   id: string;
@@ -223,7 +229,7 @@ export type LedgerLine = {
   status: LedgerLineStatus;
   createdAtUtcMs: number;
   paidAtUtcMs: number | null;
-};
+} & SoftDeleteFields;
 
 export type PayoutTransferStatus =
   | "BOOKKEEPING_PAID"
@@ -271,7 +277,7 @@ export type IntegrationConnection = {
   externalSource: string;
   createdAtUtcMs: number;
   updatedAtUtcMs: number;
-};
+} & SoftDeleteFields;
 
 export type IntegrationApiKey = {
   id: string;

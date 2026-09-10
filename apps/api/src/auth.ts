@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { AuthSession, OtpChallenge, User } from "./types.ts";
 import type { Store } from "./store.ts";
+import { isActiveEntity } from "./softDelete.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -89,6 +90,7 @@ export function pilotOtpStart(store: Store, params: { phone: string }): {
 } {
   const user = findUserByPhone(store, params.phone);
   if (!user) throw new Error("user_not_found");
+  if (!isActiveEntity(user)) throw new Error("account_inactive");
 
   const now = nowUtcMs();
   const ttlMs = Number(process.env.OTP_TTL_MS ?? `${10 * 60 * 1000}`);
@@ -122,6 +124,7 @@ export function pilotOtpVerify(store: Store, params: { phone: string; challengeI
 } {
   const user = findUserByPhone(store, params.phone);
   if (!user) throw new Error("user_not_found");
+  if (!isActiveEntity(user)) throw new Error("account_inactive");
 
   const ch = store.otpChallenges.get(String(params.challengeId ?? ""));
   if (!ch) throw new Error("otp_challenge_not_found");
@@ -158,5 +161,7 @@ export function verifyBearer(store: Store, token: string | null): { userId: stri
   if (s.revokedAtUtcMs) throw new Error("unauthorized");
   if (s.expiresAtUtcMs <= nowUtcMs()) throw new Error("unauthorized");
   if (s.userId !== payload.uid) throw new Error("unauthorized");
+  const user = store.users.get(s.userId);
+  if (!user || !isActiveEntity(user)) throw new Error("unauthorized");
   return { userId: s.userId, sessionId: s.id };
 }
