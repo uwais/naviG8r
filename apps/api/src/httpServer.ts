@@ -311,13 +311,23 @@ function publicMarketplaceRouteAllowed(method: string, pathname: string): boolea
 }
 
 /**
- * Locks down unauthenticated demo/admin surfaces in production (user dumps, HTML console,
- * legacy carrier CRUD, legacy trip publish, ledger/payout toys). Set ENABLE_LEGACY_DEMO_SURFACE=1 to re-enable.
+ * Unauthenticated demo/admin surfaces (user dumps, HTML console, legacy carrier CRUD,
+ * trip publish, ledger/payout toys).
+ *
+ * ENABLE_LEGACY_DEMO_SURFACE is an explicit override:
+ *   "1" → always on (alpha)
+ *   "0" → always off (beta / staging, even when NODE_ENV is not the string "production")
+ *   unset → on unless NODE_ENV=production
  */
+function legacyDemoSurfaceEnabled(): boolean {
+  if (process.env.ENABLE_LEGACY_DEMO_SURFACE === "1") return true;
+  if (process.env.ENABLE_LEGACY_DEMO_SURFACE === "0") return false;
+  return process.env.NODE_ENV !== "production";
+}
+
 function requireLegacyDemoSurface(res: http.ServerResponse, method: string, pathname: string): boolean {
   if (publicMarketplaceRouteAllowed(method, pathname)) return true;
-  const enabled = process.env.NODE_ENV !== "production" || process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
-  if (enabled) return true;
+  if (legacyDemoSurfaceEnabled()) return true;
   json(res, 403, { error: "legacy_demo_surface_disabled" });
   return false;
 }
