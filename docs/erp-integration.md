@@ -14,7 +14,7 @@ Base URL (production): `https://navig8r.onrender.com`
 
 Customer tracking deep link (included in API responses and webhooks):
 
-`https://navig8r-customer-web.onrender.com/#/customer/shipments/{shipmentId}`
+`https://navig8r-customer.onrender.com/#/customer/shipments/{shipmentId}`
 
 ## Authentication
 
@@ -88,7 +88,7 @@ Cross-org access is rejected. Revoked keys return `401 integration_unauthorized`
   "externalLoadId": "ERP-DO-4421",
   "carrierDisplayName": "Raj Logistics",
   "grossPaise": 523420,
-  "trackingUrl": "https://navig8r-customer-web.onrender.com/#/customer/shipments/shp_...",
+  "trackingUrl": "https://navig8r-customer.onrender.com/#/customer/shipments/shp_...",
   "checkoutRequired": false
 }
 ```

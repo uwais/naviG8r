@@ -110,7 +110,7 @@ Hub subscribers listen for **`load.delivered`** (and earlier lifecycle events) a
   "vehicle_number": "MH12AB4321",
   "driver_name": "Arjun Singh",
   "lr_number": "SR/2026/4892",
-  "tracking_url": "https://navig8r-customer-web.onrender.com/#/customer/shipments/shp_...",
+  "tracking_url": "https://navig8r-customer.onrender.com/#/customer/shipments/shp_...",
   "ewb_number": "2312840912",
   "dispatched_at": "2026-06-08T06:15:00Z",
   "delivered_at": "2026-06-10T11:30:00Z",
