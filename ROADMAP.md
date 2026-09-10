@@ -35,7 +35,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [x] **Customer web portal (Flutter static site on Render)**:
   - [x] Responsive customer shell (`/customer`) — rail on desktop, bottom nav on mobile.
   - [x] Razorpay web checkout path for customer bookings.
-  - [x] Hosted at `navig8r-customer-web.onrender.com`; API CORS for static site origin.
+  - [x] Hosted at `navig8r-customer.onrender.com`; API CORS for static site origin.
   - [x] **Google Maps on web**: build injects `MAPS_API_KEY` into `web/index.html` via `scripts/inject-maps-api-key.sh` (see `docs/RENDER.md`).
 - [x] **Shipper ERP integration v1 (generic API + webhooks)** — see **§ D** below:
   - [x] M2M auth (`IntegrationApiKey`, Bearer / `X-Api-Key`).

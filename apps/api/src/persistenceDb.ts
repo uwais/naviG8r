@@ -50,6 +50,26 @@ function asTripLiveLocation(v: unknown): TripLiveLocation | undefined {
   return out;
 }
 
+function softFromDb(row: { inactiveAtUtcMs?: bigint | null; inactiveReason?: string | null }): {
+  inactiveAtUtcMs: number | null;
+  inactiveReason: string | null;
+} {
+  return {
+    inactiveAtUtcMs: row.inactiveAtUtcMs != null ? Number(row.inactiveAtUtcMs) : null,
+    inactiveReason: row.inactiveReason ?? null,
+  };
+}
+
+function softToDb(e: { inactiveAtUtcMs?: number | null; inactiveReason?: string | null }): {
+  inactiveAtUtcMs: bigint | null;
+  inactiveReason: string | null;
+} {
+  return {
+    inactiveAtUtcMs: e.inactiveAtUtcMs != null ? BigInt(e.inactiveAtUtcMs) : null,
+    inactiveReason: e.inactiveReason ?? null,
+  };
+}
+
 export async function loadStoreFromDatabase(): Promise<Store> {
   const store = createStore();
 
@@ -88,6 +108,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       id: c.id,
       name: c.name,
       createdAtUtcMs: Number(c.createdAtUtcMs),
+      inactiveAtUtcMs: c.inactiveAtUtcMs != null ? Number(c.inactiveAtUtcMs) : null,
+      inactiveReason: (c as { inactiveReason?: string | null }).inactiveReason ?? null,
     };
     store.carriers.set(row.id, row);
   }
@@ -101,6 +123,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       createdAtUtcMs: Number(o.createdAtUtcMs),
       payoutContactId: o.payoutContactId ?? undefined,
       payoutFundAccountId: o.payoutFundAccountId ?? undefined,
+      inactiveAtUtcMs: o.inactiveAtUtcMs != null ? Number(o.inactiveAtUtcMs) : null,
+      inactiveReason: o.inactiveReason ?? null,
     };
     store.organizations.set(org.id, org);
   }
@@ -111,6 +135,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       phone: u.phone,
       fullName: u.fullName,
       createdAtUtcMs: Number(u.createdAtUtcMs),
+      inactiveAtUtcMs: u.inactiveAtUtcMs != null ? Number(u.inactiveAtUtcMs) : null,
+      inactiveReason: u.inactiveReason ?? null,
     };
     store.users.set(user.id, user);
   }
@@ -121,6 +147,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       orgId: m.orgId,
       role: m.role as Membership["role"],
       createdAtUtcMs: Number(m.createdAtUtcMs),
+      inactiveAtUtcMs: m.inactiveAtUtcMs != null ? Number(m.inactiveAtUtcMs) : null,
+      inactiveReason: m.inactiveReason ?? null,
     };
     store.memberships.set(membershipKey(mem.userId, mem.orgId), mem);
   }
@@ -133,6 +161,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       vehicleClass: v.vehicleClass as Vehicle["vehicleClass"],
       capacityKg: v.capacityKg,
       createdAtUtcMs: Number(v.createdAtUtcMs),
+      inactiveAtUtcMs: v.inactiveAtUtcMs != null ? Number(v.inactiveAtUtcMs) : null,
+      inactiveReason: v.inactiveReason ?? null,
     };
     store.vehicles.set(veh.id, veh);
   }
@@ -143,6 +173,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       orgId: d.orgId,
       primaryVehicleId: d.primaryVehicleId,
       createdAtUtcMs: Number(d.createdAtUtcMs),
+      inactiveAtUtcMs: d.inactiveAtUtcMs != null ? Number(d.inactiveAtUtcMs) : null,
+      inactiveReason: d.inactiveReason ?? null,
     };
     store.driverProfiles.set(dp.userId, dp);
   }
@@ -186,6 +218,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       status: t.status as AnchorTrip["status"],
       createdAtUtcMs: Number(t.createdAtUtcMs),
       lastLiveLocation: asTripLiveLocation((t as { lastLiveLocation?: unknown }).lastLiveLocation),
+      ...softFromDb(t),
     };
     store.anchorTrips.set(trip.id, trip);
   }
@@ -202,6 +235,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       ...(p.razorpayPaymentId != null ? { razorpayPaymentId: p.razorpayPaymentId } : {}),
       createdAtUtcMs: Number(p.createdAtUtcMs),
       updatedAtUtcMs: Number(p.updatedAtUtcMs),
+      ...softFromDb(p),
     };
     store.payments.set(pay.id, pay);
   }
@@ -234,6 +268,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       payoutBatchCutoffUtcMs: row.payoutBatchCutoffUtcMs != null ? Number(row.payoutBatchCutoffUtcMs) : null,
       createdAtUtcMs: Number(row.createdAtUtcMs),
       updatedAtUtcMs: Number(row.updatedAtUtcMs),
+      ...softFromDb(row),
     };
     store.shipments.set(s.id, s);
   }
@@ -252,6 +287,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       status: l.status as LedgerLine["status"],
       createdAtUtcMs: Number(l.createdAtUtcMs),
       paidAtUtcMs: l.paidAtUtcMs != null ? Number(l.paidAtUtcMs) : null,
+      ...softFromDb(l),
     };
     store.ledgerLines.set(line.id, line);
   }
@@ -298,6 +334,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           id: c.id,
           name: c.name,
           createdAtUtcMs: BigInt(c.createdAtUtcMs),
+          ...softToDb(c),
         },
       });
     }
@@ -311,6 +348,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           createdAtUtcMs: BigInt(o.createdAtUtcMs),
           payoutContactId: o.payoutContactId ?? null,
           payoutFundAccountId: o.payoutFundAccountId ?? null,
+          ...softToDb(o),
         },
       });
     }
@@ -321,6 +359,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           phone: u.phone,
           fullName: u.fullName,
           createdAtUtcMs: BigInt(u.createdAtUtcMs),
+          ...softToDb(u),
         },
       });
     }
@@ -331,6 +370,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           orgId: m.orgId,
           role: m.role,
           createdAtUtcMs: BigInt(m.createdAtUtcMs),
+          ...softToDb(m),
         },
       });
     }
@@ -343,6 +383,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           vehicleClass: v.vehicleClass,
           capacityKg: v.capacityKg,
           createdAtUtcMs: BigInt(v.createdAtUtcMs),
+          ...softToDb(v),
         },
       });
     }
@@ -353,6 +394,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           orgId: d.orgId,
           primaryVehicleId: d.primaryVehicleId,
           createdAtUtcMs: BigInt(d.createdAtUtcMs),
+          ...softToDb(d),
         },
       });
     }
@@ -396,6 +438,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           status: t.status,
           createdAtUtcMs: BigInt(t.createdAtUtcMs),
           lastLiveLocation: t.lastLiveLocation ?? undefined,
+          ...softToDb(t),
         },
       });
     }
@@ -412,6 +455,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           razorpayPaymentId: p.razorpayPaymentId ?? null,
           createdAtUtcMs: BigInt(p.createdAtUtcMs),
           updatedAtUtcMs: BigInt(p.updatedAtUtcMs),
+          ...softToDb(p),
         },
       });
     }
@@ -444,6 +488,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           payoutBatchCutoffUtcMs: s.payoutBatchCutoffUtcMs != null ? BigInt(s.payoutBatchCutoffUtcMs) : null,
           createdAtUtcMs: BigInt(s.createdAtUtcMs),
           updatedAtUtcMs: BigInt(s.updatedAtUtcMs),
+          ...softToDb(s),
         },
       });
     }
@@ -462,6 +507,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           status: l.status,
           createdAtUtcMs: BigInt(l.createdAtUtcMs),
           paidAtUtcMs: l.paidAtUtcMs != null ? BigInt(l.paidAtUtcMs) : null,
+          ...softToDb(l),
         },
       });
     }

@@ -67,7 +67,7 @@ function carrierOpsSnapshot(
 }
 
 export function customerWebBaseUrl(): string {
-  return (process.env.CUSTOMER_WEB_BASE_URL ?? "https://navig8r-customer-web.onrender.com").replace(/\/$/, "");
+  return (process.env.CUSTOMER_WEB_BASE_URL ?? "https://navig8r-customer.onrender.com").replace(/\/$/, "");
 }
 
 export function shipmentTrackingUrl(shipmentId: string): string {

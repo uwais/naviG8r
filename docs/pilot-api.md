@@ -111,6 +111,28 @@ Body:
 Headers:
 - `Authorization: Bearer <accessToken>`
 
+Returns the signed-in user, memberships, organizations, vehicles on those orgs, and `driverProfile` (if any).
+
+#### `PATCH /v1/pilot/me/vehicle`
+Update the signed-in driver's **primary vehicle** (registration, class, and/or capacity). Requires Bearer and an existing driver profile. Partial updates are allowed — omit a field to leave it unchanged.
+
+Body (any subset):
+```json
+{
+  "vehicleRegistrationNumber": "HR26CD5678",
+  "vehicleClass": "MEDIUM",
+  "vehicleCapacityKg": 4500
+}
+```
+
+Response:
+```json
+{
+  "vehicle": { "id": "veh_...", "orgId": "org_...", "registrationNumber": "HR26CD5678", "vehicleClass": "MEDIUM", "capacityKg": 4500, "createdAtUtcMs": 123 },
+  "driverProfile": { "userId": "usr_...", "orgId": "org_...", "primaryVehicleId": "veh_...", "createdAtUtcMs": 123 }
+}
+```
+
 #### `GET /v1/pilot/anchor-trips`
 Headers:
 - `Authorization: Bearer <accessToken>`
@@ -504,3 +526,24 @@ Machine-to-machine API for shippers to create loads from an ERP and receive writ
 - SMS provider integration
 - Rotate/revoke sessions, device binding
 - Move off debug OTP mode
+
+### Ops: deactivate user (soft-delete / tombstone)
+
+#### `DELETE /v1/ops/users/:userId`
+#### `DELETE /v1/ops/users?phone=10digits`
+
+Requires Ops Admin/Agent Bearer. **Soft-deletes** the user — rows are marked INACTIVE (`inactiveAtUtcMs` + `inactiveReason`) and **retained for audit**. Nothing is hard-erased from the store/DB.
+
+**Cascade rules**
+- Always: revoke auth sessions; expire pending OTPs; deactivate user, driver profile, and memberships.
+- **Sole-owned orgs** (user is the last *active* member, not PLATFORM): deactivate org plus vehicles, trips, shipments, payments, ledger lines; revoke ERP connections/keys for that org.
+- **Shared orgs**: deactivate this user's membership only. If sole `OWNER` / `OWNER_DRIVER` / `CUSTOMER_ADMIN` of a shared org → `409 sole_owner_of_shared_org` unless `force=1`.
+- **Active work** (open shipments or `IN_PROGRESS` trips) → `409 active_work_exists` unless `force=1`.
+- Cannot deactivate yourself (`403 cannot_delete_self`) or the last active ops admin.
+- Inactive users cannot OTP login (`account_inactive`); existing tokens fail bearer checks.
+
+Query: `force=1` to override active-work / sole-owner-of-shared-org guards.
+
+Admin UI: `/admin` → Ops Admins card → **Deactivate user**.
+
+If using `PERSISTENCE=DB`, run `npx prisma db push` after deploy so `inactiveAtUtcMs` / `inactiveReason` columns exist.

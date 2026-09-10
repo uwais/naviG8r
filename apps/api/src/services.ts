@@ -16,11 +16,13 @@ import type {
   KycStatus,
   LedgerLine,
   Membership,
+  MembershipRole,
   Organization,
   PayoutBatch,
   PayoutTransfer,
   Payment,
   Shipment,
+  ShipmentStatus,
   TripLiveLocation,
   User,
   Vehicle,
@@ -41,6 +43,7 @@ import {
   razorpayPayoutsEnabled,
 } from "./razorpayPayouts.ts";
 import { emitIntegrationEvent } from "./integrationWebhooks.ts";
+import { isActiveEntity, markInactive } from "./softDelete.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -347,9 +350,15 @@ function envOpsAdminPhones(): string[] {
  */
 export function isOpsAdmin(store: Store, userId: string): boolean {
   const user = store.users.get(userId);
-  if (!user) return false;
+  if (!user || !isActiveEntity(user)) return false;
   for (const m of store.memberships.values()) {
-    if (m.userId === userId && (m.role === "OPS_ADMIN" || m.role === "OPS_AGENT")) return true;
+    if (
+      m.userId === userId &&
+      isActiveEntity(m) &&
+      (m.role === "OPS_ADMIN" || m.role === "OPS_AGENT")
+    ) {
+      return true;
+    }
   }
   if (envOpsAdminPhones().includes(user.phone)) return true;
   return false;
@@ -377,8 +386,9 @@ export function listOpsAdmins(store: Store): OpsAdminEntry[] {
   const seen = new Set<string>();
   for (const m of store.memberships.values()) {
     if (m.role !== "OPS_ADMIN" && m.role !== "OPS_AGENT") continue;
+    if (!isActiveEntity(m)) continue;
     const user = store.users.get(m.userId);
-    if (!user) continue;
+    if (!user || !isActiveEntity(user)) continue;
     seen.add(user.id);
     out.push({
       userId: user.id,
@@ -479,6 +489,283 @@ export function revokeOpsAdmin(
   }
   store.memberships.delete(key);
   return { revoked: true };
+}
+
+const ACTIVE_SHIPMENT_STATUSES: ReadonlySet<ShipmentStatus> = new Set([
+  "PENDING_CARRIER_ACCEPT",
+  "BOOKED",
+  "PENDING_RELEASE",
+]);
+
+const OWNER_ROLES: ReadonlySet<MembershipRole> = new Set([
+  "OWNER_DRIVER",
+  "OWNER",
+  "CUSTOMER_ADMIN",
+]);
+
+export type OpsDeleteUserResult = {
+  deactivatedUserId: string;
+  deactivatedPhone: string;
+  /** @deprecated alias of deactivatedUserId */
+  deletedUserId: string;
+  /** @deprecated alias of deactivatedPhone */
+  deletedPhone: string;
+  deactivatedMembershipOrgIds: string[];
+  cascadedOrgIds: string[];
+  deactivatedShipmentIds: string[];
+  deactivatedTripIds: string[];
+  deactivatedVehicleIds: string[];
+  force: boolean;
+};
+
+const OPS_DEACTIVATE_REASON = "ops_user_deactivate";
+
+function cascadeDeactivateOrganization(
+  store: Store,
+  orgId: string,
+  at: number,
+  reason: string,
+): {
+  shipmentIds: string[];
+  tripIds: string[];
+  vehicleIds: string[];
+} {
+  if (orgId === PLATFORM_OPS_ORG_ID) {
+    throw new ApiError("cannot_delete_platform_org", {}, 403);
+  }
+
+  const org = store.organizations.get(orgId);
+  if (org) store.organizations.set(orgId, markInactive(org, at, reason));
+
+  const legacy = store.carriers.get(orgId);
+  if (legacy) store.carriers.set(orgId, markInactive(legacy, at, reason));
+
+  const shipmentIds: string[] = [];
+  for (const s of store.shipments.values()) {
+    if (s.carrierId === orgId || s.customerOrgId === orgId) {
+      shipmentIds.push(s.id);
+      store.shipments.set(s.id, markInactive(s, at, reason));
+    }
+  }
+  const shipmentIdSet = new Set(shipmentIds);
+  for (const p of store.payments.values()) {
+    if (shipmentIdSet.has(p.shipmentId)) {
+      store.payments.set(p.id, markInactive(p, at, reason));
+    }
+  }
+
+  const tripIds: string[] = [];
+  for (const t of store.anchorTrips.values()) {
+    if (t.carrierId === orgId) {
+      tripIds.push(t.id);
+      store.anchorTrips.set(t.id, markInactive(t, at, reason));
+    }
+  }
+
+  for (const l of store.ledgerLines.values()) {
+    if (l.carrierId === orgId) {
+      store.ledgerLines.set(l.id, markInactive(l, at, reason));
+    }
+  }
+
+  const vehicleIds: string[] = [];
+  for (const v of store.vehicles.values()) {
+    if (v.orgId === orgId) {
+      vehicleIds.push(v.id);
+      store.vehicles.set(v.id, markInactive(v, at, reason));
+    }
+  }
+
+  for (const d of store.driverProfiles.values()) {
+    if (d.orgId === orgId) {
+      store.driverProfiles.set(d.userId, markInactive(d, at, reason));
+    }
+  }
+
+  for (const m of store.memberships.values()) {
+    if (m.orgId === orgId) {
+      store.memberships.set(membershipKey(m.userId, m.orgId), markInactive(m, at, reason));
+    }
+  }
+
+  for (const c of store.integrationConnections.values()) {
+    if (c.orgId === orgId) {
+      store.integrationConnections.set(
+        c.id,
+        markInactive({ ...c, status: "REVOKED", updatedAtUtcMs: at }, at, reason),
+      );
+    }
+  }
+  for (const k of store.integrationApiKeys.values()) {
+    if (k.orgId === orgId && k.status === "ACTIVE") {
+      store.integrationApiKeys.set(k.id, { ...k, status: "REVOKED" });
+    }
+  }
+
+  return { shipmentIds, tripIds, vehicleIds };
+}
+
+/**
+ * Ops-only soft-delete (tombstone) of a user with cascade rules.
+ * Rows are marked INACTIVE (`inactiveAtUtcMs`) and retained for audit — never hard-deleted.
+ *
+ * - Always: revoke auth sessions; expire OTPs; deactivate user + driver profile + memberships.
+ * - Orgs where this user is the **last active member** (non-PLATFORM): deactivate org and
+ *   related vehicles, trips, shipments, payments, ledger lines, integrations.
+ * - Shared orgs: deactivate this user's membership only; sole-owner of a shared org blocked unless `force`.
+ * - Active shipments/trips on cascaded orgs blocked unless `force`.
+ * - Cannot deactivate yourself or the last ops admin.
+ */
+export function opsDeleteUser(
+  store: Store,
+  params: { actingUserId: string; userId: string; force?: boolean },
+): OpsDeleteUserResult {
+  assertOpsAgent(store, params.actingUserId);
+
+  const force = params.force === true;
+  const userId = String(params.userId ?? "").trim();
+  if (!userId) throw new ApiError("invalid_userId", {}, 400);
+
+  if (userId === params.actingUserId) {
+    throw new ApiError("cannot_delete_self", { detail: "Ask another ops admin to deactivate your account." }, 403);
+  }
+
+  const user = store.users.get(userId);
+  if (!user) throw new ApiError("user_not_found", {}, 404);
+  if (!isActiveEntity(user)) {
+    throw new ApiError("user_already_inactive", { detail: "User is already deactivated." }, 409);
+  }
+
+  if (isOpsAdmin(store, userId)) {
+    const remaining = listOpsAdmins(store).filter((a) => a.userId !== userId && isActiveEntity(store.users.get(a.userId)));
+    if (remaining.length === 0) {
+      throw new ApiError("cannot_delete_last_ops_admin", {
+        detail: "At least one active ops admin must remain.",
+      }, 403);
+    }
+  }
+
+  const at = nowUtcMs();
+  const reason = OPS_DEACTIVATE_REASON;
+
+  const memberships = [...store.memberships.values()].filter(
+    (m) => m.userId === userId && isActiveEntity(m),
+  );
+  const cascadeOrgIds: string[] = [];
+  const keepOrgIds: string[] = [];
+
+  for (const m of memberships) {
+    if (m.orgId === PLATFORM_OPS_ORG_ID) {
+      keepOrgIds.push(m.orgId);
+      continue;
+    }
+    const others = [...store.memberships.values()].filter(
+      (x) => x.orgId === m.orgId && x.userId !== userId && isActiveEntity(x),
+    );
+    if (others.length === 0) {
+      cascadeOrgIds.push(m.orgId);
+    } else {
+      const otherOwners = others.filter((x) => OWNER_ROLES.has(x.role));
+      if (OWNER_ROLES.has(m.role) && otherOwners.length === 0 && !force) {
+        throw new ApiError(
+          "sole_owner_of_shared_org",
+          {
+            detail:
+              "User is the sole owner/admin of an org that still has other members. Transfer ownership or pass force=1.",
+            orgId: m.orgId,
+            remainingMemberCount: others.length,
+          },
+          409,
+        );
+      }
+      keepOrgIds.push(m.orgId);
+    }
+  }
+
+  const cascadeSet = new Set(cascadeOrgIds);
+  const activeShipments = [...store.shipments.values()].filter((s) => {
+    if (!isActiveEntity(s)) return false;
+    if (!ACTIVE_SHIPMENT_STATUSES.has(s.status)) return false;
+    if (cascadeSet.has(s.carrierId)) return true;
+    if (s.customerOrgId && cascadeSet.has(s.customerOrgId)) return true;
+    if (s.bookedByUserId === userId) return true;
+    if (s.bookedByPhone && s.bookedByPhone === user.phone) return true;
+    return false;
+  });
+  const activeTrips = [...store.anchorTrips.values()].filter(
+    (t) => isActiveEntity(t) && cascadeSet.has(t.carrierId) && t.status === "IN_PROGRESS",
+  );
+
+  if (!force && (activeShipments.length > 0 || activeTrips.length > 0)) {
+    throw new ApiError(
+      "active_work_exists",
+      {
+        detail: "User or their sole-owned orgs have in-flight shipments/trips. Pass force=1 to deactivate anyway.",
+        activeShipmentIds: activeShipments.map((s) => s.id),
+        activeTripIds: activeTrips.map((t) => t.id),
+        cascadeOrgIds,
+      },
+      409,
+    );
+  }
+
+  // Revoke sessions (cannot sign in); expire pending OTPs
+  for (const s of store.authSessions.values()) {
+    if (s.userId === userId && s.revokedAtUtcMs == null) {
+      store.authSessions.set(s.id, { ...s, revokedAtUtcMs: at });
+    }
+  }
+  for (const o of store.otpChallenges.values()) {
+    if (o.phone === user.phone && o.status === "PENDING") {
+      store.otpChallenges.set(o.id, { ...o, status: "EXPIRED" });
+    }
+  }
+
+  const profile = store.driverProfiles.get(userId);
+  if (profile) store.driverProfiles.set(userId, markInactive(profile, at, reason));
+
+  for (const m of memberships) {
+    store.memberships.set(membershipKey(userId, m.orgId), markInactive(m, at, reason));
+  }
+
+  const deactivatedVehicleIds: string[] = [];
+  for (const orgId of keepOrgIds) {
+    if (orgId === PLATFORM_OPS_ORG_ID) continue;
+    for (const v of store.vehicles.values()) {
+      if (v.orgId !== orgId || !isActiveEntity(v)) continue;
+      const stillUsed = [...store.driverProfiles.values()].some(
+        (d) => isActiveEntity(d) && d.primaryVehicleId === v.id,
+      );
+      if (!stillUsed) {
+        deactivatedVehicleIds.push(v.id);
+        store.vehicles.set(v.id, markInactive(v, at, reason));
+      }
+    }
+  }
+
+  const deactivatedShipmentIds: string[] = [];
+  const deactivatedTripIds: string[] = [];
+  for (const orgId of cascadeOrgIds) {
+    const out = cascadeDeactivateOrganization(store, orgId, at, reason);
+    deactivatedShipmentIds.push(...out.shipmentIds);
+    deactivatedTripIds.push(...out.tripIds);
+    deactivatedVehicleIds.push(...out.vehicleIds);
+  }
+
+  store.users.set(userId, markInactive(user, at, reason));
+
+  return {
+    deactivatedUserId: userId,
+    deactivatedPhone: user.phone,
+    deletedUserId: userId,
+    deletedPhone: user.phone,
+    deactivatedMembershipOrgIds: [...new Set([...keepOrgIds, ...cascadeOrgIds])],
+    cascadedOrgIds: cascadeOrgIds,
+    deactivatedShipmentIds,
+    deactivatedTripIds,
+    deactivatedVehicleIds: [...new Set(deactivatedVehicleIds)],
+    force,
+  };
 }
 
 /** List/detail/POD visibility: org-scoped booking, or anonymous booking tied to the same phone as the logged-in user. */
@@ -643,6 +930,60 @@ export function pilotMe(store: Store, userId: string): {
   const vehicles = [...store.vehicles.values()].filter((v) => orgs.some((o) => o.id === v.orgId));
   const driverProfile = store.driverProfiles.get(user.id) ?? null;
   return { user, memberships, organizations: orgs, vehicles, driverProfile };
+}
+
+/**
+ * Update the signed-in driver's primary vehicle (registration / class / capacity).
+ * Partial updates allowed — omit a field to leave it unchanged.
+ */
+export function updatePilotDriverVehicle(
+  store: Store,
+  userId: string,
+  params: {
+    vehicleRegistrationNumber?: string;
+    vehicleClass?: VehicleClass;
+    vehicleCapacityKg?: number;
+  },
+): { vehicle: Vehicle; driverProfile: DriverProfile } {
+  const profile = store.driverProfiles.get(userId);
+  if (!profile) throw new Error("driver_profile_missing");
+  assertPilotDriverCanManageOrg(store, userId, profile.orgId);
+
+  const vehicle = store.vehicles.get(profile.primaryVehicleId);
+  if (!vehicle) throw new Error("vehicle_missing");
+
+  const hasReg = params.vehicleRegistrationNumber !== undefined;
+  const hasClass = params.vehicleClass !== undefined;
+  const hasCap = params.vehicleCapacityKg !== undefined;
+  if (!hasReg && !hasClass && !hasCap) throw new Error("nothing_to_update");
+
+  let registrationNumber = vehicle.registrationNumber;
+  let vehicleClass = vehicle.vehicleClass;
+  let capacityKg = vehicle.capacityKg;
+
+  if (hasReg) {
+    const reg = String(params.vehicleRegistrationNumber).trim();
+    if (!reg) throw new Error("invalid_vehicleRegistrationNumber");
+    registrationNumber = reg;
+  }
+  if (hasClass) {
+    assertVehicleClass(params.vehicleClass);
+    vehicleClass = params.vehicleClass as VehicleClass;
+  }
+  if (hasCap) {
+    const cap = Number(params.vehicleCapacityKg);
+    if (!(cap > 0)) throw new Error("invalid_vehicleCapacityKg");
+    capacityKg = cap;
+  }
+
+  const updated: Vehicle = {
+    ...vehicle,
+    registrationNumber,
+    vehicleClass,
+    capacityKg,
+  };
+  store.vehicles.set(updated.id, updated);
+  return { vehicle: updated, driverProfile: profile };
 }
 
 /**

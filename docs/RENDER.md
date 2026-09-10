@@ -92,7 +92,9 @@ Render does **not** include Flutter. Use the repo build script (installs SDK, th
 - `FLUTTER_VERSION` = `3.22.3` (optional pin)
 - `MAPS_API_KEY` = Google **Maps JavaScript API** key (HTTP referrer–restricted to this static site URL). Required for live tracking maps on web; build script injects it into `web/index.html`. Also passed as `--dart-define=MAPS_API_KEY` for Dart geocoding.
 
-**Google Cloud setup for web maps:** enable **Maps JavaScript API** (+ **Geocoding API** if using place search). Restrict the key to HTTP referrers such as `https://navig8r-customer-web.onrender.com/*` and `http://localhost:*`. Do not reuse the Android SDK key from `android/local.properties` (different restriction type).
+**Production URL:** `https://navig8r-customer.onrender.com` (Render service name may differ from the hostname; do not use `navig8r-customer-web.onrender.com` — that hostname is not assigned.)
+
+**Google Cloud setup for web maps:** enable **Maps JavaScript API**, **Maps Static API**, and **Geocoding API** if using place search. Restrict the key to HTTP referrers such as `https://navig8r-customer.onrender.com/*` and `http://localhost:*`. Do not reuse the Android SDK key from `android/local.properties` (different restriction type).
 
 **Local web dev with maps:**
 
@@ -111,17 +113,18 @@ First build may take **8–15 minutes** (Flutter SDK + web precache).
 
 #### API CORS (required for hosted web)
 
-After the static site deploys, copy its URL (e.g. `https://navig8r-customer-web.onrender.com`) and on the **API** service set:
+After the static site deploys, set on the **API** service:
 
 ```
-CORS_ALLOWED_ORIGINS=https://navig8r-customer-web.onrender.com
+CORS_ALLOWED_ORIGINS=https://navig8r-customer.onrender.com
+CUSTOMER_WEB_BASE_URL=https://navig8r-customer.onrender.com
 ```
 
 Localhost origins are already allowed for dev. Redeploy the API after changing env.
 
 #### Blueprint
 
-`render.yaml` includes a `navig8r-customer-web` static service with the same build command and publish path.
+`render.yaml` blueprint names the static service `navig8r-customer-web`; production is served at `https://navig8r-customer.onrender.com`.
 
 ---
 
