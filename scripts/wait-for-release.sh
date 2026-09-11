@@ -5,7 +5,7 @@ URL="${1:?URL required}"
 EXPECTED="${2:?expected release SHA required}"
 LABEL="${3:-service}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-900}"
-SLEEP_SECONDS="${SLEEP_SECONDS:-10}"
+SLEEP_SECONDS="${SLEEP_SECONDS:-30}"
 
 start="$(date +%s)"
 
