@@ -44,6 +44,7 @@ import {
   completeAnchorTripAsPilot,
   startAnchorTripAsPilot,
   tripWithCarrierDisplay,
+  isBookableAnchorTrip,
   publishAnchorTrip,
   publishAnchorTripAsPilotDriver,
   quoteShipmentMarketplace,
@@ -1387,13 +1388,15 @@ export async function createApp(): Promise<{
         const tripId = url.pathname.slice("/anchor-trips/".length).split("/")[0] ?? "";
         if (tripId.length > 0) {
           const trip = store.anchorTrips.get(tripId);
-          if (!trip) return json(res, 404, { error: "trip_not_found" });
+          if (!trip || !isBookableAnchorTrip(store, trip)) return json(res, 404, { error: "trip_not_found" });
           return json(res, 200, { trip: tripWithCarrierDisplay(store, trip) });
         }
       }
 
       if (method === "GET" && url.pathname === "/anchor-trips") {
-        const trips = [...store.anchorTrips.values()].map((t) => tripWithCarrierDisplay(store, t));
+        const trips = [...store.anchorTrips.values()]
+          .filter((t) => isBookableAnchorTrip(store, t))
+          .map((t) => tripWithCarrierDisplay(store, t));
         return json(res, 200, { trips });
       }
 
