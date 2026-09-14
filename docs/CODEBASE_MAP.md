@@ -11,7 +11,7 @@ design rationale (that is `docs/ARCHITECTURE.md`).
 Keep it current in the same commit as the change it describes. A wrong map is worse than none,
 because it gets trusted.
 
-Last verified against the tree at commit `0fc4ad0`.
+Last verified against the tree at commit `187fe76` (2026-09-13).
 
 ---
 
@@ -26,25 +26,28 @@ Last verified against the tree at commit `0fc4ad0`.
 | `apps/www/` | Public marketing site at navig8r.org | Separate stack (Vite) because it shares nothing with the product |
 | `packages/core/` | Payout schedule arithmetic | Pure, dependency-free, heavily tested — kept apart so money math can be reasoned about alone |
 | `integrations/adapters/generic/` | Reference doc for mapping a shipper ERP onto the API | No code; a contract description |
-| `scripts/` | Render build scripts, Maps key injection, ERP smoke test | Called by Render, not by developers |
+| `scripts/` | Render build scripts, Maps key injection, image promotion, release smoke tests | Called by Render and by GitHub Actions, not by developers |
 | `docs/` | All long-form documentation | See the index in `README.md` |
-| `Dockerfile`, `render.yaml` | Deployment for all three services | `render.yaml` is the blueprint; the Dockerfile builds the API only |
+| `.github/workflows/` | CI and the release pipeline | `release.yml` is the one that matters; the other three are earlier attempts still on disk |
+| `docker/` | nginx config and entrypoints for the two static images | Runtime config injection — these files decide what the browser actually gets |
+| `Dockerfile`, `Dockerfile.customer-web`, `Dockerfile.www` | One image per service | All three services are now image-backed; the API Dockerfile is the original |
+| `render.yaml` | Three environments (alpha, beta, production) | Declarative blueprint. **Render does not build from Git any more** — it pulls tagged images from GHCR |
 
 ### `apps/api/src/` — the backend
 
-Roughly 8,600 lines including tests. Two files hold most of it.
+Roughly 9,200 lines including tests. Two files hold most of it.
 
 | File | Lines | Responsibility |
 |---|---|---|
-| `services.ts` | 1936 | All domain logic: onboarding, trips, booking, pricing, POD, ledger, payouts, tracking. 64 exported symbols. **Holds many concerns — see the split proposal in `docs/IMPROVEMENTS.md`.** |
-| `httpServer.ts` | 1602 | The whole HTTP surface. A hand-rolled `node:http` handler with an if-chain over `url.pathname`. Also contains roughly 560 lines of inline HTML/JS across two portal functions (`opsPortalHtml` at 122-260, the `/admin` document at 847-1265). |
-| `persistenceDb.ts` | 486 | Postgres load and save via Prisma. **Covers 13 of the store's 18 collections.** |
+| `services.ts` | 2277 | All domain logic: onboarding, trips, booking, pricing, POD, ledger, payouts, tracking. 67 exported symbols. **Holds many concerns — see the split proposal in `docs/IMPROVEMENTS.md`.** |
+| `httpServer.ts` | 1695 | The whole HTTP surface. A hand-rolled `node:http` handler with an if-chain over `url.pathname`. Also contains roughly 590 lines of inline HTML/JS across two portal functions (`opsPortalHtml` at 124-262, the `/admin` document at 902-1355). |
+| `persistenceDb.ts` | 532 | Postgres load and save via Prisma. **Covers 13 of the store's 18 collections.** |
 | `integrationServices.ts` | 436 | ERP connections, API keys, load intake, idempotency |
-| `types.ts` | 337 | Every domain type and status union. Read this first. |
+| `types.ts` | 343 | Every domain type and status union. Read this first. |
 | `integrationWebhooks.ts` | 312 | Outbound webhook queue, signing, retry with backoff |
 | `integrationHttp.ts` | 273 | The `/v1/integrations/*` routes |
 | `persistence.ts` | 234 | JSON file load and save, with versioned migrations V1 to V4 |
-| `auth.ts` | 162 | OTP challenge lifecycle and HMAC bearer tokens |
+| `auth.ts` | 167 | OTP challenge lifecycle and HMAC bearer tokens |
 | `razorpayPayouts.ts` | 126 | RazorpayX contact, fund account, and payout creation |
 | `integrationAuth.ts` | 102 | Integration key hashing, parsing, scope checks, webhook signing |
 | `razorpayPayments.ts` | 94 | Razorpay order creation and capture |
@@ -52,20 +55,21 @@ Roughly 8,600 lines including tests. Two files hold most of it.
 | `store.ts` | 66 | The in-memory `Store` type — 18 `Map` collections |
 | `index.ts` | 66 | Boot: load store, start server, start two background timers |
 | `config.ts` | 44 | Commission, pricing constants, payout schedule, tracking staleness |
-| `prisma/schema.prisma` | 158 | 13 Postgres models |
-| `*.test.ts` | ~1900 | 15 test files, 47 tests |
+| `prisma/schema.prisma` | 178 | 13 Postgres models |
+| `softDelete.ts` | 21 | Tombstone helpers: `isActiveEntity`, `markInactive`. Tiny, and load-bearing — see C6 |
+| `*.test.ts` | ~2100 | 18 test files, 54 tests (plus 6 in `packages/core`) |
 
 ### `apps/driver_pilot/lib/` — the Flutter app
 
-Roughly 7,000 lines. Three files hold 78% of it.
+Roughly 7,130 lines. Three files hold 78% of it.
 
 | File | Lines | Responsibility |
 |---|---|---|
-| `driver_flow.dart` | 2221 | 18 driver and carrier screens plus the driver shell and route table |
+| `driver_flow.dart` | 2305 | 18 driver and carrier screens plus the driver shell and route table |
 | `customer_flow.dart` | 2149 | 11 customer screens, two private tab widgets, and the customer route table |
 | `main.dart` | 1151 | App bootstrap and the `go_router` config — **plus a legacy "pilot lab" surface of 6 more screens that duplicates the driver flow** |
 | `location_editor.dart` | 494 | Map-based address and coordinate picker |
-| `pilot_api.dart` | 353 | Dio HTTP client, token storage, error formatting |
+| `pilot_api.dart` | 359 | Dio HTTP client, token storage, error formatting |
 | `customer_layout.dart` | 132 | Responsive shell: navigation rail at ≥900px, bottom nav below |
 | `customer_session.dart` | 109 | Customer auth state, drives router refresh |
 | `google_geocoding.dart` | 97 | Address to coordinate lookup |
@@ -90,7 +94,7 @@ Roughly 7,000 lines. Three files hold 78% of it.
 | What | Command | Result when it worked |
 |---|---|---|
 | **API** | `export AUTH_SECRET=$(openssl rand -hex 32)` then `node --experimental-strip-types apps/api/src/index.ts` from the repo root | Logs `API listening on 0.0.0.0:3000`; `curl localhost:3000/health` returns JSON naming the persistence mode and payment provider |
-| **Tests** | `node --experimental-strip-types --test "packages/**/src/**/*.test.ts" "apps/**/src/**/*.test.ts"` | `pass 53`, `fail 0` |
+| **Tests** | `npm test` from the repo root | `pass 60`, `fail 0` (54 API + 6 core) |
 | **Driver app** | `cd apps/driver_pilot && flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000` | App opens at `/driver` |
 | **Customer web** | Same app with `flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:3000` | App opens at `/customer` — `kIsWeb` picks the shell |
 | **Marketing site** | `cd apps/www && npm run dev` | Vite dev server |
@@ -98,6 +102,24 @@ Roughly 7,000 lines. Three files hold 78% of it.
 | **Legacy admin** | `http://localhost:3000/admin` | Full data dump. Requires `ENABLE_LEGACY_DEMO_SURFACE=1` in production |
 
 Node **22 or newer is mandatory**. See gotcha 1.
+
+### The three deployed environments
+
+There is no longer one deployment. `render.yaml` declares three, and they differ in ways that
+change how the API behaves — not just which database it points at.
+
+| | alpha | beta | production |
+|---|---|---|---|
+| API | `navig8r-api-alpha` | `navig8r-api-beta` | `navig8r-api` |
+| `NODE_ENV` | `alpha` | `beta` | `production` |
+| Payments | `MOCK` | `RAZORPAY` (test keys) | `RAZORPAY` (live) |
+| Payouts | `BOOKKEEPING` | `BOOKKEEPING` | `RAZORPAYX` |
+| `OTP_DEBUG` | `1` | `0` | `0` |
+| Legacy demo surface | Open | **Open** — see gotcha 12 | Closed |
+| Purpose | Automated integration tests | UAT | Live |
+
+**Alpha and beta are not private.** They are public `.onrender.com` hostnames with no network
+restriction. See gotcha 12 for what that exposes.
 
 ---
 
@@ -166,6 +188,50 @@ the breakdown.
 
 ---
 
+### Ship a change to production
+
+There is no deploy button and pushing to `main` does not deploy. One pipeline
+(`.github/workflows/release.yml`) walks a single image through all three environments.
+
+```
+  PR ---> merge to main
+             |
+             v
+        [ test ]  npm ci && npm test on Node 22
+             |    (a red suite stops everything here)
+             v
+        [ build ] three images -> GHCR, tagged with the commit SHA
+             |    RELEASE_SHA is baked in and reported by GET /health
+             v
+        [ alpha ]  deploy -> wait -> scripts/alpha-integration.mjs
+             |     real OTP login against navig8r-api-alpha
+             v
+        [ beta ]   deploy -> wait -> scripts/beta-smoke.mjs
+             |     checks /health only: ok, paymentProvider, release
+             v
+     ( manual approval: GitHub environment "production" )
+             |
+             v
+      [ production ]  same image digests, promoted not rebuilt
+```
+
+1. Open a PR. **Tests do not run on it** — see gotcha 14. Run `npm test` yourself.
+2. Merge. Watch the `NaviG8r Release` action.
+3. Confirm the right build actually landed: `curl -s <env>/health` and check `release` matches
+   the commit SHA. That comparison is what the smoke scripts automate, and it is the reason
+   `RELEASE_SHA` exists.
+4. Approve the production step in the GitHub Actions UI when alpha and beta are green.
+
+**What the gates do and do not cover.** Alpha exercises a real OTP login and `/v1/pilot/me`.
+Beta checks three fields on `/health` and nothing else — no booking, no payment, no payout. So
+the only automated thing standing between a merge and production money handling is a health
+check plus a human clicking approve.
+
+**Rolling back** means re-pointing the environment tag at an earlier digest
+(`scripts/promote-image-tag.sh`) — not reverting the commit and waiting for a rebuild.
+
+---
+
 ## 4. Gotchas
 
 Each of these has cost someone real time, or will.
@@ -209,7 +275,7 @@ Dockerfile must copy `packages/` to the exact matching depth.*
 
 **7. `ALLOW_X_USER_ID=1` is a complete authentication bypass and is not gated on `NODE_ENV`.**
 It makes `requireUserId` accept an `x-user-id` header with no token, across ~20 authenticated
-routes including ops-admin ones (`httpServer.ts:284`). *Consequence: setting it anywhere
+routes including ops-admin ones (`httpServer.ts:285`). *Consequence: setting it anywhere
 reachable hands over every account.*
 
 **8. Route order in `httpServer.ts` is load-bearing.**
@@ -232,6 +298,37 @@ linked from either shell. *Consequence: you fix a bug in the wrong copy.*
 `ROADMAP.md` states Postgres is live in production, but `render.yaml` sets `DATA_FILE` and never
 sets `PERSISTENCE=DB` or `DATABASE_URL`. *Consequence: reasoning about production from the
 roadmap gives the wrong answer.* Trust `render.yaml` and the Render dashboard.
+
+**12. `NODE_ENV` is the environment name AND the security switch, so alpha and beta run wide open.**
+Three protections are keyed off `NODE_ENV !== "production"`: the legacy demo surface
+(`httpServer.ts:321`), the CORS origin allowlist (`:92`), and the HTTPS requirement on partner
+webhook URLs (`integrationServices.ts:98`). `render.yaml` sets `NODE_ENV` to `alpha` and `beta`
+on those environments, so all three are off there. Beta sets `ENABLE_LEGACY_DEMO_SURFACE: "0"`
+and it does nothing — line 321 short-circuits before reading it. *Consequence:
+`curl https://navig8r-api-beta.onrender.com/v1/users` returns every user and phone number on the
+UAT environment, unauthenticated, while the blueprint reads as if it were switched off.* See C5.
+
+**13. There are two ways to get the Maps key into the customer app, and the container uses one.**
+The Maps JS `<script>` gets its key at container start (`docker/customer-web/entrypoint.sh:12`
+`sed`s `__MAPS_API_KEY__` into `index.html`). The Dart constant `kMapsApiKey`
+(`maps_config.dart:7`) is a **compile-time** `String.fromEnvironment`, and
+`Dockerfile.customer-web:31-33` does not pass it. *Consequence: after the cutover to the
+image-backed customer-web, map tiles still render but address autocomplete and geocoding silently
+do nothing — both call sites early-return on an empty key with no error.* The static build
+(`scripts/render-build-customer-web.sh:44-48`) does pass it, so this breaks at migration, not now.
+See C7.
+
+**14. Tests run after the merge, not before it.**
+`.github/workflows/release.yml` triggers on `push: main` only. There is no `pull_request`
+trigger and no required status check. *Consequence: a PR merges green-looking, `main` goes red,
+and the deploy halts at the `build` job — after the merge, when whoever did it has moved on.*
+Nothing runs `tsc` or any Flutter check at all.
+
+**15. Render no longer builds from Git.**
+All three production services are declared `runtime: image` against `ghcr.io/uwais/navig8r-*`.
+Pushing to `main` does not deploy; it builds images and walks them through alpha, beta, then a
+manual approval. *Consequence: editing a service's build command in the Render dashboard changes
+nothing, and a hotfix cannot be shipped by pushing — it goes through the whole pipeline.*
 
 ---
 

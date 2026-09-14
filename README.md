@@ -110,7 +110,7 @@ This is a **pre-pilot build**. The transaction path works end to end and is cove
 but several things a real pilot needs are deliberately still stubs. Being precise about which
 is which:
 
-**Working and tested** (53/53 tests pass — verified by running the suite):
+**Working and tested** (60/60 tests pass — verified by running the suite on Node 24):
 
 - Carrier onboarding, anchor trip publishing, freight estimation
 - Customer browse, quote with breakdown, book, capacity reservation
@@ -123,11 +123,12 @@ is which:
 
 | Gap | Consequence | Evidence |
 |---|---|---|
-| **No SMS provider** | OTP codes are generated but never delivered. With `OTP_DEBUG=0` nobody can log in; with `OTP_DEBUG=1` the code is returned in the API response to anyone who knows a phone number. | `apps/api/src/types.ts:85` — "mock SMS. Replace with real SMS + rate limits in production." |
+| **No SMS provider** | OTP codes are generated but never delivered. With `OTP_DEBUG=0` nobody can log in; with `OTP_DEBUG=1` the code is returned in the API response to anyone who knows a phone number. | `apps/api/src/types.ts:91` — "mock SMS. Replace with real SMS + rate limits in production." |
 | **No OTP rate limiting** | A six-digit code with a ten-minute window and unlimited attempts is brute-forceable. | No throttle exists in `apps/api/src/auth.ts` |
-| **Carrier payouts are bookkeeping-only by default** | `PAYOUTS_MODE=BOOKKEEPING` flips ledger lines to PAID without moving money. Real disbursement needs `PAYOUTS_MODE=RAZORPAYX`. | `render.yaml` sets `BOOKKEEPING` |
-| **Production persistence is a JSON file** | `render.yaml` sets `DATA_FILE` and never sets `PERSISTENCE=DB`, so the Postgres path is built but not the deployed default. | `render.yaml`; roadmap section A2–A3 unchecked |
-| **No CI** | Nothing runs the test suite on a pull request. | No `.github/workflows/` |
+| **Carrier payouts are bookkeeping-only outside production** | `PAYOUTS_MODE=BOOKKEEPING` flips ledger lines to PAID without moving money. Only production sets `RAZORPAYX`. | `render.yaml` |
+| **Persistence is a JSON file everywhere** | No environment sets `PERSISTENCE=DB`, so the Postgres path is built but unused. It also drops the whole ERP subsystem if switched on. | `render.yaml`; `docs/IMPROVEMENTS.md` C2 |
+| **CI does not run on pull requests** | `release.yml` triggers on `push: main` only, so tests run after the merge. Nothing typechecks, and no workflow runs Flutter at all. | `.github/workflows/release.yml` |
+| **Alpha and beta serve an unauthenticated data dump** | `NODE_ENV` is set to the environment name, which disables the production guards. `GET /v1/users` returns every user and phone number on both. | `docs/IMPROVEMENTS.md` C5 |
 
 `ROADMAP.md` is the authoritative execution checklist (62 items done, 46 open at time of
 writing). `docs/IMPROVEMENTS.md` lists specific defects found by review, ranked.
@@ -203,9 +204,9 @@ production-correct default.
 |---|---|---|---|
 | `AUTH_SECRET` | **Yes** | none — API exits | HMAC key for session tokens and integration key hashing. Minimum 16 chars. Rotating it invalidates every session **and** every ERP API key at once. |
 | `PORT` | No | `3000` | Listen port |
-| `NODE_ENV` | No | unset | `production` gates the legacy demo surface and forces HTTPS webhook URLs |
+| `NODE_ENV` | No | `production` (baked into the image) | Anything other than the exact string `production` opens the legacy demo surface, disables the CORS allowlist, and allows plain-`http://` partner webhook URLs. `render.yaml` overrides it to `alpha` / `beta` on those environments, which is how they end up wide open. See C5. |
 | `PERSISTENCE` | No | in-memory | `DB` switches to Postgres via Prisma |
-| `DATA_FILE` | No | none | Path to the JSON snapshot when not using `DB`. Without it, all data is lost on restart. |
+| `DATA_FILE` | No | `./data/store.json` | Path to the JSON snapshot when not using `DB`. The default is **relative to the container's working directory**, so an unset value writes into the ephemeral image layer and the store is destroyed on every deploy. Always set it to a path on a mounted disk. See C7 / PR #102. |
 | `DATABASE_URL` | With `PERSISTENCE=DB` | none | Postgres connection string |
 | `OTP_DEBUG` | No | off | `1` returns the OTP in the API response. Never set in production. |
 | `OTP_FIXED_CODE` | No | `123456` | The code used when `OTP_DEBUG=1` |
@@ -226,19 +227,45 @@ production-correct default.
 | `FREIGHT_PAISE_PER_KM_SMALL` / `_MEDIUM` / `_LARGE` | No | 1500 / 2000 / 2500 | Per-km rate override by vehicle class |
 | `FREIGHT_MIN_GROSS_PAISE` | No | `0` (no floor) | Minimum charge when distance is priced |
 | `OPS_ADMIN_PHONES` | No | none | Comma-separated bootstrap list; materialized into the DB on first login |
+| `RELEASE_SHA` | No | `unknown` | Baked into the image by the release pipeline and reported by `GET /health`. The smoke tests assert it matches the commit they deployed. |
+
+The two static services read their own variables at container start, not build time:
+`API_UPSTREAM` and `MAPS_API_KEY` for customer-web, `PORTAL_URL` and `VITE_TURNSTILE_SITE_KEY`
+for www.
 
 `PAYMENT_PROVIDER` governs charging the **customer**. `PAYOUTS_MODE` governs paying the
 **carrier**. They are independent and are a common source of confusion.
 
 ## Deployment
 
-All three services deploy from `main` to Render, defined as a blueprint in `render.yaml`.
+Merging to `main` does not deploy. It starts a pipeline
+(`.github/workflows/release.yml`) that builds three images once and promotes the **same digests**
+through three environments:
 
-| Service | Type | Build |
-|---|---|---|
-| `navig8r-api` | Docker web service, Singapore, 1 GB disk at `/data` | Root `Dockerfile`, `node:22-bookworm-slim` |
-| `navig8r-customer-web` | Static site | `scripts/render-build-customer-web.sh` (Flutter web) |
-| `navig8r-www` | Static site | `scripts/render-build-www.sh` (Vite) |
+```
+merge -> npm test -> build 3 images (GHCR, tagged by commit SHA)
+      -> alpha   + integration test (real OTP login)
+      -> beta    + smoke test (/health only)
+      -> manual approval
+      -> production
+```
+
+Render pulls tagged images from GHCR; it no longer builds from Git.
+
+| Environment | API | Payments | Payouts | Purpose |
+|---|---|---|---|---|
+| alpha | `navig8r-api-alpha` | mock | bookkeeping | Automated integration tests |
+| beta | `navig8r-api-beta` | Razorpay test | bookkeeping | UAT |
+| production | `navig8r-api` | Razorpay live | RazorpayX | Live |
+
+Each API service mounts a 1 GB disk at `/data` and sets `DATA_FILE=/data/store.json`.
+
+**Two things to know before you rely on this.** Alpha and beta are public hostnames and, because
+`NODE_ENV` is set to the environment name, they do **not** enforce the production guards — the
+unauthenticated `/v1/users` dump is reachable on both. And production's customer-web and www are
+still the older static services; `render.yaml` carries `-image` variants as migration targets that
+have not been cut over. Both are written up in [`docs/IMPROVEMENTS.md`](docs/IMPROVEMENTS.md) as
+C5 and C7.
 
 Secrets are marked `sync: false` and set in the Render dashboard, never committed. See
 `docs/RENDER.md` for the runbook and `docs/DEPLOY.md` for hosting notes.
@@ -260,8 +287,8 @@ Secrets are marked `sync: false` and set in the Render dashboard, never committe
 
 ## Contributing
 
-`main` is the deploy branch — all three Render services build from it. Never push to it
-directly.
+`main` is the release branch — merging to it starts the pipeline that ends in production. Never
+push to it directly.
 
 1. Branch from `main` using the existing prefixes: `feature/`, `fix/`, or `docs/`.
 2. Keep the change scoped to one concern.
@@ -271,6 +298,7 @@ directly.
 5. Update the documentation in the same PR as the change it describes. A wrong map is worse
    than no map, because it gets trusted.
 
-There is no CI yet, so the test suite is only as good as the person who remembered to run it.
-Adding a GitHub Actions workflow is the highest-value small change available — see
-`docs/IMPROVEMENTS.md`.
+**CI does not run on your PR.** `.github/workflows/release.yml` triggers on `push: main`, so the
+suite runs after the merge, not before it. Run `npm test` yourself — a red merge stops the release
+pipeline at the build step and leaves `main` broken. Adding a `pull_request:` trigger and a
+required status check is a four-line change; see M5 in `docs/IMPROVEMENTS.md`.

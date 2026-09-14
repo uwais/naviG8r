@@ -6,10 +6,25 @@ Findings from a full read of the repository, ranked by consequence.
 the defect, a concrete failure scenario, and a specific change. Nothing here is a style
 preference — where something is a matter of taste it is marked as such and put at the bottom.
 
-**Nothing in this document has been fixed.** This pass is documentation only. Several findings
-overlap with the open draft PRs (#81–#98) that nobody has reviewed; those are noted inline.
+**This pass is documentation only — it changes no behaviour.** Several findings overlap with the
+open draft PRs (#81–#106) that nobody has reviewed; those are noted inline.
 
-Verified against commit `0fc4ad0`. Test suite: 53/53 passing (47 API + 6 core) on Node 24.
+Re-verified against commit `187fe76` (2026-09-13). Test suite: **60/60 passing** (54 API + 6 core)
+on Node 24, run locally.
+
+**What the 2026-09-13 re-verification changed.** Main advanced 16 commits and ~2,400 lines between
+the first pass (`0fc4ad0`) and this one, adding GitHub Actions CI, a three-environment Render
+promotion pipeline, and an ops soft-delete subsystem. Against that:
+
+| | Findings |
+|---|---|
+| Fixed | **M5** (CI now runs the tests) |
+| Partially fixed | **H4** (sessions are now revocable, but only by deactivating the account) |
+| Newly introduced | **C5**, **C6**, **C7** — see below |
+| Everything else | Still stands. Line-number citations were re-checked and corrected |
+
+`services.ts` grew 1,936 to 2,277 lines and `httpServer.ts` 1,602 to 1,695, so every line citation
+in the first pass had moved. They have all been re-read and re-cited against `187fe76`.
 
 ---
 
@@ -27,7 +42,7 @@ That only affects how many drivers are exposed today, not whether the endpoint e
 Someone with access should run `curl -s https://navig8r.onrender.com/anchor-trips | grep -c
 lastLiveLocation` before deciding how fast to move.
 
-`httpServer.ts:1305-1308`:
+`httpServer.ts:1395-1398`:
 
 ```
 if (method === "GET" && url.pathname === "/anchor-trips") {
@@ -36,9 +51,9 @@ if (method === "GET" && url.pathname === "/anchor-trips") {
 }
 ```
 
-`tripWithCarrierDisplay` (`services.ts:194`) is `{ ...trip, carrierDisplayName }` — it spreads
+`tripWithCarrierDisplay` (`services.ts:197`) is `{ ...trip, carrierDisplayName }` — it spreads
 the **whole** `AnchorTrip`. And `AnchorTrip` carries `lastLiveLocation?: TripLiveLocation`
-(`types.ts:146`), which is:
+(`types.ts:152`), which is:
 
 ```
 { lat, lng, recordedAtUtcMs, accuracyM?, speedMps?, headingDeg? }
@@ -57,7 +72,7 @@ tracking of identifiable drivers and their cargo — a cargo-theft and driver-sa
 only a privacy one.
 
 The contrast makes it clear this is unintended: the *authenticated* tracking endpoint
-`getShipmentTripTracking` (`services.ts:849`) carefully scopes visibility to the customer who
+`getShipmentTripTracking` (`services.ts:1190`) carefully scopes visibility to the customer who
 booked the shipment and applies a 15-minute staleness rule before showing a position. All of
 that care is bypassed by the public list route.
 
@@ -71,21 +86,21 @@ use it for both `GET /anchor-trips` and `GET /anchor-trips/:id`, so a future fie
 
 ### C0b. One malformed booking request permanently destroys an anchor trip
 
-`httpServer.ts:1394` passes `weightKg: Number(body?.weightKg ?? 0)` straight into `bookShipment`.
+`httpServer.ts:1485` passes `weightKg: Number(body?.weightKg ?? 0)` straight into `bookShipment`.
 Send `{"weightKg": "abc"}` — or any non-numeric value such as `{}` or `[1,2]` — and `Number()`
 yields `NaN`. **Every guard downstream is a comparison, and every comparison against `NaN` is
 false**, so nothing stops it:
 
 | Guard | Location | With `NaN` |
 |---|---|---|
-| `if (params.weightKg <= 0) throw` | `services.ts:1211` | `NaN <= 0` is `false` — passes |
-| `if (trip.reservedKg + weightKg > capacityKg) throw` | `services.ts:1212` | `NaN > n` is `false` — passes |
-| `if (params.weightKg <= 0) throw` | `computeFreightGrossPaise`, `services.ts:1041` | passes; `Math.round(NaN * 500)` → `NaN` |
+| `if (params.weightKg <= 0) throw` | `services.ts:1552` | `NaN <= 0` is `false` — passes |
+| `if (trip.reservedKg + weightKg > capacityKg) throw` | `services.ts:1553` | `NaN > n` is `false` — passes |
+| `if (params.weightKg <= 0) throw` | `computeFreightGrossPaise`, `services.ts:1381` | passes; `Math.round(NaN * 500)` → `NaN` |
 
-Then `services.ts:1239` runs `trip.reservedKg += NaN` and the trip is poisoned for good:
+Then `services.ts:1580` runs `trip.reservedKg += NaN` and the trip is poisoned for good:
 
 - `trip.reservedKg` is `NaN` permanently.
-- The trip **disappears from the marketplace** — `customerEligibleAnchorTripsPhaseA:980`
+- The trip **disappears from the marketplace** — `customerEligibleAnchorTripsPhaseA`, `services.ts:1296`
   computes `capacityKg - reservedKg >= weightKg`, and `NaN >= n` is `false`.
 - Every later booking passes the capacity guard too, since `NaN + n > capacity` is also `false`.
 - The payment is created with `amountPaise: NaN`.
@@ -125,7 +140,7 @@ Server-side, `pilotOtpVerify` compares the submitted code against **that new cha
 (`auth.ts:135`). With real random codes the two can never match, so customer login always fails.
 
 It works today only because `OTP_DEBUG=1` makes every challenge return the same fixed code
-(`OTP_FIXED_CODE ?? "123456"`, `auth.ts:97`).
+(`OTP_FIXED_CODE ?? "123456"`, `auth.ts:99`).
 
 The driver flow has a milder version of the same shape. `DriverPhoneScreen` calls `otp/start`
 and discards the challenge id (`driver_flow.dart:232`), then `_DriverOtpScreenState
@@ -148,13 +163,13 @@ explicit user action.
 
 The intended settlement flow is three-party: driver submits POD (`BOOKED → PENDING_RELEASE`, no
 money moves), then an **ops agent** calls `/ops/shipments/:id/release`, which captures the
-customer's payment and accrues the carrier's ledger line. `submitDriverPod` (`services.ts:1345`)
+customer's payment and accrues the carrier's ledger line. `submitDriverPod` (`services.ts:1686`)
 respects this — it only sets `PENDING_RELEASE`.
 
 The legacy route `POST /shipments/:id/pod` does not. It runs
 `ensureRazorpayCapturedBeforePod` and then `markPodDelivered`, which **captures the payment,
 writes the carrier's ledger line, and marks the shipment `DELIVERED`** in one call
-(`httpServer.ts:1504-1533`).
+(`httpServer.ts:1594-1624`).
 
 Two things combine to make this reachable in production:
 
@@ -205,7 +220,7 @@ that list — and restrict both to `assertOpsAgent`. The pilot app already uses
 
 ### C1. A queued RazorpayX payout is recorded as PAID and can never be corrected
 
-`services.ts:1882-1899`. The payout batch maps RazorpayX statuses to three outcomes:
+`services.ts:2223-2241`. The payout batch maps RazorpayX statuses to three outcomes:
 `processed`/`completed` → PAID, `rejected`/`cancelled`/`reversed` → FAILED (lines stay
 `ACCRUED` to retry), **everything else → `PROCESSING`, and the ledger lines are marked `PAID`
 anyway.** The code says so plainly:
@@ -260,7 +275,7 @@ ERP that retries a load after a restart double-books and double-charges, with no
 system to recognise the duplicate.
 
 One more shape mismatch in the same model: `weightKg` is declared `Int`, while the domain only
-validates `weightKg > 0` and accepts fractional values (`services.ts:1211`). I did **not** test
+validates `weightKg > 0` and accepts fractional values (`services.ts:1552`). I did **not** test
 which way that fails — Prisma may reject the write or coerce it — but the declared type and the
 domain contract disagree, and that is worth resolving alongside M2 (which proposes integer grams).
 
@@ -286,7 +301,7 @@ ordering is not guaranteed. The payment flips back to `CAPTURED` while the shipm
 
 ### C4. Abandoned bookings permanently consume trip capacity
 
-`services.ts:1239` reserves capacity the moment `bookShipment` runs — before the carrier
+`services.ts:1580` reserves capacity the moment `bookShipment` runs — before the carrier
 accepts and before payment is authorized. `reservedKg` is decremented in exactly two places:
 `rollbackBooking` (`:1678`, only when Razorpay order creation fails) and `failCarrierAndRefund`
 (`:1792`). There is no expiry, no timeout, and no sweeper for a shipment left in
@@ -303,11 +318,171 @@ to release a specific booking manually in the meantime.
 
 ---
 
+### C5. `NODE_ENV` is both an environment name and a security switch, and the new three-environment model made those meanings collide
+
+Three separate production protections are keyed off `NODE_ENV !== "production"`:
+
+| File:line | What it guards | Behaviour when `NODE_ENV` is not exactly `production` |
+|---|---|---|
+| `httpServer.ts:321` | The legacy demo surface | Enabled |
+| `httpServer.ts:92` | CORS origin allowlist | Reflects **any** origin |
+| `integrationServices.ts:98` | Partner webhook URL scheme | Plain `http://` accepted |
+
+`render.yaml` now sets `NODE_ENV` to the **environment name**:
+
+```yaml
+- name: alpha        NODE_ENV: alpha       ENABLE_LEGACY_DEMO_SURFACE: "1"
+- name: beta         NODE_ENV: beta        ENABLE_LEGACY_DEMO_SURFACE: "0"
+- name: production   NODE_ENV: production  (key absent)
+```
+
+So on alpha **and beta**, all three protections are off. Beta's `ENABLE_LEGACY_DEMO_SURFACE: "0"` is
+inert — line 321 short-circuits on the `NODE_ENV` test before it is ever read:
+
+```ts
+const enabled = process.env.NODE_ENV !== "production" || process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+```
+
+What that opens on beta, all unauthenticated (verified by reading each handler):
+
+| Route | `httpServer.ts` | Returns |
+|---|---|---|
+| `GET /v1/users` | 896 | `[...store.users.values()]` — every user and phone number |
+| `GET /v1/orgs` | 890 | Every organisation |
+| `GET /admin` | 902 | An HTML page rendering users, memberships, vehicles, trips, shipments, payments and ledger lines |
+| `POST /carriers`, `POST /anchor-trips` | 1355, 1369 | Legacy CRUD — publish capacity as any carrier |
+| `POST /v1/pilot/driver/login` | 553 | Legacy driver login with no OTP |
+
+Beta is the UAT environment. It runs `PAYMENT_PROVIDER=RAZORPAY` against real Razorpay test
+credentials, and it is the environment real pilot users get pointed at.
+
+**Failure scenario:** a shipper does UAT on beta. `curl https://navig8r-api-beta.onrender.com/v1/users`
+returns every pilot user's name and mobile number to anyone who guesses the hostname. Nobody notices,
+because the blueprint says `ENABLE_LEGACY_DEMO_SURFACE: "0"` and that reads as switched off.
+
+The `Dockerfile` bakes `ENV NODE_ENV=production` (line 7), so the **image** is safe by default and the
+**blueprint** is what opens it. That is the wrong way round: a config mistake should fail closed.
+
+**Fix — do not widen the `NODE_ENV` test.** Separate the two meanings:
+
+```ts
+// One explicit switch per protection, default-deny. NODE_ENV stays a label.
+const demoSurfaceEnabled = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
+```
+
+Then set `ENABLE_LEGACY_DEMO_SURFACE: "1"` on alpha only, and give CORS and the webhook-scheme check
+their own named variables. Deleting the legacy routes outright is better still — see R3.
+
+Draft PR **#104** ("Honor ENABLE_LEGACY_DEMO_SURFACE=0 on beta") fixes the demo-surface third of this.
+It does not touch CORS or the webhook scheme check, both of which are open on beta for the same reason.
+
+### C6. Ops soft-delete does not reach the marketplace: tombstoned trips are still listed and bookable
+
+`opsDeleteUser` cascades a tombstone across organisations, shipments, payments, trips, ledger lines,
+vehicles and driver profiles (`services.ts:619` onward). It is careful work. But `isActiveEntity` is
+called in only three places outside the deletion path itself:
+
+```
+auth.ts:93, 127, 165     login and session verification
+services.ts:353, 389     customer shipment visibility
+```
+
+It is called **nowhere** in listing, quoting, or booking. Verified:
+
+```ts
+// httpServer.ts:1396 — the public marketplace listing, no filter of any kind
+const trips = [...store.anchorTrips.values()].map((t) => tripWithCarrierDisplay(store, t));
+
+// services.ts:1319 — the matching loop, status is the only filter
+for (const trip of store.anchorTrips.values()) {
+  if (trip.status !== "OPEN") continue;
+```
+
+`markInactive` sets `inactiveAtUtcMs`; it does not change `status`. A tombstoned trip that was `OPEN`
+stays `OPEN`.
+
+**Failure scenario:** ops deactivates a carrier for fraud. Every one of that carrier's open anchor
+trips stays on the public marketplace. A customer books one, is charged, and the money is authorized
+against a carrier who can no longer log in — `auth.ts:93` rejects them at `otp/start`. The load has no
+driver and no one finds out until the pickup window passes.
+
+**Fix:** filter at the two read paths above, not at every call site. Then add a test that deactivates a
+carrier and asserts its trips leave `GET /anchor-trips`.
+
+Draft PR **#106** ("Stop booking and listing ops-tombstoned marketplace trips") reports this. **It is
+correct** — I checked both code paths against its claim.
+
+Related: the public listing also spreads the whole trip object, so it now publicly discloses
+`inactiveAtUtcMs` and `inactiveReason: "ops_user_deactivate"` — that an account was deactivated by ops,
+and when. See C0.
+
+### C7. The containerised customer-web silently loses the Maps API key, breaking address entry
+
+Two different mechanisms carry `MAPS_API_KEY` into the Flutter web app, and the new container build
+uses only one of them.
+
+| Consumer | How it gets the key | Container build |
+|---|---|---|
+| Google Maps JS `<script>` in `web/index.html:24` | `__MAPS_API_KEY__` placeholder, `sed`-replaced at container start by `docker/customer-web/entrypoint.sh:12` | Works |
+| Dart `kMapsApiKey` (`maps_config.dart:7`) | `String.fromEnvironment("MAPS_API_KEY")` — resolved at **compile** time | **Empty string** |
+
+`Dockerfile.customer-web:31-33` builds with one define:
+
+```dockerfile
+RUN flutter pub get \
+    && flutter build web --release \
+       --dart-define=API_BASE_URL=/api
+```
+
+The existing static Render build does pass it (`scripts/render-build-customer-web.sh:44-48`):
+
+```bash
+DART_DEFINES=(--dart-define="API_BASE_URL=$API_BASE_URL")
+if [ -n "$MAPS_API_KEY" ]; then
+  DART_DEFINES+=(--dart-define="MAPS_API_KEY=$MAPS_API_KEY")
+fi
+```
+
+So this is a **regression that arrives at cutover**, not a bug that is live today. `render.yaml` names
+`navig8r-customer-web-image` as the production migration target; the day that replaces the static
+service, Dart-side geocoding stops.
+
+And it stops **silently**, because both call sites early-return on an empty key:
+
+```dart
+// location_editor.dart:413 and driver_flow.dart:1609
+if (kMapsApiKey.isEmpty) return;
+```
+
+**Failure scenario:** the cutover happens. Map tiles still render, because the script tag got its key
+from the entrypoint. Address autocomplete and reverse geocoding do nothing at all — no error, no
+console warning, no fallback. A customer cannot enter a pickup address, so no one can book. It looks
+like a UI bug rather than a build-arg omission, which is the expensive kind.
+
+**Fix:** add the build arg to `Dockerfile.customer-web`:
+
+```dockerfile
+ARG MAPS_API_KEY=""
+RUN flutter build web --release \
+      --dart-define=API_BASE_URL=/api \
+      --dart-define=MAPS_API_KEY="${MAPS_API_KEY}"
+```
+
+then pass it from `release.yml`. Note this bakes the key into the image, which the runtime-`sed`
+approach deliberately avoided — so the better fix is to stop reading the key from a compile-time
+constant and read it from `release.json` (which the entrypoint already writes) or from a `<meta>` tag
+the entrypoint fills, keeping one runtime injection point for both consumers.
+
+Either way, **replace the two silent `return`s with a visible error**. A missing key should be loud.
+
+Draft PR **#97** ("Clarify MAPS_API_KEY APK build + customer GPS root causes") is adjacent but is about
+the APK build, not the container.
+
 ## High — security
 
 ### H1. `ALLOW_X_USER_ID` is an unauthenticated impersonation switch with no production guard
 
-`httpServer.ts:283-291`. When `ALLOW_X_USER_ID=1`, `requireUserId` returns the `x-user-id`
+`httpServer.ts:285-292`. When `ALLOW_X_USER_ID=1`, `requireUserId` returns the `x-user-id`
 header directly — no signature, no session lookup, no expiry check — before it ever considers
 the bearer token. It fronts roughly 20 authenticated routes.
 
@@ -330,7 +505,7 @@ behaviour.
 
 ### H2. Stored XSS in the ops portal via customer organization name
 
-`httpServer.ts:232` and `:245`. The ops portal builds its tables by string concatenation into
+`httpServer.ts:233`, `:247` and `:1231`. The ops portal builds its tables by string concatenation into
 `innerHTML` with no escaping:
 
 ```
@@ -363,7 +538,7 @@ challenge `PENDING`. There is no attempt counter, no lockout, and no per-phone t
 
 A six-digit code with a ten-minute window and unlimited attempts is brute-forceable.
 
-Compounding this, no SMS provider is integrated. `types.ts:85` says so: *"Pilot OTP challenge
+Compounding this, no SMS provider is integrated. `types.ts:91` says so: *"Pilot OTP challenge
 (mock SMS). Replace with real SMS + rate limits in production."* With `OTP_DEBUG=0`, which
 `render.yaml` sets, codes are generated and never delivered — nobody can log in. With
 `OTP_DEBUG=1`, `/v1/auth/otp/start` returns the code to any unauthenticated caller who knows a
@@ -375,21 +550,44 @@ phone number, which is account takeover by design.
 DLT-registered transactional SMS), add a failed-attempt counter that expires the challenge after
 5 tries, and throttle `otp/start` per phone.
 
-### H4. Sessions cannot be revoked, because nothing ever revokes them
+### H4. Sessions are revocable only by deactivating the whole account, and there is still no logout
 
-`AuthSession.revokedAtUtcMs` is initialised to `null` (`auth.ts:145`) and checked on every
-verify (`auth.ts:158`), but **no code path anywhere sets it**. There is no logout endpoint and
-no revoke endpoint.
+**Changed since the first pass.** The first pass said nothing ever sets `revokedAtUtcMs`. That is no
+longer true — the ops soft-delete added the one and only writer (`services.ts:714`):
 
-The server-side session lookup is the right design — it is what makes revocation *possible*,
-unlike a stateless JWT. The mechanism is simply unused.
+```ts
+// Revoke sessions (cannot sign in); expire pending OTPs
+for (const s of store.authSessions.values()) {
+  if (s.userId === userId && s.revokedAtUtcMs == null) {
+    store.authSessions.set(s.id, { ...s, revokedAtUtcMs: at });
+  }
+}
+```
 
-**Failure scenario:** a driver's phone is stolen. The token is valid for its full 30-day
-lifetime. The only remedy is rotating `AUTH_SECRET`, which also invalidates every other user's
-session and every ERP partner's API key.
+`grep -rn revokedAtUtcMs apps/api/src` confirms it is the only assignment outside the type
+definition, the `null` initialiser at `auth.ts:148`, the check at `auth.ts:161`, and the two Prisma
+serialisers. Belt and braces: `verifyBearer` also now rejects a session whose user is tombstoned
+(`auth.ts:165`), so revocation holds even if a session row were missed.
 
-**Fix:** add `POST /v1/auth/logout` that sets `revokedAtUtcMs`, and an ops endpoint to revoke a
-user's sessions.
+So the mechanism works, and there is now exactly one way to trigger it: **an ops admin deactivating
+the entire account**. What is still missing:
+
+- No `POST /v1/auth/logout`. A user cannot end their own session, on any client.
+- No way to revoke one session. Signing a driver out of a stolen phone means deactivating their
+  account, which also tombstones their sole-owned org, its vehicles, trips, shipments and ledger
+  lines (`services.ts:619`). That is not a sign-out, it is an offboarding.
+- No way to reverse it. There is no `opsRestoreUser`; `markInactive` has no inverse in
+  `softDelete.ts`. Deactivation is a one-way door through the API — recovery means editing
+  `store.json` by hand.
+
+**Failure scenario:** a driver's phone is stolen mid-shift. Ops has two options: leave the token
+valid for its full 30-day lifetime, or deactivate the driver — which cancels their in-flight loads
+and cannot be undone without hand-editing the store file.
+
+**Fix:** `POST /v1/auth/logout` setting `revokedAtUtcMs` on the calling session, and
+`DELETE /v1/ops/users/:id/sessions` to revoke all of a user's sessions without touching their data.
+Both are small — the storage and the check already exist. Separately, add `opsRestoreUser` so
+deactivation is reversible.
 
 ### H5. No SSRF protection on partner webhook URLs
 
@@ -421,7 +619,7 @@ rather than after.
 
 ### H7. Anonymous shipments are visible to anyone who registers a matching organization name
 
-`services.ts:309-314`. Shipment ownership falls back to a **free-text name comparison** when no
+`services.ts:311-316`. Shipment ownership falls back to a **free-text name comparison** when no
 org id is set:
 
 ```
@@ -455,7 +653,7 @@ mechanism. Add a uniqueness constraint on customer org display names regardless.
 
 ### H8. Carriers can read every other carrier's settlement amounts
 
-`services.ts:779-787`. `pilotListCarrierPayoutBatches` authorizes the caller for the requested
+`services.ts:1120-1128`. `pilotListCarrierPayoutBatches` authorizes the caller for the requested
 org correctly (`assertPilotDriverCanManageOrg`) and correctly selects the batches containing that
 carrier's ledger lines. Then it returns the **entire `PayoutBatch` object**.
 
@@ -479,7 +677,7 @@ the caller's own transfer and line ids, and drop everyone else's.
 
 ### S1. In DB mode, every write deletes and re-inserts the entire database
 
-`persistenceDb.ts:279-293`. `saveStoreToDatabase` opens one interactive transaction, calls
+`persistenceDb.ts:315-330`. `saveStoreToDatabase` opens one interactive transaction, calls
 `deleteMany()` on all 13 tables, then re-creates every row with individual `create()` calls.
 `persist()` runs after every mutating request.
 
@@ -495,7 +693,7 @@ targeted `upsert` calls are a mechanical change from here.
 
 ### S2. The payout runner writes an empty batch row every 60 seconds, forever
 
-`services.ts:1825-1839` creates and stores a `PayoutBatch` even when nothing is eligible —
+`services.ts:2160-2177` creates and stores a `PayoutBatch` even when nothing is eligible —
 deliberately, per the comment *"Still create an empty batch for determinism in MVP."* The
 background timer (`index.ts:27`) calls it every 60 seconds.
 
@@ -544,7 +742,7 @@ deciding before anyone raises the Render instance count.
 
 ### S5. Every domain query is a full scan, and the Prisma schema has no indexes
 
-Lookups such as `findUserByPhone` (`auth.ts:76`) and `findActiveKey`
+Lookups such as `findUserByPhone` (`auth.ts:75`) and `findActiveKey`
 (`integrationAuth.ts:39-47`) iterate the entire collection on every request — the latter also
 computing a SHA-256 per key. `schema.prisma` declares no `@@index` and no `@unique` beyond
 primary keys.
@@ -560,7 +758,7 @@ number.
 
 ### M1. An expired token makes a booking silently anonymous
 
-`httpServer.ts:1377-1388`. `POST /shipments/book` wraps `verifyBearer` in a `try` and, on any
+`httpServer.ts:1460-1470`. `POST /shipments/book` wraps `verifyBearer` in a `try` and, on any
 failure, proceeds with anonymous booking. Anonymous booking is a real feature, so the catch is
 intentional — but it does not distinguish "no token supplied" from "token expired".
 
@@ -574,7 +772,7 @@ anonymous only when no header was sent.
 
 ### M2. Trip capacity uses floating-point equality to detect FULL
 
-`services.ts:1240`: `if (trip.reservedKg === trip.capacityKg) trip.status = "FULL";`
+`services.ts:1581`: `if (trip.reservedKg === trip.capacityKg) trip.status = "FULL";`
 `weightKg` is validated only as `> 0` (`:1211`), so fractional weights are accepted and
 `reservedKg` accumulates floating-point error.
 
@@ -604,60 +802,75 @@ portal.
 ### M4. Nothing typechecks the codebase
 
 `tsconfig.json` sets `strict: true` and `noEmit: true`, but no script, Dockerfile step, or CI job
-ever runs `tsc`. `grep -rn tsc package.json apps/*/package.json Dockerfile` returns nothing. The
-app runs via `--experimental-strip-types`, which **strips** types without checking them.
+ever runs `tsc`. TypeScript is not a dependency of any `package.json` in the repo, so `tsc` is not
+even installed. The app runs via `--experimental-strip-types`, which **strips** types without
+checking them.
+
+Re-verified 2026-09-13 against `187fe76`: `grep -rn "tsc" .github/ package.json apps/*/package.json`
+returns nothing. The new CI runs tests; it does not typecheck.
 
 **Failure scenario:** a type error ships. The strict settings are decorative today.
 
-**Fix:** add `"typecheck": "tsc --noEmit"` and run it in CI. Expect a first run to surface real
-errors.
+**Fix:** add `typescript` as a devDependency, a `"typecheck": "tsc --noEmit"` script, and a step in
+the `test` job of `release.yml`. Expect a first run to surface real errors — budget for that rather
+than being surprised by it.
 
-### M5. No CI runs the 53 passing tests
+### M5. CI runs the tests, but only after the merge — nothing blocks a bad PR
 
-There is no `.github/` directory. The test suite is good and it is enforced only by whoever
-remembers.
-
-**Fix:** the highest value-per-effort change in this document.
+**Fixed in part.** `.github/workflows/release.yml` now exists and runs the suite:
 
 ```yaml
-# .github/workflows/ci.yml
-name: CI
+jobs:
+  test:
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm test
+  build:
+    needs: test          # a red suite blocks the image build, and so the deploy
+```
+
+That is the single largest improvement to the repo since the first pass, and it closes the original
+finding. Three gaps remain, in descending order of cost.
+
+**1. The workflow does not trigger on pull requests.**
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+```
+
+There is no `pull_request:` trigger, so tests never run on a PR. They run on `main` **after** the
+merge. The pipeline then refuses to deploy, which is the right outcome but the wrong moment: `main`
+is left red, and with 40+ open draft PRs and no required status check, the person who merged has
+already moved on.
+
+Adding four lines fixes it:
+
+```yaml
 on:
   pull_request:
   push:
     branches: [main]
-
-jobs:
-  api:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm install --prefix apps/api
-      - name: Typecheck
-        run: npx tsc --noEmit
-      - name: Test
-        run: node --experimental-strip-types --test "packages/**/src/**/*.test.ts" "apps/**/src/**/*.test.ts"
-
-  flutter:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.22.3'
-      - run: flutter pub get
-        working-directory: apps/driver_pilot
-      - run: flutter analyze
-        working-directory: apps/driver_pilot
-      - run: flutter test
-        working-directory: apps/driver_pilot
+  workflow_dispatch:
 ```
 
-What this does not catch: anything behind `PERSISTENCE=DB` (no Postgres service), the Razorpay
-paths (no test credentials), and the marketing site (no tests exist).
+Then make `Repository Tests` a required status check in branch protection. Without the branch
+protection rule the trigger alone is advisory.
+
+**2. Nothing runs Flutter.** No workflow installs Flutter, so `flutter analyze` and `flutter test`
+have never run in CI. The Dart code is roughly 7,100 lines across 13 files and is checked by nobody.
+`Dockerfile.customer-web` does run `flutter build web`, so a **compile** error would fail the release
+— but an analyzer warning, a failing widget test, or the `mounted` bugs in M11 would not.
+
+**3. Nothing typechecks.** See M4.
+
+What CI still cannot catch, by design: anything behind `PERSISTENCE=DB` (no Postgres service in the
+workflow), and the marketing site (no tests exist for it).
 
 ### M6. Node 22+ is mandatory and nothing says so
 
@@ -697,7 +910,7 @@ Flutter's own `.gitignore` template excludes them.
 
 ### M10. CORS omits the ERP integration's own auth headers
 
-`httpServer.ts:104` sets `Access-Control-Allow-Headers: content-type, authorization,
+`httpServer.ts:106` sets `Access-Control-Allow-Headers: content-type, authorization,
 x-razorpay-signature`. The integration endpoints read `x-api-key` and `x-api-secret`
 (`integrationHttp.ts:76-77`), which are therefore blocked by preflight from any browser origin.
 
@@ -720,7 +933,7 @@ entirely.
 
 ### M12. `webhooks:manage` is a scope that can be granted but is never checked
 
-`types.ts:261` declares three scopes: `loads:read`, `loads:write`, `webhooks:manage`. Grepping
+`types.ts:267` declares three scopes: `loads:read`, `loads:write`, `webhooks:manage`. Grepping
 every call site of `assertIntegrationScope` shows only the first two are ever enforced
 (`integrationHttp.ts:81, 107, 124, 132, 145`). **`webhooks:manage` is checked nowhere.**
 
@@ -776,7 +989,7 @@ These are the largest files. Each proposal names the new files, what moves, and 
 harder** — a split with no stated cost has not been thought through. None of these should be
 done while other work is in flight; they conflict with everything.
 
-### R1. Split `services.ts` (1,936 lines, 64 exports) along its real seams
+### R1. Split `services.ts` (2,277 lines, 67 exports) along its real seams
 
 One file currently holds onboarding, ops administration, geofencing, pricing, booking, capacity,
 delivery, refunds, tracking and payouts. It fails the one-sentence test badly.
@@ -786,7 +999,7 @@ Rather than a mechanical split, take the seams where coupling is genuinely low:
 | New file | What moves | Lines |
 |---|---|---|
 | `domain/pricing.ts` | `computeFreightGrossPaise`, `quoteShipmentMarketplace`, `pilotRatesEstimate`, `FreightBreakdown` | ~1005-1188 |
-| `domain/payouts.ts` | `runPayoutBatch`, ledger helpers, `pilotListCarrierLedger`, payout-batch listing | ~1819-1936, ~772-790 |
+| `domain/payouts.ts` | `runPayoutBatch`, ledger helpers, `pilotListCarrierLedger`, payout-batch listing | ~2150-2277, ~1110-1130 |
 | `domain/identity.ts` | org/user/membership creation, ops-admin grant and revoke, visibility predicates | ~190-612 |
 | `domain/delivery.ts` | `submitDriverPod`, `markPodDelivered`, `releasePaymentAndDeliver`, `failCarrierAndRefund` | ~1345-1410, 1600-1818 |
 | `services.ts` (remainder) | trips, booking, capacity, tracking | the rest |
@@ -800,9 +1013,9 @@ its disruption.
 stay coupled through the store type — the split improves navigation, not decoupling. Do not
 expect it to reduce complexity, only to make it findable.
 
-### R2. Extract the portal HTML out of `httpServer.ts` (1,602 lines)
+### R2. Extract the portal HTML out of `httpServer.ts` (1,695 lines)
 
-Roughly 560 lines of the file are template-literal HTML and browser JavaScript for `/admin` and
+Roughly 590 lines of the file are template-literal HTML and browser JavaScript for `/admin` and
 `/ops`. They are not server logic and they defeat editor tooling — the XSS in H2 survived
 partly because it is JavaScript inside a string inside a route handler.
 
@@ -840,7 +1053,7 @@ customer flow redirects through.
 
 ### R4. Split the two 2,000-line Flutter screen files by journey
 
-`driver_flow.dart` (2,221 lines, 18 screens) and `customer_flow.dart` (2,149 lines, 13 screens).
+`driver_flow.dart` (2,305 lines, 18 screens) and `customer_flow.dart` (2,149 lines, 11 screens plus two private tab widgets).
 
 Both are cohesive in the sense that everything in them belongs to one persona — but neither can
 be described without listing six journeys, and the practical cost is real: in
@@ -850,7 +1063,7 @@ between them.
 
 | From | New files |
 |---|---|
-| `driver_flow.dart` | `driver/shell.dart`, `driver/onboarding.dart` (151-686), `driver/shipments.dart` (687-1199), `driver/trip.dart` (1200-1786), `driver/earnings.dart` (1787-2017), `driver/publish.dart` (2018-2221) |
+| `driver_flow.dart` | `driver/shell.dart`, `driver/onboarding.dart`, `driver/shipments.dart`, `driver/trip.dart`, `driver/earnings.dart`, `driver/publish.dart`, `driver/vehicle.dart` (the new profile editor) |
 | `customer_flow.dart` | `customer/shell.dart`, `customer/auth.dart`, `customer/team.dart`, `customer/integrations.dart` (704-1082), `customer/browse.dart`, `customer/booking.dart`, `customer/shipments.dart` |
 
 **What gets harder:** the route lists (`driverFlowRoutes()`, `customerFlowRoutes()`) must import
@@ -872,7 +1085,10 @@ Each of these is under an hour and has real payoff.
 | Reject non-finite `weightKg` at the edge (C0b) | One `Number.isFinite` check; closes an unauthenticated, unrecoverable trip-destroying bug |
 | Drop `/pod` and `/fail-refund` from the marketplace allowlist (C0d) | Two deleted lines; restores the ops release gate. The app uses `driver-pod`, so nothing breaks |
 | Add `publicTripView()` for the two public trip routes (C0) | One projection function; stops serving driver GPS to the world |
-| Add `.github/workflows/ci.yml` (M5) | Nothing currently enforces 53 passing tests |
+| Add `pull_request:` to `release.yml` and require the check (M5) | Four lines; tests currently run only after the merge |
+| Set `ENABLE_LEGACY_DEMO_SURFACE` as the sole demo-surface switch (C5) | One line; closes an unauthenticated user dump on alpha and beta |
+| Filter tombstoned trips from the two marketplace reads (C6) | Two conditions; stops customers booking a deactivated carrier |
+| Pass `MAPS_API_KEY` in `Dockerfile.customer-web` (C7) | Three lines; prevents address entry breaking at cutover |
 | `>=` instead of `===` in the FULL check (M2) | One character; prevents stuck trips |
 | Guard `payment.captured` on `REFUNDED` (C3) | One line; prevents money-state corruption |
 | Gate `ALLOW_X_USER_ID` on `NODE_ENV` (H1) | One condition; closes a total-impersonation switch |
@@ -911,8 +1127,8 @@ A review that only lists problems misleads. These are decisions worth keeping, a
 
 ## The open draft PR backlog
 
-Thirty-plus draft PRs are open, the oldest from 10 July, none reviewed. Most of the volume is
-noise, and it is hiding a handful of real fixes.
+Forty-plus draft PRs are open, the oldest from 10 July, none reviewed. Most of the volume is
+noise, and it is hiding a handful of real fixes. As of 2026-09-13 the newest are #104 and #106.
 
 **PRs #65 through #80 are sixteen near-duplicate PRs**, titled "Fix critical ERP integration
 state regressions" or a close variant, opened roughly daily. That is an automated agent
@@ -927,7 +1143,18 @@ it found, it found once.
 | #81–#85, #87, #98 | Distinct findings, several confirmed independently below. Review individually. |
 | #86, #89 | Documentation PRs (a PRD, an AGENTS.md). #86 overlaps the rewritten README in this PR — worth reconciling rather than merging both. |
 | #93, #95, #96, #97 | Marketing site and build notes, small and self-contained. Quick to clear. |
-| #101, #102 | Newest, and the two most worth reading first. #101 carries real production measurements; #102 makes a claim about production data durability that outranks most of this document if true. |
+| #101, #102 | #101 carries real production measurements; #102 is about production data durability and outranks everything else here. Read these two first. |
+| #104, #106 | Opened since the first pass. Both verified correct against the source — see below. |
+
+**#104 is correct but fixes one third of the problem.** It reports that beta ignores
+`ENABLE_LEGACY_DEMO_SURFACE=0` because `NODE_ENV=beta` is not `production`. Verified at
+`httpServer.ts:321`. What it does not say is that the same `NODE_ENV !== "production"` test also
+disables the CORS origin allowlist (`:92`) and the HTTPS requirement on partner webhook URLs
+(`integrationServices.ts:98`). Fixing only the demo surface leaves two holes open on beta. See C5.
+
+**#106 is correct.** It reports that ops-tombstoned trips are still listed and bookable. Verified
+in both paths: `httpServer.ts:1396` applies no filter at all, and `services.ts:1319` filters only
+on `status !== "OPEN"` — and `markInactive` does not change `status`. See C6.
 
 **#102 is correct, and it outranks everything else in this document.** It argues the production
 store lives on the ephemeral Docker container layer rather than the mounted Render disk, so the
@@ -938,16 +1165,28 @@ pairs `disk: { mountPath: /data }` with `DATA_FILE=/data/store.json`. That was t
 look at. The failure is in the code's fallback:
 
 ```ts
-// httpServer.ts:345
+// httpServer.ts:347
 const dataFilePath = process.env.PERSISTENCE === "DB"
   ? null
   : (process.env.DATA_FILE ?? "./data/store.json");
 ```
 
-The Dockerfile's final `WORKDIR` is `/app/apps/api` (`Dockerfile:19`). So whenever `DATA_FILE` is
+The Dockerfile's final `WORKDIR` is `/app/apps/api` (`Dockerfile:22`). So whenever `DATA_FILE` is
 *not actually set in the running process*, the store is written to
 `/app/apps/api/data/store.json` — inside the container's writable layer, which is destroyed on
 every deploy. The blueprint being right does not help if the dashboard never applied it.
+
+**Re-checked 2026-09-13 against `187fe76`.** The code default at `httpServer.ts:347` is unchanged,
+and the Dockerfile still ends at `WORKDIR /app/apps/api`. The rewritten `render.yaml` now sets
+`DATA_FILE=/data/store.json` and mounts a 1 GB disk at `/data` on **all three** environments, so
+if the blueprint is applied the symptom goes away. Two things keep this open:
+
+- The blueprint was already correct before, and the store was still wiped. The gap between
+  `render.yaml` and the dashboard is the actual failure, and nothing in this change closes it.
+- The unsafe default survives. A relative `./data/store.json` inside a container is never the
+  right answer. It should fail loudly instead: `DATA_FILE` required whenever `PERSISTENCE !== "DB"`.
+
+Settle it with `curl -s <api>/health` — it reports `persistence` and, now, the `release` SHA.
 
 **The empty payout batches from S2 independently corroborate this**, which is worth spelling out
 because it turns a config suspicion into measured evidence. Those rows accrue at exactly one per
@@ -975,8 +1214,8 @@ the source independently, so they are real and worth taking seriously:
 | PR | Finding here | Confirmed |
 |---|---|---|
 | #101 empty payout batches | S2 | Yes — and it supplies live figures I could not get: 21,832 rows, ~7MB `/admin` |
-| #87 stored XSS in ops portal | H2 | Yes — `httpServer.ts:232`, `:245` |
-| #98 carrier payout history leak | H8 | Yes — `services.ts:779` returns the whole batch |
+| #87 stored XSS in ops portal | H2 | Yes — `httpServer.ts:233`, `:247`, `:1231` |
+| #98 carrier payout history leak | H8 | Yes — `services.ts:1120` returns the whole batch |
 | #85 concurrent RazorpayX payout double-pay | S4 | Yes — two unguarded timers, no re-entrancy flag |
 | #84 OTP lockout, capacity NaN, phone squat | H3, M2, H7 | Related; not verified line-by-line against the PR |
 | #83 checkout capacity leaks | C4 | Related; not verified line-by-line against the PR |
@@ -987,16 +1226,18 @@ described here.
 
 ## Suggested order
 
-0. **C0, C0b and C0d, today.** Both are reachable in production right now, both need no account, and
-   both have small fixes — a projection function and an input validator. C0b is the more urgent
-   of the two: one malformed request permanently destroys a trip with no recovery path.
+0. **C5 first, today.** `curl https://navig8r-api-beta.onrender.com/v1/users` returns every user
+   and phone number, unauthenticated, and the blueprint reads as though that were switched off.
+   It is one line to fix and it is live now. Then **C0, C0b and C0d** — all reachable in
+   production, none needing an account. C0b is the most urgent of those three: one malformed
+   request permanently destroys a trip with no recovery path.
 1. **Unblock the pilot:** H3 (SMS and OTP rate limiting) **together with C0c** (the OTP
    challenge mismatch). Doing H3 alone will not produce a working login — customer sign-in will
    still fail and driver sign-in will send two messages per attempt.
 2. **The quick wins table.** An afternoon, and it removes two money-correctness bugs and an
    impersonation switch.
-3. **Triage the draft PR backlog** using the table above. Sixteen of them are duplicates; three
-   contain fixes for findings confirmed here.
+3. **Triage the draft PR backlog** using the table above. Sixteen are duplicates; five contain
+   fixes for findings confirmed here (#87, #98, #101, #102, #104, #106).
 4. **H7**, the organization-name IDOR. It is a data-exposure bug between customers, and the fix
    is small.
 5. **C1 and C4** before `PAYOUTS_MODE=RAZORPAYX` or any real capacity pressure.
@@ -1004,3 +1245,6 @@ described here.
 7. **R3**, the deletion. Cheap, and it makes the Flutter code honest.
 8. **R1 step one and R2 step one** — `domain/pricing.ts` and the portal HTML extraction — then
    reassess whether the rest is worth it.
+
+**Before the customer-web cutover, whenever that happens:** C7. It is not broken today and it will
+be broken the moment the image-backed service replaces the static one.

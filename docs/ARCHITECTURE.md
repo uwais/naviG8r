@@ -49,8 +49,42 @@ Verified against commit `0fc4ad0`.
                   pay carrier             lifecycle events
 ```
 
-Three services deploy from `main` to Render (Singapore): the API as a Docker web service, and
-two static sites (customer web, marketing).
+Three services run on Render (Singapore) — the API, the customer web portal, and the marketing
+site — and each exists three times over, once per environment (alpha, beta, production).
+
+### Why the release model changed
+
+Until 2026-09 Render built each service from `main` on push: the API from a Dockerfile, the other
+two as static sites from a build script. That is gone. All nine services are now `runtime: image`,
+pulling tagged images from GHCR, and GitHub Actions owns the pipeline.
+
+*Rationale stated in `render.yaml`:* "The release identity is the exact image digest." A build
+per environment means three different artifacts and no guarantee that what passed UAT is what
+went live. Building once and promoting the same digest through alpha, beta and production makes
+the thing you tested and the thing you shipped provably identical. `RELEASE_SHA` is baked into
+the image at build time and echoed by `GET /health`, so every gate can assert it is talking to
+the build it thinks it is — that is what `scripts/alpha-integration.mjs` and `beta-smoke.mjs`
+check first.
+
+**What was given up.** Four things, and they are not small:
+
+- **A hotfix now takes the full pipeline.** There is no way to push a one-line fix straight to
+  production; it builds, deploys to alpha, runs integration tests, deploys to beta, waits for a
+  human, then deploys. Rolling back is faster than rolling forward — re-point the environment tag
+  at an earlier digest with `scripts/promote-image-tag.sh`.
+- **Three times the Render surface to keep in sync.** Nine services, three sets of environment
+  variables. The `OTP_DEBUG` drift that caused PR #100, and the `DATA_FILE` drift behind #102,
+  are now three times as likely.
+- **`NODE_ENV` stopped being a boolean.** Setting it to the environment name silently disabled
+  three production guards on alpha and beta. See C5 — this is the clearest cost of the change and
+  it was almost certainly not intended.
+- **The static services cannot be converted in place.** `render.yaml` carries
+  `navig8r-customer-web-image` and `navig8r-www-image` as parallel migration targets, so
+  production is mid-cutover: the API is image-backed, the two front ends are not yet. C7 is a
+  regression waiting at that cutover.
+
+*Inferred rationale for the manual approval gate on production only:* alpha and beta are
+recoverable, production moves real money.
 
 ---
 
@@ -137,11 +171,13 @@ error, no warning. Since roadmap section A is about moving to Postgres and secti
 ERP integration, these two workstreams currently contradict each other. This is the highest-value
 thing to fix in the codebase.
 
-The deployed blueprint (`render.yaml`) sets `DATA_FILE` and does not set `PERSISTENCE=DB`, so
-production runs the file store today — despite `ROADMAP.md` stating Postgres is live. Note that
+The deployed blueprint (`render.yaml`) sets `DATA_FILE` on all three environments and sets
+`PERSISTENCE=DB` on none of them, so every environment runs the file store today — despite
+`ROADMAP.md:27` marking "Hosted pilot API + Postgres: `PERSISTENCE=DB` + `DATABASE_URL` on Render"
+as done. Note that
 the blueprint is not the last word: a variable added in the Render dashboard would not appear
 here. `GET /health` settles it empirically, since it reports the mode the process is actually
-running in (`httpServer.ts:378-384`):
+running in (`httpServer.ts:380-387`):
 
 ```
 curl -s https://navig8r.onrender.com/health
@@ -168,7 +204,7 @@ Run that before trusting either this document or the roadmap on the question.
 | `LedgerLine` | The carrier-side earning |
 | `PayoutBatch` | A settlement run |
 | `IntegrationConnection`, `IntegrationApiKey`, `IntegrationEvent`, `IntegrationWebhookDelivery` | ERP subsystem |
-| `Carrier` | **Deprecated.** Marked legacy in `types.ts:30`; superseded by `Organization` |
+| `Carrier` | **Deprecated.** Marked `@deprecated` at `types.ts:37`; superseded by `Organization` |
 
 Roles: `OWNER_DRIVER`, `OWNER`, `DISPATCHER`, `DRIVER`, `CUSTOMER_ADMIN`, `CUSTOMER_MEMBER`,
 `OPS_ADMIN`, `OPS_AGENT`.
@@ -215,7 +251,7 @@ holding customer money it may have to refund.
 
 ### Units and rounding
 
-Everything is integer **paise**. `moneySplit` (`services.ts:138`) computes
+Everything is integer **paise**. `moneySplit` (`services.ts:140`) computes
 `commission = Math.floor(gross * 1000 / 10000)` and gives the carrier the remainder — so
 sub-paise rounding always favours the carrier, never the platform. That is a defensible default
 and worth keeping deliberate.
@@ -253,16 +289,21 @@ Verification checks the HMAC with `crypto.timingSafeEqual` after a length check,
 session up in the store and re-checks expiry and revocation.
 
 The server-side session lookup is the good part of this design: unlike a stateless JWT, a token
-*can* be invalidated before it expires. **But nothing uses it.** `revokedAtUtcMs` is initialised
-to `null` (`auth.ts:145`) and read on every verify (`auth.ts:158`), and no code path anywhere
-ever sets it. There is no logout endpoint and no revoke endpoint. In practice a leaked token is
-valid for its full 30-day lifetime with no way to kill it short of rotating `AUTH_SECRET`, which
-also breaks every ERP partner key. The mechanism is built; the door is missing.
+*can* be invalidated before it expires. As of the ops soft-delete work, one thing finally uses it.
+`revokedAtUtcMs` is initialised to `null` (`auth.ts:148`), read on every verify (`auth.ts:161`),
+and set in exactly one place — `opsDeleteUser` (`services.ts:714`), which revokes every session
+belonging to a user it deactivates. `verifyBearer` also rejects a session whose user is tombstoned
+(`auth.ts:165`), so revocation holds even if a session row were missed.
+
+That leaves the mechanism working but reachable through a single, very blunt door. There is still
+no logout endpoint, and no way to revoke one session: signing a driver out means deactivating their
+account, which cascades a tombstone across their org, vehicles, trips, shipments and ledger lines,
+and cannot be undone through the API. See H4 in `docs/IMPROVEMENTS.md`.
 
 *Inferred rationale for rolling this rather than using a JWT library:* one fewer dependency for
 a token format that never leaves this system.
 
-Two gaps, both acknowledged in the code (`types.ts:85` — "mock SMS. Replace with real SMS + rate
+Two gaps, both acknowledged in the code (`types.ts:91` — "mock SMS. Replace with real SMS + rate
 limits in production"):
 
 - **No SMS provider.** Codes are generated and never delivered.
@@ -282,7 +323,7 @@ The coupling to `AUTH_SECRET` is the notable consequence: rotating it invalidate
 ### The bypass
 
 `ALLOW_X_USER_ID=1` makes `requireUserId` accept an `x-user-id` header as identity with no
-token at all (`httpServer.ts:284`). It is off by default and not set in `render.yaml`, but it is
+token at all (`httpServer.ts:285`). It is off by default and not set in `render.yaml`, but it is
 **not** gated on `NODE_ENV`, unlike the legacy demo surface right beside it. Given it fronts
 ~20 authenticated routes including ops-admin ones, it should carry the same production guard.
 
@@ -348,11 +389,15 @@ Ordered by consequence. Detail and suggested fixes are in `docs/IMPROVEMENTS.md`
 
 | Risk | Why it matters |
 |---|---|
+| `NODE_ENV` is both a label and a security switch | Alpha and beta serve an unauthenticated user dump (C5) |
+| The file store's default path is inside the container | A missing `DATA_FILE` wipes the store every deploy (C7 / PR #102) |
+| Soft-delete does not reach the marketplace | Tombstoned carriers' trips stay bookable (C6 / PR #106) |
 | DB mode drops the ERP subsystem | Blocks the roadmap's own Postgres migration |
 | No SMS delivery or OTP rate limiting | Blocks onboarding a single real pilot user |
 | `ALLOW_X_USER_ID` has no production guard | One env var from total account takeover |
 | Unescaped org name in the ops portal | Stored XSS against operators (open PR #87) |
 | Two unguarded in-process timers | The API cannot be scaled horizontally |
-| No CI | Nothing enforces the 53 passing tests |
-| `services.ts` and `httpServer.ts` hold many concerns | Every change touches a 1,600–1,900 line file |
+| CI runs after the merge, not on the PR | Nothing stops a red commit reaching `main` |
+| Nothing typechecks, and nothing runs Flutter | `strict: true` is decorative; 7,100 lines of Dart unchecked |
+| `services.ts` and `httpServer.ts` hold many concerns | Every change touches a 1,700–2,300 line file |
 | Doc and deployment disagree on persistence | Reasoning about production from docs misleads |
