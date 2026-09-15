@@ -2,6 +2,14 @@
 
 Findings from a full read of the repository, ranked by consequence.
 
+**On the length of this file.** It is 1,379 lines, well past the point where a document should be
+split, and it is kept whole deliberately. Every finding has an ID, and those IDs are cited from
+`README.md`, `docs/CODEBASE_MAP.md`, `docs/ARCHITECTURE.md` and `ROADMAP.md` — 16 references across
+those four as of 2026-09-15 — as well as from the quick-wins table, the draft-PR triage and the
+suggested order inside this file.
+Splitting would turn one argument into four and make "what does C7 depend on" a four-file hunt.
+Revisit this when the backlog is short enough that the cross-references stop carrying the weight.
+
 **How to read this.** Every finding below was confirmed by opening the cited file. Each states
 the defect, a concrete failure scenario, and a specific change. Nothing here is a style
 preference — where something is a matter of taste it is marked as such and put at the bottom.

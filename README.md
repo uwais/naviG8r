@@ -66,7 +66,9 @@ radii are tunable (`PHASE_A_MAX_PICKUP_KM`, `PHASE_A_MAX_DROP_KM`).
 
 **Money moves in a deliberate order.** Booking *authorizes* the customer's payment but does not
 capture it. Capture happens at proof of delivery — the customer is charged when the goods
-actually arrive. The carrier's earnings then accrue to a ledger and are paid on a published
+actually arrive. That is the Razorpay path. Under the default `PAYMENT_PROVIDER=MOCK` the payment
+is written `CAPTURED` at booking and the sequence never runs (`services.ts:1592`,
+`razorpayPayments.ts:6`), so only beta and production exercise it. The carrier's earnings then accrue to a ledger and are paid on a published
 schedule rather than whenever someone gets around to it.
 
 ### The commercial model, as implemented
@@ -114,8 +116,9 @@ is which:
 
 - Carrier onboarding, anchor trip publishing, freight estimation
 - Customer browse, quote with breakdown, book, capacity reservation
-- Razorpay authorize-at-booking and capture-at-POD, plus webhook handling
-- Live GPS tracking from driver to customer
+- Razorpay authorize-at-booking and capture-at-POD, plus webhook handling (Razorpay path only — see above)
+- Live GPS tracking from driver to customer — but the same positions are also served
+  unauthenticated, see the first gap below
 - POD, ops release, ledger accrual, weekly payout batching
 - Shipper ERP API with idempotency, polling, and signed webhooks with retry
 
@@ -123,6 +126,9 @@ is which:
 
 | Gap | Consequence | Evidence |
 |---|---|---|
+| **Live trip GPS is public** | `GET /anchor-trips` is allowlisted past the production guard and returns whole trip objects, including `lastLiveLocation`, to anyone with the URL and no token. | `apps/api/src/httpServer.ts:300`, `apps/api/src/types.ts:152`; `docs/IMPROVEMENTS.md` C0 |
+| **A user cannot log out or close their own account** | There is no `POST /v1/auth/logout` and no self-serve deletion, while both registration routes are open. The only revocation is `DELETE /v1/ops/users`, which needs an ops token, so signing up is one call and signing out is a support request. Sessions last `SESSION_TTL_MS`, 30 days by default. | `apps/api/src/httpServer.ts:503`, `:540`, `:805`; `docs/IMPROVEMENTS.md` H4 |
+| **The ops release gate is bypassable** | `POST /shipments/:id/pod` is allowlisted past the production guard and captures payment, writes the carrier ledger line and marks the shipment `DELIVERED` in one unauthenticated call, so the "ops releases after POD" control described above does not hold on that route. | `apps/api/src/httpServer.ts:311`; `docs/IMPROVEMENTS.md` C0d |
 | **No SMS provider** | OTP codes are generated but never delivered. With `OTP_DEBUG=0` nobody can log in; with `OTP_DEBUG=1` the code is returned in the API response to anyone who knows a phone number. | `apps/api/src/types.ts:91` — "mock SMS. Replace with real SMS + rate limits in production." |
 | **No OTP rate limiting** | A six-digit code with a ten-minute window and unlimited attempts is brute-forceable. | No throttle exists in `apps/api/src/auth.ts` |
 | **Carrier payouts are bookkeeping-only outside production** | `PAYOUTS_MODE=BOOKKEEPING` flips ledger lines to PAID without moving money. Only production sets `RAZORPAYX`. | `render.yaml` |

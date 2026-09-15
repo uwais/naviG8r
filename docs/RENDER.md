@@ -166,6 +166,21 @@ start (`docker/customer-web/entrypoint.sh`):
 - `MAPS_API_KEY` — substituted into `index.html` and also written to `runtime-config.js`
   as `window.__NAVI8R_CONFIG__.MAPS_API_KEY`.
 
+  **This key is public.** `entrypoint.sh:16-20` writes it into
+  `/usr/share/nginx/html/runtime-config.js`, and `docker/customer-web/nginx.conf.template`
+  serves that directory with `try_files $uri`, so anyone can fetch
+  `https://<host>/runtime-config.js` and read it in clear text. It is also sent as a `key`
+  query parameter on browser calls to `https://maps.googleapis.com/maps/api/geocode/json`
+  (`apps/driver_pilot/lib/google_geocoding.dart:41`), which is billable. Treat it as published,
+  not secret: restrict it in Google Cloud, scope it to the Maps JavaScript and Geocoding APIs
+  only, and use a **separate key per environment**, because alpha, beta and production are three
+  different hostnames (`render.yaml:97`, `:176`, `:264`). The older guidance further up this file
+  names referrer restrictions for the static site; whether an HTTP-referrer restriction is
+  actually honoured for Geocoding web-service calls made from a browser is **not something this
+  repository can settle, and it has not been checked against Google's documentation** — confirm
+  the right restriction type before relying on it. A server-side secret must never be put in
+  `runtime-config.js`.
+
 The earlier static customer service at `https://navig8r-customer.onrender.com` is not part
 of this blueprint any more.
 

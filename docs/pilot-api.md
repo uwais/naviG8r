@@ -264,6 +264,14 @@ Same auth. Response `{ lines }` — that carrier org's own ledger lines, newest 
 #### `GET /v1/pilot/carrier/payout-batches?orgId=...`
 Same auth. Response `{ payoutBatches }` — only batches containing at least one of this carrier's ledger lines, newest first.
 
+Like the ops ledger and payout routes below, the three carrier money routes
+(`/earnings`, `/ledger`, `/payout-batches`) authenticate with `requireUserId`
+(`httpServer.ts:755`, `:775`, `:782`), not `requireBearerUserId`, so on any service running with
+`ALLOW_X_USER_ID=1` an `x-user-id` header satisfies them with no token — see H1 in
+`docs/IMPROVEMENTS.md`. `render.yaml` sets that variable on no service.
+
+**The filter picks which batches, not what is inside them.** Each element is the whole `PayoutBatch`, carrying `totalNetToCarrierPaise`, `lineIds` and `transfers[]` — one entry per carrier settled in that weekly batch, not just this one (`services.ts:1120-1127`, `types.ts:252-261`). Rendering the response as-is shows a driver other carriers' settlement amounts. Narrow it server-side before it reaches a screen; see H8 in `docs/IMPROVEMENTS.md`.
+
 
 #### Carrier onboarding (driver app)
 New carriers: **Register as new carrier** → `POST /v1/pilot/driver/register` → OTP verify → signed-in driver shell. Sign-in alone is for existing users only.
@@ -477,7 +485,7 @@ MVP eligibility rules (simple + explainable):
   - **Phase B**: near route polyline (pickup/drop near the computed route)
 Notes on the response:
 - No authentication. The handler reads only the query params above; it is not behind `ENABLE_LEGACY_DEMO_SURFACE`.
-- Ineligible trips come back too. For those, `eligible` is `false` and `reason` is `too_far_from_endpoints`. Those two values, plus `near_endpoints`, are the only ones `reason` ever takes. Filter client-side if you want eligible lanes only.
+- Ineligible trips come back too. For those, `eligible` is `false` and `reason` is `too_far_from_endpoints`. Those two values, plus `near_endpoints`, are the only ones `reason` ever takes. Rows with `eligible: false` must not be offered as bookable — they are sorted into the same `score`-ranked list as the rest, so filter them out before rendering rather than treating it as a display preference.
 - A trip missing either `origin` or `destination` is skipped with no signal, so a legacy city-only trip never appears here.
 - Rows are sorted by `score` descending. `score` is `max(0, 1 - (pickupDistanceKm / maxPickupKm + dropDistanceKm / maxDropKm) / 2)`, where `maxPickupKm` and `maxDropKm` come from `PHASE_A_MAX_PICKUP_KM` and `PHASE_A_MAX_DROP_KM` (both default to 15). The score is computed from the unrounded distances; the `pickupDistanceKm` and `dropDistanceKm` fields are rounded to one decimal place.
 
@@ -555,7 +563,8 @@ Body:
 
 Server behavior:
 - Reserve capacity immediately (`reservedKg += weightKg`)
-- If capacity becomes fully reserved, mark trip `FULL`- Reject the booking unless the anchor trip is `OPEN` (**400** `anchor_trip_not_open`) and has room (**400** `insufficient_capacity`)
+- If capacity becomes fully reserved, mark trip `FULL`
+- Reject the booking unless the anchor trip is `OPEN` (**400** `anchor_trip_not_open`) and has room (**400** `insufficient_capacity`)
 - When the anchor trip has map endpoints (`origin` + `destination`), enforce Phase A: `pickup` **and** `drop` are required (**400** `phase_a_pickup_drop_required`) and each must sit inside its endpoint radius, else **400** `phase_a_not_eligible` carrying `reason: "too_far_from_endpoints"`, `pickupDistanceKm`, `dropDistanceKm`, `maxPickupKm` and `maxDropKm`. The radii come from `PHASE_A_MAX_PICKUP_KM` and `PHASE_A_MAX_DROP_KM`, both defaulting to **15** km. Trips published without map endpoints skip the check entirely
 
 ### Phase C: en-route status + detour tolerance (accepted)

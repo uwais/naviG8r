@@ -426,7 +426,10 @@ overwriting `index.html`.
   (`docker/www/entrypoint.sh:4-9`). The page loads that file before the app bundle
   (`apps/driver_pilot/web/index.html:22`, `apps/www/index.html:485`) and the readers are
   `apps/driver_pilot/lib/maps_config_web.dart` and `apps/www/src/main.js:2`. To add a browser
-  setting, extend the entrypoint and the reader together. Build-time injection still exists
+  setting, extend the entrypoint and the reader together. **Anything you put there is public** —
+  nginx serves the web root with `try_files $uri`, so `runtime-config.js` is fetchable at a fixed
+  URL by anyone. It is for per-environment values the browser needs, never for a server-side
+  secret. Build-time injection still exists
   alongside it and is not interchangeable: `Dockerfile.customer-web:31` bakes
   `--dart-define=API_BASE_URL=/api` into the image, and `apps/www/src/main.js:5` falls back to
   `import.meta.env.VITE_TURNSTILE_SITE_KEY`. A value fixed at build time is the same in alpha,
