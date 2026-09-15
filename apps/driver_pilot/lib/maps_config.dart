@@ -4,4 +4,5 @@
 /// which is injected into the Android manifest and must be Android-restricted (package + SHA-1).
 /// Pass at build/run time, e.g.:
 /// `flutter run --dart-define=MAPS_API_KEY=your_geocoding_key`
-const String kMapsApiKey = String.fromEnvironment("MAPS_API_KEY", defaultValue: "");
+export "maps_config_native.dart"
+    if (dart.library.html) "maps_config_web.dart";
