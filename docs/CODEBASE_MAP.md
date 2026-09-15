@@ -11,7 +11,7 @@ design rationale (that is `docs/ARCHITECTURE.md`).
 Keep it current in the same commit as the change it describes. A wrong map is worse than none,
 because it gets trusted.
 
-Last verified against the tree at commit `187fe76` (2026-09-13).
+Last verified against the tree at commit `f96ccf9` (2026-09-15).
 
 ---
 
@@ -26,12 +26,14 @@ Last verified against the tree at commit `187fe76` (2026-09-13).
 | `apps/www/` | Public marketing site at navig8r.org | Separate stack (Vite) because it shares nothing with the product |
 | `packages/core/` | Payout schedule arithmetic | Pure, dependency-free, heavily tested — kept apart so money math can be reasoned about alone |
 | `integrations/adapters/generic/` | Reference doc for mapping a shipper ERP onto the API | No code; a contract description |
-| `scripts/` | Render build scripts, Maps key injection, image promotion, release smoke tests | Called by Render and by GitHub Actions, not by developers |
+| `scripts/` | Render build scripts, Maps key injection, image promotion, release smoke tests, ERP smoke test | Mostly called by Render and by GitHub Actions. `test-erp-integration.sh` and `promote-image-tag.sh` have no caller in the repository and are run by hand. `inject-maps-api-key.sh` has one — `render-build-customer-web.sh:37` runs it, and that script is the documented Render build command for the static customer-web site (`docs/RENDER.md:103`) |
 | `docs/` | All long-form documentation | See the index in `README.md` |
-| `.github/workflows/` | CI and the release pipeline | `release.yml` is the one that matters; the other three are earlier attempts still on disk |
+| `.github/workflows/` | CI and the release pipeline | `release.yml` is the one that matters. `docker-image.yml` and `docker-publish.yml` are earlier attempts that still fire — both on every push and PR to `main`, and `docker-publish.yml` also on `v*.*.*` tags and nightly at 20:44 UTC — each rebuilding the API `Dockerfile`. Off PRs, `docker-publish.yml` pushes and cosign-signs that image under `ghcr.io/<owner>/<repo>`, a different name from the `navig8r-*` images the release pipeline promotes. `bootstrap-ghcr.yml` is `workflow_dispatch` only |
 | `docker/` | nginx config and entrypoints for the two static images | Runtime config injection — these files decide what the browser actually gets |
 | `Dockerfile`, `Dockerfile.customer-web`, `Dockerfile.www` | One image per service | All three services are now image-backed; the API Dockerfile is the original |
 | `render.yaml` | Three environments (alpha, beta, production) | Declarative blueprint. **Render does not build from Git any more** — it pulls tagged images from GHCR |
+| `package.json`, `tsconfig.json` | Root workspace manifest and the shared TypeScript config | `test` and `dev:api` are the only root scripts. The `workspaces` declaration is not used for imports — see gotcha 6. `tsconfig.json` is `noEmit` and nothing runs `tsc` — see gotcha 14 |
+| `ROADMAP.md` | The MVP execution checklist, phases A to D | Parts of it are out of date about production — see gotcha 11 |
 
 ### `apps/api/src/` — the backend
 
@@ -55,13 +57,13 @@ Roughly 9,200 lines including tests. Two files hold most of it.
 | `store.ts` | 66 | The in-memory `Store` type — 18 `Map` collections |
 | `index.ts` | 66 | Boot: load store, start server, start two background timers |
 | `config.ts` | 44 | Commission, pricing constants, payout schedule, tracking staleness |
-| `prisma/schema.prisma` | 178 | 13 Postgres models |
+| `apps/api/prisma/schema.prisma` | 178 | 13 Postgres models. Note the path — it is beside `src/`, not inside it |
 | `softDelete.ts` | 21 | Tombstone helpers: `isActiveEntity`, `markInactive`. Tiny, and load-bearing — see C6 |
-| `*.test.ts` | ~2100 | 18 test files, 54 tests (plus 6 in `packages/core`) |
+| `*.test.ts` | ~2310 | 17 test files, 54 tests (plus 1 file and 6 tests in `packages/core`) |
 
 ### `apps/driver_pilot/lib/` — the Flutter app
 
-Roughly 7,130 lines. Three files hold 78% of it.
+Roughly 7,160 lines. Three files hold 78% of it.
 
 | File | Lines | Responsibility |
 |---|---|---|
@@ -74,18 +76,20 @@ Roughly 7,130 lines. Three files hold 78% of it.
 | `customer_session.dart` | 109 | Customer auth state, drives router refresh |
 | `google_geocoding.dart` | 97 | Address to coordinate lookup |
 | `driver_theme.dart` | 75 | App theme (navy `#122C53`) |
-| `driver_session.dart` | 72 | Driver auth state |
+| `driver_session.dart` | 102 | Driver auth state |
 | `customer_checkout*.dart` | 119 | Razorpay checkout, split web/mobile by conditional import |
 | `pilot_api_dns*.dart` | 31 | Platform-conditional DNS handling |
+| `maps_config*.dart` | 37 | Geocoding API key for the Dart HTTP calls, split web/native by conditional export. Web reads `window.__NAVI8R_CONFIG__.MAPS_API_KEY` at runtime; native keeps the `--dart-define` compile-time constant |
 
 ### `apps/www/` — the marketing site
 
 | File | Lines | Responsibility |
 |---|---|---|
-| `src/styles.css` | 1265 | The entire design system and every page style |
-| `src/main.js` | 434 | Nav behaviour, form handling, bot guards |
+| `src/styles.css` | 1253 | The entire design system and every page style |
+| `src/main.js` | 551 | Nav behaviour, form handling, bot guards |
 | `index.html` | — | The whole single-page site |
 | `public/brand/` | — | Logo set in light, dark and monochrome variants |
+| `vite.config.js` | 11 | Build config: `publicDir: "public"`, output to `dist/`, which is what `Dockerfile.www` copies |
 
 ---
 
@@ -101,7 +105,7 @@ Roughly 7,130 lines. Three files hold 78% of it.
 | **Ops portal** | Browse to `http://localhost:3000/ops` | Login box; needs an ops-admin phone |
 | **Legacy admin** | `http://localhost:3000/admin` | Full data dump. Requires `ENABLE_LEGACY_DEMO_SURFACE=1` in production |
 
-Node **22 or newer is mandatory**. See gotcha 1.
+Node **22.6 or newer is mandatory** — `--experimental-strip-types` does not exist before that. See gotcha 1.
 
 ### The three deployed environments
 
@@ -131,9 +135,16 @@ restriction. See gotcha 12 for what that exposes.
    argument and throws `ApiError` for expected failures.
 2. Add the route to the if-chain in `apps/api/src/httpServer.ts`. Match on
    `method === "GET" && url.pathname === "/v1/..."`. Order matters — the first match wins.
+   Partner endpoints under `/v1/integrations/` do not go here. `httpServer.ts:882` hands that
+   whole prefix to `handleIntegrationRoutes` in `apps/api/src/integrationHttp.ts`, which
+   authenticates with an integration key — `Authorization: Bearer nvg8r_{keyId}_{secret}`, or
+   the `X-Api-Key` and `X-Api-Secret` pair — and checks scopes instead of using a user
+   session. That handler answers 404 itself for any `/v1/integrations/` path it does not
+   match, so a route added to the `httpServer.ts` chain below the delegation never fires —
+   see gotcha 8.
 3. Decide the auth. `requireUserId(req, store)` for a logged-in user, then `assertOpsAgent`
    for ops-only. For public marketplace routes, also add the path to
-   `publicMarketplaceRouteAllowed` (`httpServer.ts:297`) or it will 403 in production.
+   `publicMarketplaceRouteAllowed` (`httpServer.ts:299`) or it will 403 in production.
 4. Call `await persist()` after any write, or the change is lost on restart.
 5. Add a test in `apps/api/src/*.test.ts` following the existing pattern.
 6. Document it in `docs/pilot-api.md`.
@@ -167,7 +178,7 @@ modes. Testing only the default file mode is how the DB path drifted in the firs
 ### Change freight pricing
 
 1. Edit the constants in `apps/api/src/config.ts`, or the formula in
-   `computeFreightGrossPaise` (`services.ts:1033`).
+   `computeFreightGrossPaise` (`services.ts:1374`).
 2. **Bump `FREIGHT_MODEL_VERSION`** in `config.ts`. It is returned on every quote so a past
    price can be explained later; changing the formula without bumping it makes old quotes
    unexplainable.
@@ -178,8 +189,14 @@ the breakdown.
 
 ### Add an ERP webhook event
 
-1. Emit it from the relevant lifecycle point in `services.ts`.
-2. Add the event type and payload shape in `apps/api/src/integrationWebhooks.ts`.
+1. Emit it with `emitIntegrationEvent(store, { eventType, shipmentId })` from the relevant
+   lifecycle point — `services.ts` for most of the shipment lifecycle,
+   `integrationServices.ts` (`createIntegrationLoad`) for the ERP-created path.
+2. Add the event name to the `IntegrationEventType` union in `apps/api/src/types.ts`. Miss
+   this and the `emitIntegrationEvent` call is a type error, because the parameter is typed
+   to that union. `buildIntegrationEventPayload` in `apps/api/src/integrationWebhooks.ts`
+   builds the same payload shape for every event type, so it needs no change unless the new
+   event carries fields no existing event does.
 3. Document it in `docs/erp-integration.md` and
    `integrations/adapters/generic/README.md`.
 
@@ -227,6 +244,14 @@ Beta checks three fields on `/health` and nothing else — no booking, no paymen
 the only automated thing standing between a merge and production money handling is a health
 check plus a human clicking approve.
 
+**The `wait` in the diagram is `scripts/wait-for-release.sh`.** Deploying is asynchronous: the
+deploy hook call returns before the new image is serving, so the alpha and beta jobs poll until
+they see the new build. Six calls in `.github/workflows/release.yml` (lines 161, 168, 175 for
+alpha and 242, 249, 256 for beta) check `/health` on the API and `/release.json` on customer-web
+and www, every 30s for up to 900s, until the response body contains the commit SHA. On timeout
+the script prints `Timed out waiting for Alpha API` and fails the job — that is this script, not
+a failing test. The production job has no wait step.
+
 **Rolling back** means re-pointing the environment tag at an earlier digest
 (`scripts/promote-image-tag.sh`) — not reverting the commit and waiting for a rebuild.
 
@@ -252,14 +277,14 @@ someone switches to Postgres, every restart wipes partner API keys, webhook subs
 idempotency records and pending deliveries, with no error.*
 
 **3. Public routes return whole domain objects, so a new field is public by default.**
-`GET /anchor-trips` is allowlisted as public (`httpServer.ts:297`) and returns
+`GET /anchor-trips` is allowlisted as public (`httpServer.ts:300`) and returns
 `{ ...trip, carrierDisplayName }` — the entire `AnchorTrip`, including `lastLiveLocation`. Any
 field added to `AnchorTrip` is immediately world-readable. *Consequence: driver GPS is exposed
 today (see C0 in `docs/IMPROVEMENTS.md`), and the next field added will be too unless the route
 is changed to project explicitly.* The same shape applies to `shipmentWithCarrierDisplay`.
 
 **4. The Flutter app defaults to production.**
-`kDefaultBaseUrl` in `pilot_api.dart:10` is `https://navig8r.onrender.com`. Forget
+`kDefaultBaseUrl` in `pilot_api.dart:11` is `https://navig8r.onrender.com`. Forget
 `--dart-define=API_BASE_URL` and your test bookings land in live data. *Consequence: fake
 shipments in the real store.*
 
@@ -291,8 +316,11 @@ endpoints take 300s, so runs overlap and deliver duplicates.*
 **10. `main.dart` contains a second, older set of driver screens.**
 `PilotScaffold`, `HomeScreen`, `RegisterScreen`, `LoginScreen`, `MyTripsScreen`,
 `TripDetailScreen` and `PublishTripScreen` are a legacy "pilot lab" surface at `/pilot-lab`,
-`/register`, `/trips` and `/publish`. They duplicate the `driver_flow.dart` screens and are not
-linked from either shell. *Consequence: you fix a bug in the wrong copy.*
+`/register`, `/trips` and `/publish`. They duplicate the `driver_flow.dart` screens, and the
+driver shell links straight to them: `DriverWelcomeScreen`, the builder for `/driver`, carries an
+ungated "Developer lab" button (`driver_flow.dart:199`) that navigates to `/pilot-lab`.
+*Consequence: you fix a bug in the wrong copy, and a driver on a release build can walk into the
+legacy surface from the first screen.*
 
 **11. `docs/` claims things the deployment does not do.**
 `ROADMAP.md` states Postgres is live in production, but `render.yaml` sets `DATA_FILE` and never
@@ -308,27 +336,70 @@ and it does nothing — line 321 short-circuits before reading it. *Consequence:
 `curl https://navig8r-api-beta.onrender.com/v1/users` returns every user and phone number on the
 UAT environment, unauthenticated, while the blueprint reads as if it were switched off.* See C5.
 
-**13. There are two ways to get the Maps key into the customer app, and the container uses one.**
+**13. The Maps key reaches Dart web code through one generated line, and only the container writes the file it points at.**
 The Maps JS `<script>` gets its key at container start (`docker/customer-web/entrypoint.sh:12`
-`sed`s `__MAPS_API_KEY__` into `index.html`). The Dart constant `kMapsApiKey`
-(`maps_config.dart:7`) is a **compile-time** `String.fromEnvironment`, and
-`Dockerfile.customer-web:31-33` does not pass it. *Consequence: after the cutover to the
-image-backed customer-web, map tiles still render but address autocomplete and geocoding silently
-do nothing — both call sites early-return on an empty key with no error.* The static build
-(`scripts/render-build-customer-web.sh:44-48`) does pass it, so this breaks at migration, not now.
-See C7.
+`sed`s `__MAPS_API_KEY__` into `index.html`). Since f96ccf9 the Dart `kMapsApiKey` is a
+conditional export (`maps_config.dart:7-8`): native builds keep the compile-time
+`String.fromEnvironment` (`maps_config_native.dart:5`), and web builds get a runtime getter that
+reads `window.__NAVI8R_CONFIG__.MAPS_API_KEY` (`maps_config_web.dart:4-24`). The customer-web
+container writes that global into `runtime-config.js` (`docker/customer-web/entrypoint.sh:16-20`)
+and `web/index.html:22` loads it, so the image-backed customer web resolves the Dart key at
+runtime. Two things follow. `--dart-define=MAPS_API_KEY` no longer reaches web code at all, so the
+define in `scripts/render-build-customer-web.sh:44` is dead, as is its omission from
+`Dockerfile.customer-web:29-31`. And nothing outside the container writes `runtime-config.js` — it
+is not checked in under `apps/driver_pilot/web/` — while `scripts/inject-maps-api-key.sh:29`
+regenerates `index.html` from `web/index.template.html`, which was never given the
+`runtime-config.js` tag. *Consequence: on the static Render build (`render-build-customer-web.sh:37`
+runs that script) and on a local `flutter run -d chrome`, `kMapsApiKey` is empty and address
+autocomplete and geocoding silently do nothing; both call sites early-return
+(`driver_flow.dart:1609`, `location_editor.dart:413`). Committing a regenerated `index.html` would
+break the container path too, by removing the only line that loads the key.* See C7.
 
 **14. Tests run after the merge, not before it.**
-`.github/workflows/release.yml` triggers on `push: main` only. There is no `pull_request`
-trigger and no required status check. *Consequence: a PR merges green-looking, `main` goes red,
-and the deploy halts at the `build` job — after the merge, when whoever did it has moved on.*
-Nothing runs `tsc` or any Flutter check at all.
+`.github/workflows/release.yml`, the only workflow that runs `npm test`, triggers on `push` to
+`main` and on `workflow_dispatch` — never on `pull_request`. The two workflows that do fire on a
+PR (`docker-image.yml`, `docker-publish.yml`) only build an image. *Consequence: a PR merges
+green-looking, `main` goes red, and the deploy halts at the `build` job — after the merge, when
+whoever did it has moved on.* Nothing runs `tsc`, `flutter analyze` or `flutter test` anywhere;
+the only Dart CI compiles is the `flutter build web --release` inside `Dockerfile.customer-web`,
+and that also happens after the merge, in the `build` job.
 
 **15. Render no longer builds from Git.**
 All three production services are declared `runtime: image` against `ghcr.io/uwais/navig8r-*`.
 Pushing to `main` does not deploy; it builds images and walks them through alpha, beta, then a
 manual approval. *Consequence: editing a service's build command in the Render dashboard changes
 nothing, and a hotfix cannot be shipped by pushing — it goes through the whole pipeline.*
+**16. `MAPS_API_KEY` is a hard requirement of the customer-web image, not a feature flag.**
+`docker/customer-web/entrypoint.sh:5` is `: "${MAPS_API_KEY:?MAPS_API_KEY must be set}"` under
+`set -eu` (`:2`), so an unset key exits the script at line 5 — before it renders
+`/etc/nginx/conf.d/default.conf` from the template (`:7-9`) and before it writes
+`runtime-config.js` (`:16-20`). `Dockerfile.customer-web:42` installs that script as
+`/docker-entrypoint.d/99-navig8r.sh`, so it runs inside the stock nginx entrypoint.
+`render.yaml` gives `API_UPSTREAM` a literal value on all three environments but marks
+`MAPS_API_KEY` `sync: false` (`:97`, `:176`, `:264`), so a newly created environment has no
+value until someone sets it in the Render dashboard. *Consequence: the navi8r nginx config is
+never rendered and `/api` is never proxied — not the blank map you would expect from a missing
+Maps key.* The nginx entrypoint runs `/docker-entrypoint.d/*.sh` under `set -e`, so the
+container start should fail outright, but that was not verified against a running container.
+
+**17. The static customer-web build strips the runtime Maps config the Dart code now depends on.**
+`maps_config.dart:7-8` conditionally exports `maps_config_web.dart` on web, and that
+file reads **only** `window.__NAVI8R_CONFIG__.MAPS_API_KEY` — there is no `String.fromEnvironment`
+in it at all. The global comes from `runtime-config.js`, which
+`docker/customer-web/entrypoint.sh:16-20` writes at container start and
+`apps/driver_pilot/web/index.html:22` loads. But `web/index.template.html` does not carry that
+`<script>` tag, and `scripts/inject-maps-api-key.sh:29` (`cp "$TEMPLATE" "$INDEX"`) overwrites
+`index.html` from the template on every run — which `scripts/render-build-customer-web.sh:37`
+does before `flutter build web` at `:46`. `Dockerfile.customer-web` never calls that script, so
+the image keeps the tag. *Consequence: the image build works and the static Render build now has
+no Dart Maps key at all, even though `render-build-customer-web.sh:43-45` still passes
+`--dart-define=MAPS_API_KEY` to code that ignores it. Trip-city look-up
+(`driver_flow.dart:1609`) and reverse geocoding on marker drag (`location_editor.dart:413`) both
+early-return on an empty key with no error, and so does `reverseLatLng`
+(`google_geocoding.dart:73`). Only the Look up button reports anything — `forwardAddress` returns
+`GeocodeOutcome.fail("NO_API_KEY", ...)` at `google_geocoding.dart:36`. The same overwrite hits the local web dev recipe in `docs/RENDER.md:120`.*
+Fix either file: add the `runtime-config.js` tag to `index.template.html`, or stop the script
+overwriting `index.html`.
 
 ---
 
@@ -342,9 +413,26 @@ nothing, and a hotfix cannot be shipped by pushing — it goes through the whole
   organization, `car_` legacy carrier, `veh_` vehicle, `trip_` anchor trip, `shp_` shipment,
   `payin_` customer payment, `pay_` payout batch, `led_` ledger line, `otp_` OTP challenge,
   `ses_` session, `evt_` integration event, `intconn_` integration connection, `intkey_`
-  integration API key, `whd_` webhook delivery.
+  integration API key, `whd_` webhook delivery. One more value is produced in the same format
+  without naming an entity: `mock_` is the `providerRef` written on a payment when
+  `PAYMENT_PROVIDER` is not `RAZORPAY` (`services.ts:1594`).
 - **Status values are string unions in `types.ts`**, not enums. Add new values there first.
 - **Errors** are `ApiError` with a machine-readable code (`phase_a_not_eligible`) plus a detail
   object. The client formats them; the server never writes user-facing prose.
-- **Branches** are `feature/`, `fix/`, or `docs/`. PRs squash-merge into `main` with a
-  `(#NN)` suffix. `main` deploys to Render, so never push to it directly.
+- **Per-environment browser config arrives at container start, through one shared global.** Both
+  static images write `/usr/share/nginx/html/runtime-config.js` from their entrypoint and set
+  `window.__NAVI8R_CONFIG__`: `MAPS_API_KEY` for customer-web
+  (`docker/customer-web/entrypoint.sh:16-20`), `TURNSTILE_SITE_KEY` and `PORTAL_URL` for www
+  (`docker/www/entrypoint.sh:4-9`). The page loads that file before the app bundle
+  (`apps/driver_pilot/web/index.html:22`, `apps/www/index.html:485`) and the readers are
+  `apps/driver_pilot/lib/maps_config_web.dart` and `apps/www/src/main.js:2`. To add a browser
+  setting, extend the entrypoint and the reader together. Build-time injection still exists
+  alongside it and is not interchangeable: `Dockerfile.customer-web:31` bakes
+  `--dart-define=API_BASE_URL=/api` into the image, and `apps/www/src/main.js:5` falls back to
+  `import.meta.env.VITE_TURNSTILE_SITE_KEY`. A value fixed at build time is the same in alpha,
+  beta and production; only the entrypoint route can differ between them.
+- **Branches** have no enforced prefix: of the 92 branches on `origin`, 80 are `cursor/`, seven
+  have no prefix, and there are two `fix/`, one `feature/`, one `docs/` and one `chore/`.
+  **Merges** are mixed — 18 of the 82 commits on `main` are `Merge pull request #NN` commits and
+  15 are squashes carrying a `(#NN)` suffix. Pushing to `main` starts the release pipeline in
+  `.github/workflows/release.yml`, so never push to it directly. See gotcha 15.

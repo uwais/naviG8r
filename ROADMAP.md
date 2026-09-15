@@ -1,6 +1,8 @@
 ## logistics-mvp roadmap (checklist)
 
 This is the execution checklist for taking the MVP from **file-backed JSON persistence** to a real database, and shipping an **Android pilot (~10 installs)** for customer feedback.
+> **How to read this file — checked 2026-09-15 against `f96ccf9`.** This is a *historical* log of what was ticked when it was ticked, not a description of the system as it stands. Where a checked item and the repo disagree, the repo wins. Known divergences today: production stores data as **file-backed JSON on a Render disk, not Postgres** (`render.yaml` sets `DATA_FILE` on every API service and declares no `PERSISTENCE`, no `DATABASE_URL` and no database); deployment is now a **three-environment GHCR image pipeline** — alpha, beta, production, 9 services all `runtime: image`, built by `.github/workflows/release.yml` — which this checklist predates and never mentions, and whose production static `customer-web`/`www` cutover `render.yaml`'s own header says is not finished; and the web Maps key now reaches **Dart** through a runtime `runtime-config.js` written by the container entrypoint, not through the build-time `scripts/inject-maps-api-key.sh` named below — that script still runs on every static Render build and still injects the key used by the Maps tile `<script>` tag, but nothing on that path writes the global Dart reads. The suite is **60/60** (`npm test`; CI runs it on Node 22 — `.github/workflows/release.yml:36`, `:43`). Counts as of this date: 100 items checked, 52 open. For the current defect list see `docs/IMPROVEMENTS.md`.
+
 
 ---
 
@@ -21,10 +23,10 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - [x] `POST /shipments/quote` extended + **Customer book** Quote shows **breakdown**; **`bookShipment` `grossPaise`** uses the same rules (aligned with quote when coords exist).
   - [x] Tests: `apps/api/src/freight.test.ts` + updates in `pilotDriver.test.ts`; docs in `docs/pilot-api.md` + README env notes.
 - [x] **B0.1 Razorpay (repo wiring, test mode)**: `PAYMENT_PROVIDER=RAZORPAY` — order without capture on book, webhook updates, capture at POD, Flutter checkout; **`PERSISTENCE=DB`** Postgres via Prisma for optional persistence.
-- [x] **Local dev verification**: `npm install` in `apps/api` then  
+- [x] **Local dev verification** (needs a Node new enough for `--experimental-strip-types` — verified green on **Node 24.9.0**, and on **Node 20.19.5** it fails immediately with `node: bad option: --experimental-strip-types`; the repo pins no Node version, with no `.nvmrc`, no `.node-version` and no `engines` field): `npm install` in `apps/api` then  
   `node --experimental-strip-types --test "apps/api/src/**/*.test.ts" "packages/**/src/**/*.test.ts"` (from repo root) — **all tests passing**.
 - [x] **Render production deploy (Docker)**: API ships as a Web Service from repo root with `Dockerfile`; build fixed for Prisma (`npm install --ignore-scripts` then copy tree + `npx prisma generate`) and valid `apps/api/package.json` (no merge-conflict JSON).
-- [x] **Hosted pilot API + Postgres**: `PERSISTENCE=DB` + `DATABASE_URL` on Render; env/runbook notes in `docs/RENDER.md`.
+- [x] **Hosted pilot API on Render** (historical tick): the API runs as a hosted Web Service; env/runbook notes in `docs/RENDER.md`. **Postgres is not wired up in the deployment blueprint.** As of `f96ccf9`, `render.yaml` sets no `PERSISTENCE` and no `DATABASE_URL` on any API service and declares no managed database — alpha, beta and production each mount a 1 GB Render disk and run file-backed (`DATA_FILE=/data/store.json` at `render.yaml:64`, `:143`, `:229`). The API falls back to file mode whenever `PERSISTENCE` is not `DB` (`apps/api/src/httpServer.ts:347`).
 - [x] **Legacy HTML admin (`/admin`)** (still gated in production by `ENABLE_LEGACY_DEMO_SURFACE=1`):
   - OTP login (stores Bearer in `localStorage`), `GET /v1/auth/me`.
   - **Ops admin RBAC**: `MembershipRole` **`OPS_ADMIN`** + singleton **`PLATFORM`** org; `GET/POST/DELETE /v1/ops-admins` for DB-backed operator whitelist; admin UI to list / grant / revoke (revoke only for DB rows).
@@ -36,7 +38,10 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - [x] Responsive customer shell (`/customer`) — rail on desktop, bottom nav on mobile.
   - [x] Razorpay web checkout path for customer bookings.
   - [x] Hosted at `navig8r-customer.onrender.com`; API CORS for static site origin.
-  - [x] **Google Maps on web**: build injects `MAPS_API_KEY` into `web/index.html` via `scripts/inject-maps-api-key.sh` (see `docs/RENDER.md`).
+  - [x] **Google Maps on web** — partial since `f96ccf9`; the two deploy paths now behave differently.
+    - **Static site (what production still serves).** `scripts/render-build-customer-web.sh:37` runs `scripts/inject-maps-api-key.sh`, whose line 29 is `cp "$TEMPLATE" "$INDEX"`: it rebuilds `web/index.html` from `web/index.template.html`, then substitutes `__MAPS_API_KEY__`. The template was never given the `<script src="runtime-config.js">` tag that `f96ccf9` added to `index.html`, so map tiles render but `window.__NAVI8R_CONFIG__` is undefined and the Dart geocoding key is empty. Running the script locally strips that tag from the working tree too.
+    - **Container (`Dockerfile.customer-web`).** The build keeps the checked-in `index.html` (`:22` is `COPY . .`, `:30` builds with no key injection), and `docker/customer-web/entrypoint.sh` substitutes `__MAPS_API_KEY__` and writes `runtime-config.js` at start — the only thing that defines the `window.__NAVI8R_CONFIG__.MAPS_API_KEY` that `lib/maps_config_web.dart` reads. This path is live on alpha and beta; the production image service is still the migration-named `navig8r-customer-web-image` and has not been cut over (`render.yaml:20-23`).
+    - See the `MAPS_API_KEY` environment-variable bullet in `docs/RENDER.md`.
 - [x] **Shipper ERP integration v1 (generic API + webhooks)** — see **§ D** below:
   - [x] M2M auth (`IntegrationApiKey`, Bearer / `X-Api-Key`).
   - [x] `POST /v1/integrations/loads` with idempotency + auto lane match.
@@ -45,7 +50,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - [x] Customer portal **Integrations** admin (`/customer/integrations`) — keys, webhook URL, test ping, delivery log.
   - [x] Docs: `docs/erp-integration.md`, `integrations/adapters/generic/README.md` (LoadIntent ↔ API mapping).
   - [x] Webhook payload enrichment: `trip.startedAtUtcMs`, `carrier.vehicleNumber`, `carrier.driverName`.
-  - [x] API tests: `integration.test.ts`, `integrationHttp.test.ts`, `integrationWebhooks.test.ts` + full suite **47/47** green; Flutter `customer_integrations_screen_test.dart`; smoke script `scripts/test-erp-integration.sh`.
+  - [x] API tests: `integration.test.ts`, `integrationHttp.test.ts`, `integrationWebhooks.test.ts` + full suite green (the **47/47** was the `apps/api` count when this was ticked, 53 with `packages/core`; **60/60 today — 54 API + 6 core — as of `f96ccf9`, 2026-09-15**, run `npm test` on Node 24 for the current number); Flutter `customer_integrations_screen_test.dart`; smoke script `scripts/test-erp-integration.sh`.
 
 ---
 
@@ -58,7 +63,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [ ] **Define environments**:
   - local dev (docker Postgres or local Postgres)
   - [ ] staging (hosted Postgres) — *optional; not a hard blocker if production pilot is the only hosted env today*
-  - [x] production (hosted Postgres on Render — pilot Web Service)
+  - [x] production (hosted Postgres on Render — pilot Web Service) — **the Postgres half is not done as of `f96ccf9`.** The production `navig8r-api` service is file-backed: `DATA_FILE=/data/store.json` on a 1 GB disk (`render.yaml:220-230`). No `PERSISTENCE`, no `DATABASE_URL` and no database is declared anywhere in the blueprint, and `PERSISTENCE` unset means FILE mode (`apps/api/src/httpServer.ts:347`). The tick is left as it was found; whether to clear it is a project call, not a documentation one.
 
 ### A2 — Define schema + indexes (0.5–1 day)
 - [x] **Tables** (Prisma models): carriers, organizations, users, memberships, vehicles, driver profiles, OTP challenges, auth sessions, anchor trips, shipments, payments, ledger lines, payout batches — see `apps/api/prisma/schema.prisma`.
@@ -71,7 +76,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - list queries (createdAt desc) indexes where needed
 
 ### A3 — Persistence layer (2–4 days)
-- [x] **DB mode** (`PERSISTENCE=DB`): `apps/api/src/persistenceDb.ts` loads/saves the full in-memory `Store` via Prisma (transactional replace). **FILE mode** unchanged (`DATA_FILE`).
+- [x] **DB mode** (`PERSISTENCE=DB`, partial — do not treat as safe): `apps/api/src/persistenceDb.ts` loads/saves **13 of the `Store`'s 18 collections** via Prisma (transactional replace). It never touches `integrationConnections`, `integrationApiKeys`, `integrationIdempotency`, `integrationEvents` or `integrationWebhookDeliveries` (`store.ts:22-41`), and `ShipmentRow` has no `externalLoadId`, `externalSource`, `integrationConnectionId`, `metadata` or `integrationSequence` column, so the whole § D ERP subsystem is silently dropped on every restart in DB mode. See `docs/IMPROVEMENTS.md` C2. **FILE mode** unchanged (`DATA_FILE`) and is what every environment declared in `render.yaml` runs today.
 - [ ] **Repositories / row-level ops**:
   - connection pooling tuning
   - replace “full snapshot” writes with targeted updates + transactions per use case
@@ -97,7 +102,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - hosted Postgres + Render wiring — see `docs/RENDER.md` (Docker root, `AUTH_SECRET`, `OTP_DEBUG`, Razorpay, `ENABLE_LEGACY_DEMO_SURFACE`, optional `OPS_ADMIN_PHONES` bootstrap)
 
 ### A6 — Tests + verification (1–2 days)
-- [x] **Baseline automated suite (local)**: from repo root, after `apps/api` **`npm install`**,  
+- [x] **Baseline automated suite (local)** — **60/60 green, 0 failures; verified 2026-09-15 on Node 24.9.0**. Needs **Node 22.6+** (`--experimental-strip-types` was added in Node v22.6.0); on Node 20 it errors with `node: bad option: --experimental-strip-types`. From repo root, `npm test` is the shorter route and selects the same test files as: after `apps/api` **`npm install`**,  
   `node --experimental-strip-types --test "apps/api/src/**/*.test.ts" "packages/**/src/**/*.test.ts"` — **green** (freight, pilot/OTP, marketplace vertical slice, production demo gating, Razorpay webhook HMAC, payout schedule helpers, etc.).
 - [x] **Service-level coverage (current tests)**: booking/org/payout behaviors exercised via `mvp.test.ts`, `pilotDriver.test.ts`, `freight.test.ts`, and related API tests (not yet a separate DB-backed suite).
 - [x] **HTTP / integration coverage (current tests)**: `httpServer.test.ts` plus in-process flows in `mvp.test.ts` (extend when adding `PERSISTENCE=DB`-specific cases).
@@ -163,7 +168,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - [ ] optional: distance cap, surcharge tiers _(not implemented yet)_
 - [x] **Config knobs** (env — see `apps/api/src/config.ts` + `docs/pilot-api.md`):
   - [x] `FREIGHT_PAISE_PER_KM_SMALL` / `_MEDIUM` / `_LARGE`
-  - [x] **`PRICE_PAISE_PER_KG`** (still the weight leg; default 500 paise/kg)
+  - [x] **`PRICE_PAISE_PER_KG`** (still the weight leg; 500 paise/kg) — **not an env var.** It is a hard-coded constant at `apps/api/src/config.ts:19`; setting `PRICE_PAISE_PER_KG` in the environment has no effect. Changing the weight leg needs a code edit and a redeploy.
   - [x] **`FREIGHT_MIN_GROSS_PAISE`** optional floor
 - [x] **Server**: **`computeFreightGrossPaise`** (+ `quoteShipmentMarketplace`, `pilotRatesEstimate`) + unit tests **`freight.test.ts`**.
 - [x] **API**: `POST /v1/pilot/rates/estimate` — body `{ origin, destination, vehicleClass?, sampleWeightsKg?[] }`; response **`laneKm`**, **`samples[]`**, **`modelVersion`**.
@@ -256,7 +261,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [x] **Razorpay (test mode)** wired end-to-end: server order on book + webhook + Flutter checkout (live keys + dashboard webhook + retry UX still **B0.1** follow-ups).
 - [x] **DB decision**: **Postgres + Prisma**; greenfield / `prisma db push` (no `store.json` importer).
 - [x] **DB persistence feature flag**: **`PERSISTENCE=DB`** + file fallback (`DATA_FILE` when not DB).
-- [x] **Production pilot deploy** on Render (Docker + Postgres + env from `docs/RENDER.md`).
+- [x] **Production pilot deploy** on Render (Docker + env from `docs/RENDER.md`). **Postgres is not in the blueprint:** `render.yaml` gives the production API `DATA_FILE=/data/store.json` on a 1GB disk (`render.yaml:220-230`) and sets `PERSISTENCE=DB` nowhere, and `httpServer.ts:347` runs the file store unless `PERSISTENCE=DB` is set. A dashboard variable would not show up in the blueprint, so confirm with `GET /health` before trusting either reading. See also the same claim at ROADMAP.md:27 and :61.
 - [x] **Admin + ops**: OTP-gated `/admin`, **ops admin** DB grants + API, POD/fail-refund across all shipments for ops admins.
 - [x] **Android pilot packaging (partial)**: `com.navig8r.pilot`, naviG8r label, release signing pattern.
 - [x] **Customer web on Render** + **ERP integration v1** (generic API, webhooks, portal Integrations UI, adapter docs).

@@ -97,7 +97,7 @@ A single monorepo holding five deployable surfaces.
 | `apps/www/` | Public marketing site | Vite, vanilla JS + CSS |
 | `packages/core/` | Payout schedule arithmetic, shared by the API | TypeScript, zero dependencies |
 | `integrations/adapters/generic/` | Reference mapping for connecting a shipper ERP | Documentation |
-| `scripts/` | Render build scripts and an ERP smoke test | Bash |
+| `scripts/` | Render build scripts, the Maps key injector, the release-pipeline helpers (`wait-for-release.sh`, `promote-image-tag.sh`), the alpha and beta release gates (`alpha-integration.mjs`, `beta-smoke.mjs`) and an ERP smoke test | Bash and Node ESM |
 | `docs/` | Deep documentation — see the index below | Markdown |
 
 The Flutter app ships two ways from the same source: an **Android APK** for drivers and
@@ -127,7 +127,7 @@ is which:
 | **No OTP rate limiting** | A six-digit code with a ten-minute window and unlimited attempts is brute-forceable. | No throttle exists in `apps/api/src/auth.ts` |
 | **Carrier payouts are bookkeeping-only outside production** | `PAYOUTS_MODE=BOOKKEEPING` flips ledger lines to PAID without moving money. Only production sets `RAZORPAYX`. | `render.yaml` |
 | **Persistence is a JSON file everywhere** | No environment sets `PERSISTENCE=DB`, so the Postgres path is built but unused. It also drops the whole ERP subsystem if switched on. | `render.yaml`; `docs/IMPROVEMENTS.md` C2 |
-| **CI does not run on pull requests** | `release.yml` triggers on `push: main` only, so tests run after the merge. Nothing typechecks, and no workflow runs Flutter at all. | `.github/workflows/release.yml` |
+| **The test suite does not run on pull requests** | `release.yml` triggers on `push: main` and `workflow_dispatch`, so tests run after the merge. `docker-image.yml` and `docker-publish.yml` do run on pull requests, but they only build the API image. Nothing typechecks, and no workflow analyses or tests the Flutter app. | `.github/workflows/release.yml`, `.github/workflows/docker-image.yml`, `.github/workflows/docker-publish.yml` |
 | **Alpha and beta serve an unauthenticated data dump** | `NODE_ENV` is set to the environment name, which disables the production guards. `GET /v1/users` returns every user and phone number on both. | `docs/IMPROVEMENTS.md` C5 |
 
 `ROADMAP.md` is the authoritative execution checklist (62 items done, 46 open at time of
@@ -145,7 +145,7 @@ get `node: bad option: --experimental-strip-types` with no further hint. The rep
 `engines` field and ships no `.nvmrc`, so nothing warns you.
 
 ```bash
-node --version   # must be >= 22
+node --version   # must be >= 22.6
 ```
 
 Flutter 3.22.x is needed only for the mobile and customer-web surfaces.
@@ -175,7 +175,7 @@ With `OTP_DEBUG=1` the login code is a fixed `123456` unless you override `OTP_F
 node --experimental-strip-types --test "packages/**/src/**/*.test.ts" "apps/**/src/**/*.test.ts"
 ```
 
-53 tests, no database or network required — they run against the in-memory store.
+60 tests, no database or network required — they run against the in-memory store.
 
 ### Run the Flutter app
 
@@ -187,7 +187,7 @@ flutter run --dart-define=API_BASE_URL=http://192.168.x.x:3000  # physical devic
 ```
 
 **Careful:** if you omit `--dart-define=API_BASE_URL`, the app defaults to the *production* API
-(`apps/driver_pilot/lib/pilot_api.dart:10`). Test bookings will land in live data.
+(`apps/driver_pilot/lib/pilot_api.dart:11`). Test bookings will land in live data.
 
 ### Run the marketing site
 
@@ -206,7 +206,7 @@ production-correct default.
 | `PORT` | No | `3000` | Listen port |
 | `NODE_ENV` | No | `production` (baked into the image) | Anything other than the exact string `production` opens the legacy demo surface, disables the CORS allowlist, and allows plain-`http://` partner webhook URLs. `render.yaml` overrides it to `alpha` / `beta` on those environments, which is how they end up wide open. See C5. |
 | `PERSISTENCE` | No | in-memory | `DB` switches to Postgres via Prisma |
-| `DATA_FILE` | No | `./data/store.json` | Path to the JSON snapshot when not using `DB`. The default is **relative to the container's working directory**, so an unset value writes into the ephemeral image layer and the store is destroyed on every deploy. Always set it to a path on a mounted disk. See C7 / PR #102. |
+| `DATA_FILE` | No | `./data/store.json` | Path to the JSON snapshot when not using `DB`. The default is **relative to the container's working directory**, so an unset value writes into the ephemeral image layer and the store is destroyed on every deploy. Always set it to a path on a mounted disk. See PR #102 in `docs/IMPROVEMENTS.md`. |
 | `DATABASE_URL` | With `PERSISTENCE=DB` | none | Postgres connection string |
 | `OTP_DEBUG` | No | off | `1` returns the OTP in the API response. Never set in production. |
 | `OTP_FIXED_CODE` | No | `123456` | The code used when `OTP_DEBUG=1` |
@@ -214,7 +214,7 @@ production-correct default.
 | `SESSION_TTL_MS` | No | 30 days | Bearer token lifetime |
 | `ENABLE_LEGACY_DEMO_SURFACE` | No | off | `1` re-enables unauthenticated demo and admin routes in production |
 | `ALLOW_X_USER_ID` | No | off | **Debug only.** `1` accepts an `x-user-id` header as identity with no token. This is a complete authentication bypass across every authenticated route and it is *not* gated on `NODE_ENV`. Never set it anywhere reachable. |
-| `CUSTOMER_WEB_BASE_URL` | No | `https://navig8r-customer-web.onrender.com` | Base for tracking URLs sent to ERP partners. The default does not match the live portal at `navig8r-customer.onrender.com` — see `docs/IMPROVEMENTS.md`. |
+| `CUSTOMER_WEB_BASE_URL` | No | `https://navig8r-customer.onrender.com` | Base for tracking URLs sent to ERP partners. `render.yaml` sets it on no environment, so unless it is set in the Render dashboard — which `docs/RENDER.md` tells the operator to do by hand — every environment falls back to this one host. Which of the two any deployed environment uses is not visible from this repository, though the value `docs/RENDER.md` prescribes is this same host. If the fallback is what is running, alpha and beta send partners links to a host that is neither of their own portals (`navig8r-customer-web-alpha.onrender.com`, `navig8r-customer-web-beta.onrender.com`) nor the production portal service declared in `render.yaml`, `navig8r-customer-web-image.onrender.com`. See `docs/IMPROVEMENTS.md`. |
 | `PHASE_A_MAX_PICKUP_KM` | No | `15` | Max distance from a trip's origin to an acceptable pickup |
 | `PHASE_A_MAX_DROP_KM` | No | `15` | Max distance from a trip's destination to an acceptable drop |
 | `CORS_ALLOWED_ORIGINS` | For browser clients | reflects origin outside production | Comma-separated allowlist; `*` supported |
@@ -231,7 +231,14 @@ production-correct default.
 
 The two static services read their own variables at container start, not build time:
 `API_UPSTREAM` and `MAPS_API_KEY` for customer-web, `PORTAL_URL` and `VITE_TURNSTILE_SITE_KEY`
-for www.
+for www. They take two different routes. `API_UPSTREAM` is substituted into the nginx
+`proxy_pass` directive and never reaches the browser. The other three are written into a
+generated `runtime-config.js` that sets one global, `window.__NAVI8R_CONFIG__`, loaded by the
+page before the app bundle; `MAPS_API_KEY` is additionally substituted over the
+`__MAPS_API_KEY__` placeholder in customer-web's `index.html`. The two customer-web variables
+are not optional — `docker/customer-web/entrypoint.sh` lines 4-5 guard them with
+`: "${VAR:?...}"` under `set -eu`, so the entrypoint exits non-zero if either is unset. The www
+entrypoint defaults both of its values to the empty string instead.
 
 `PAYMENT_PROVIDER` governs charging the **customer**. `PAYOUTS_MODE` governs paying the
 **carrier**. They are independent and are a common source of confusion.
@@ -264,8 +271,8 @@ Each API service mounts a 1 GB disk at `/data` and sets `DATA_FILE=/data/store.j
 `NODE_ENV` is set to the environment name, they do **not** enforce the production guards — the
 unauthenticated `/v1/users` dump is reachable on both. And production's customer-web and www are
 still the older static services; `render.yaml` carries `-image` variants as migration targets that
-have not been cut over. Both are written up in [`docs/IMPROVEMENTS.md`](docs/IMPROVEMENTS.md) as
-C5 and C7.
+have not been cut over. The first is written up in [`docs/IMPROVEMENTS.md`](docs/IMPROVEMENTS.md) as
+C5; the second is described in the header comment of `render.yaml`.
 
 Secrets are marked `sync: false` and set in the Render dashboard, never committed. See
 `docs/RENDER.md` for the runbook and `docs/DEPLOY.md` for hosting notes.
@@ -298,7 +305,9 @@ push to it directly.
 5. Update the documentation in the same PR as the change it describes. A wrong map is worse
    than no map, because it gets trusted.
 
-**CI does not run on your PR.** `.github/workflows/release.yml` triggers on `push: main`, so the
-suite runs after the merge, not before it. Run `npm test` yourself — a red merge stops the release
+**The test suite does not run on your PR.** `.github/workflows/release.yml` triggers on
+`push: main` and `workflow_dispatch`, so the suite runs after the merge, not before it.
+`docker-image.yml` and `docker-publish.yml` do run on pull requests, but they only build the
+API Docker image. Run `npm test` yourself — a red merge stops the release
 pipeline at the build step and leaves `main` broken. Adding a `pull_request:` trigger and a
 required status check is a four-line change; see M5 in `docs/IMPROVEMENTS.md`.
