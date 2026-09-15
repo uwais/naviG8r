@@ -878,7 +878,9 @@ That matches the portal hostname the marketing site falls back to (`apps/www/src
 **What still stands.** `CUSTOMER_WEB_BASE_URL` appears nowhere in `render.yaml`, and
 `render.yaml` defines no service named `navig8r-customer`. The three customer-web services are
 `navig8r-customer-web-alpha` (`render.yaml:84`), `navig8r-customer-web-beta` (`:163`) and
-`navig8r-customer-web-image` (`:251`), each given its own `PORTAL_URL` (`:112`, `:191`, `:282`).
+`navig8r-customer-web-image` (`:251`). They declare only `API_UPSTREAM` and `MAPS_API_KEY`
+(`:95-98`, `:174-177`, `:262-265`); `PORTAL_URL` is set on the three **www** services instead
+(`:112`, `:191`, `:282`) and points at these customer-web hostnames.
 `docs/RENDER.md:137` instead tells the operator to set
 `CUSTOMER_WEB_BASE_URL=https://navig8r-customer.onrender.com` by hand on the API service after
 deploying, so whether alpha and beta emit the hardcoded default or a dashboard value cannot be
@@ -962,12 +964,12 @@ checked by nobody.
 What CI still cannot catch, by design: anything behind `PERSISTENCE=DB` (no Postgres service in the
 workflow), and the marketing site (no tests exist for it).
 
-### M6. Node 22+ is mandatory and nothing machine-readable says so
+### M6. Node 22.6+ is mandatory and nothing machine-readable says so
 
 `--experimental-strip-types` does not exist before Node 22.6. On Node 20 — still a widely
 installed LTS — the API fails with `node: bad option: --experimental-strip-types` and no hint.
 
-The prose gap is closed: `README.md:142` and `docs/CODEBASE_MAP.md:108` both state the
+The prose gap is closed: `README.md:148` and `docs/CODEBASE_MAP.md:108` both state the
 requirement. What is still missing is anything a tool can read — no `engines` field in any of
 the four `package.json` files (root, `apps/api`, `apps/www`, `packages/core`) and no `.nvmrc`.
 
@@ -1013,7 +1015,7 @@ the key from nowhere else, returning `""` on a missing property or any exception
 script and commits the result, the container still writes `runtime-config.js`
 (`docker/customer-web/entrypoint.sh:16-20`) but nothing loads it: `kMapsApiKey` is empty on web,
 and geocoding and place search stop working. `scripts/render-build-customer-web.sh:37` runs the
-script on every static Render build, and `docs/RENDER.md:120` and `docs/RENDER.md:182` tell
+script on every static Render build, and `docs/RENDER.md:120` and `docs/RENDER.md:199` tell
 developers to run it locally. Nothing fails the build. The only visible sign is the now-misleading
 `"Set MAPS_API_KEY (--dart-define) for look up."` from `google_geocoding.dart:36`; the other three
 call sites (`location_editor.dart:413`, `driver_flow.dart:1609`, `google_geocoding.dart:73`) fail

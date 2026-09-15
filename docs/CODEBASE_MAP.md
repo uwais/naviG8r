@@ -382,25 +382,6 @@ never rendered and `/api` is never proxied — not the blank map you would expec
 Maps key.* The nginx entrypoint runs `/docker-entrypoint.d/*.sh` under `set -e`, so the
 container start should fail outright, but that was not verified against a running container.
 
-**17. The static customer-web build strips the runtime Maps config the Dart code now depends on.**
-`maps_config.dart:7-8` conditionally exports `maps_config_web.dart` on web, and that
-file reads **only** `window.__NAVI8R_CONFIG__.MAPS_API_KEY` — there is no `String.fromEnvironment`
-in it at all. The global comes from `runtime-config.js`, which
-`docker/customer-web/entrypoint.sh:16-20` writes at container start and
-`apps/driver_pilot/web/index.html:22` loads. But `web/index.template.html` does not carry that
-`<script>` tag, and `scripts/inject-maps-api-key.sh:29` (`cp "$TEMPLATE" "$INDEX"`) overwrites
-`index.html` from the template on every run — which `scripts/render-build-customer-web.sh:37`
-does before `flutter build web` at `:46`. `Dockerfile.customer-web` never calls that script, so
-the image keeps the tag. *Consequence: the image build works and the static Render build now has
-no Dart Maps key at all, even though `render-build-customer-web.sh:43-45` still passes
-`--dart-define=MAPS_API_KEY` to code that ignores it. Trip-city look-up
-(`driver_flow.dart:1609`) and reverse geocoding on marker drag (`location_editor.dart:413`) both
-early-return on an empty key with no error, and so does `reverseLatLng`
-(`google_geocoding.dart:73`). Only the Look up button reports anything — `forwardAddress` returns
-`GeocodeOutcome.fail("NO_API_KEY", ...)` at `google_geocoding.dart:36`. The same overwrite hits the local web dev recipe in `docs/RENDER.md:120`.*
-Fix either file: add the `runtime-config.js` tag to `index.template.html`, or stop the script
-overwriting `index.html`.
-
 ---
 
 ## 5. Conventions

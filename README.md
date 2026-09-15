@@ -90,11 +90,12 @@ and a `modelVersion` so a price can be explained after the fact. All amounts are
 
 ## What is in this repository
 
-A single monorepo holding five deployable surfaces.
+A single monorepo holding three applications that ship as four deployable artifacts: the API,
+customer-web and marketing-site container images, plus the Android APK.
 
 | Path | What it is | Stack |
 |---|---|---|
-| `apps/api/` | The whole backend: REST API, ops portal, payments, payouts, ERP integration | Node 22+, TypeScript run directly via `--experimental-strip-types`, no build step |
+| `apps/api/` | The whole backend: REST API, ops portal, payments, payouts, ERP integration | Node 22.6+, TypeScript run directly via `--experimental-strip-types`, no build step |
 | `apps/driver_pilot/` | One Flutter binary serving driver, carrier and customer personas | Flutter 3.22.x, `go_router`, `dio` |
 | `apps/www/` | Public marketing site | Vite, vanilla JS + CSS |
 | `packages/core/` | Payout schedule arithmetic, shared by the API | TypeScript, zero dependencies |
@@ -136,7 +137,7 @@ is which:
 | **The test suite does not run on pull requests** | `release.yml` triggers on `push: main` and `workflow_dispatch`, so tests run after the merge. `docker-image.yml` and `docker-publish.yml` do run on pull requests, but they only build the API image. Nothing typechecks, and no workflow analyses or tests the Flutter app. | `.github/workflows/release.yml`, `.github/workflows/docker-image.yml`, `.github/workflows/docker-publish.yml` |
 | **Alpha and beta serve an unauthenticated data dump** | `NODE_ENV` is set to the environment name, which disables the production guards. `GET /v1/users` returns every user and phone number on both. | `docs/IMPROVEMENTS.md` C5 |
 
-`ROADMAP.md` is the authoritative execution checklist (62 items done, 46 open at time of
+`ROADMAP.md` is the authoritative execution checklist (62 top-level items done, 46 open at time of
 writing). `docs/IMPROVEMENTS.md` lists specific defects found by review, ranked.
 
 ---
@@ -145,7 +146,7 @@ writing). `docs/IMPROVEMENTS.md` lists specific defects found by review, ranked.
 
 ### Prerequisites
 
-**Node 22 or newer is required and is not optional.** The API runs TypeScript directly with
+**Node 22.6 or newer is required and is not optional.** The API runs TypeScript directly with
 `node --experimental-strip-types`, a flag that does not exist before Node 22.6. On Node 20 you
 get `node: bad option: --experimental-strip-types` with no further hint. The repo declares no
 `engines` field and ships no `.nvmrc`, so nothing warns you.

@@ -206,6 +206,8 @@ Carrier explicitly starts a load (`OPEN`/`FULL` → `IN_PROGRESS`). Requires at 
 #### `POST /v1/pilot/anchor-trips/:tripId/complete`
 Carrier marks the load done (`IN_PROGRESS` → `COMPLETED`). Requires every shipment on the trip to be **`PENDING_RELEASE`** or **`DELIVERED`** (no remaining **`BOOKED`** or **`PENDING_CARRIER_ACCEPT`**). Clears `lastLiveLocation` and stops live tracking. Submitting driver POD on the last active booking **auto-completes** the trip when these conditions are met.
 #### `POST /shipments/:shipmentId/driver-pod`
+
+Authenticates with `requireUserId` (`httpServer.ts:1515`), not `requireBearerUserId`, so on any service running with `ALLOW_X_USER_ID=1` an `x-user-id` header satisfies it with no token — see H1 in `docs/IMPROVEMENTS.md`.
 The driver POD route the Driver app actually calls. Requires Bearer, and the caller must belong to the shipment's carrier org (**403** `forbidden` otherwise). The shipment must be `BOOKED` (**400** `shipment_not_deliverable`) and its payment `AUTHORIZED`, or `CAPTURED` under MOCK (**400** `checkout_not_completed_for_pod`).
 
 Body:
