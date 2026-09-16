@@ -1,6 +1,7 @@
 import "dart:async";
 
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 import "package:geolocator/geolocator.dart";
 import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
@@ -148,56 +149,295 @@ class DriverShell extends StatelessWidget {
   }
 }
 
-class DriverWelcomeScreen extends StatelessWidget {
+/// What the landing screen resolved the visitor to.
+///
+/// The three people who arrive here want different things, and the old screen offered all
+/// of them the same five buttons. `checking` is deliberately short-lived: see [_check].
+enum DriverWelcomeState { checking, signedOut, noCarrier, offline }
+
+class DriverWelcomeScreen extends StatefulWidget {
   const DriverWelcomeScreen({super.key});
 
   @override
+  State<DriverWelcomeScreen> createState() => _DriverWelcomeScreenState();
+}
+
+class _DriverWelcomeScreenState extends State<DriverWelcomeScreen> {
+  DriverWelcomeState _state = DriverWelcomeState.checking;
+
+  /// `Future.timeout` stops the waiting, not the request: Dio keeps going for up to 45s
+  /// (`pilot_api.dart`). Without this counter a refresh that lands after a sign-out writes
+  /// the previous driver's name and number back into DriverSession on a shared phone.
+  int _checkGeneration = 0;
+  bool _checkInFlight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    if (_checkInFlight) return;
+    _checkInFlight = true;
+    final generation = ++_checkGeneration;
+    setState(() => _state = DriverWelcomeState.checking);
+    // Dio's connectTimeout is 45s. A driver opening the app at a loading dock must not wait
+    // that long to see a button, so give up early and fall through to a screen that works
+    // offline.
+    final ok = await DriverSession.refresh().timeout(
+      const Duration(seconds: 6),
+      onTimeout: () => false,
+    );
+    if (!mounted || generation != _checkGeneration) {
+      _checkInFlight = false;
+      return;
+    }
+    if (ok && DriverSession.hasCarrierOrg) {
+      _checkInFlight = false;
+      context.go("/driver/loads");
+      return;
+    }
+    if (ok) {
+      _checkInFlight = false;
+      setState(() => _state = DriverWelcomeState.noCarrier);
+      return;
+    }
+    // refresh() returns false for "signed out" and "network failed" alike. A stored token
+    // is what separates them; without this check an offline driver is told to sign in again.
+    // A rejected token is not a connectivity problem, and "Try again" would never succeed.
+    if (DriverSession.lastRefreshRejected) {
+      // clear() as well as clearToken(): the server has rejected this session, so the
+      // identity must leave memory too. It also bumps the epoch, which is what stops an
+      // in-flight refresh writing those fields back. Without it the screen renders
+      // signed-out while userPhone, carrierOrgId and lastRegisteredOrgId are still set --
+      // and lastRegisteredOrgId is the org-id fallback on three money screens.
+      DriverSession.clear();
+      try {
+        await api.clearToken();
+      } catch (_) {
+        // Nothing to do: the token is already unusable and the screen must still resolve.
+      }
+      _checkInFlight = false;
+      if (!mounted || generation != _checkGeneration) return;
+      setState(() => _state = DriverWelcomeState.signedOut);
+      return;
+    }
+    // flutter_secure_storage can throw or hang on Android after a keystore or backup
+    // restore. Unguarded, that strands the app's entry point on a spinner with the nav
+    // hidden and back swallowed by the shell, leaving force-quit as the only way out.
+    var hadToken = false;
+    try {
+      hadToken = await api.hasStoredToken().timeout(
+            const Duration(seconds: 3),
+            onTimeout: () => false,
+          );
+    } catch (_) {
+      hadToken = false;
+    }
+    _checkInFlight = false;
+    if (!mounted || generation != _checkGeneration) return;
+    setState(() => _state = hadToken ? DriverWelcomeState.offline : DriverWelcomeState.signedOut);
+  }
+
+  Future<void> _signOut() async {
+    // Invalidate any refresh still in flight so it cannot repopulate the session we are
+    // about to clear.
+    _checkGeneration++;
+    _checkInFlight = false;
+    await api.clearToken();
+    DriverSession.clear();
+    if (!mounted) return;
+    setState(() => _state = DriverWelcomeState.signedOut);
+  }
+
+  Future<void> _copyPhone() async {
+    final phone = DriverSession.userPhone ?? "";
+    if (phone.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: phone));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Copied $phone. Send it to your carrier owner or dispatcher.")),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Padding(
+    return ListView(
       padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            "Driver & carrier",
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: DriverTheme.navy),
+      children: switch (_state) {
+        DriverWelcomeState.checking => _checking(),
+        DriverWelcomeState.noCarrier => _noCarrier(),
+        DriverWelcomeState.offline => _offline(),
+        DriverWelcomeState.signedOut => _signedOut(),
+      },
+    );
+  }
+
+  List<Widget> _checking() {
+    return const [
+      SizedBox(height: 80),
+      Center(child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2))),
+      SizedBox(height: 16),
+      Center(
+        child: Text("Checking your account", style: TextStyle(color: DriverTheme.mutedOnBackground)),
+      ),
+    ];
+  }
+
+  List<Widget> _noCarrier() {
+    final phone = DriverSession.userPhone;
+    return [
+      const Text(
+        "You are signed in, but not attached to a carrier yet",
+        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: DriverTheme.navy),
+      ),
+      const SizedBox(height: 12),
+      Text(
+        phone == null || phone.isEmpty
+            ? "A carrier owner or dispatcher adds you using your mobile number."
+            : "Your number is $phone. A carrier owner or dispatcher adds you using this number.",
+        style: const TextStyle(color: DriverTheme.mutedOnBackground, height: 1.4),
+      ),
+      const SizedBox(height: 24),
+      if (phone != null && phone.isNotEmpty) ...[
+        FilledButton(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+          onPressed: _copyPhone,
+          child: const Text("Copy my number"),
+        ),
+        const SizedBox(height: 12),
+      ],
+      // Ranked above "Register my own carrier business" on purpose: waiting to be added is
+      // the correct path for this person, and registering is the one they should not take.
+      OutlinedButton(
+        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+        onPressed: _check,
+        child: const Text("Check again"),
+      ),
+      const SizedBox(height: 12),
+      OutlinedButton(
+        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+        onPressed: () => context.go("/driver/onboarding/register"),
+        child: const Text("Register my own carrier business"),
+      ),
+      const SizedBox(height: 12),
+      TextButton(onPressed: _signOut, child: const Text("Sign out")),
+    ];
+  }
+
+  List<Widget> _offline() {
+    return [
+      const Text(
+        "Could not check your account",
+        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: DriverTheme.navy),
+      ),
+      const SizedBox(height: 12),
+      // Deliberately states no cause. A failed refresh that was not a 401/403 (those clear
+      // the session and render signed-out instead) could be offline, DNS, or a hang, and
+      // guessing wrong would tell an expired session to "try again" forever.
+      const Text(
+        "Check your signal and try again, or sign in again.",
+        style: TextStyle(color: DriverTheme.mutedOnBackground, height: 1.4),
+      ),
+      const SizedBox(height: 24),
+      FilledButton(
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+        onPressed: _check,
+        child: const Text("Try again"),
+      ),
+      const SizedBox(height: 12),
+      TextButton(onPressed: _signOut, child: const Text("Sign out")),
+    ];
+  }
+
+  List<Widget> _signedOut() {
+    return [
+      const Text(
+        "Drivers and carriers",
+        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: DriverTheme.navy),
+      ),
+      const SizedBox(height: 12),
+      const Text(
+        "Run trips, confirm delivery, and get paid.",
+        style: TextStyle(color: DriverTheme.mutedOnBackground, height: 1.4),
+      ),
+      const SizedBox(height: 24),
+      FilledButton(
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+        onPressed: () => context.go("/driver/onboarding/phone"),
+        child: const Text("Sign in with mobile number"),
+      ),
+      const SizedBox(height: 24),
+      const Text(
+        "New here?",
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: DriverTheme.navy),
+      ),
+      const SizedBox(height: 12),
+      IntentCard(
+        icon: Icons.local_shipping_outlined,
+        title: "I own a truck or transport business",
+        subtitle: "Create your carrier and add your first vehicle",
+        onTap: () => context.go("/driver/onboarding/register"),
+      ),
+      const SizedBox(height: 12),
+      IntentCard(
+        icon: Icons.badge_outlined,
+        title: "I drive for a transport company",
+        subtitle: "Create your account, then your owner or dispatcher adds you",
+        onTap: () => context.go("/driver/onboarding/join"),
+      ),
+      const SizedBox(height: 24),
+      TextButton(onPressed: () => context.go("/pilot-lab"), child: const Text("Developer lab")),
+    ];
+  }
+}
+
+/// One of the two "who are you" choices on the signed-out landing. A card rather than a
+/// button because the subtitle is what disambiguates the two, not the title.
+class IntentCard extends StatelessWidget {
+  const IntentCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    super.key,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          child: Row(
+            children: [
+              Icon(icon, color: DriverTheme.navy),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: DriverTheme.navy),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(subtitle, style: const TextStyle(fontSize: 13, color: DriverTheme.muted)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: DriverTheme.muted),
+            ],
           ),
-          const SizedBox(height: 12),
-          const Text(
-            "Sign in with your phone, confirm your carrier organization, run trips with live tracking, "
-            "and get paid after proof of delivery and cooling-off.",
-            style: TextStyle(color: DriverTheme.muted, height: 1.4),
-          ),
-          const Spacer(),
-          FilledButton(
-            onPressed: () => context.go("/driver/onboarding/phone"),
-            child: const Text("Sign in with phone"),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            onPressed: () => context.go("/driver/onboarding/register"),
-            child: const Text("Register as new carrier"),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            onPressed: () async {
-              final ok = await DriverSession.refresh();
-              if (!context.mounted) return;
-              if (ok && DriverSession.hasCarrierOrg) {
-                context.go("/driver/loads");
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Sign in first, or complete carrier registration.")),
-                );
-              }
-            },
-            child: const Text("Continue as signed-in driver"),
-          ),
-          const SizedBox(height: 8),
-          TextButton(onPressed: () => context.go("/driver/onboarding/join"), child: const Text("Join a carrier fleet")),
-          const SizedBox(height: 8),
-          TextButton(onPressed: () => context.go("/pilot-lab"), child: const Text("Developer lab")),
-        ],
+        ),
       ),
     );
   }
@@ -320,17 +560,21 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         data: {"phone": _phone, "challengeId": _challengeId.text.trim(), "code": _code.text.trim()},
       );
       final token = r.data?["accessToken"] as String?;
-      if (token != null) await api.setToken(token);
+      if (token != null) {
+        // Drop any residual identity before attaching the new token. Without this, a
+        // shared-phone sign-in can inherit lastRegisteredOrgId (and other statics) from a
+        // prior session that was only partially torn down.
+        DriverSession.clear();
+        await api.setToken(token);
+      }
       await DriverSession.refresh();
       if (!mounted) return;
       if (DriverSession.hasCarrierOrg) {
         context.go("/driver/loads");
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("No carrier org for this phone. Use Register as new carrier on the welcome screen."),
-          ),
-        );
+        // No snackbar: /driver now resolves this case itself and says what to do. The old
+        // message named a button that no longer exists and told an employed driver to
+        // register a carrier business they should not own.
         context.go("/driver");
       }
     } catch (e) {
@@ -2259,9 +2503,14 @@ List<RouteBase> driverFlowRoutes() {
       navigatorKey: driverShellNavigatorKey,
       builder: (context, state, child) {
         final path = state.uri.path;
+        // The landing sits inside this shell, so a signed-out visitor would otherwise get
+        // five live tabs behind a sign-in wall. Once a carrier org is known the landing
+        // redirects to /driver/loads and the nav comes back.
+        final hideNav = path == "/driver" && !DriverSession.hasCarrierOrg;
         return DriverShell(
           title: driverShellTitle(path),
           currentPath: path,
+          showBottomNav: !hideNav,
           child: child,
         );
       },

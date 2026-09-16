@@ -48,6 +48,14 @@ class Api {
   Future<void> setToken(String token) => _storage.write(key: "access_token", value: token);
   Future<void> clearToken() => _storage.delete(key: "access_token");
 
+  /// Whether a token is on disk, regardless of whether the server still accepts it.
+  /// `DriverSession.refresh()` returns false for "signed out" and "could not reach the
+  /// server" alike, so the landing screen needs this to tell those two apart.
+  Future<bool> hasStoredToken() async {
+    final token = await _storage.read(key: "access_token");
+    return token != null && token.isNotEmpty;
+  }
+
   Future<Response<T>> get<T>(String path, {Map<String, dynamic>? query}) => dio.get<T>(path, queryParameters: query);
   Future<Response<T>> post<T>(String path, {Object? data}) => dio.post<T>(path, data: data);
   Future<Response<T>> patch<T>(String path, {Object? data}) => dio.patch<T>(path, data: data);
