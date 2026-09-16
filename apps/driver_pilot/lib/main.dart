@@ -10,6 +10,7 @@ import "package:go_router/go_router.dart";
 
 import "customer_flow.dart";
 import "customer_session.dart";
+import "driver_session.dart";
 import "driver_flow.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
@@ -75,7 +76,7 @@ class DriverPilotApp extends StatelessWidget {
     final router = GoRouter(
       navigatorKey: _rootNavigatorKey,
       initialLocation: kIsWeb ? "/customer" : "/driver",
-      refreshListenable: CustomerSession.listenable,
+      refreshListenable: Listenable.merge([CustomerSession.listenable, DriverSession.listenable]),
       routes: [
         ...driverFlowRoutes(),
         ...customerFlowRoutes(),

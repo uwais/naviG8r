@@ -1,7 +1,22 @@
+import "package:dio/dio.dart";
+import "package:flutter/foundation.dart";
+
 import "pilot_api.dart";
 
 /// In-memory carrier session refreshed from `/v1/pilot/me`.
 abstract final class DriverSession {
+  /// Bumps when session fields change, so the driver shell rebuilds. Without this the
+  /// shell keeps showing five tabs after a sign-out, because it only re-runs on navigation.
+  static final Listenable listenable = ValueNotifier<int>(0);
+
+  static void _notifyListeners() {
+    (listenable as ValueNotifier<int>).value++;
+  }
+
+  /// True when the last refresh failed because the server rejected the token, as opposed
+  /// to the request never arriving. Without it an expired session is reported as no signal
+  /// and the only button offered ("Try again") can never succeed.
+  static bool lastRefreshRejected = false;
   static String? carrierOrgId;
   static String? carrierOrgName;
   static String? carrierRole;
@@ -81,13 +96,25 @@ abstract final class DriverSession {
           }
         }
       }
+      lastRefreshRejected = false;
+      _notifyListeners();
       return true;
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      lastRefreshRejected = status == 401 || status == 403;
+      return false;
     } catch (_) {
+      lastRefreshRejected = false;
       return false;
     }
   }
 
   static void clear() {
+    // Not a DriverSession field, but it survives sign-out otherwise and is used as an
+    // org-id fallback on the earnings, payout-setup and payout-history screens. On a shared
+    // phone that sends one driver's org id with the next driver's bank details.
+    lastRegisteredOrgId = null;
+    lastRefreshRejected = false;
     carrierOrgId = null;
     carrierOrgName = null;
     carrierRole = null;
@@ -98,5 +125,6 @@ abstract final class DriverSession {
     vehicleRegistrationNumber = null;
     vehicleClass = null;
     vehicleCapacityKg = null;
+    _notifyListeners();
   }
 }
