@@ -2297,3 +2297,49 @@ Items already in section 2 are cross-referenced rather than repeated.
 | J-10.1 | medium | Sign out is one unguarded tap, visually identical to the navigation rows above it, with no check for an active trip | `driver_flow.dart:1405-1413` | Confirm it, and warn when a trip is in progress |
 | J-10.2 | medium | The app bar avatar is a filled navy circle with no image, no initials and no tap handler. Top-right circle is the universal account affordance | `driver_flow.dart:111-114` | Give it initials and a route to Profile, or delete it |
 | J-O.1 | medium | The OTP screen shows a "Challenge id" field and prints the server's debug code | `driver_flow.dart:359-364` | Hide the field, and gate the debug line on `kDebugMode` |
+
+---
+
+## 5. Build and tooling
+
+<a id="tooling"></a>
+
+Not a UX finding, recorded here because it is the first thing a new contributor hits and it costs
+them an hour before they see a single screen.
+
+### 5.1 A fresh clone will not build on a current Android Studio
+
+`android/gradle/wrapper/gradle-wrapper.properties` pins **Gradle 8.7**, and `android/settings.gradle`
+pins **AGP 8.3.2** and **Kotlin 1.9.22**. Gradle 8.7 reads class files up to Java 22.
+
+Android Studio now bundles **OpenJDK 25**, and Flutter uses the bundled JDK for Gradle when no other
+is configured. The result, verified on 2026-09-16 on a machine with Android Studio and no separate
+JDK installed:
+
+```
+FAILURE: Build failed with an exception.
+BUG! exception in phase 'semantic analysis' in source unit '_BuildScript_'
+Unsupported class file major version 69
+```
+
+Major version 69 is Java 25. Nothing about the Dart code is involved; `flutter build apk` fails
+before compiling any of it.
+
+**What worked**, verified by building a debug APK end to end (151 MB, `assembleDebug` in 153 s):
+
+```bash
+brew install openjdk@17
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+**What did not work:** `flutter config --jdk-dir=<path to 17>`. The setting is accepted and appears
+in `flutter config --list`, but `flutter doctor -v` still reported Java 25 and Gradle still used the
+bundled JDK. `JAVA_HOME` is what actually takes effect. Why the config key is ignored here is
+unchecked — it may be specific to Flutter 3.22.3.
+
+**Fix, one of two.** Either write the JDK requirement into the repo so it is not folklore —
+`apps/driver_pilot/README.md` and a `gradle.properties` comment — or raise Gradle and AGP to versions
+that accept a current JDK. The second is the larger change and drags the AGP and Kotlin pins with it,
+so it wants its own branch and a CI check that actually builds the Android app, which none of the
+four workflows does today.

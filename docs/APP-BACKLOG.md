@@ -110,6 +110,17 @@ tracked here. One of them outranks everything on this page and is recorded at th
 - [ ] **Use "Confirm delivery" everywhere.** The same action is labelled two different ways, one of
   them an acronym. `medium` — [J-3.5](UX-REVIEW.md#journeys)
 
+## Build and tooling
+
+- [ ] **Pin the JDK, or raise Gradle.** A fresh clone does not build on a current Android Studio:
+  it bundles JDK 25 and the repo pins Gradle 8.7, which reads up to Java 22, so `assembleDebug`
+  dies with `Unsupported class file major version 69` before any Dart is compiled. Workaround is
+  `JAVA_HOME` pointing at JDK 17 — `flutter config --jdk-dir` does not take. `medium` —
+  [5.1](UX-REVIEW.md#tooling)
+- [ ] **Run the Flutter app in CI.** None of the four workflows runs `flutter analyze`, `flutter
+  test` or an Android build, so a green PR says nothing about this app. `medium` —
+  [5.1](UX-REVIEW.md#tooling)
+
 ## Structure
 
 - [ ] **Split `driver_flow.dart`.** 2,490 lines, 17 screens plus the shell plus the route table. Its
