@@ -333,9 +333,9 @@ class _DriverWelcomeScreenState extends State<DriverWelcomeScreen> {
         style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: DriverTheme.navy),
       ),
       const SizedBox(height: 12),
-      // Deliberately states no cause. DriverSession.refresh() collapses a network failure
-      // and a rejected token into the same false, and nothing clears a token on 401, so
-      // "you are still signed in" would be a guess -- and wrong for an expired session.
+      // Deliberately states no cause. A failed refresh that was not a 401/403 (those clear
+      // the session and render signed-out instead) could be offline, DNS, or a hang, and
+      // guessing wrong would tell an expired session to "try again" forever.
       const Text(
         "Check your signal and try again, or sign in again.",
         style: TextStyle(color: DriverTheme.mutedOnBackground, height: 1.4),
@@ -560,7 +560,13 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         data: {"phone": _phone, "challengeId": _challengeId.text.trim(), "code": _code.text.trim()},
       );
       final token = r.data?["accessToken"] as String?;
-      if (token != null) await api.setToken(token);
+      if (token != null) {
+        // Drop any residual identity before attaching the new token. Without this, a
+        // shared-phone sign-in can inherit lastRegisteredOrgId (and other statics) from a
+        // prior session that was only partially torn down.
+        DriverSession.clear();
+        await api.setToken(token);
+      }
       await DriverSession.refresh();
       if (!mounted) return;
       if (DriverSession.hasCarrierOrg) {

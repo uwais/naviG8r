@@ -75,4 +75,32 @@ void main() {
     expect(DriverSession.carrierOrgId, "org_1");
     expect(DriverSession.hasCarrierOrg, isTrue);
   });
+
+  test("a successful refresh with no carrier clears a leftover lastRegisteredOrgId", () async {
+    lastRegisteredOrgId = "org_stale";
+    api.dio.interceptors.clear();
+    api.dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response<Map<String, dynamic>>(
+              requestOptions: options,
+              statusCode: 200,
+              data: const {
+                "user": {"fullName": "Fleet Driver", "phone": "9000000001"},
+                "organizations": <Map<String, dynamic>>[],
+                "memberships": <Map<String, dynamic>>[],
+              },
+            ),
+          );
+        },
+      ),
+    );
+
+    final ok = await DriverSession.refresh();
+
+    expect(ok, isTrue);
+    expect(DriverSession.hasCarrierOrg, isFalse);
+    expect(lastRegisteredOrgId, isNull);
+  });
 }

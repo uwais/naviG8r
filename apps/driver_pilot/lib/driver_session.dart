@@ -83,6 +83,8 @@ abstract final class DriverSession {
         carrierOrgId = null;
         carrierOrgName = null;
         kycStatus = null;
+        // A no-carrier account must not keep the previous driver's org-id fallback.
+        lastRegisteredOrgId = null;
       }
 
       vehicleId = null;
