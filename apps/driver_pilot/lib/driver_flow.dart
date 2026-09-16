@@ -207,6 +207,12 @@ class _DriverWelcomeScreenState extends State<DriverWelcomeScreen> {
     // is what separates them; without this check an offline driver is told to sign in again.
     // A rejected token is not a connectivity problem, and "Try again" would never succeed.
     if (DriverSession.lastRefreshRejected) {
+      // clear() as well as clearToken(): the server has rejected this session, so the
+      // identity must leave memory too. It also bumps the epoch, which is what stops an
+      // in-flight refresh writing those fields back. Without it the screen renders
+      // signed-out while userPhone, carrierOrgId and lastRegisteredOrgId are still set --
+      // and lastRegisteredOrgId is the org-id fallback on three money screens.
+      DriverSession.clear();
       try {
         await api.clearToken();
       } catch (_) {
