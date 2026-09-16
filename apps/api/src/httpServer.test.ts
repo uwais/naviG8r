@@ -3,6 +3,13 @@ import test from "node:test";
 import { once } from "node:events";
 import type http from "node:http";
 import { createApp } from "./httpServer.ts";
+import {
+  grantOpsAdmin,
+  opsDeleteUser,
+  publishAnchorTripAsPilotDriver,
+  registerCustomerUser,
+  registerSoloOwnerOperatorDriver,
+} from "./services.ts";
 
 type AppBundle = Awaited<ReturnType<typeof createApp>>;
 
@@ -189,6 +196,66 @@ test("POST /v1/pilot/carrier/shipments/:id/accept accepts pending booking", asyn
     assert.equal(accept.status, 200, acceptText);
     const accepted = JSON.parse(acceptText) as { shipment: { status: string } };
     assert.equal(accepted.shipment.status, "BOOKED");
+  });
+});
+
+test("public marketplace hides and rejects booking on ops-tombstoned trips", async (t) => {
+  const prev = { DATA_FILE: process.env.DATA_FILE, NODE_ENV: process.env.NODE_ENV };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "test";
+
+  await withApp(t, async (baseUrl, app) => {
+    const opsUser = registerCustomerUser(app.store, { fullName: "Ops", phone: "9000000051" });
+    grantOpsAdmin(app.store, { phone: opsUser.user.phone });
+    const driver = registerSoloOwnerOperatorDriver(app.store, {
+      fullName: "Gone Driver",
+      phone: "9000000052",
+      orgDisplayName: "Gone Cargo",
+      vehicleRegistrationNumber: "HR26GON1",
+      vehicleClass: "MEDIUM",
+      vehicleCapacityKg: 4000,
+    });
+    const trip = publishAnchorTripAsPilotDriver(app.store, {
+      userId: driver.user.id,
+      orgId: driver.org.id,
+      originCity: "Gurugram",
+      destCity: "Jaipur",
+      windowStart: "2026-04-24T00:00:00+05:30",
+      windowEnd: "2026-04-25T23:59:59+05:30",
+      vehicleClass: "MEDIUM",
+      capacityKg: 1000,
+    });
+
+    const listedBefore = await fetch(`${baseUrl}/anchor-trips`);
+    assert.equal(listedBefore.status, 200);
+    const beforeBody = (await listedBefore.json()) as { trips: Array<{ id: string }> };
+    assert.ok(beforeBody.trips.some((t) => t.id === trip.id));
+
+    opsDeleteUser(app.store, { actingUserId: opsUser.user.id, userId: driver.user.id });
+
+    const listedAfter = await fetch(`${baseUrl}/anchor-trips`);
+    assert.equal(listedAfter.status, 200);
+    const afterBody = (await listedAfter.json()) as { trips: Array<{ id: string }> };
+    assert.equal(afterBody.trips.some((t) => t.id === trip.id), false);
+
+    const detail = await fetch(`${baseUrl}/anchor-trips/${trip.id}`);
+    assert.equal(detail.status, 404);
+
+    const book = await postJson(baseUrl, "/shipments/book", {
+      anchorTripId: trip.id,
+      customerOrgName: "Acme",
+      weightKg: 100,
+      pickupAddress: "A",
+      dropAddress: "B",
+    });
+    assert.equal(book.status, 400);
+    const bookBody = (await book.json()) as { error?: string };
+    assert.equal(bookBody.error, "anchor_trip_not_open");
   });
 });
 

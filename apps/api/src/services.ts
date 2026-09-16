@@ -167,6 +167,19 @@ function getOrgOrThrow(store: Store, orgId: string): Organization {
   return org;
 }
 
+/**
+ * Marketplace/bookable: trip has not been ops-tombstoned, and neither has its carrier org.
+ * Legacy trips whose org row is missing remain bookable (pre-org store files).
+ */
+export function isBookableAnchorTrip(store: Store, trip: AnchorTrip): boolean {
+  if (!isActiveEntity(trip)) return false;
+  const org = store.organizations.get(trip.carrierId);
+  if (org && !isActiveEntity(org)) return false;
+  const legacy = store.carriers.get(trip.carrierId);
+  if (legacy && !isActiveEntity(legacy)) return false;
+  return true;
+}
+
 function assertPilotDriverCanManageOrg(store: Store, userId: string, orgId: string): void {
   const m = store.memberships.get(membershipKey(userId, orgId));
   if (!m) throw new Error("membership_not_found");
@@ -1240,7 +1253,8 @@ export function publishAnchorTrip(store: Store, params: {
   capacityKg: number;
 }): AnchorTrip {
   // `carrierId` is legacy naming; it is the Organization id for carrier-side entities.
-  getOrgOrThrow(store, params.carrierId);
+  const org = getOrgOrThrow(store, params.carrierId);
+  if (!isActiveEntity(org)) throw new Error("org_inactive");
   if (params.capacityKg <= 0) throw new Error("invalid_capacityKg");
   if (params.origin) assertGeoPoint(params.origin, "origin");
   if (params.destination) assertGeoPoint(params.destination, "destination");
@@ -1318,6 +1332,7 @@ export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
 
   for (const trip of store.anchorTrips.values()) {
     if (trip.status !== "OPEN") continue;
+    if (!isBookableAnchorTrip(store, trip)) continue;
     const remaining = trip.capacityKg - trip.reservedKg;
     if (remaining < params.weightKg) continue;
     if (!trip.origin || !trip.destination) continue; // Phase A requires endpoints
@@ -1548,6 +1563,7 @@ export function bookShipment(store: Store, params: {
 }): Shipment {
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip) throw new Error("anchor_trip_not_found");
+  if (!isBookableAnchorTrip(store, trip)) throw new Error("anchor_trip_not_open");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");
   if (params.weightKg <= 0) throw new Error("invalid_weightKg");
   if (trip.reservedKg + params.weightKg > trip.capacityKg) throw new Error("insufficient_capacity");
