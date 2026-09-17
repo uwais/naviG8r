@@ -3,6 +3,7 @@ import "pilot_api.dart";
 
 /// In-memory carrier session refreshed from `/v1/pilot/me`.
 abstract final class DriverSession {
+  static int _epoch = 0;
   static String? get carrierOrgId =>
       hasCarrierOrg ? AuthorizationSession.organizationId : null;
   static String? get carrierOrgName => hasCarrierOrg
@@ -31,7 +32,9 @@ abstract final class DriverSession {
 
   static Future<bool> refresh() async {
     clear();
+    final epoch = _epoch;
     await AuthorizationSession.refresh();
+    if (epoch != _epoch) return false;
     if (!hasCarrierOrg ||
         !AuthorizationSession.can("organization.profile.read")) {
       return false;
@@ -39,7 +42,8 @@ abstract final class DriverSession {
     final scope = AuthorizationSession.scopeKey;
     try {
       final r = await api.get<Map<String, dynamic>>("/v1/pilot/me");
-      if (scope != AuthorizationSession.scopeKey) return false;
+      if (epoch != _epoch || scope != AuthorizationSession.scopeKey)
+        return false;
       final profile = r.data?["driverProfile"];
       final vehicles = r.data?["vehicles"];
       if (profile is Map<String, dynamic> && vehicles is List) {
@@ -64,6 +68,9 @@ abstract final class DriverSession {
   }
 
   static void clear() {
+    _epoch++;
+    AuthorizationSession.clear();
+    lastRegisteredOrgId = null;
     vehicleId = null;
     vehicleRegistrationNumber = null;
     vehicleClass = null;

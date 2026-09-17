@@ -7,6 +7,11 @@ abstract final class DriverTheme {
   static const Color border = Color(0xFFE2E8F0);
   static const Color muted = Color(0xFF64748B);
 
+  /// Secondary text on the scaffold background. `muted` is 4.43:1 on `background`, which
+  /// fails WCAG AA for normal text; this is 5.90:1. Use `muted` only inside white cards,
+  /// where it reaches 4.76:1.
+  static const Color mutedOnBackground = Color(0xFF52607A);
+
   static ThemeData theme() {
     return ThemeData(
       useMaterial3: true,
