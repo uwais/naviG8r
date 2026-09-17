@@ -1,3 +1,5 @@
+import { migrateAuthorization, ROLES, ROLE_PERMISSIONS, PERMISSIONS, type Role, type AuditEvent } from "./rbac.ts";
+import { dumpStore } from "./persistence.ts";
 import { PrismaClient } from "@prisma/client";
 import { createStore, type Store } from "./store.ts";
 import type {
@@ -205,6 +207,10 @@ export async function loadStoreFromDatabase(): Promise<Store> {
   for (const t of anchorTrips) {
     const trip: AnchorTrip = {
       id: t.id,
+      startedAtUtcMs: t.startedAtUtcMs == null ? undefined : Number(t.startedAtUtcMs),
+      startedByUserId: t.startedByUserId ?? undefined,
+      completedAtUtcMs: t.completedAtUtcMs == null ? undefined : Number(t.completedAtUtcMs),
+      completedByUserId: t.completedByUserId ?? undefined,
       carrierId: t.carrierId,
       originCity: t.originCity,
       destCity: t.destCity,
@@ -243,6 +249,15 @@ export async function loadStoreFromDatabase(): Promise<Store> {
   for (const row of shipments) {
     const s: Shipment = {
       id: row.id,
+      podAcceptedAtUtcMs: row.podAcceptedAtUtcMs == null ? undefined : Number(row.podAcceptedAtUtcMs),
+      podAcceptedByUserId: row.podAcceptedByUserId ?? undefined,
+      acceptedAtUtcMs: row.acceptedAtUtcMs == null ? undefined : Number(row.acceptedAtUtcMs),
+      acceptedByUserId: row.acceptedByUserId ?? undefined,
+      externalLoadId: row.externalLoadId ?? undefined,
+      externalSource: row.externalSource ?? undefined,
+      integrationConnectionId: row.integrationConnectionId ?? undefined,
+      metadata: (row.metadata ?? undefined) as Record<string, string> | undefined,
+      integrationSequence: row.integrationSequence ?? undefined,
       anchorTripId: row.anchorTripId,
       carrierId: row.carrierId,
       ...(row.customerOrgId != null ? { customerOrgId: row.customerOrgId } : {}),
@@ -309,11 +324,28 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     store.payoutBatches.set(batch.id, batch);
   }
 
+  const initialized = await prisma.authorizationMigration.findUnique({ where: { key: "rbac-v1" } });
+  if (initialized) for (const m of store.memberships.values()) store.membershipRoles.set(`${m.userId}:${m.orgId}`, []);
+  for (const a of await prisma.membershipRoleAssignment.findMany()) {
+    const key = `${a.userId}:${a.orgId}`;
+    store.membershipRoles.set(key, [...(store.membershipRoles.get(key) ?? []), a.roleKey as Role]);
+  }
+  for (const e of await prisma.auditEvent.findMany()) store.auditEvents.set(e.id, { ...e, timestamp: Number(e.timestamp), effectiveActorId: e.effectiveActorId ?? undefined, previousState: e.previousState ?? undefined, newState: e.newState ?? undefined, reasonCode: e.reasonCode ?? undefined, source: e.source as AuditEvent["source"] });
+  const integration = await prisma.integrationState.findUnique({ where: { key: "snapshot" } });
+  if (integration) {
+    const data = integration.data as Record<string, any[]>;
+    for (const name of integrationMaps) for (const row of data[name] ?? []) (store[name] as Map<string, any>).set(name === "integrationIdempotency" ? row.key : row.id, row);
+  }
+  migrateAuthorization(store);
   return store;
 }
 
+const integrationMaps = ["integrationConnections", "integrationApiKeys", "integrationIdempotency", "integrationEvents", "integrationWebhookDeliveries"] as const;
+export async function closeDatabase(): Promise<void> { await prisma.$disconnect(); }
 export async function saveStoreToDatabase(store: Store): Promise<void> {
+  migrateAuthorization(store);
   await prisma.$transaction(async (tx) => {
+    await tx.membershipRoleAssignment.deleteMany();
     await tx.ledgerLineRow.deleteMany();
     await tx.payoutBatchRow.deleteMany();
     await tx.shipmentRow.deleteMany();
@@ -425,6 +457,10 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
       await tx.anchorTripRow.create({
         data: {
           id: t.id,
+          startedAtUtcMs: t.startedAtUtcMs == null ? null : BigInt(t.startedAtUtcMs),
+          startedByUserId: t.startedByUserId ?? null,
+          completedAtUtcMs: t.completedAtUtcMs == null ? null : BigInt(t.completedAtUtcMs),
+          completedByUserId: t.completedByUserId ?? null,
           carrierId: t.carrierId,
           originCity: t.originCity,
           destCity: t.destCity,
@@ -463,6 +499,15 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
       await tx.shipmentRow.create({
         data: {
           id: s.id,
+          podAcceptedAtUtcMs: s.podAcceptedAtUtcMs == null ? null : BigInt(s.podAcceptedAtUtcMs),
+          podAcceptedByUserId: s.podAcceptedByUserId ?? null,
+          acceptedAtUtcMs: s.acceptedAtUtcMs == null ? null : BigInt(s.acceptedAtUtcMs),
+          acceptedByUserId: s.acceptedByUserId ?? null,
+          externalLoadId: s.externalLoadId ?? null,
+          externalSource: s.externalSource ?? null,
+          integrationConnectionId: s.integrationConnectionId ?? null,
+          metadata: s.metadata ?? undefined,
+          integrationSequence: s.integrationSequence ?? null,
           anchorTripId: s.anchorTripId,
           carrierId: s.carrierId,
           customerOrgId: s.customerOrgId ?? null,
@@ -524,6 +569,15 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
         },
       });
     }
+    for (const key of ROLES) await tx.role.upsert({ where: { key }, create: { key }, update: {} });
+    for (const key of PERMISSIONS) await tx.permission.upsert({ where: { key }, create: { key }, update: {} });
+    for (const roleKey of ROLES) for (const permissionKey of ROLE_PERMISSIONS[roleKey]) await tx.rolePermission.upsert({ where: { roleKey_permissionKey: { roleKey, permissionKey } }, create: { roleKey, permissionKey }, update: {} });
+    for (const m of store.memberships.values()) for (const roleKey of store.membershipRoles.get(`${m.userId}:${m.orgId}`) ?? []) await tx.membershipRoleAssignment.create({ data: { userId: m.userId, orgId: m.orgId, roleKey } });
+    for (const e of store.auditEvents.values()) await tx.auditEvent.upsert({ where: { id: e.id }, create: { ...e, timestamp: BigInt(e.timestamp) }, update: {} });
+    await tx.authorizationMigration.upsert({ where: { key: "rbac-v1" }, create: { key: "rbac-v1" }, update: {} });
+    const dump = dumpStore(store);
+    const data = JSON.parse(JSON.stringify(Object.fromEntries(integrationMaps.map(name => [name, dump[name]]))));
+    await tx.integrationState.upsert({ where: { key: "snapshot" }, create: { key: "snapshot", data }, update: { data } });
   });
 }
 

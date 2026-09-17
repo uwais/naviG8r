@@ -12,7 +12,8 @@ export type MembershipRole =
   | "CUSTOMER_ADMIN"
   | "CUSTOMER_MEMBER"
   | "OPS_ADMIN"
-  | "OPS_AGENT";
+  | "OPS_AGENT"
+  | "SHIPPER" | "CARRIER" | "OPS" | "FINANCE" | "ADMIN";
 
 export type AnchorTripStatus = "OPEN" | "FULL" | "IN_PROGRESS" | "COMPLETED";
 
@@ -180,6 +181,8 @@ export type Shipment = {
   netToCarrierPaise: number;
   paymentId: string;
   podAtUtcMs: number | null;
+  podAcceptedAtUtcMs?: number;
+  podAcceptedByUserId?: string;
   /** User who submitted driver POD (ops release follows). */
   podSubmittedByUserId?: string;
   podNotes?: string;

@@ -1,3 +1,4 @@
+import "organization_access.dart";
 import "dart:async";
 
 import "package:flutter/foundation.dart" show kIsWeb;
@@ -5,6 +6,8 @@ import "package:flutter/material.dart";
 import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
+import "authorization_session.dart";
+import "shipment_payment_status.dart";
 import "customer_checkout.dart";
 import "customer_layout.dart";
 import "customer_session.dart";
@@ -17,7 +20,8 @@ String? lastBookedShipmentId;
 Future<void> signOutCustomer(BuildContext context, {String? redirectTo}) async {
   await CustomerSession.signOut();
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Signed out.")));
+  ScaffoldMessenger.of(context)
+      .showSnackBar(const SnackBar(content: Text("Signed out.")));
   context.go(redirectTo ?? "/customer/login");
 }
 
@@ -28,20 +32,31 @@ List<RouteBase> customerFlowRoutes() {
       builder: (_, __) => const CustomerHomeScreen(),
       routes: [
         GoRoute(path: "login", builder: (_, __) => const CustomerLoginScreen()),
-        GoRoute(path: "register", builder: (_, __) => const CustomerRegisterScreen()),
-        GoRoute(path: "register-user", builder: (_, __) => const CustomerRegisterUserScreen()),
+        GoRoute(
+            path: "register",
+            builder: (_, __) => const CustomerRegisterScreen()),
+        GoRoute(
+            path: "register-user",
+            builder: (_, __) => const CustomerRegisterUserScreen()),
         GoRoute(path: "team", builder: (_, __) => const CustomerTeamScreen()),
-        GoRoute(path: "integrations", builder: (_, __) => const CustomerIntegrationsScreen()),
+        GoRoute(
+            path: "integrations",
+            builder: (_, __) => const CustomerIntegrationsScreen()),
         GoRoute(path: "trips", builder: (_, __) => const CustomerTripsScreen()),
-        GoRoute(path: "book", builder: (_, __) => const CustomerBookShipmentScreen()),
+        GoRoute(
+            path: "book",
+            builder: (_, __) => const CustomerBookShipmentScreen()),
         GoRoute(
           path: "eligible",
           redirect: (_, __) => "/customer/trips?tab=match",
         ),
-        GoRoute(path: "shipments", builder: (_, __) => const CustomerShipmentsScreen()),
+        GoRoute(
+            path: "shipments",
+            builder: (_, __) => const CustomerShipmentsScreen()),
         GoRoute(
           path: "shipments/:shipmentId",
-          builder: (_, state) => CustomerShipmentDetailScreen(shipmentId: state.pathParameters["shipmentId"] ?? ""),
+          builder: (_, state) => CustomerShipmentDetailScreen(
+              shipmentId: state.pathParameters["shipmentId"] ?? ""),
         ),
       ],
     ),
@@ -61,7 +76,8 @@ class CustomerScaffold extends StatelessWidget {
   final WidgetBuilder bodyBuilder;
 
   int _indexForPath(String path) {
-    if (path.startsWith("/customer/trips") || path.startsWith("/customer/eligible")) return 1;
+    if (path.startsWith("/customer/trips") ||
+        path.startsWith("/customer/eligible")) return 1;
     if (path.startsWith("/customer/book")) return 2;
     if (path.startsWith("/customer/shipments")) return 3;
     return 0;
@@ -101,12 +117,23 @@ class CustomerScaffold extends StatelessWidget {
             }
 
             final appBar = AppBar(
+              bottom: CustomerSession.isSignedIn
+                  ? const PreferredSize(
+                      preferredSize: Size.fromHeight(48),
+                      child: OrganizationToolbar())
+                  : null,
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 20)),
+                  Text(title,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 20)),
                   if (session != null)
-                    Text(session, style: const TextStyle(fontSize: 11, color: DriverTheme.muted, fontWeight: FontWeight.w400)),
+                    Text(session,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: DriverTheme.muted,
+                            fontWeight: FontWeight.w400)),
                 ],
               ),
               actions: [
@@ -138,7 +165,9 @@ class CustomerScaffold extends StatelessWidget {
                       onDestinationSelected: goToIndex,
                       leading: const CustomerBrandHeader(),
                       destinations: customerRailDestinations(),
-                      labelType: constraints.maxWidth >= 1080 ? NavigationRailLabelType.none : NavigationRailLabelType.all,
+                      labelType: constraints.maxWidth >= 1080
+                          ? NavigationRailLabelType.none
+                          : NavigationRailLabelType.all,
                     ),
                     const VerticalDivider(width: 1),
                     Expanded(child: SafeArea(left: false, child: page)),
@@ -206,13 +235,22 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const Text("Sign in to view your shipments and book with your org.", style: TextStyle(color: DriverTheme.muted)),
+                          const Text(
+                              "Sign in to view your shipments and book with your org.",
+                              style: TextStyle(color: DriverTheme.muted)),
                           const SizedBox(height: 12),
-                          FilledButton(onPressed: () => context.go("/customer/login"), child: const Text("Sign in with phone")),
+                          FilledButton(
+                              onPressed: () => context.go("/customer/login"),
+                              child: const Text("Sign in with phone")),
                           const SizedBox(height: 8),
-                          OutlinedButton(onPressed: () => context.go("/customer/register"), child: const Text("Register business")),
+                          OutlinedButton(
+                              onPressed: () => context.go("/customer/register"),
+                              child: const Text("Register business")),
                           const SizedBox(height: 8),
-                          OutlinedButton(onPressed: () => context.go("/customer/register-user"), child: const Text("Register as teammate")),
+                          OutlinedButton(
+                              onPressed: () =>
+                                  context.go("/customer/register-user"),
+                              child: const Text("Register as teammate")),
                         ],
                       ),
                     ),
@@ -224,8 +262,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                       Card(
                         child: ListTile(
                           leading: const Icon(Icons.groups_outlined),
-                          title: Text(CustomerSession.customerOrgName ?? "Your org"),
-                          subtitle: const Text("Manage who can book and view shipments"),
+                          title: Text(
+                              CustomerSession.customerOrgName ?? "Your org"),
+                          subtitle: const Text(
+                              "Manage who can book and view shipments"),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () => context.go("/customer/team"),
                         ),
@@ -235,7 +275,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                         child: ListTile(
                           leading: const Icon(Icons.hub_outlined),
                           title: const Text("ERP integrations"),
-                          subtitle: const Text("API keys, webhooks, and sync status for your ERP"),
+                          subtitle: const Text(
+                              "API keys, webhooks, and sync status for your ERP"),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () => context.go("/customer/integrations"),
                         ),
@@ -248,25 +289,32 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                       padding: const EdgeInsets.all(14),
                       child: Text(
                         "Signed in to ${CustomerSession.customerOrgName ?? "your org"}. Shipments booked by your team appear under My shipments.",
-                        style: const TextStyle(color: DriverTheme.muted, height: 1.4),
+                        style: const TextStyle(
+                            color: DriverTheme.muted, height: 1.4),
                       ),
                     ),
                   ),
                 if (CustomerSession.isSignedIn) ...[
-                  if (CustomerSession.hasCustomerOrg || CustomerSession.isOrgAdmin) const SizedBox(height: 12),
+                  if (CustomerSession.hasCustomerOrg ||
+                      CustomerSession.isOrgAdmin)
+                    const SizedBox(height: 12),
                   Card(
                     child: Column(
                       children: [
                         ListTile(
-                          leading: const Icon(Icons.person_outline, color: DriverTheme.navy),
-                          title: Text(CustomerSession.userFullName ?? "Signed in"),
+                          leading: const Icon(Icons.person_outline,
+                              color: DriverTheme.navy),
+                          title:
+                              Text(CustomerSession.userFullName ?? "Signed in"),
                           subtitle: Text(CustomerSession.userPhone ?? ""),
                         ),
                         const Divider(height: 1),
                         ListTile(
-                          leading: const Icon(Icons.logout, color: DriverTheme.navy),
+                          leading:
+                              const Icon(Icons.logout, color: DriverTheme.navy),
                           title: const Text("Sign out"),
-                          subtitle: const Text("Use a different phone number or account"),
+                          subtitle: const Text(
+                              "Use a different phone number or account"),
                           onTap: () => signOutCustomer(context),
                         ),
                       ],
@@ -281,7 +329,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text("Get started", style: TextStyle(fontWeight: FontWeight.w600, color: DriverTheme.navy)),
+                    const Text("Get started",
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: DriverTheme.navy)),
                     const SizedBox(height: 12),
                     FilledButton.icon(
                       onPressed: () => context.go("/customer/trips"),
@@ -322,6 +373,8 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   final _phone = TextEditingController();
   final _code = TextEditingController();
   String? _debugCode;
+  String? _challengeId;
+  String? _challengePhone;
   bool _sending = false;
   bool _verifying = false;
   String? _error;
@@ -355,14 +408,17 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
       return;
     }
     try {
-      final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start", data: {"phone": phone});
+      final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
+          data: {"phone": phone});
+      _challengeId = r.data?["challengeId"] as String?;
+      _challengePhone = phone;
       final dc = r.data?["debugCode"];
       if (dc is String && dc.isNotEmpty) {
         _debugCode = dc;
         _code.text = dc;
       }
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -375,20 +431,26 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
     });
     final phone = digitsOnly(_phone.text.trim());
     try {
-      final start = await api.post<Map<String, dynamic>>("/v1/auth/otp/start", data: {"phone": phone});
-      final challengeId = start.data?["challengeId"] as String?;
-      if (challengeId == null) throw Exception("Could not start OTP.");
+      final challengeId = _challengeId;
+      if (challengeId == null || phone != _challengePhone)
+        throw Exception("Request a code for this phone number first.");
       final r = await api.post<Map<String, dynamic>>(
         "/v1/auth/otp/verify",
-        data: {"phone": phone, "challengeId": challengeId, "code": _code.text.trim()},
+        data: {
+          "phone": phone,
+          "challengeId": challengeId,
+          "code": _code.text.trim()
+        },
       );
       final token = r.data?["accessToken"] as String?;
       if (token != null) await api.setToken(token);
       await CustomerSession.refresh();
       if (!mounted) return;
-      context.go("/customer/shipments");
+      context.go(AuthorizationSession.hasRole("SHIPPER")
+          ? "/customer/shipments"
+          : AuthorizationSession.home);
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _verifying = false);
     }
@@ -413,11 +475,13 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
                     children: [
                       Text(
                         "Signed in as ${CustomerSession.userFullName ?? CustomerSession.userPhone ?? "this account"}.",
-                        style: const TextStyle(color: DriverTheme.muted, height: 1.4),
+                        style: const TextStyle(
+                            color: DriverTheme.muted, height: 1.4),
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton(
-                        onPressed: () => signOutCustomer(context, redirectTo: "/customer/login"),
+                        onPressed: () => signOutCustomer(context,
+                            redirectTo: "/customer/login"),
                         child: const Text("Sign out to use another account"),
                       ),
                     ],
@@ -426,10 +490,13 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
               ),
               const SizedBox(height: 16),
             ],
-            const Text("Use the phone number you registered with.", style: TextStyle(color: DriverTheme.muted)),
+            const Text("Use the phone number you registered with.",
+                style: TextStyle(color: DriverTheme.muted)),
             if (_debugCode != null) ...[
               const SizedBox(height: 8),
-              Text("Debug OTP: $_debugCode", style: const TextStyle(fontSize: 12, color: DriverTheme.muted)),
+              Text("Debug OTP: $_debugCode",
+                  style:
+                      const TextStyle(fontSize: 12, color: DriverTheme.muted)),
             ],
             const SizedBox(height: 16),
             TextField(
@@ -441,7 +508,10 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
             OutlinedButton(
               onPressed: _sending ? null : _sendOtp,
               child: _sending
-                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text("Send code"),
             ),
             const SizedBox(height: 16),
@@ -459,7 +529,10 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
             FilledButton(
               onPressed: _verifying ? null : _verify,
               child: _verifying
-                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text("Verify and continue"),
             ),
           ],
@@ -480,10 +553,12 @@ class CustomerRegisterUserScreen extends StatefulWidget {
   const CustomerRegisterUserScreen({super.key});
 
   @override
-  State<CustomerRegisterUserScreen> createState() => _CustomerRegisterUserScreenState();
+  State<CustomerRegisterUserScreen> createState() =>
+      _CustomerRegisterUserScreenState();
 }
 
-class _CustomerRegisterUserScreenState extends State<CustomerRegisterUserScreen> {
+class _CustomerRegisterUserScreenState
+    extends State<CustomerRegisterUserScreen> {
   final _fullName = TextEditingController();
   final _phone = TextEditingController();
   bool _submitting = false;
@@ -511,11 +586,13 @@ class _CustomerRegisterUserScreenState extends State<CustomerRegisterUserScreen>
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Account created — ask your admin to invite you, then sign in.")),
+        const SnackBar(
+            content: Text(
+                "Account created — ask your admin to invite you, then sign in.")),
       );
       context.go("/customer/login");
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -534,8 +611,13 @@ class _CustomerRegisterUserScreenState extends State<CustomerRegisterUserScreen>
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
-          TextField(controller: _fullName, decoration: const InputDecoration(labelText: "Your name")),
-          TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone (10 digits)"), keyboardType: TextInputType.phone),
+          TextField(
+              controller: _fullName,
+              decoration: const InputDecoration(labelText: "Your name")),
+          TextField(
+              controller: _phone,
+              decoration: const InputDecoration(labelText: "Phone (10 digits)"),
+              keyboardType: TextInputType.phone),
           if (_error != null) ...[
             const SizedBox(height: 8),
             Text(_error!, style: const TextStyle(color: Colors.red)),
@@ -544,7 +626,10 @@ class _CustomerRegisterUserScreenState extends State<CustomerRegisterUserScreen>
           FilledButton(
             onPressed: _submitting ? null : _submit,
             child: _submitting
-                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2))
                 : const Text("Create account"),
           ),
         ],
@@ -582,6 +667,7 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
   Future<void> _bootstrap() async {
     await CustomerSession.refresh();
     if (!mounted) return;
+    if (!mounted) return;
     if (!CustomerSession.isSignedIn) {
       context.go("/customer/login");
       return;
@@ -601,7 +687,8 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
       _error = null;
     });
     try {
-      final r = await api.get<Map<String, dynamic>>("/v1/pilot/customer/members?orgId=$orgId");
+      final r = await api
+          .get<Map<String, dynamic>>("/v1/pilot/customer/members?orgId=$orgId");
       final raw = r.data?["members"];
       final list = <Map<String, dynamic>>[];
       if (raw is List) {
@@ -611,7 +698,7 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
       }
       setState(() => _members = list);
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -632,9 +719,10 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
       _phone.clear();
       await _loadMembers();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Teammate invited.")));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("Teammate invited.")));
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _inviting = false);
     }
@@ -650,7 +738,10 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
         children: [
           Text(
             CustomerSession.customerOrgName ?? "Your organization",
-            style: const TextStyle(fontWeight: FontWeight.w700, color: DriverTheme.navy, fontSize: 18),
+            style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: DriverTheme.navy,
+                fontSize: 18),
           ),
           const SizedBox(height: 8),
           const Text(
@@ -659,19 +750,24 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
           ),
           if (!CustomerSession.isOrgAdmin) ...[
             const SizedBox(height: 12),
-            Text(_error ?? "Admin access required.", style: const TextStyle(color: Colors.red)),
+            Text(_error ?? "Admin access required.",
+                style: const TextStyle(color: Colors.red)),
           ] else ...[
             const SizedBox(height: 16),
             TextField(
               controller: _phone,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(labelText: "Teammate phone (10 digits)"),
+              decoration: const InputDecoration(
+                  labelText: "Teammate phone (10 digits)"),
             ),
             const SizedBox(height: 8),
             FilledButton(
               onPressed: _inviting ? null : _invite,
               child: _inviting
-                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text("Invite to org"),
             ),
             if (_error != null) ...[
@@ -679,18 +775,25 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
               Text(_error!, style: const TextStyle(color: Colors.red)),
             ],
             const SizedBox(height: 16),
-            const Text("Members", style: TextStyle(fontWeight: FontWeight.w600)),
-            if (_loading) const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
+            const Text("Members",
+                style: TextStyle(fontWeight: FontWeight.w600)),
+            if (_loading)
+              const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: CircularProgressIndicator()),
             ..._members.map((row) {
               final user = row["user"];
               final membership = row["membership"];
               if (user is! Map<String, dynamic>) return const SizedBox.shrink();
-              final role = membership is Map<String, dynamic> ? membership["role"]?.toString() ?? "" : "";
+              final role = membership is Map<String, dynamic>
+                  ? membership["role"]?.toString() ?? ""
+                  : "";
               return Card(
                 margin: const EdgeInsets.only(top: 8),
                 child: ListTile(
                   title: Text(user["fullName"]?.toString() ?? "—"),
-                  subtitle: Text("${user["phone"]} · ${customerMemberRoleLabel(role)}"),
+                  subtitle: Text(
+                      "${user["phone"]} · ${customerMemberRoleLabel(role)}"),
                 ),
               );
             }),
@@ -705,10 +808,12 @@ class CustomerIntegrationsScreen extends StatefulWidget {
   const CustomerIntegrationsScreen({super.key});
 
   @override
-  State<CustomerIntegrationsScreen> createState() => _CustomerIntegrationsScreenState();
+  State<CustomerIntegrationsScreen> createState() =>
+      _CustomerIntegrationsScreenState();
 }
 
-class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen> {
+class _CustomerIntegrationsScreenState
+    extends State<CustomerIntegrationsScreen> {
   final _webhookUrl = TextEditingController();
   bool _loading = false;
   bool _saving = false;
@@ -741,7 +846,7 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
       context.go("/customer/login");
       return;
     }
-    if (!CustomerSession.isOrgAdmin) {
+    if (!CustomerSession.canManageIntegrations) {
       setState(() => _error = "Only org admins can manage ERP integrations.");
       return;
     }
@@ -760,7 +865,8 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
       _error = null;
     });
     try {
-      final r = await api.get<Map<String, dynamic>>("/v1/pilot/customer/integrations$_orgQuery");
+      final r = await api.get<Map<String, dynamic>>(
+          "/v1/pilot/customer/integrations$_orgQuery");
       final conn = r.data?["connection"];
       if (conn is Map<String, dynamic>) {
         _connection = conn;
@@ -771,7 +877,7 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
       _deliveries = _mapList(r.data?["recentDeliveries"]);
       setState(() {});
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -813,10 +919,11 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
         }
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Integration settings saved.")));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Integration settings saved.")));
       await _load();
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -831,7 +938,9 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
     try {
       final r = await api.post<Map<String, dynamic>>(
         "/v1/pilot/customer/integrations/keys$_orgQuery",
-        data: {"scopes": ["loads:read", "loads:write", "webhooks:manage"]},
+        data: {
+          "scopes": ["loads:read", "loads:write", "webhooks:manage"]
+        },
       );
       final token = r.data?["token"]?.toString() ?? "";
       if (token.isNotEmpty) {
@@ -839,7 +948,7 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
       }
       await _load();
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _creatingKey = false);
     }
@@ -855,9 +964,10 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
       );
       await _load();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("API key revoked.")));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("API key revoked.")));
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     }
   }
 
@@ -868,16 +978,20 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
       _error = null;
     });
     try {
-      final r = await api.post<Map<String, dynamic>>("/v1/pilot/customer/integrations/webhooks/test$_orgQuery");
+      final r = await api.post<Map<String, dynamic>>(
+          "/v1/pilot/customer/integrations/webhooks/test$_orgQuery");
       final ok = r.data?["ok"] == true;
       final status = r.data?["httpStatus"];
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ok ? "Test webhook delivered (HTTP $status)." : "Test webhook failed (HTTP $status).")),
+        SnackBar(
+            content: Text(ok
+                ? "Test webhook delivered (HTTP $status)."
+                : "Test webhook failed (HTTP $status).")),
       );
       await _load();
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _testingWebhook = false);
     }
@@ -886,23 +1000,31 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
   Future<void> _retryDelivery(String deliveryId) async {
     if (_orgQuery.isEmpty) return;
     try {
-      await api.post<Map<String, dynamic>>("/v1/pilot/customer/integrations/deliveries/$deliveryId/retry$_orgQuery");
+      await api.post<Map<String, dynamic>>(
+          "/v1/pilot/customer/integrations/deliveries/$deliveryId/retry$_orgQuery");
       await _load();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Delivery queued for retry.")));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Delivery queued for retry.")));
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     }
   }
 
-  Future<void> _showSecretDialog({required String title, required String secret}) async {
+  Future<void> _showSecretDialog(
+      {required String title, required String secret}) async {
     if (!mounted) return;
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),
-        content: SelectableText(secret, style: const TextStyle(fontFamily: "monospace", fontSize: 12)),
-        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text("Done"))],
+        content: SelectableText(secret,
+            style: const TextStyle(fontFamily: "monospace", fontSize: 12)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text("Done"))
+        ],
       ),
     );
   }
@@ -931,7 +1053,10 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
         children: [
           Text(
             CustomerSession.customerOrgName ?? "Your organization",
-            style: const TextStyle(fontWeight: FontWeight.w700, color: DriverTheme.navy, fontSize: 18),
+            style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: DriverTheme.navy,
+                fontSize: 18),
           ),
           const SizedBox(height: 8),
           const Text(
@@ -941,20 +1066,26 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
           const SizedBox(height: 8),
           const Text(
             "See docs/erp-integration.md in the NaviG8r repo for field mapping and authentication details.",
-            style: TextStyle(fontSize: 12, color: DriverTheme.muted, height: 1.35),
+            style:
+                TextStyle(fontSize: 12, color: DriverTheme.muted, height: 1.35),
           ),
-          if (!CustomerSession.isOrgAdmin) ...[
+          if (!CustomerSession.canManageIntegrations) ...[
             const SizedBox(height: 12),
-            Text(_error ?? "Admin access required.", style: const TextStyle(color: Colors.red)),
+            Text(_error ?? "Admin access required.",
+                style: const TextStyle(color: Colors.red)),
           ] else ...[
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(_error!, style: const TextStyle(color: Colors.red)),
             ],
-            if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+            if (_loading)
+              const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator())),
             if (!_loading) ...[
               const SizedBox(height: 16),
-              const Text("Webhook callback", style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text("Webhook callback",
+                  style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               TextField(
                 controller: _webhookUrl,
@@ -969,8 +1100,14 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
                 value: _paymentPolicy,
                 decoration: const InputDecoration(labelText: "Payment policy"),
                 items: const [
-                  DropdownMenuItem(value: "portal_checkout", child: Text("Portal checkout (Razorpay in customer web)")),
-                  DropdownMenuItem(value: "erp_preauthorized", child: Text("ERP pre-authorized (book without portal checkout)")),
+                  DropdownMenuItem(
+                      value: "portal_checkout",
+                      child:
+                          Text("Portal checkout (Razorpay in customer web)")),
+                  DropdownMenuItem(
+                      value: "erp_preauthorized",
+                      child: Text(
+                          "ERP pre-authorized (book without portal checkout)")),
                 ],
                 onChanged: (v) {
                   if (v != null) setState(() => _paymentPolicy = v);
@@ -983,13 +1120,18 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
                     child: FilledButton(
                       onPressed: _saving ? null : () => _saveConnection(),
                       child: _saving
-                          ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2))
                           : const Text("Save settings"),
                     ),
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton(
-                    onPressed: _saving ? null : () => _saveConnection(regenerateWebhookSecret: true),
+                    onPressed: _saving
+                        ? null
+                        : () => _saveConnection(regenerateWebhookSecret: true),
                     child: const Text("Rotate secret"),
                   ),
                 ],
@@ -997,24 +1139,36 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
               if (hasWebhookSecret)
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
-                  child: Text("Webhook HMAC secret is configured. Rotate to reveal a new secret.", style: TextStyle(fontSize: 11, color: DriverTheme.muted)),
+                  child: Text(
+                      "Webhook HMAC secret is configured. Rotate to reveal a new secret.",
+                      style: TextStyle(fontSize: 11, color: DriverTheme.muted)),
                 ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
-                onPressed: _testingWebhook || _webhookUrl.text.trim().isEmpty ? null : _testWebhook,
+                onPressed: _testingWebhook || _webhookUrl.text.trim().isEmpty
+                    ? null
+                    : _testWebhook,
                 icon: _testingWebhook
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.send_outlined, size: 18),
                 label: const Text("Send test ping"),
               ),
               const SizedBox(height: 24),
               Row(
                 children: [
-                  const Expanded(child: Text("API keys", style: TextStyle(fontWeight: FontWeight.w600))),
+                  const Expanded(
+                      child: Text("API keys",
+                          style: TextStyle(fontWeight: FontWeight.w600))),
                   FilledButton.tonal(
                     onPressed: _creatingKey ? null : _createApiKey,
                     child: _creatingKey
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
                         : const Text("Create key"),
                   ),
                 ],
@@ -1022,15 +1176,21 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
               const SizedBox(height: 4),
               const Text(
                 "Use Bearer nvg8r_{keyId}_{secret} or X-Api-Key + X-Api-Secret headers. The full token is shown only once at creation.",
-                style: TextStyle(fontSize: 12, color: DriverTheme.muted, height: 1.35),
+                style: TextStyle(
+                    fontSize: 12, color: DriverTheme.muted, height: 1.35),
               ),
               ..._apiKeys.map((k) {
                 final keyId = k["keyId"]?.toString() ?? "—";
-                final scopes = (k["scopes"] as List?)?.map((s) => s.toString()).join(", ") ?? "";
+                final scopes = (k["scopes"] as List?)
+                        ?.map((s) => s.toString())
+                        .join(", ") ??
+                    "";
                 return Card(
                   margin: const EdgeInsets.only(top: 8),
                   child: ListTile(
-                    title: Text(keyId, style: const TextStyle(fontFamily: "monospace", fontSize: 13)),
+                    title: Text(keyId,
+                        style: const TextStyle(
+                            fontFamily: "monospace", fontSize: 13)),
                     subtitle: Text(scopes.isEmpty ? "—" : scopes),
                     trailing: IconButton(
                       tooltip: "Revoke",
@@ -1043,10 +1203,12 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
               if (_apiKeys.isEmpty)
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
-                  child: Text("No API keys yet.", style: TextStyle(color: DriverTheme.muted)),
+                  child: Text("No API keys yet.",
+                      style: TextStyle(color: DriverTheme.muted)),
                 ),
               const SizedBox(height: 24),
-              const Text("Recent webhook deliveries", style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text("Recent webhook deliveries",
+                  style: TextStyle(fontWeight: FontWeight.w600)),
               ..._deliveries.map((d) {
                 final id = d["id"]?.toString() ?? "";
                 final status = d["status"]?.toString();
@@ -1062,7 +1224,10 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
                       style: const TextStyle(fontSize: 11),
                     ),
                     trailing: status != "DELIVERED"
-                        ? TextButton(onPressed: id.isEmpty ? null : () => _retryDelivery(id), child: const Text("Retry"))
+                        ? TextButton(
+                            onPressed:
+                                id.isEmpty ? null : () => _retryDelivery(id),
+                            child: const Text("Retry"))
                         : null,
                   ),
                 );
@@ -1070,7 +1235,8 @@ class _CustomerIntegrationsScreenState extends State<CustomerIntegrationsScreen>
               if (_deliveries.isEmpty)
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
-                  child: Text("No deliveries yet.", style: TextStyle(color: DriverTheme.muted)),
+                  child: Text("No deliveries yet.",
+                      style: TextStyle(color: DriverTheme.muted)),
                 ),
             ],
           ],
@@ -1110,10 +1276,11 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
         },
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Account created — sign in with your phone.")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Account created — sign in with your phone.")));
       context.go("/customer/login");
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -1132,9 +1299,17 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
-          TextField(controller: _fullName, decoration: const InputDecoration(labelText: "Your name")),
-          TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone (10 digits)"), keyboardType: TextInputType.phone),
-          TextField(controller: _org, decoration: const InputDecoration(labelText: "Business / org name")),
+          TextField(
+              controller: _fullName,
+              decoration: const InputDecoration(labelText: "Your name")),
+          TextField(
+              controller: _phone,
+              decoration: const InputDecoration(labelText: "Phone (10 digits)"),
+              keyboardType: TextInputType.phone),
+          TextField(
+              controller: _org,
+              decoration:
+                  const InputDecoration(labelText: "Business / org name")),
           if (_error != null) ...[
             const SizedBox(height: 8),
             Text(_error!, style: const TextStyle(color: Colors.red)),
@@ -1143,7 +1318,10 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
           FilledButton(
             onPressed: _submitting ? null : _submit,
             child: _submitting
-                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2))
                 : const Text("Create account"),
           ),
         ],
@@ -1159,7 +1337,8 @@ class CustomerTripsScreen extends StatefulWidget {
   State<CustomerTripsScreen> createState() => _CustomerTripsScreenState();
 }
 
-class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTickerProviderStateMixin {
+class _CustomerTripsScreenState extends State<CustomerTripsScreen>
+    with SingleTickerProviderStateMixin {
   late final TabController _tabs;
   bool _tabSynced = false;
 
@@ -1219,7 +1398,8 @@ class _CustomerBrowseTripsTab extends StatefulWidget {
   const _CustomerBrowseTripsTab();
 
   @override
-  State<_CustomerBrowseTripsTab> createState() => _CustomerBrowseTripsTabState();
+  State<_CustomerBrowseTripsTab> createState() =>
+      _CustomerBrowseTripsTabState();
 }
 
 class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
@@ -1243,7 +1423,7 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
       }
       setState(() => _trips = list);
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -1263,9 +1443,12 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         children: [
-          if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+          if (_error != null)
+            Text(_error!, style: const TextStyle(color: Colors.red)),
           if (_loading) const Center(child: CircularProgressIndicator()),
-          if (!_loading && _trips.isEmpty) const Text("No open trips right now.", style: TextStyle(color: DriverTheme.muted)),
+          if (!_loading && _trips.isEmpty)
+            const Text("No open trips right now.",
+                style: TextStyle(color: DriverTheme.muted)),
           ..._trips.map((t) => _tripCard(context, t)),
         ],
       ),
@@ -1316,7 +1499,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
         "dropLng": _dropPos.longitude.toString(),
         "weightKg": weightKg.toString(),
       }).query;
-      final r = await api.get<Map<String, dynamic>>("/v1/customer/eligible-anchor-trips?$qs");
+      final r = await api
+          .get<Map<String, dynamic>>("/v1/customer/eligible-anchor-trips?$qs");
       final raw = r.data?["trips"];
       final list = <Map<String, dynamic>>[];
       if (raw is List) {
@@ -1326,7 +1510,7 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
       }
       setState(() => _rows = list);
     } catch (e) {
-      setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -1364,12 +1548,18 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
         const SizedBox(height: 12),
         routePreviewMap(a: _pickupPos, b: _dropPos),
         const SizedBox(height: 12),
-        TextField(controller: _weightKg, decoration: const InputDecoration(labelText: "Weight (kg)"), keyboardType: TextInputType.number),
+        TextField(
+            controller: _weightKg,
+            decoration: const InputDecoration(labelText: "Weight (kg)"),
+            keyboardType: TextInputType.number),
         const SizedBox(height: 12),
         FilledButton(
           onPressed: _loading ? null : _load,
           child: _loading
-              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2))
               : const Text("Find matching trips"),
         ),
         if (_error != null) ...[
@@ -1380,7 +1570,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
           final trip = row["trip"];
           final elig = row["eligibility"];
           if (trip is! Map<String, dynamic>) return const SizedBox.shrink();
-          final eligible = elig is Map<String, dynamic> && elig["eligible"] == true;
+          final eligible =
+              elig is Map<String, dynamic> && elig["eligible"] == true;
           if (!eligible) return const SizedBox.shrink();
           return _tripCard(context, trip);
         }),
@@ -1394,7 +1585,8 @@ Widget _tripCard(BuildContext context, Map<String, dynamic> t) {
   final route = "${t["originCity"]} → ${t["destCity"]}";
   final status = tripStatusLabel(t["status"]?.toString() ?? "");
   final carrier = t["carrierDisplayName"]?.toString() ?? "Carrier";
-  final window = formatTripWindowRange(t["windowStart"]?.toString(), t["windowEnd"]?.toString());
+  final window = formatTripWindowRange(
+      t["windowStart"]?.toString(), t["windowEnd"]?.toString());
   final isBookable = t["status"]?.toString() == "OPEN";
   return Card(
     margin: const EdgeInsets.only(top: 12),
@@ -1403,15 +1595,23 @@ Widget _tripCard(BuildContext context, Map<String, dynamic> t) {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(route, style: const TextStyle(fontWeight: FontWeight.w700, color: DriverTheme.navy)),
+          Text(route,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w700, color: DriverTheme.navy)),
           const SizedBox(height: 4),
           Text(carrier, style: const TextStyle(color: DriverTheme.muted)),
           const SizedBox(height: 6),
-          Text("$status · ${vehicleClassLabel(t["vehicleClass"]?.toString())} · $window", style: const TextStyle(fontSize: 12)),
-          Text("Capacity ${t["capacityKg"]} kg (${t["reservedKg"]} kg reserved)", style: const TextStyle(fontSize: 12, color: DriverTheme.muted)),
+          Text(
+              "$status · ${vehicleClassLabel(t["vehicleClass"]?.toString())} · $window",
+              style: const TextStyle(fontSize: 12)),
+          Text(
+              "Capacity ${t["capacityKg"]} kg (${t["reservedKg"]} kg reserved)",
+              style: const TextStyle(fontSize: 12, color: DriverTheme.muted)),
           const SizedBox(height: 10),
           FilledButton(
-            onPressed: (!isBookable || id.isEmpty) ? null : () => context.go("/customer/book?anchorTripId=$id"),
+            onPressed: (!isBookable || id.isEmpty)
+                ? null
+                : () => context.go("/customer/book?anchorTripId=$id"),
             child: Text(isBookable ? "Book this lane" : "Not available"),
           ),
         ],
@@ -1424,10 +1624,12 @@ class CustomerBookShipmentScreen extends StatefulWidget {
   const CustomerBookShipmentScreen({super.key});
 
   @override
-  State<CustomerBookShipmentScreen> createState() => _CustomerBookShipmentScreenState();
+  State<CustomerBookShipmentScreen> createState() =>
+      _CustomerBookShipmentScreenState();
 }
 
-class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen> {
+class _CustomerBookShipmentScreenState
+    extends State<CustomerBookShipmentScreen> {
   final _anchorTripId = TextEditingController();
   final _customerOrgName = TextEditingController();
   final _customerPhone = TextEditingController();
@@ -1451,7 +1653,8 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
     super.initState();
     _checkout = CustomerCheckoutController(
       onSuccess: ({required orderId, required paymentId, required signature}) {
-        _onCheckoutSuccess(orderId: orderId, paymentId: paymentId, signature: signature);
+        _onCheckoutSuccess(
+            orderId: orderId, paymentId: paymentId, signature: signature);
       },
       onError: _onCheckoutError,
     )..init();
@@ -1460,10 +1663,12 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
 
   Future<void> _bootstrap() async {
     await CustomerSession.refresh();
-    if (CustomerSession.customerOrgName != null && CustomerSession.customerOrgName!.isNotEmpty) {
+    if (CustomerSession.customerOrgName != null &&
+        CustomerSession.customerOrgName!.isNotEmpty) {
       _customerOrgName.text = CustomerSession.customerOrgName!;
     }
-    if (CustomerSession.userPhone != null) _customerPhone.text = CustomerSession.userPhone!;
+    if (CustomerSession.userPhone != null)
+      _customerPhone.text = CustomerSession.userPhone!;
     if (mounted) setState(() {});
   }
 
@@ -1551,26 +1756,42 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
       final w = int.tryParse(_weightKg.text.trim()) ?? 0;
       final payload = <String, dynamic>{
         "weightKg": w,
-        "pickup": {"lat": _pickupPos.latitude, "lng": _pickupPos.longitude, "label": _pickup.text.trim()},
-        "drop": {"lat": _dropPos.latitude, "lng": _dropPos.longitude, "label": _drop.text.trim()},
+        "pickup": {
+          "lat": _pickupPos.latitude,
+          "lng": _pickupPos.longitude,
+          "label": _pickup.text.trim()
+        },
+        "drop": {
+          "lat": _dropPos.latitude,
+          "lng": _dropPos.longitude,
+          "label": _drop.text.trim()
+        },
       };
       final id = _anchorTripId.text.trim();
       if (id.isNotEmpty) payload["anchorTripId"] = id;
-      final r = await api.post<Map<String, dynamic>>("/shipments/quote", data: payload);
-      setState(() => _quote = r.data?["quote"] is Map<String, dynamic> ? r.data!["quote"] as Map<String, dynamic> : null);
+      final r = await api.post<Map<String, dynamic>>("/shipments/quote",
+          data: payload);
+      setState(() => _quote = r.data?["quote"] is Map<String, dynamic>
+          ? r.data!["quote"] as Map<String, dynamic>
+          : null);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
     } finally {
       if (mounted) setState(() => _quoting = false);
     }
   }
 
   Future<void> _book() async {
+    if (!AuthorizationSession.can("load.create") ||
+        !CustomerSession.hasCustomerOrg) return;
     setState(() => _booking = true);
     try {
       final id = _anchorTripId.text.trim();
       if (id.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Choose a trip from the Trips tab first.")));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Choose a trip from the Trips tab first.")));
         return;
       }
       final r = await api.post<Map<String, dynamic>>(
@@ -1578,21 +1799,37 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
         data: {
           "anchorTripId": id,
           "customerOrgName": _customerOrgName.text.trim(),
-          if (_customerPhone.text.trim().isNotEmpty) "customerPhone": _customerPhone.text.trim(),
+          if (_customerPhone.text.trim().isNotEmpty)
+            "customerPhone": _customerPhone.text.trim(),
           "weightKg": int.tryParse(_weightKg.text.trim()) ?? 0,
           "pickupAddress": _pickup.text.trim(),
           "dropAddress": _drop.text.trim(),
-          "pickup": {"lat": _pickupPos.latitude, "lng": _pickupPos.longitude, "label": _pickup.text.trim()},
-          "drop": {"lat": _dropPos.latitude, "lng": _dropPos.longitude, "label": _drop.text.trim()},
+          "pickup": {
+            "lat": _pickupPos.latitude,
+            "lng": _pickupPos.longitude,
+            "label": _pickup.text.trim()
+          },
+          "drop": {
+            "lat": _dropPos.latitude,
+            "lng": _dropPos.longitude,
+            "label": _drop.text.trim()
+          },
         },
       );
       final shipment = r.data?["shipment"];
       final pay = r.data?["payment"];
-      final shipmentId = shipment is Map<String, dynamic> ? shipment["id"]?.toString() : null;
+      final shipmentId =
+          shipment is Map<String, dynamic> ? shipment["id"]?.toString() : null;
       final keyId = r.data?["razorpayKeyId"]?.toString();
-      final orderId = pay is Map<String, dynamic> ? pay["razorpayOrderId"]?.toString() : null;
-      final payStatus = pay is Map<String, dynamic> ? pay["status"]?.toString() : null;
-      final amountPaise = pay is Map<String, dynamic> && pay["amountPaise"] is num ? (pay["amountPaise"] as num).toInt() : 0;
+      final orderId = pay is Map<String, dynamic>
+          ? pay["razorpayOrderId"]?.toString()
+          : null;
+      final payStatus =
+          pay is Map<String, dynamic> ? pay["status"]?.toString() : null;
+      final amountPaise =
+          pay is Map<String, dynamic> && pay["amountPaise"] is num
+              ? (pay["amountPaise"] as num).toInt()
+              : 0;
 
       if (shipmentId != null &&
           keyId != null &&
@@ -1614,7 +1851,9 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
         context.go("/customer/shipments/$shipmentId");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(formatApiError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
     } finally {
       if (mounted) setState(() => _booking = false);
     }
@@ -1639,7 +1878,9 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
             const SizedBox(height: 12),
           ],
           if (_loadingTrip) const Center(child: CircularProgressIndicator()),
-          if (_tripLoadError != null) Text(_tripLoadError!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+          if (_tripLoadError != null)
+            Text(_tripLoadError!,
+                style: const TextStyle(color: Colors.red, fontSize: 13)),
           if (_anchorTrip != null) ...[
             Card(
               child: Padding(
@@ -1647,14 +1888,27 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("${_anchorTrip!["originCity"]} → ${_anchorTrip!["destCity"]}", style: const TextStyle(fontWeight: FontWeight.w700, color: DriverTheme.navy, fontSize: 18)),
+                    Text(
+                        "${_anchorTrip!["originCity"]} → ${_anchorTrip!["destCity"]}",
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: DriverTheme.navy,
+                            fontSize: 18)),
                     const SizedBox(height: 6),
-                    Text(_anchorTrip!["carrierDisplayName"]?.toString() ?? "Carrier", style: const TextStyle(color: DriverTheme.muted)),
+                    Text(
+                        _anchorTrip!["carrierDisplayName"]?.toString() ??
+                            "Carrier",
+                        style: const TextStyle(color: DriverTheme.muted)),
                     Text(
                       "${tripStatusLabel(_anchorTrip!["status"]?.toString() ?? "")} · ${vehicleClassLabel(_anchorTrip!["vehicleClass"]?.toString())}",
                       style: const TextStyle(fontSize: 12),
                     ),
-                    Text(formatTripWindowRange(_anchorTrip!["windowStart"]?.toString(), _anchorTrip!["windowEnd"]?.toString()), style: const TextStyle(fontSize: 12, color: DriverTheme.muted)),
+                    Text(
+                        formatTripWindowRange(
+                            _anchorTrip!["windowStart"]?.toString(),
+                            _anchorTrip!["windowEnd"]?.toString()),
+                        style: const TextStyle(
+                            fontSize: 12, color: DriverTheme.muted)),
                   ],
                 ),
               ),
@@ -1667,11 +1921,20 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
             primary: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text("Shipment details", style: TextStyle(fontWeight: FontWeight.w600, color: DriverTheme.navy)),
+                const Text("Shipment details",
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600, color: DriverTheme.navy)),
                 const SizedBox(height: 8),
-                if (!CustomerSession.isSignedIn || !CustomerSession.hasCustomerOrg)
-                  TextField(controller: _customerOrgName, decoration: const InputDecoration(labelText: "Your business name")),
-                TextField(controller: _weightKg, decoration: const InputDecoration(labelText: "Weight (kg)"), keyboardType: TextInputType.number),
+                if (!CustomerSession.isSignedIn ||
+                    !CustomerSession.hasCustomerOrg)
+                  TextField(
+                      controller: _customerOrgName,
+                      decoration: const InputDecoration(
+                          labelText: "Your business name")),
+                TextField(
+                    controller: _weightKg,
+                    decoration: const InputDecoration(labelText: "Weight (kg)"),
+                    keyboardType: TextInputType.number),
                 const SizedBox(height: 12),
                 LocationEndpointEditor(
                   title: "Pickup",
@@ -1696,14 +1959,20 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
                 Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton(onPressed: _quoting ? null : _fetchQuote, child: const Text("Get quote")),
+                      child: OutlinedButton(
+                          onPressed: _quoting ? null : _fetchQuote,
+                          child: const Text("Get quote")),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton(
                         onPressed: _booking ? null : _book,
                         child: _booking
-                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2))
                             : const Text("Book & pay"),
                       ),
                     ),
@@ -1729,10 +1998,15 @@ class _CustomerBookShipmentScreenState extends State<CustomerBookShipmentScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text("Estimated price", style: TextStyle(fontWeight: FontWeight.w600)),
+                          const Text("Estimated price",
+                              style: TextStyle(fontWeight: FontWeight.w600)),
                           Text(
-                            formatInrFromPaise(_quote!["grossPaise"] as num? ?? 0),
-                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: DriverTheme.navy),
+                            formatInrFromPaise(
+                                _quote!["grossPaise"] as num? ?? 0),
+                            style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w700,
+                                color: DriverTheme.navy),
                           ),
                         ],
                       ),
@@ -1752,7 +2026,8 @@ class CustomerShipmentsScreen extends StatefulWidget {
   const CustomerShipmentsScreen({super.key});
 
   @override
-  State<CustomerShipmentsScreen> createState() => _CustomerShipmentsScreenState();
+  State<CustomerShipmentsScreen> createState() =>
+      _CustomerShipmentsScreenState();
 }
 
 class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
@@ -1768,6 +2043,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
       _needsAuth = false;
     });
     await CustomerSession.refresh();
+    if (!mounted) return;
     try {
       final r = await api.get<Map<String, dynamic>>("/shipments");
       final raw = r.data?["shipments"];
@@ -1777,9 +2053,11 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
           if (item is Map<String, dynamic>) list.add(item);
         }
       }
+      if (!mounted) return;
       setState(() => _shipments = list);
     } catch (e) {
       final msg = formatApiError(e);
+      if (!mounted) return;
       setState(() {
         _error = msg;
         _needsAuth = msg.contains("401") || !CustomerSession.isSignedIn;
@@ -1813,14 +2091,18 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text("Sign in to see shipments linked to your phone or business."),
+                      const Text(
+                          "Sign in and select your organization to see its shipments."),
                       const SizedBox(height: 10),
-                      FilledButton(onPressed: () => context.go("/customer/login"), child: const Text("Sign in")),
+                      FilledButton(
+                          onPressed: () => context.go("/customer/login"),
+                          child: const Text("Sign in")),
                     ],
                   ),
                 ),
               ),
-            if (_error != null && !_needsAuth) Text(_error!, style: const TextStyle(color: Colors.red)),
+            if (_error != null && !_needsAuth)
+              Text(_error!, style: const TextStyle(color: Colors.red)),
             if (_loading) const Center(child: CircularProgressIndicator()),
             if (!_loading && !_needsAuth && _shipments.isEmpty)
               Card(
@@ -1829,11 +2111,16 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text("No shipments yet.", style: TextStyle(fontWeight: FontWeight.w600)),
+                      const Text("No shipments yet.",
+                          style: TextStyle(fontWeight: FontWeight.w600)),
                       const SizedBox(height: 8),
-                      const Text("Browse carrier lanes and book your first shipment.", style: TextStyle(color: DriverTheme.muted)),
+                      const Text(
+                          "Browse carrier lanes and book your first shipment.",
+                          style: TextStyle(color: DriverTheme.muted)),
                       const SizedBox(height: 12),
-                      FilledButton(onPressed: () => context.go("/customer/trips"), child: const Text("Browse trips")),
+                      FilledButton(
+                          onPressed: () => context.go("/customer/trips"),
+                          child: const Text("Browse trips")),
                     ],
                   ),
                 ),
@@ -1846,10 +2133,13 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
                 margin: const EdgeInsets.only(top: 12),
                 child: ListTile(
                   title: Text(carrier),
-                  subtitle: Text("$status · ${s["weightKg"]} kg\n${s["pickupAddress"]} → ${s["dropAddress"]}"),
+                  subtitle: Text(
+                      "$status · ${s["weightKg"]} kg\n${s["pickupAddress"]} → ${s["dropAddress"]}"),
                   isThreeLine: true,
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: id.isEmpty ? null : () => context.go("/customer/shipments/$id"),
+                  onTap: id.isEmpty
+                      ? null
+                      : () => context.go("/customer/shipments/$id"),
                 ),
               );
             }),
@@ -1865,10 +2155,12 @@ class CustomerShipmentDetailScreen extends StatefulWidget {
   final String shipmentId;
 
   @override
-  State<CustomerShipmentDetailScreen> createState() => _CustomerShipmentDetailScreenState();
+  State<CustomerShipmentDetailScreen> createState() =>
+      _CustomerShipmentDetailScreenState();
 }
 
-class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScreen> {
+class _CustomerShipmentDetailScreenState
+    extends State<CustomerShipmentDetailScreen> {
   bool _loading = false;
   bool _refreshing = false;
   String? _error;
@@ -1888,15 +2180,27 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
       });
     }
     try {
-      final r = await api.get<Map<String, dynamic>>("/shipments/${widget.shipmentId}");
+      final r = await api
+          .get<Map<String, dynamic>>("/shipments/${widget.shipmentId}");
       if (!mounted) return;
       setState(() {
-        _shipment = r.data?["shipment"] is Map<String, dynamic> ? r.data!["shipment"] as Map<String, dynamic> : null;
-        _payment = r.data?["payment"] is Map<String, dynamic> ? r.data!["payment"] as Map<String, dynamic> : null;
+        _shipment = r.data?["shipment"] is Map<String, dynamic>
+            ? r.data!["shipment"] as Map<String, dynamic>
+            : null;
+        _payment = r.data?["payment"] is Map<String, dynamic>
+            ? r.data!["payment"] as Map<String, dynamic>
+            : null;
       });
       await _loadTracking();
     } catch (e) {
-      if (showSpinner && mounted) setState(() => _error = formatApiError(e));
+      if (mounted)
+        setState(() {
+          _shipment = null;
+          _payment = null;
+          _trip = null;
+          _liveLocation = null;
+          _error = formatApiError(e);
+        });
     } finally {
       if (showSpinner && mounted) setState(() => _loading = false);
     }
@@ -1904,11 +2208,16 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
 
   Future<void> _loadTracking() async {
     try {
-      final r = await api.get<Map<String, dynamic>>("/shipments/${widget.shipmentId}/tracking");
+      final r = await api.get<Map<String, dynamic>>(
+          "/shipments/${widget.shipmentId}/tracking");
       if (!mounted) return;
       setState(() {
-        _trip = r.data?["trip"] is Map<String, dynamic> ? r.data!["trip"] as Map<String, dynamic> : null;
-        _liveLocation = r.data?["liveLocation"] is Map<String, dynamic> ? r.data!["liveLocation"] as Map<String, dynamic> : null;
+        _trip = r.data?["trip"] is Map<String, dynamic>
+            ? r.data!["trip"] as Map<String, dynamic>
+            : null;
+        _liveLocation = r.data?["liveLocation"] is Map<String, dynamic>
+            ? r.data!["liveLocation"] as Map<String, dynamic>
+            : null;
         _isLive = r.data?["isLive"] == true;
         _trackingError = null;
       });
@@ -1925,7 +2234,8 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
       await _loadTracking();
       if (!mounted) return;
       if (_trackingError == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Tracking updated.")));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text("Tracking updated.")));
       }
     } finally {
       if (mounted) setState(() => _refreshing = false);
@@ -1936,17 +2246,28 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
     if (_refreshing) return;
     setState(() => _refreshing = true);
     try {
-      final r = await api.get<Map<String, dynamic>>("/shipments/${widget.shipmentId}");
+      final r = await api
+          .get<Map<String, dynamic>>("/shipments/${widget.shipmentId}");
       if (!mounted) return;
       setState(() {
-        _shipment = r.data?["shipment"] is Map<String, dynamic> ? r.data!["shipment"] as Map<String, dynamic> : null;
-        _payment = r.data?["payment"] is Map<String, dynamic> ? r.data!["payment"] as Map<String, dynamic> : null;
+        _shipment = r.data?["shipment"] is Map<String, dynamic>
+            ? r.data!["shipment"] as Map<String, dynamic>
+            : null;
+        _payment = r.data?["payment"] is Map<String, dynamic>
+            ? r.data!["payment"] as Map<String, dynamic>
+            : null;
         _error = null;
       });
       await _loadTracking();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = formatApiError(e));
+      setState(() {
+        _shipment = null;
+        _payment = null;
+        _trip = null;
+        _liveLocation = null;
+        _error = formatApiError(e);
+      });
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
@@ -1993,7 +2314,10 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
     final shipment = _shipment;
     final tripStatus = _trip?["status"]?.toString();
     final steps = shipment != null
-        ? shipmentTimelineSteps(shipmentStatus: shipment["status"]?.toString() ?? "", tripStatus: tripStatus, isLive: _isLive)
+        ? shipmentTimelineSteps(
+            shipmentStatus: shipment["status"]?.toString() ?? "",
+            tripStatus: tripStatus,
+            isLive: _isLive)
         : <ShipmentTimelineStep>[];
 
     final trackingMessage = shipment != null
@@ -2017,21 +2341,28 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16),
                 children: [
-                  if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+                  if (_error != null)
+                    Text(_error!, style: const TextStyle(color: Colors.red)),
                   if (shipment != null) ...[
-                    if ((shipment["externalLoadId"]?.toString() ?? "").isNotEmpty)
+                    if ((shipment["externalLoadId"]?.toString() ?? "")
+                        .isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: Row(
                           children: [
                             Chip(
-                              avatar: const Icon(Icons.sync, size: 16, color: DriverTheme.navy),
-                              label: Text("Synced from ERP · ${shipment["externalLoadId"]}"),
-                              backgroundColor: DriverTheme.navy.withOpacity(0.08),
+                              avatar: const Icon(Icons.sync,
+                                  size: 16, color: DriverTheme.navy),
+                              label: Text(
+                                  "Synced from ERP · ${shipment["externalLoadId"]}"),
+                              backgroundColor:
+                                  DriverTheme.navy.withOpacity(0.08),
                             ),
                           ],
                         ),
                       ),
+                    ShipmentPaymentStatus(
+                        shipment: shipment, onAccepted: () => _load()),
                     _ShipmentTimeline(steps: steps),
                     const SizedBox(height: 12),
                     if (_canTrack)
@@ -2041,7 +2372,11 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
                             child: OutlinedButton.icon(
                               onPressed: _refreshing ? null : _refreshTracking,
                               icon: _refreshing
-                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))
                                   : const Icon(Icons.refresh, size: 18),
                               label: const Text("Refresh tracking"),
                             ),
@@ -2050,26 +2385,45 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
                       ),
                     if (_canTrack) const SizedBox(height: 12),
                     if (_trip != null &&
-                        _latLngFromGeo(_trip!["origin"] as Map<String, dynamic>?) != null &&
-                        _latLngFromGeo(_trip!["destination"] as Map<String, dynamic>?) != null)
+                        _latLngFromGeo(
+                                _trip!["origin"] as Map<String, dynamic>?) !=
+                            null &&
+                        _latLngFromGeo(_trip!["destination"]
+                                as Map<String, dynamic>?) !=
+                            null)
                       tripTrackingMap(
-                        origin: _latLngFromGeo(_trip!["origin"] as Map<String, dynamic>?)!,
-                        destination: _latLngFromGeo(_trip!["destination"] as Map<String, dynamic>?)!,
-                        pickup: _latLngFromGeo(shipment["pickup"] as Map<String, dynamic>?),
-                        drop: _latLngFromGeo(shipment["drop"] as Map<String, dynamic>?),
+                        origin: _latLngFromGeo(
+                            _trip!["origin"] as Map<String, dynamic>?)!,
+                        destination: _latLngFromGeo(
+                            _trip!["destination"] as Map<String, dynamic>?)!,
+                        pickup: _latLngFromGeo(
+                            shipment["pickup"] as Map<String, dynamic>?),
+                        drop: _latLngFromGeo(
+                            shipment["drop"] as Map<String, dynamic>?),
                         driver: _isLive ? _latLngFromGeo(_liveLocation) : null,
                       )
                     else
-                      const Text("Map will appear when the carrier lane has map coordinates.", style: TextStyle(color: DriverTheme.muted, fontSize: 12)),
+                      const Text(
+                          "Map will appear when the carrier lane has map coordinates.",
+                          style: TextStyle(
+                              color: DriverTheme.muted, fontSize: 12)),
                     const SizedBox(height: 8),
-                    Text(trackingMessage, style: const TextStyle(fontSize: 12, color: DriverTheme.muted, height: 1.4)),
+                    Text(trackingMessage,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            color: DriverTheme.muted,
+                            height: 1.4)),
                     if (_trackingError != null) ...[
                       const SizedBox(height: 6),
-                      Text("Tracking error: $_trackingError", style: const TextStyle(fontSize: 12, color: Colors.red, height: 1.35)),
+                      Text("Tracking error: $_trackingError",
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.red, height: 1.35)),
                     ],
                     if (_canTrack && !_isLive) ...[
                       const SizedBox(height: 4),
-                      const Text("Pull down to refresh shipment and tracking.", style: TextStyle(fontSize: 11, color: DriverTheme.muted)),
+                      const Text("Pull down to refresh shipment and tracking.",
+                          style: TextStyle(
+                              fontSize: 11, color: DriverTheme.muted)),
                     ],
                     const SizedBox(height: 12),
                     Card(
@@ -2078,13 +2432,18 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text("${shipment["pickupAddress"]} → ${shipment["dropAddress"]}", style: const TextStyle(fontWeight: FontWeight.w600)),
+                            Text(
+                                "${shipment["pickupAddress"]} → ${shipment["dropAddress"]}",
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600)),
                             const SizedBox(height: 6),
-                            Text("${shipment["weightKg"]} kg · ${formatInrFromPaise(shipment["grossPaise"] as num? ?? 0)}"),
+                            Text(
+                                "${shipment["weightKg"]} kg · ${formatInrFromPaise(shipment["grossPaise"] as num? ?? 0)}"),
                             if (_trip != null)
                               Text(
                                 "Lane: ${_trip!["originCity"]} → ${_trip!["destCity"]}",
-                                style: const TextStyle(fontSize: 12, color: DriverTheme.muted),
+                                style: const TextStyle(
+                                    fontSize: 12, color: DriverTheme.muted),
                               ),
                           ],
                         ),
@@ -2094,8 +2453,10 @@ class _CustomerShipmentDetailScreenState extends State<CustomerShipmentDetailScr
                       const SizedBox(height: 12),
                       Card(
                         child: ListTile(
-                          title: Text(paymentStatusLabel(_payment!["status"]?.toString() ?? "")),
-                          subtitle: Text(formatInrFromPaise(_payment!["amountPaise"] as num? ?? 0)),
+                          title: Text(paymentStatusLabel(
+                              _payment!["status"]?.toString() ?? "")),
+                          subtitle: Text(formatInrFromPaise(
+                              _payment!["amountPaise"] as num? ?? 0)),
                         ),
                       ),
                     ],
@@ -2123,17 +2484,30 @@ class _ShipmentTimeline extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
-                    steps[i].complete ? Icons.check_circle : steps[i].current ? Icons.radio_button_checked : Icons.radio_button_off,
+                    steps[i].complete
+                        ? Icons.check_circle
+                        : steps[i].current
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off,
                     size: 20,
-                    color: steps[i].complete || steps[i].current ? DriverTheme.navy : DriverTheme.muted,
+                    color: steps[i].complete || steps[i].current
+                        ? DriverTheme.navy
+                        : DriverTheme.muted,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(steps[i].label, style: TextStyle(fontWeight: steps[i].current ? FontWeight.w700 : FontWeight.w500, color: DriverTheme.navy)),
-                        Text(steps[i].subtitle, style: const TextStyle(fontSize: 11, color: DriverTheme.muted)),
+                        Text(steps[i].label,
+                            style: TextStyle(
+                                fontWeight: steps[i].current
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                color: DriverTheme.navy)),
+                        Text(steps[i].subtitle,
+                            style: const TextStyle(
+                                fontSize: 11, color: DriverTheme.muted)),
                       ],
                     ),
                   ),

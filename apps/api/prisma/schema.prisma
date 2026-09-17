@@ -47,10 +47,13 @@ model Membership {
   inactiveAtUtcMs  BigInt?
   inactiveReason   String?
 
+  assignments MembershipRoleAssignment[]
   @@id([userId, orgId])
+  @@index([orgId])
 }
 
 model Vehicle {
+  @@index([orgId])
   id                    String  @id
   orgId                 String
   registrationNumber    String
@@ -88,6 +91,11 @@ model AuthSessionRow {
 }
 
 model AnchorTripRow {
+  startedAtUtcMs BigInt?
+  startedByUserId String?
+  completedAtUtcMs BigInt?
+  completedByUserId String?
+  @@index([carrierId])
   id               String  @id
   carrierId        String
   originCity       String
@@ -122,6 +130,17 @@ model PaymentRow {
 }
 
 model ShipmentRow {
+  podAcceptedAtUtcMs BigInt?
+  podAcceptedByUserId String?
+  acceptedAtUtcMs BigInt?
+  acceptedByUserId String?
+  externalLoadId String?
+  externalSource String?
+  integrationConnectionId String?
+  metadata Json?
+  integrationSequence Int?
+  @@index([customerOrgId, status])
+  @@index([carrierId, status])
   id                             String  @id
   anchorTripId                   String
   carrierId                      String
@@ -175,4 +194,55 @@ model PayoutBatchRow {
   lineIds                 Json // string[]
   provider                String? // "BOOKKEEPING" | "RAZORPAYX"
   transfers               Json? // PayoutTransfer[]
+}
+
+model Role {
+  key String @id
+  permissions RolePermission[]
+  assignments MembershipRoleAssignment[]
+}
+model Permission {
+  key String @id
+  roles RolePermission[]
+}
+model RolePermission {
+  roleKey String
+  permissionKey String
+  role Role @relation(fields: [roleKey], references: [key])
+  permission Permission @relation(fields: [permissionKey], references: [key])
+  @@id([roleKey, permissionKey])
+}
+model MembershipRoleAssignment {
+  userId String
+  orgId String
+  roleKey String
+  membership Membership @relation(fields: [userId, orgId], references: [userId, orgId])
+  role Role @relation(fields: [roleKey], references: [key])
+  @@id([userId, orgId, roleKey])
+}
+// Marker distinguishes an explicitly revoked membership from a legacy un-migrated row.
+model AuthorizationMigration {
+  key String @id
+}
+model AuditEvent {
+  id String @id
+  actorUserId String
+  actorOrganizationId String
+  effectiveActorId String?
+  action String
+  resourceType String
+  resourceId String
+  previousState String?
+  newState String?
+  reasonCode String?
+  requestId String
+  timestamp BigInt
+  source String
+  @@index([actorOrganizationId, timestamp])
+  @@index([resourceType, resourceId])
+}
+// Existing integration models were FILE-only; retain their existing serialized shape.
+model IntegrationState {
+  key String @id
+  data Json
 }

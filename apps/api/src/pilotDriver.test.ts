@@ -1,14 +1,15 @@
+import { bookTestShipment, registerCompliantCarrier, deliverTestShipment } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import {
   acceptCarrierShipment,
   ApiError,
-  bookShipment,
+
   computeFreightGrossPaise,
   createCarrier,
   distanceBetweenGeoPointsKm,
-  markPodDelivered,
+
   pilotCarrierEarningsSummary,
   pilotListCarrierShipments,
   pilotListMyAnchorTrips,
@@ -16,14 +17,14 @@ import {
   publishAnchorTrip,
   publishAnchorTripAsPilotDriver,
   registerCustomerOrgAdmin,
-  registerSoloOwnerOperatorDriver,
+
   shipmentVisibleToCarrierPilot,
   shipmentVisibleToCustomerUser,
 } from "./services.ts";
 
-test("pilot solo driver can register, publish trip, and shipments reference org id", () => {
+test("pilot solo driver can register, publish trip, and shipments reference org id", async () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Ravi Kumar",
     phone: "9876543210",
     orgDisplayName: "Ravi Transport",
@@ -49,7 +50,7 @@ test("pilot solo driver can register, publish trip, and shipments reference org 
   assert.equal(listed.length, 1);
   assert.equal(listed[0]!.id, trip.id);
 
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "ACME Manufacturing",
     weightKg: 200,
@@ -61,13 +62,13 @@ test("pilot solo driver can register, publish trip, and shipments reference org 
   assert.equal(shipment.status, "PENDING_CARRIER_ACCEPT");
 
   acceptCarrierShipment(store, { shipmentId: shipment.id, userId: onboard.user.id });
-  const pod = markPodDelivered(store, { shipmentId: shipment.id });
+  const pod = await deliverTestShipment(store, { shipmentId: shipment.id });
   assert.equal(pod.ledgerLine.carrierId, onboard.org.id);
 });
 
 test("bookShipment enforces Phase A when anchor trip has origin/destination geo", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Ravi Kumar",
     phone: "9876543211",
     orgDisplayName: "Ravi Transport 2",
@@ -91,7 +92,7 @@ test("bookShipment enforces Phase A when anchor trip has origin/destination geo"
 
   assert.throws(
     () =>
-      bookShipment(store, {
+      bookTestShipment(store, {
         anchorTripId: trip.id,
         customerOrgName: "ACME Manufacturing",
         weightKg: 200,
@@ -103,7 +104,7 @@ test("bookShipment enforces Phase A when anchor trip has origin/destination geo"
     (e: unknown) => e instanceof ApiError && (e as ApiError).message === "phase_a_not_eligible",
   );
 
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "ACME Manufacturing",
     weightKg: 200,
@@ -143,7 +144,7 @@ test("bookShipment stores customerOrgId when customerOrg is provided", () => {
     phone: "9111223344",
     orgDisplayName: "ACME Logistics",
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "should be replaced",
     customerOrg: { id: cust.org.id, displayName: cust.org.displayName },
@@ -155,9 +156,9 @@ test("bookShipment stores customerOrgId when customerOrg is provided", () => {
   assert.equal(shipment.customerOrgName, "ACME Logistics");
 });
 
-test("bookedByPhone links anonymous shipment to OTP user with same mobile", () => {
+test("phone matches do not grant access to historical unowned shipments", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Ravi Kumar",
     phone: "9876543299",
     orgDisplayName: "Ravi Transport PhoneTest",
@@ -180,7 +181,7 @@ test("bookedByPhone links anonymous shipment to OTP user with same mobile", () =
     phone: "9123456700",
     orgDisplayName: "Retail Co",
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "Not Matching Org Name",
     bookedByPhoneRaw: "+91 9123456700",
@@ -188,14 +189,15 @@ test("bookedByPhone links anonymous shipment to OTP user with same mobile", () =
     pickupAddress: "Sector 44, Gurugram",
     dropAddress: "Sitapura, Jaipur",
   });
+  delete shipment.customerOrgId;
   assert.equal(shipment.customerOrgId, undefined);
   assert.equal(shipment.bookedByPhone, "9123456700");
-  assert.ok(shipmentVisibleToCustomerUser(store, shipment, cust.user.id));
+  assert.equal(shipmentVisibleToCustomerUser(store, shipment, cust.user.id), false);
 });
 
-test("bookedByUserId links OTP session bookings without CUSTOMER org or customerPhone", () => {
+test("booking user IDs do not grant access without shipper membership", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Ravi Kumar",
     phone: "9876543298",
     orgDisplayName: "Ravi Transport UserIdTest",
@@ -213,7 +215,7 @@ test("bookedByUserId links OTP session bookings without CUSTOMER org or customer
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "Walk-in buyer",
     bookedByUserId: onboard.user.id,
@@ -221,15 +223,16 @@ test("bookedByUserId links OTP session bookings without CUSTOMER org or customer
     pickupAddress: "Gurugram",
     dropAddress: "Jaipur",
   });
+  delete shipment.customerOrgId;
   assert.equal(shipment.customerOrgId, undefined);
   assert.equal(shipment.bookedByPhone, undefined);
-  assert.equal(shipment.bookedByUserId, onboard.user.id);
-  assert.ok(shipmentVisibleToCustomerUser(store, shipment, onboard.user.id));
+  shipment.bookedByUserId = onboard.user.id;
+  assert.equal(shipmentVisibleToCustomerUser(store, shipment, onboard.user.id), false);
 });
 
 test("carrier pilot can list org shipments, mark POD visibility, and submit payout setup", async () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Ravi Kumar",
     phone: "9876543212",
     orgDisplayName: "Ravi Transport 3",
@@ -247,7 +250,7 @@ test("carrier pilot can list org shipments, mark POD visibility, and submit payo
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "ACME",
     weightKg: 100,

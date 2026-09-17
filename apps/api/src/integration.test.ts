@@ -1,12 +1,13 @@
+import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import {
   acceptCarrierShipment,
-  bookShipment,
+
   publishAnchorTripAsPilotDriver,
   registerCustomerOrgAdmin,
-  registerSoloOwnerOperatorDriver,
+
   startAnchorTripAsPilot,
 } from "./services.ts";
 import {
@@ -22,7 +23,7 @@ const GURGAON = { lat: 28.4595, lng: 77.0266, label: "Gurugram" };
 const JAIPUR = { lat: 26.9124, lng: 75.7873, label: "Jaipur" };
 
 function seedOpenTrip(store: ReturnType<typeof createStore>) {
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Carrier ERP Test",
     phone: "9876543299",
     orgDisplayName: "Carrier ERP Test",
@@ -92,7 +93,7 @@ test("integration events emit on carrier accept", () => {
     paymentPolicy: "erp_preauthorized",
   });
 
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: admin.org.displayName,
     customerOrg: { id: admin.org.id, displayName: admin.org.displayName },
@@ -126,7 +127,7 @@ test("integration webhook payload includes trip start and carrier ops fields", (
     orgDisplayName: "ERP Shipper 3",
   });
 
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: admin.org.displayName,
     customerOrg: { id: admin.org.id, displayName: admin.org.displayName },

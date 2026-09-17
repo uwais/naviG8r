@@ -1,3 +1,4 @@
+import { registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -6,7 +7,7 @@ import {
   pilotRatesEstimate,
   quoteShipmentMarketplace,
   registerCustomerOrgAdmin,
-  registerSoloOwnerOperatorDriver,
+
 } from "./services.ts";
 import { createStore } from "./store.ts";
 
@@ -52,7 +53,7 @@ test("quoteShipmentMarketplace — rejects partial pickup/drop", () => {
 
 test("pilotRatesEstimate requires carrier membership", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Ravi Kumar",
     phone: "9876543214",
     orgDisplayName: "Ravi Transport",

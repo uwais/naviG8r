@@ -22,14 +22,16 @@ abstract final class DriverTheme {
         style: FilledButton.styleFrom(
           backgroundColor: navy,
           foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: navy,
           side: const BorderSide(color: border),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -41,7 +43,7 @@ abstract final class DriverTheme {
           borderSide: const BorderSide(color: border),
         ),
       ),
-      cardTheme: const CardTheme(
+      cardTheme: const CardThemeData(
         color: Colors.white,
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -59,7 +61,8 @@ abstract final class DriverTheme {
         indicatorColor: navy.withOpacity(0.12),
         labelTextStyle: MaterialStateProperty.resolveWith((states) {
           if (states.contains(MaterialState.selected)) {
-            return const TextStyle(color: navy, fontWeight: FontWeight.w600, fontSize: 11);
+            return const TextStyle(
+                color: navy, fontWeight: FontWeight.w600, fontSize: 11);
           }
           return const TextStyle(color: muted, fontSize: 11);
         }),

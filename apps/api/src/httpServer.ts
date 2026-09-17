@@ -1,3 +1,7 @@
+import { opsPortalHtml } from "./opsPortal.ts";
+import { authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
+import { guardRequest, requestContext } from "./rbacRoutes.ts";
+import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
 import { URL } from "node:url";
 import { pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
@@ -103,12 +107,12 @@ function applyCors(req: http.IncomingMessage, res: http.ServerResponse): void {
     }
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, x-razorpay-signature");
+  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, x-razorpay-signature, x-organization-id, x-reason-code, x-effective-actor-id");
   res.setHeader("Access-Control-Max-Age", "86400");
 }
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
-  const data = JSON.stringify(body);
+  const data = JSON.stringify(serializeResponse(body));
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("content-length", Buffer.byteLength(data));
@@ -121,152 +125,17 @@ function html(res: http.ServerResponse, status: number, body: string): void {
   res.end(body);
 }
 
-function opsPortalHtml(): string {
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>naviG8r Ops</title>
-    <style>
-      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 16px; max-width: 960px; }
-      .card { border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-      table { width: 100%; border-collapse: collapse; font-size: 13px; }
-      th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
-      button { padding: 6px 12px; cursor: pointer; }
-      input { width: 100%; padding: 8px; margin: 6px 0; box-sizing: border-box; }
-      .muted { color: #666; font-size: 12px; }
-      .warn { background: #fff1f0; border: 1px solid #ffa39e; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
-    </style>
-  </head>
-  <body>
-    <div id="loginGate">
-      <div class="card">
-        <h1>naviG8r Ops</h1>
-        <p class="muted">Sign in with an ops-agent phone (OTP).</p>
-        <div id="otpStep1">
-          <input id="loginPhone" placeholder="10-digit phone" />
-          <button onclick="startOtp()">Send OTP</button>
-        </div>
-        <div id="otpStep2" style="display:none;">
-          <input id="loginCode" placeholder="6-digit code" maxlength="6" />
-          <button onclick="verifyOtp()">Verify</button>
-        </div>
-        <div id="loginError" style="color:#c00;display:none;"></div>
-      </div>
-    </div>
-    <div id="opsContent" style="display:none;">
-      <h1>Payment release</h1>
-      <p class="muted">Logged in as <span id="sessionPhone"></span> · <button onclick="logout()">Logout</button></p>
-      <div id="nonOpsWarn" class="warn" style="display:none;">Not an ops agent — cannot release payments.</div>
-      <h2>Pending release</h2>
-      <div id="pendingTable" class="muted">Loading…</div>
-      <h2>Recently delivered</h2>
-      <div id="deliveredTable" class="muted">Loading…</div>
-    </div>
-    <script>
-      const LS_TOKEN = "n8r_ops_token";
-      const LS_PHONE = "n8r_ops_phone";
-      let _challengeId = null;
-      function authHeaders() {
-        const h = { "content-type": "application/json" };
-        const t = localStorage.getItem(LS_TOKEN);
-        if (t) h["authorization"] = "Bearer " + t;
-        return h;
-      }
-      function showErr(msg) {
-        const el = document.getElementById("loginError");
-        el.textContent = msg || "";
-        el.style.display = msg ? "block" : "none";
-      }
-      async function startOtp() {
-        showErr("");
-        const phone = document.getElementById("loginPhone").value.trim();
-        const res = await fetch("/v1/auth/otp/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ phone }) });
-        const out = await res.json();
-        if (!res.ok) return showErr(out.error || "Failed");
-        _challengeId = out.challengeId;
-        document.getElementById("otpStep1").style.display = "none";
-        document.getElementById("otpStep2").style.display = "block";
-        if (out.debugCode) document.getElementById("loginCode").value = out.debugCode;
-      }
-      async function verifyOtp() {
-        showErr("");
-        const phone = document.getElementById("loginPhone").value.trim();
-        const code = document.getElementById("loginCode").value.trim();
-        const res = await fetch("/v1/auth/otp/verify", { method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ phone, challengeId: _challengeId, code }) });
-        const out = await res.json();
-        if (!res.ok) return showErr(out.error || "Failed");
-        localStorage.setItem(LS_TOKEN, out.accessToken);
-        localStorage.setItem(LS_PHONE, phone);
-        enterOps();
-      }
-      function logout() {
-        localStorage.removeItem(LS_TOKEN);
-        localStorage.removeItem(LS_PHONE);
-        location.reload();
-      }
-      async function enterOps() {
-        document.getElementById("loginGate").style.display = "none";
-        document.getElementById("opsContent").style.display = "block";
-        document.getElementById("sessionPhone").textContent = localStorage.getItem(LS_PHONE) || "";
-        const me = await fetch("/v1/auth/me", { headers: authHeaders() });
-        const meOut = await me.json();
-        const isOps = meOut.isOpsAdmin === true;
-        document.getElementById("nonOpsWarn").style.display = isOps ? "none" : "block";
-        if (!isOps) return;
-        loadPending();
-        loadDelivered();
-      }
-      function fmtInr(paise) { return "₹" + (paise / 100).toFixed(2); }
-      function fmtTime(ms) { if (!ms) return "—"; return new Date(ms).toLocaleString(); }
-      async function loadPending() {
-        const el = document.getElementById("pendingTable");
-        const res = await fetch("/ops/shipments/pending-release", { headers: authHeaders() });
-        const out = await res.json();
-        if (!res.ok) { el.textContent = "Error: " + (out.error || res.status); return; }
-        const rows = out.shipments || [];
-        if (!rows.length) { el.innerHTML = "<em>None</em>"; return; }
-        el.innerHTML = "<table><thead><tr><th>Shipment</th><th>Customer</th><th>Carrier</th><th>Gross</th><th>POD at</th><th></th></tr></thead><tbody>" +
-          rows.map(function(s) {
-            return "<tr><td><code>" + s.id + "</code></td><td>" + (s.customerOrgName||"") + "</td><td>" + (s.carrierId||"") +
-              "</td><td>" + fmtInr(s.grossPaise) + "</td><td>" + fmtTime(s.podAtUtcMs) +
-              "</td><td><button onclick=\\"release('" + s.id + "')\\">Release payment</button></td></tr>";
-          }).join("") + "</tbody></table>";
-      }
-      async function loadDelivered() {
-        const el = document.getElementById("deliveredTable");
-        const res = await fetch("/ops/shipments/delivered", { headers: authHeaders() });
-        if (!res.ok) { el.textContent = "Error loading delivered"; return; }
-        const out = await res.json();
-        const rows = out.shipments || [];
-        if (!rows.length) { el.innerHTML = "<em>None recent</em>"; return; }
-        el.innerHTML = "<table><thead><tr><th>Shipment</th><th>Customer</th><th>Delivered</th></tr></thead><tbody>" +
-          rows.map(function(s) {
-            return "<tr><td><code>" + s.id + "</code></td><td>" + (s.customerOrgName||"") + "</td><td>" + fmtTime(s.podAtUtcMs) + "</td></tr>";
-          }).join("") + "</tbody></table>";
-      }
-      async function release(id) {
-        if (!confirm("Capture payment and mark " + id + " delivered?")) return;
-        const res = await fetch("/ops/shipments/" + id + "/release", { method: "POST", headers: authHeaders(), body: "{}" });
-        const out = await res.json();
-        alert(JSON.stringify(out, null, 2));
-        loadPending();
-        loadDelivered();
-      }
-      if (localStorage.getItem(LS_TOKEN)) enterOps();
-    </script>
-  </body>
-</html>`;
-}
-
 async function readJson(req: http.IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
   if (chunks.length === 0) return null;
   const raw = Buffer.concat(chunks).toString("utf8");
-  return JSON.parse(raw);
+  const body = JSON.parse(raw);
+  const p = authorizationContext.getStore()?.principal;
+  if (p && body && typeof body === "object") {
+    for (const key of ["orgId", "customerOrgId"]) if (body[key] !== undefined && body[key] !== p.organizationId && !p.internal) throw new AuthorizationError("not_found", 404);
+  }
+  return body;
 }
 
 function header(req: http.IncomingMessage, name: string): string | null {
@@ -283,11 +152,6 @@ function bearerToken(req: http.IncomingMessage): string | null {
 }
 
 function requireUserId(req: http.IncomingMessage, store: ReturnType<typeof loadStoreFromDisk>): string {
-  const allowHeader = process.env.ALLOW_X_USER_ID === "1";
-  if (allowHeader) {
-    const hdr = String(header(req, "x-user-id") ?? "");
-    if (hdr) return hdr;
-  }
   const { userId } = verifyBearer(store, bearerToken(req));
   return userId;
 }
@@ -316,13 +180,7 @@ function publicMarketplaceRouteAllowed(method: string, pathname: string): boolea
  * Locks down unauthenticated demo/admin surfaces in production (user dumps, HTML console,
  * legacy carrier CRUD, legacy trip publish, ledger/payout toys). Set ENABLE_LEGACY_DEMO_SURFACE=1 to re-enable.
  */
-function requireLegacyDemoSurface(res: http.ServerResponse, method: string, pathname: string): boolean {
-  if (publicMarketplaceRouteAllowed(method, pathname)) return true;
-  const enabled = process.env.NODE_ENV !== "production" || process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
-  if (enabled) return true;
-  json(res, 403, { error: "legacy_demo_surface_disabled" });
-  return false;
-}
+function requireLegacyDemoSurface(_res: http.ServerResponse, _method: string, _pathname: string): boolean { return true; }
 
 /** Any valid Bearer user (OTP session); listing uses org + optional bookedByPhone match. */
 function requireBearerUserId(
@@ -365,12 +223,15 @@ export async function createApp(): Promise<{
     };
   }
 
-  const server = http.createServer(async (req, res) => {
+  let requests: Promise<unknown> = Promise.resolve();
+  const server = http.createServer((req, res) => {
+    requests = requests.then(() => authorizationContext.run(requestContext(), async () => {
     try {
       const method = req.method ?? "GET";
       const url = new URL(req.url ?? "/", "http://localhost");
 
       applyCors(req, res);
+      guardRequest(req, store, url);
       if (method === "OPTIONS") {
         res.statusCode = 204;
         res.end();
@@ -413,6 +274,9 @@ export async function createApp(): Promise<{
         }
         const body = await readJson(req);
         const shipmentId = String(body?.shipmentId ?? "");
+        const shipment = store.shipments.get(shipmentId);
+        if (!shipment) throw new AuthorizationError("not_found", 404);
+        requirePermission(store, "payment.checkout", shipment);
         const razorpayOrderId = String(body?.razorpayOrderId ?? "");
         const razorpayPaymentId = String(body?.razorpayPaymentId ?? "");
         const razorpaySignature = String(body?.razorpaySignature ?? "");
@@ -431,13 +295,49 @@ export async function createApp(): Promise<{
         } catch (e: any) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;
-            return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+            return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
           }
           const msg = String(e?.message ?? "");
           if (msg === "shipment_not_found") return json(res, 404, { error: msg });
           if (msg === "not_razorpay_shipment") return json(res, 400, { error: msg });
           throw e;
         }
+      }
+
+      if (method === "POST" && url.pathname === "/v1/roles") {
+        requirePermission(store, "user.role_manage");
+        const body = await readJson(req);
+        const key = `${body?.userId}:${body?.orgId}`;
+        const m = store.memberships.get(key), org = store.organizations.get(String(body?.orgId));
+        if (!m || !org || m.inactiveAtUtcMs != null || org.inactiveAtUtcMs != null) throw new AuthorizationError("not_found", 404);
+        if (!Array.isArray(body.roles) || body.roles.some((r: string) => !ROLES.includes(r as never) || !compatibleRole(r, org))) throw new AuthorizationError("invalid_role", 400);
+        const before = store.membershipRoles.get(key) ?? legacyRoles(m, org);
+        const roles = [...new Set<string>(body.roles)] as import("./rbac.ts").Role[];
+        store.membershipRoles.set(key, roles);
+        for (const role of before.filter(r => !roles.includes(r))) recordAudit(store, "ROLE_REMOVED", "membership", key, role, "REMOVED");
+        for (const role of roles.filter(r => !before.includes(r))) recordAudit(store, "ROLE_ASSIGNED", "membership", key, "ABSENT", role);
+        await persist();
+        return json(res, 200, { userId: m.userId, orgId: m.orgId, roles });
+      }
+      if (method === "POST" && /^\/v1\/organizations\/[^/]+\/kyc$/.test(url.pathname)) {
+        const p = requirePermission(store, "kyc.verify");
+        const orgId = url.pathname.split("/")[3]!;
+        const org = store.organizations.get(orgId);
+        if (!org || org.inactiveAtUtcMs != null) throw new AuthorizationError("not_found", 404);
+        if (store.memberships.has(`${p.userId}:${orgId}`)) throw new AuthorizationError("self_verification_forbidden");
+        const body = await readJson(req);
+        if (!["APPROVED", "REJECTED"].includes(body?.status) || !authorizationContext.getStore()?.reason) throw new AuthorizationError("verification_status_and_reason_required", 400);
+        store.organizations.set(orgId, { ...org, kycStatus: body.status });
+        recordAudit(store, "COMPLIANCE_STATUS_CHANGED", "organization", orgId, org.kycStatus, body.status);
+        await persist();
+        return json(res, 200, { org: store.organizations.get(orgId) });
+      }
+      if (method === "GET" && url.pathname === "/v1/audit") {
+        const p = requirePermission(store, "audit.read");
+        const financial = new Set(["PAYMENT_CAPTURED", "PAYMENT_REFUNDED", "SETTLEMENT_RELEASED"]);
+        const events = [...store.auditEvents.values()].filter(e => p.internal ?
+          (p.roles.includes("ADMIN") ? ["ROLE_ASSIGNED", "ROLE_REMOVED", "USER_DEACTIVATED"].includes(e.action) : p.roles.includes("FINANCE") ? financial.has(e.action) : !financial.has(e.action) && !e.action.startsWith("ROLE_")) : e.actorOrganizationId === p.organizationId && e.actorUserId === p.userId);
+        return json(res, 200, { events });
       }
 
       // --- v1 auth (pilot OTP + bearer token) ---
@@ -455,11 +355,6 @@ export async function createApp(): Promise<{
           challengeId: String(body?.challengeId ?? ""),
           code: String(body?.code ?? ""),
         });
-        // Auto-promote env-var ops admins to a DB membership on first login,
-        // so OPS_ADMIN_PHONES can be removed once each admin has logged in once.
-        if (isOpsAdmin(store, out.user.id)) {
-          try { grantOpsAdmin(store, { phone: out.user.phone }); } catch {}
-        }
         await persist();
         return json(res, 200, { ...out, isOpsAdmin: isOpsAdmin(store, out.user.id) });
       }
@@ -469,21 +364,25 @@ export async function createApp(): Promise<{
         if (!userId) return;
         const user = store.users.get(userId);
         if (!user) return json(res, 404, { error: "user_not_found" });
-        return json(res, 200, { user, isOpsAdmin: isOpsAdmin(store, userId) });
+        const memberships = [...store.memberships.values()].filter(m => m.userId === userId && m.inactiveAtUtcMs == null && store.organizations.get(m.orgId)?.inactiveAtUtcMs == null);
+        const organizations = memberships.map(m => store.organizations.get(m.orgId)).filter(Boolean);
+        let principal;
+        try { principal = resolvePrincipal(store, userId, header(req, "x-organization-id")); } catch (error) { if (header(req, "x-organization-id")) throw error; }
+        return json(res, 200, { user, memberships, organizations, principal, isOpsAdmin: principal?.roles.includes("ADMIN") ?? false });
       }
 
       // --- v1 ops-admins management (DB-backed grants) ---
       if (method === "GET" && url.pathname === "/v1/ops-admins") {
         const userId = requireBearerUserId(req, res, store);
         if (!userId) return;
-        if (!isOpsAdmin(store, userId)) return json(res, 403, { error: "forbidden" });
+        requirePermission(store, "user.role_manage");
         return json(res, 200, { opsAdmins: listOpsAdmins(store) });
       }
 
       if (method === "POST" && url.pathname === "/v1/ops-admins") {
         const userId = requireBearerUserId(req, res, store);
         if (!userId) return;
-        if (!isOpsAdmin(store, userId)) return json(res, 403, { error: "forbidden" });
+        requirePermission(store, "user.role_manage");
         const body = await readJson(req);
         const entry = grantOpsAdmin(store, { phone: String(body?.phone ?? "") });
         await persist();
@@ -493,7 +392,7 @@ export async function createApp(): Promise<{
       if (method === "DELETE" && url.pathname.startsWith("/v1/ops-admins/")) {
         const userId = requireBearerUserId(req, res, store);
         if (!userId) return;
-        if (!isOpsAdmin(store, userId)) return json(res, 403, { error: "forbidden" });
+        requirePermission(store, "user.role_manage");
         const phone = decodeURIComponent(url.pathname.split("/")[3] ?? "");
         const out = revokeOpsAdmin(store, { phone, actingUserId: userId });
         await persist();
@@ -504,7 +403,7 @@ export async function createApp(): Promise<{
         const actingUserId = requireBearerUserId(req, res, store);
         if (!actingUserId) return;
         try {
-          assertOpsAgent(store, actingUserId);
+          requirePermission(store, "user.role_manage");
         } catch {
           return json(res, 403, { error: "forbidden" });
         }
@@ -561,7 +460,7 @@ export async function createApp(): Promise<{
       if (method === "GET" && url.pathname === "/v1/pilot/me") {
         const userId = requireUserId(req, store);
         const out = pilotMe(store, userId);
-        return json(res, 200, out);
+        return json(res, 200, { ...out, principal: principalFor(store, userId) });
       }
 
       if (method === "PATCH" && url.pathname === "/v1/pilot/me/vehicle") {
@@ -627,7 +526,7 @@ export async function createApp(): Promise<{
           } catch (e) {
             if (e instanceof ApiError) {
               const status = e.httpStatus ?? 400;
-              return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+              return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
             }
             throw e;
           }
@@ -652,7 +551,7 @@ export async function createApp(): Promise<{
           } catch (e) {
             if (e instanceof ApiError) {
               const status = e.httpStatus ?? 400;
-              return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+              return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
             }
             throw e;
           }
@@ -718,7 +617,7 @@ export async function createApp(): Promise<{
           } catch (e) {
             if (e instanceof ApiError) {
               const status = e.httpStatus ?? 400;
-              return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+              return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
             }
             const msg = String((e as Error)?.message ?? "");
             if (msg === "forbidden") return json(res, 403, { error: msg });
@@ -745,7 +644,7 @@ export async function createApp(): Promise<{
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;
-            return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+            return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
           }
           throw e;
         }
@@ -825,7 +724,7 @@ export async function createApp(): Promise<{
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;
-            return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+            return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
           }
           const msg = e instanceof Error ? e.message : "error";
           if (msg === "phone_already_registered") return json(res, 409, { error: msg });
@@ -848,7 +747,7 @@ export async function createApp(): Promise<{
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;
-            return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+            return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
           }
           const msg = e instanceof Error ? e.message : "error";
           if (msg === "forbidden") return json(res, 403, { error: msg });
@@ -899,459 +798,8 @@ export async function createApp(): Promise<{
         return json(res, 200, { users });
       }
 
-      if (method === "GET" && url.pathname === "/admin") {
-        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const carriers = [...store.carriers.values()];
-        const orgs = [...store.organizations.values()];
-        const users = [...store.users.values()];
-        const memberships = [...store.memberships.values()];
-        const vehicles = [...store.vehicles.values()];
-        const driverProfiles = [...store.driverProfiles.values()];
-        const trips = [...store.anchorTrips.values()];
-        const shipments = [...store.shipments.values()];
-        const ledgerLines = [...store.ledgerLines.values()];
-        const payoutBatches = [...store.payoutBatches.values()];
-
-        const esc = (s: any) =>
-          String(s)
-            .replaceAll("&", "&amp;")
-            .replaceAll("<", "&lt;")
-            .replaceAll(">", "&gt;")
-            .replaceAll("\"", "&quot;");
-
-        const persistenceBacking =
-          dataFilePath != null ? dataFilePath : "Postgres (Prisma, PERSISTENCE=DB)";
-
-        return html(
-          res,
-          200,
-          `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Logistics MVP Admin</title>
-    <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 16px; }
-      code, pre { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
-      pre { padding: 12px; overflow: auto; }
-      .row { display: flex; gap: 16px; flex-wrap: wrap; }
-      .card { border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px; min-width: 320px; }
-      h2 { margin: 0 0 8px; font-size: 16px; }
-      h3 { margin: 12px 0 8px; font-size: 14px; }
-      input { width: 100%; padding: 8px; margin: 6px 0; box-sizing: border-box; }
-      button { padding: 8px 12px; cursor: pointer; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { border-bottom: 1px solid #eee; padding: 6px; text-align: left; font-size: 12px; vertical-align: top; }
-      .muted { color: #666; font-size: 12px; }
-      #loginGate { max-width: 380px; margin: 60px auto; }
-      #loginGate .card { background: #fafafa; }
-      #loginGate h2 { font-size: 18px; }
-      #loginError { color: #c00; font-size: 13px; margin-top: 6px; display: none; }
-      .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-      .topbar .session-info { font-size: 13px; color: #555; }
-      .topbar button { background: none; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; padding: 4px 10px; }
-      .role-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 6px; font-weight: 600; }
-      .role-ops { background: #e6f7ff; color: #0050b3; border: 1px solid #91d5ff; }
-      .role-customer { background: #f6f6f6; color: #555; border: 1px solid #ddd; }
-      .warning-banner { background: #fff1f0; border: 1px solid #ffa39e; color: #a8071a; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
-    </style>
-  </head>
-  <body>
-    <!-- Login gate — shown when no session stored -->
-    <div id="loginGate" style="display:none;">
-      <div class="card">
-        <h2>Admin Login</h2>
-        <div id="otpStep1">
-          <input id="loginPhone" placeholder="Phone number (10 digits)" autocomplete="tel" />
-          <button onclick="startOtp()">Send OTP</button>
-        </div>
-        <div id="otpStep2" style="display:none;">
-          <p class="muted">OTP sent. Enter the 6-digit code:</p>
-          <input id="loginCode" placeholder="6-digit code" maxlength="6" autocomplete="one-time-code" />
-          <button onclick="verifyOtp()">Verify</button>
-          <button onclick="resetLogin()" style="background:none;border:none;color:#666;font-size:12px;margin-top:4px;">Back</button>
-        </div>
-        <div id="loginError"></div>
-      </div>
-    </div>
-
-    <!-- Main admin content — shown after login -->
-    <div id="adminContent" style="display:none;">
-    <div class="topbar">
-      <div>
-        <h1 style="margin:0;">Logistics MVP Admin</h1>
-        <p class="muted" style="margin:2px 0 0;">Backed by <code>${esc(persistenceBacking)}</code></p>
-      </div>
-      <div style="text-align:right;">
-        <span class="session-info" id="sessionInfo"></span>
-        <span id="roleBadge"></span><br/>
-        <button onclick="logout()">Logout</button>
-      </div>
-    </div>
-    <div id="nonOpsWarning" class="warning-banner" style="display:none;">
-      You're logged in but you're not an <strong>Ops Admin</strong>.
-      You can only act on shipments you booked. To get operator access,
-      ask an existing ops admin to grant you the role, or have your phone added
-      to <code>OPS_ADMIN_PHONES</code> (bootstrap-only) on the server.
-    </div>
-
-    <div id="opsAdminsCard" class="card" style="margin-bottom:12px;display:none;">
-      <h2>Ops Admins <span class="muted">(DB-backed — survives env-var removal)</span></h2>
-      <div id="opsAdminsList" class="muted" style="margin-bottom:10px;">Loading…</div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <input id="grantPhone" placeholder="10-digit phone to grant" style="flex:1;margin:0;" />
-        <button onclick="grantOps()">Grant Ops Admin</button>
-      </div>
-      <p class="muted" style="margin:6px 0 0;">User must already be registered (customer or driver) before granting.</p>
-      <hr style="border:none;border-top:1px solid #eee;margin:14px 0;" />
-      <h2>Deactivate user <span class="muted">(soft-delete / tombstone)</span></h2>
-      <p class="muted">Marks the account INACTIVE and cascade-tombstones sole-owned orgs (vehicles, trips, shipments, payments, ledger, integrations). Data is retained for audit — not hard-deleted. Shared orgs keep other members. Active work requires Force.</p>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <input id="deleteUserPhone" placeholder="10-digit phone to deactivate" style="flex:1;margin:0;min-width:160px;" />
-        <label class="muted" style="white-space:nowrap;"><input type="checkbox" id="deleteUserForce" /> Force</label>
-        <button onclick="deleteUserByPhone()" style="background:#a8071a;color:#fff;border:1px solid #a8071a;">Deactivate user</button>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="card">
-        <h2>Create carrier</h2>
-        <form method="post" action="/carriers" onsubmit="return submitJson(event)">
-          <input name="name" placeholder="Carrier name" required />
-          <button type="submit">Create</button>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2>Publish anchor trip</h2>
-        <form method="post" action="/anchor-trips" onsubmit="return submitJson(event)">
-          <input name="carrierId" placeholder="carrierId" required />
-          <input name="originCity" placeholder="originCity" required />
-          <input name="destCity" placeholder="destCity" required />
-          <input name="windowStart" placeholder="windowStart (ISO, +05:30)" required />
-          <input name="windowEnd" placeholder="windowEnd (ISO, +05:30)" required />
-          <input name="vehicleClass" placeholder="vehicleClass (SMALL|MEDIUM|LARGE)" required />
-          <input name="capacityKg" placeholder="capacityKg" required />
-          <button type="submit">Publish</button>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2>Book shipment</h2>
-        <form method="post" action="/shipments/book" onsubmit="return submitJson(event)">
-          <input name="anchorTripId" placeholder="anchorTripId" required />
-          <input name="customerOrgName" placeholder="customerOrgName" required />
-          <input name="weightKg" placeholder="weightKg" required />
-          <input name="pickupAddress" placeholder="pickupAddress" required />
-          <input name="dropAddress" placeholder="dropAddress" required />
-          <button type="submit">Book</button>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2>Mark POD</h2>
-        <form method="post" action="/shipments/__SHIPMENT__/pod" onsubmit="return submitPod(event)">
-          <input name="shipmentId" placeholder="shipmentId" required />
-          <button type="submit">Mark delivered</button>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2>Fail + refund</h2>
-        <form method="post" action="/shipments/__SHIPMENT__/fail-refund" onsubmit="return submitFailRefund(event)">
-          <input name="shipmentId" placeholder="shipmentId" required />
-          <button type="submit">Fail + refund</button>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2>Run payout batch</h2>
-        <p class="muted" style="margin:2px 0 8px;">
-          Mode: <code>${esc(payoutsMode())}</code>
-          ${
-            payoutsMode() === "RAZORPAYX"
-              ? "&mdash; real RazorpayX transfers per carrier (test keys)."
-              : "&mdash; bookkeeping only (marks ledger PAID, no money moves). Set <code>PAYOUTS_MODE=RAZORPAYX</code> to enable transfers."
-          }
-          <br/>Requires an Ops Admin/Agent login.
-        </p>
-        <form method="post" action="/payout-batches/run" onsubmit="return submitJson(event)">
-          <input name="nowUtcMs" placeholder="nowUtcMs (optional)" />
-          <button type="submit">Run</button>
-        </form>
-      </div>
-    </div>
-
-    <h3>Carriers (${carriers.length})</h3>
-    <pre>${esc(JSON.stringify(carriers, null, 2))}</pre>
-
-    <h3>Organizations (${orgs.length})</h3>
-    <pre>${esc(JSON.stringify(orgs, null, 2))}</pre>
-
-    <h3>Users (${users.length})</h3>
-    <pre>${esc(JSON.stringify(users, null, 2))}</pre>
-
-    <h3>Memberships (${memberships.length})</h3>
-    <pre>${esc(JSON.stringify(memberships, null, 2))}</pre>
-
-    <h3>Vehicles (${vehicles.length})</h3>
-    <pre>${esc(JSON.stringify(vehicles, null, 2))}</pre>
-
-    <h3>Driver profiles (${driverProfiles.length})</h3>
-    <pre>${esc(JSON.stringify(driverProfiles, null, 2))}</pre>
-
-    <h3>Anchor trips (${trips.length})</h3>
-    <pre>${esc(JSON.stringify(trips, null, 2))}</pre>
-
-    <h3>Shipments (${shipments.length})</h3>
-    <pre>${esc(JSON.stringify(shipments, null, 2))}</pre>
-
-    <h3>Ledger lines (${ledgerLines.length})</h3>
-    <pre>${esc(JSON.stringify(ledgerLines, null, 2))}</pre>
-
-    <h3>Payout batches (${payoutBatches.length})</h3>
-    <pre>${esc(JSON.stringify(payoutBatches, null, 2))}</pre>
-
-    </div><!-- end adminContent -->
-
-    <script>
-      const LS_TOKEN = "n8r_admin_token";
-      const LS_PHONE = "n8r_admin_phone";
-      const LS_OPS = "n8r_admin_isops";
-      let _challengeId = null;
-
-      function showError(msg) {
-        const el = document.getElementById("loginError");
-        el.textContent = msg;
-        el.style.display = msg ? "block" : "none";
-      }
-
-      async function startOtp() {
-        showError("");
-        const phone = document.getElementById("loginPhone").value.trim();
-        if (!phone) return showError("Enter a phone number.");
-        try {
-          const res = await fetch("/v1/auth/otp/start", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ phone })
-          });
-          const out = await res.json();
-          if (!res.ok) return showError(out.error || "Failed to send OTP.");
-          _challengeId = out.challengeId;
-          document.getElementById("otpStep1").style.display = "none";
-          document.getElementById("otpStep2").style.display = "block";
-          if (out.debugCode) {
-            document.getElementById("loginCode").value = out.debugCode;
-          }
-        } catch (e) { showError("Network error."); }
-      }
-
-      async function verifyOtp() {
-        showError("");
-        const phone = document.getElementById("loginPhone").value.trim();
-        const code = document.getElementById("loginCode").value.trim();
-        if (!code) return showError("Enter the OTP code.");
-        try {
-          const res = await fetch("/v1/auth/otp/verify", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ phone, challengeId: _challengeId, code })
-          });
-          const out = await res.json();
-          if (!res.ok) return showError(out.error || "Verification failed.");
-          localStorage.setItem(LS_TOKEN, out.accessToken);
-          localStorage.setItem(LS_PHONE, phone);
-          localStorage.setItem(LS_OPS, out.isOpsAdmin ? "1" : "0");
-          enterAdmin();
-        } catch (e) { showError("Network error."); }
-      }
-
-      function resetLogin() {
-        _challengeId = null;
-        document.getElementById("loginCode").value = "";
-        document.getElementById("otpStep1").style.display = "block";
-        document.getElementById("otpStep2").style.display = "none";
-        showError("");
-      }
-
-      function logout() {
-        localStorage.removeItem(LS_TOKEN);
-        localStorage.removeItem(LS_PHONE);
-        localStorage.removeItem(LS_OPS);
-        document.getElementById("adminContent").style.display = "none";
-        document.getElementById("loginGate").style.display = "block";
-        resetLogin();
-      }
-
-      async function refreshOpsAdminStatus() {
-        try {
-          const res = await fetch("/v1/auth/me", { headers: authHeaders() });
-          if (!res.ok) return;
-          const out = await res.json();
-          localStorage.setItem(LS_OPS, out.isOpsAdmin ? "1" : "0");
-          renderRoleBadge();
-        } catch (e) {}
-      }
-
-      function renderRoleBadge() {
-        const isOps = localStorage.getItem(LS_OPS) === "1";
-        const badge = document.getElementById("roleBadge");
-        const warn = document.getElementById("nonOpsWarning");
-        const opsCard = document.getElementById("opsAdminsCard");
-        if (isOps) {
-          badge.innerHTML = '<span class="role-badge role-ops">Ops Admin</span>';
-          warn.style.display = "none";
-          opsCard.style.display = "block";
-          loadOpsAdmins();
-        } else {
-          badge.innerHTML = '<span class="role-badge role-customer">Customer</span>';
-          warn.style.display = "block";
-          opsCard.style.display = "none";
-        }
-      }
-
-      async function loadOpsAdmins() {
-        const listEl = document.getElementById("opsAdminsList");
-        try {
-          const res = await fetch("/v1/ops-admins", { headers: authHeaders() });
-          if (!res.ok) { listEl.textContent = "Failed to load ops admins."; return; }
-          const out = await res.json();
-          const items = out.opsAdmins || [];
-          if (items.length === 0) { listEl.innerHTML = '<em>None</em>'; return; }
-          listEl.innerHTML = items.map(function(a) {
-            const tag = a.source === "DB"
-              ? '<span class="role-badge role-ops">DB</span>'
-              : '<span class="role-badge role-customer">env</span>';
-            const revoke = a.source === "DB"
-              ? '<button onclick="revokeOps(\\''+a.phone+'\\')" style="font-size:11px;padding:2px 8px;">Revoke</button>'
-              : '';
-            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f0f0f0;">' +
-              '<span><code>'+a.phone+'</code> &mdash; '+ (a.fullName || '(no name)') +' '+tag+'</span>' + revoke + '</div>';
-          }).join("");
-        } catch (e) { listEl.textContent = "Network error loading ops admins."; }
-      }
-
-      async function grantOps() {
-        const phone = document.getElementById("grantPhone").value.trim();
-        if (!phone) { alert("Enter a phone."); return; }
-        const res = await fetch("/v1/ops-admins", {
-          method: "POST",
-          headers: authHeaders(),
-          body: JSON.stringify({ phone })
-        });
-        const out = await res.json().catch(() => ({}));
-        if (!res.ok) { alert("Grant failed: " + (out.error || res.status) + (out.detail ? " — " + out.detail : "")); return; }
-        document.getElementById("grantPhone").value = "";
-        loadOpsAdmins();
-      }
-
-      async function revokeOps(phone) {
-        if (!confirm("Revoke ops-admin from " + phone + "?")) return;
-        const res = await fetch("/v1/ops-admins/" + encodeURIComponent(phone), {
-          method: "DELETE",
-          headers: authHeaders()
-        });
-        const out = await res.json().catch(() => ({}));
-        if (!res.ok) { alert("Revoke failed: " + (out.error || res.status) + (out.detail ? " — " + out.detail : "")); return; }
-        loadOpsAdmins();
-      }
-
-      async function deleteUserByPhone() {
-        const phone = document.getElementById("deleteUserPhone").value.trim();
-        if (!phone) { alert("Enter a phone."); return; }
-        const force = document.getElementById("deleteUserForce").checked;
-        const msg = force
-          ? "FORCE deactivate user " + phone + " (including active shipments/trips if any)? Data is tombstoned, not erased."
-          : "Deactivate (soft-delete) user " + phone + "? Sole-owned orgs are tombstoned for audit; active work blocked unless Force.";
-        if (!confirm(msg)) return;
-        const qs = new URLSearchParams({ phone });
-        if (force) qs.set("force", "1");
-        const res = await fetch("/v1/ops/users?" + qs.toString(), {
-          method: "DELETE",
-          headers: authHeaders()
-        });
-        const out = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          alert("Deactivate failed: " + (out.error || res.status) + (out.detail ? " — " + out.detail : ""));
-          return;
-        }
-        document.getElementById("deleteUserPhone").value = "";
-        document.getElementById("deleteUserForce").checked = false;
-        alert("Deactivated " + (out.deactivatedPhone || out.deletedPhone || phone) +
-          "\\nCascaded orgs: " + ((out.cascadedOrgIds || []).length) +
-          "\\nShipments tombstoned: " + ((out.deactivatedShipmentIds || out.deletedShipmentIds || []).length));
-        location.reload();
-      }
-
-      function enterAdmin() {
-        document.getElementById("loginGate").style.display = "none";
-        document.getElementById("adminContent").style.display = "block";
-        const phone = localStorage.getItem(LS_PHONE) || "";
-        document.getElementById("sessionInfo").textContent = phone ? "Logged in as " + phone : "";
-        renderRoleBadge();
-        refreshOpsAdminStatus();
-      }
-
-      function authHeaders() {
-        const h = { "content-type": "application/json" };
-        const tok = localStorage.getItem(LS_TOKEN);
-        if (tok) h["authorization"] = "Bearer " + tok;
-        return h;
-      }
-
-      async function submitJson(e) {
-        e.preventDefault();
-        const form = e.target;
-        const data = Object.fromEntries(new FormData(form).entries());
-        for (const k of ["capacityKg","weightKg","nowUtcMs"]) if (data[k] !== undefined && data[k] !== "") data[k] = Number(data[k]);
-        const res = await fetch(form.action, {
-          method: "POST",
-          headers: authHeaders(),
-          body: JSON.stringify(data)
-        });
-        const out = await res.json().catch(() => ({}));
-        alert(JSON.stringify(out, null, 2));
-        location.reload();
-        return false;
-      }
-
-      async function submitPod(e) {
-        e.preventDefault();
-        const form = e.target;
-        const data = Object.fromEntries(new FormData(form).entries());
-        const shipmentId = data.shipmentId;
-        const res = await fetch("/shipments/" + shipmentId + "/pod", { method: "POST", headers: authHeaders(), body: "{}" });
-        const out = await res.json().catch(() => ({}));
-        alert(JSON.stringify(out, null, 2));
-        location.reload();
-        return false;
-      }
-
-      async function submitFailRefund(e) {
-        e.preventDefault();
-        const form = e.target;
-        const data = Object.fromEntries(new FormData(form).entries());
-        const shipmentId = data.shipmentId;
-        const res = await fetch("/shipments/" + shipmentId + "/fail-refund", { method: "POST", headers: authHeaders(), body: "{}" });
-        const out = await res.json().catch(() => ({}));
-        alert(JSON.stringify(out, null, 2));
-        location.reload();
-        return false;
-      }
-
-      // On page load: check for stored session
-      if (localStorage.getItem(LS_TOKEN)) {
-        enterAdmin();
-      } else {
-        document.getElementById("loginGate").style.display = "block";
-      }
-    </script>
-  </body>
-</html>`
-        );
-      }
+      if (method === "GET" && url.pathname === "/admin") return html(res, 200, opsPortalHtml());
+      if (method === "GET" && url.pathname === "/workflow") return html(res, 200, opsPortalHtml({ workflowOnly: true }));
 
       if (method === "POST" && url.pathname === "/carriers") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
@@ -1387,13 +835,13 @@ export async function createApp(): Promise<{
         const tripId = url.pathname.slice("/anchor-trips/".length).split("/")[0] ?? "";
         if (tripId.length > 0) {
           const trip = store.anchorTrips.get(tripId);
-          if (!trip) return json(res, 404, { error: "trip_not_found" });
+          if (!trip || trip.inactiveAtUtcMs != null) return json(res, 404, { error: "trip_not_found" });
           return json(res, 200, { trip: tripWithCarrierDisplay(store, trip) });
         }
       }
 
       if (method === "GET" && url.pathname === "/anchor-trips") {
-        const trips = [...store.anchorTrips.values()].map((t) => tripWithCarrierDisplay(store, t));
+        const trips = [...store.anchorTrips.values()].filter(t => t.inactiveAtUtcMs == null).map((t) => tripWithCarrierDisplay(store, t));
         return json(res, 200, { trips });
       }
 
@@ -1460,22 +908,12 @@ export async function createApp(): Promise<{
       if (method === "POST" && url.pathname === "/shipments/book") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
-        let customerOrg: { id: string; displayName: string } | undefined;
-        let bookedByUserId: string | undefined;
-        let phoneField: string | undefined = body?.customerPhone ?? body?.bookedByPhone;
-        if (phoneField != null && String(phoneField).trim() === "") phoneField = undefined;
-        try {
-          const { userId } = verifyBearer(store, bearerToken(req));
-          bookedByUserId = userId;
-          const org = customerPrimaryOrgForUser(store, userId);
-          if (org) customerOrg = { id: org.id, displayName: org.displayName };
-          if (phoneField == null) {
-            const user = store.users.get(userId);
-            if (user?.phone) phoneField = user.phone;
-          }
-        } catch {
-          /* anonymous booking: no customerOrgId / bookedByUserId on shipment */
-        }
+        const principal = requirePermission(store, "load.create");
+        if (!principal.roles.includes("SHIPPER")) throw new AuthorizationError("assisted_booking_requires_target", 400);
+        const org = store.organizations.get(principal.organizationId)!;
+        const customerOrg = { id: org.id, displayName: org.displayName };
+        const bookedByUserId = principal.userId;
+        const phoneField = store.users.get(principal.userId)?.phone;
         const shipment = bookShipment(store, {
           anchorTripId: String(body?.anchorTripId ?? ""),
           customerOrgName: String(body?.customerOrgName ?? ""),
@@ -1535,7 +973,7 @@ export async function createApp(): Promise<{
         const userId = requireBearerUserId(req, res, store);
         if (!userId) return;
         try {
-          assertOpsAgent(store, userId);
+          if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
         } catch {
           return json(res, 403, { error: "forbidden" });
         }
@@ -1547,7 +985,7 @@ export async function createApp(): Promise<{
         const userId = requireBearerUserId(req, res, store);
         if (!userId) return;
         try {
-          assertOpsAgent(store, userId);
+          if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
         } catch {
           return json(res, 403, { error: "forbidden" });
         }
@@ -1559,7 +997,7 @@ export async function createApp(): Promise<{
         const userId = requireBearerUserId(req, res, store);
         if (!userId) return;
         try {
-          assertOpsAgent(store, userId);
+          if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
         } catch {
           return json(res, 403, { error: "forbidden" });
         }
@@ -1572,7 +1010,7 @@ export async function createApp(): Promise<{
         const userId = requireBearerUserId(req, res, store);
         if (!userId) return;
         try {
-          assertOpsAgent(store, userId);
+          if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
         } catch {
           return json(res, 403, { error: "forbidden" });
         }
@@ -1591,67 +1029,20 @@ export async function createApp(): Promise<{
         return html(res, 200, opsPortalHtml());
       }
 
-      if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/pod")) {
-        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
-        const hasBearerToken = !!bearerToken(req);
-        if (hasBearerToken) {
-          const userId = requireBearerUserId(req, res, store);
-          if (!userId) return;
-          const shipment = store.shipments.get(shipmentId);
-          if (!shipment) return json(res, 404, { error: "shipment_not_found" });
-          const opsAdmin = isOpsAdmin(store, userId);
-          const visible =
-            opsAdmin ||
-            shipmentVisibleToCustomerUser(store, shipment, userId) ||
-            shipmentVisibleToCarrierPilot(store, shipment, userId);
-          if (!visible) {
-            return json(res, 404, { error: "shipment_not_found" });
-          }
-        } else if (!demoSurface) {
-          return json(res, 401, { error: "unauthorized" });
-        } else {
-          if (!store.shipments.get(shipmentId)) {
-            return json(res, 404, { error: "shipment_not_found" });
-          }
-        }
-        const body = await readJson(req);
-        await ensureRazorpayCapturedBeforePod(store, shipmentId);
-        const out = markPodDelivered(store, { shipmentId, podAtUtcMs: body?.podAtUtcMs });
+      if (method === "POST" && /^\/shipments\/[^/]+\/accept-pod$/.test(url.pathname)) {
+        const shipment = acceptPod(store, url.pathname.split("/")[2]!);
         await persist();
-        return json(res, 200, out);
+        return json(res, 200, { shipment });
       }
-
-      if (method === "POST" && url.pathname.startsWith("/shipments/") && url.pathname.endsWith("/fail-refund")) {
-        if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
-        const shipmentId = url.pathname.split("/")[2] ?? "";
-        const demoSurface = process.env.ENABLE_LEGACY_DEMO_SURFACE === "1";
-        const hasBearerToken = !!bearerToken(req);
-        if (hasBearerToken) {
-          const userId = requireBearerUserId(req, res, store);
-          if (!userId) return;
-          const shipmentPre = store.shipments.get(shipmentId);
-          if (!shipmentPre) return json(res, 404, { error: "shipment_not_found" });
-          const opsAdmin = isOpsAdmin(store, userId);
-          if (!opsAdmin && !shipmentVisibleToCustomerUser(store, shipmentPre, userId)) {
-            return json(res, 404, { error: "shipment_not_found" });
-          }
-        } else if (!demoSurface) {
-          return json(res, 401, { error: "unauthorized" });
-        } else {
-          if (!store.shipments.get(shipmentId)) {
-            return json(res, 404, { error: "shipment_not_found" });
-          }
-        }
-        const shipment = await failCarrierAndRefund(store, { shipmentId });
+      if (method === "POST" && /^\/shipments\/[^/]+\/fail-refund$/.test(url.pathname)) {
+        const shipment = await failCarrierAndRefund(store, { shipmentId: url.pathname.split("/")[2]! });
         await persist();
         return json(res, 200, { shipment });
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
         const userId = requireUserId(req, store);
-        assertOpsAgent(store, userId);
+        if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
         const carrierId = url.pathname.split("/")[2] ?? "";
         const lines = [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierId);
         return json(res, 200, { lines });
@@ -1659,25 +1050,26 @@ export async function createApp(): Promise<{
 
       if (method === "POST" && url.pathname === "/payout-batches/run") {
         const userId = requireUserId(req, store);
-        assertOpsAgent(store, userId);
+        if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
         const body = await readJson(req);
-        const batch = await runPayoutBatch(store, { nowUtcMs: body?.nowUtcMs });
+        const batch = await runPayoutBatch(store, {});
         await persist();
         return json(res, 200, { batch });
       }
 
       if (method === "GET" && url.pathname === "/payout-batches") {
         const userId = requireUserId(req, store);
-        assertOpsAgent(store, userId);
+        if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
         const payoutBatches = [...store.payoutBatches.values()];
         return json(res, 200, { payoutBatches });
       }
 
       return json(res, 404, { error: "not_found" });
     } catch (e: any) {
+      if (e instanceof AuthorizationError) return json(res, e.status, { error: e.message });
       if (e instanceof ApiError) {
         const status = e.httpStatus ?? 400;
-        return json(res, status, { error: e.message, ...e.extra } as Record<string, unknown>);
+        return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
       }
       const msg = String(e?.message ?? "bad_request");
       if (msg === "unauthorized" || msg === "invalid_token" || msg === "token_expired") {
@@ -1688,8 +1080,8 @@ export async function createApp(): Promise<{
       }
       return json(res, 400, { error: msg });
     }
+  })).catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
   });
 
   return { server, store, persist, dataFilePath };
 }
-

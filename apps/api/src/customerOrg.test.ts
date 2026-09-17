@@ -1,9 +1,10 @@
+import { bookTestShipment } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import {
   ApiError,
-  bookShipment,
+
   createCarrier,
   inviteCustomerMember,
   listCustomerOrgMembers,
@@ -42,7 +43,7 @@ test("customer admin invites teammate who then sees org shipments", () => {
   });
   assert.equal(invited.membership.role, "CUSTOMER_MEMBER");
 
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: admin.org.displayName,
     customerOrg: { id: admin.org.id, displayName: admin.org.displayName },

@@ -1,109 +1,65 @@
 import "package:flutter/foundation.dart";
+import "authorization_session.dart";
 
-import "pilot_api.dart";
-
-/// In-memory customer session from `/v1/auth/me` + `/v1/pilot/me`.
+/// Shipper projection of the shared, server-authorized session.
 abstract final class CustomerSession {
-  /// Bumps when session fields change so customer screens rebuild.
-  static final Listenable listenable = ValueNotifier<int>(0);
+  static Listenable get listenable => AuthorizationSession.revision;
+  static String? get userFullName =>
+      AuthorizationSession.user?["fullName"] as String?;
+  static String? get userPhone =>
+      AuthorizationSession.user?["phone"] as String?;
+  static String? get customerOrgId =>
+      hasCustomerOrg ? AuthorizationSession.organizationId : null;
+  static String? get customerOrgName => hasCustomerOrg
+      ? (AuthorizationSession.organization?["displayName"] as String?)
+      : null;
+  static String? get customerRole => hasCustomerOrg
+      ? (AuthorizationSession.principal?["subrole"] as String?)
+      : null;
+  static bool get isSignedIn => AuthorizationSession.signedIn;
+  static bool get hasCustomerOrg => AuthorizationSession.hasRole("SHIPPER");
+  static bool get isOrgAdmin =>
+      hasCustomerOrg && AuthorizationSession.can("organization.member.invite");
+  static bool get canManageIntegrations =>
+      hasCustomerOrg && AuthorizationSession.can("integration.manage");
+  static Future<bool> refresh() async =>
+      skipRefreshInTests ? isSignedIn : await AuthorizationSession.refresh();
+  static void clear() => AuthorizationSession.clear();
+  static Future<void> signOut() => AuthorizationSession.signOut();
 
-  static String? userFullName;
-  static String? userPhone;
-  static String? customerOrgId;
-  static String? customerOrgName;
-  static String? customerRole;
-
-  static void _notifyListeners() {
-    (listenable as ValueNotifier<int>).value++;
-  }
-
-  static bool get isSignedIn => userPhone != null && userPhone!.isNotEmpty;
-  static bool get hasCustomerOrg => customerOrgId != null && customerOrgId!.isNotEmpty;
-  static bool get isOrgAdmin => customerRole == "CUSTOMER_ADMIN";
-
-  static Future<bool> refresh() async {
-    if (skipRefreshInTests) {
-      _notifyListeners();
-      return userPhone != null;
-    }
-    try {
-      final r = await api.get<Map<String, dynamic>>("/v1/auth/me");
-      final user = r.data?["user"];
-      if (user is Map<String, dynamic>) {
-        userFullName = user["fullName"] as String?;
-        userPhone = user["phone"] as String?;
-      }
-      customerOrgId = null;
-      customerOrgName = null;
-      customerRole = null;
-      try {
-        final me = await api.get<Map<String, dynamic>>("/v1/pilot/me");
-        final orgs = me.data?["organizations"];
-        final memberships = me.data?["memberships"];
-        if (orgs is List && memberships is List) {
-          final customerOrgs = <Map<String, dynamic>>[];
-          for (final o in orgs) {
-            if (o is Map<String, dynamic> && o["kind"] == "CUSTOMER") {
-              customerOrgs.add(o);
-            }
-          }
-          customerOrgs.sort((a, b) => (a["id"]?.toString() ?? "").compareTo(b["id"]?.toString() ?? ""));
-          if (customerOrgs.isNotEmpty) {
-            final primary = customerOrgs.first;
-            customerOrgId = primary["id"]?.toString();
-            customerOrgName = primary["displayName"] as String?;
-            final orgId = customerOrgId;
-            if (orgId != null) {
-              for (final m in memberships) {
-                if (m is Map<String, dynamic> && m["orgId"]?.toString() == orgId) {
-                  customerRole = m["role"]?.toString();
-                  break;
-                }
-              }
-            }
-          }
-        }
-      } catch (_) {}
-      _notifyListeners();
-      return userPhone != null;
-    } catch (_) {
-      clear();
-      return false;
-    }
-  }
-
-  static void clear() {
-    userFullName = null;
-    userPhone = null;
-    customerOrgId = null;
-    customerOrgName = null;
-    customerRole = null;
-    _notifyListeners();
-  }
-
-  static Future<void> signOut() async {
-    await api.clearToken();
-    clear();
-  }
-
-  /// Seeds session fields for widget tests without network calls.
-  @visibleForTesting
-  static void applyForTest({
-    String? userFullName,
-    String? userPhone,
-    String? customerOrgId,
-    String? customerOrgName,
-    String? customerRole,
-  }) {
-    CustomerSession.userFullName = userFullName;
-    CustomerSession.userPhone = userPhone;
-    CustomerSession.customerOrgId = customerOrgId;
-    CustomerSession.customerOrgName = customerOrgName;
-    CustomerSession.customerRole = customerRole;
-    _notifyListeners();
-  }
-
-  /// When true, [refresh] returns immediately without HTTP (widget tests).
   @visibleForTesting
   static bool skipRefreshInTests = false;
+
+  @visibleForTesting
+  static void applyForTest(
+      {String? userFullName,
+      String? userPhone,
+      String? customerOrgId,
+      String? customerOrgName,
+      String? customerRole}) {
+    AuthorizationSession.user = {
+      "id": "test-user",
+      "fullName": userFullName,
+      "phone": userPhone
+    };
+    AuthorizationSession.organizations = [
+      {"id": customerOrgId, "displayName": customerOrgName, "kind": "CUSTOMER"}
+    ];
+    AuthorizationSession.principal = {
+      "organizationId": customerOrgId,
+      "subrole": customerRole,
+      "roles": ["SHIPPER"],
+      "permissions": [
+        "load.read",
+        "load.create",
+        "pod.accept",
+        if (customerRole == "CUSTOMER_ADMIN") ...[
+          "organization.member.invite",
+          "integration.manage"
+        ]
+      ],
+    };
+    AuthorizationSession.initialized = true;
+    AuthorizationSession.revision.value++;
+  }
 }

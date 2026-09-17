@@ -1,8 +1,9 @@
+import { runTestPayoutBatch } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import type { Store } from "./store.ts";
-import { runPayoutBatch } from "./services.ts";
+import { } from "./services.ts";
 import type { LedgerLine, Organization } from "./types.ts";
 
 // This file runs in its own test process, so setting RAZORPAYX env here does not
@@ -17,7 +18,7 @@ const CUTOFF = 1_700_000_000_000;
 function addOrg(store: Store, id: string, fundAccountId?: string): Organization {
   const org: Organization = {
     id,
-    kind: "CARRIER",
+    kind: "CARRIER_FLEET",
     displayName: id,
     kycStatus: fundAccountId ? "APPROVED" : "SUBMITTED",
     createdAtUtcMs: CUTOFF,
@@ -42,6 +43,9 @@ function addLine(store: Store, lineId: string, carrierId: string, netPaise: numb
     createdAtUtcMs: CUTOFF - 1000,
     paidAtUtcMs: null,
   };
+  store.shipments.set(line.shipmentId, {
+    id: line.shipmentId, anchorTripId: "test-trip", carrierId, customerOrgName: "Synthetic", customerOrgId: "test-shipper", weightKg: 1, pickupAddress: "A", dropAddress: "B", status: "DELIVERED", grossPaise: line.grossPaise, commissionPaise: line.commissionPaise, netToCarrierPaise: netPaise, paymentId: "test-payment", podAtUtcMs: CUTOFF - 49 * 3600000, firstPayoutEligibleAtUtcMs: line.firstPayoutEligibleAtUtcMs, payoutBatchCutoffUtcMs: CUTOFF, createdAtUtcMs: 1, updatedAtUtcMs: 1,
+  });
   store.ledgerLines.set(line.id, line);
   return line;
 }
@@ -79,7 +83,7 @@ test("RAZORPAYX: one payout per carrier; carrier without fund account is skipped
   });
   t.after(restore);
 
-  const batch = await runPayoutBatch(store, { nowUtcMs: CUTOFF });
+  const batch = await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
 
   // Exactly one real payout call (org_a only); org_b skipped before any call.
   assert.equal(calls.length, 1);
@@ -114,7 +118,7 @@ test("RAZORPAYX: multiple lines for one carrier aggregate into a single payout",
   const { calls, restore } = mockFetch(() => ({ status: 200, json: { id: "pout_agg", status: "queued" } }));
   t.after(restore);
 
-  const batch = await runPayoutBatch(store, { nowUtcMs: CUTOFF });
+  const batch = await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.body.amount, 75000); // 30000 + 45000
@@ -137,11 +141,11 @@ test("RAZORPAYX: provider error marks transfer FAILED and leaves lines ACCRUED t
   }));
   t.after(restore);
 
-  const batch = await runPayoutBatch(store, { nowUtcMs: CUTOFF });
+  const batch = await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
 
   const a = batch.transfers[0]!;
   assert.equal(a.status, "FAILED");
-  assert.match(a.error ?? "", /insufficient_balance/);
+  assert.match(a.error ?? "", /payout_provider_failed/);
   assert.equal(store.ledgerLines.get("ll_a1")!.status, "ACCRUED");
   assert.equal(batch.totalNetToCarrierPaise, 0);
   assert.deepEqual(batch.lineIds, []);

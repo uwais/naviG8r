@@ -13,7 +13,7 @@ const String kDefaultBaseUrl = "https://navig8r.onrender.com";
 String resolveApiBaseUrl() {
   const fromEnv = String.fromEnvironment("API_BASE_URL");
   if (fromEnv.trim().isNotEmpty) return fromEnv.trim();
-  
+
   if (kIsWeb) {
     return '/api';
   }
@@ -33,24 +33,85 @@ class Api {
             receiveTimeout: const Duration(seconds: 45),
           ),
         ) {
-    dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) async {
+    dio.interceptors
+        .add(InterceptorsWrapper(onRequest: (options, handler) async {
+      final version = scopeVersion;
+      options.extra["scopeVersion"] = version;
+      await _tokenWrite;
       final token = await _storage.read(key: "access_token");
+      if (version != scopeVersion) {
+        handler.reject(DioException(
+            requestOptions: options, type: DioExceptionType.cancel));
+        return;
+      }
+      if (activeOrganizationId != null) {
+        options.headers["x-organization-id"] = activeOrganizationId;
+      }
       if (token != null && token.isNotEmpty) {
         options.headers["authorization"] = "Bearer $token";
       }
       handler.next(options);
+    }, onResponse: (response, handler) {
+      if (response.requestOptions.extra["scopeVersion"] != scopeVersion) {
+        handler.reject(DioException(
+            requestOptions: response.requestOptions,
+            type: DioExceptionType.cancel));
+        return;
+      }
+      handler.next(response);
+    }, onError: (error, handler) {
+      if (error.requestOptions.extra["scopeVersion"] == scopeVersion &&
+          error.requestOptions.path != "/v1/auth/me" &&
+          [401, 403].contains(error.response?.statusCode)) {
+        onAuthorizationFailure?.call();
+      }
+      handler.next(error);
     }));
   }
 
   final String baseUrl;
   final Dio dio;
 
-  Future<void> setToken(String token) => _storage.write(key: "access_token", value: token);
-  Future<void> clearToken() => _storage.delete(key: "access_token");
+  String? activeOrganizationId;
+  int scopeVersion = 0;
+  Future<void>? _tokenWrite;
+  VoidCallback? onIdentityChanged;
+  VoidCallback? onAuthorizationFailure;
 
-  Future<Response<T>> get<T>(String path, {Map<String, dynamic>? query}) => dio.get<T>(path, queryParameters: query);
-  Future<Response<T>> post<T>(String path, {Object? data}) => dio.post<T>(path, data: data);
-  Future<Response<T>> patch<T>(String path, {Object? data}) => dio.patch<T>(path, data: data);
+  void selectOrganization(String? id) {
+    activeOrganizationId = id;
+    scopeVersion++;
+    lastRegisteredOrgId = null;
+  }
+
+  Future<void> setToken(String token) async {
+    selectOrganization(null);
+    _tokenWrite = _storage.write(key: "access_token", value: token);
+    onIdentityChanged?.call();
+    try {
+      await _tokenWrite;
+    } finally {
+      _tokenWrite = null;
+    }
+  }
+
+  Future<void> clearToken() async {
+    selectOrganization(null);
+    _tokenWrite = _storage.delete(key: "access_token");
+    onIdentityChanged?.call();
+    try {
+      await _tokenWrite;
+    } finally {
+      _tokenWrite = null;
+    }
+  }
+
+  Future<Response<T>> get<T>(String path, {Map<String, dynamic>? query}) =>
+      dio.get<T>(path, queryParameters: query);
+  Future<Response<T>> post<T>(String path, {Object? data}) =>
+      dio.post<T>(path, data: data);
+  Future<Response<T>> patch<T>(String path, {Object? data}) =>
+      dio.patch<T>(path, data: data);
 }
 
 late Api api;
@@ -59,14 +120,32 @@ String formatApiError(Object e) {
   if (e is DioException) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
-    if (e.type == DioExceptionType.connectionError || e.type == DioExceptionType.unknown) {
+    final code = body is Map ? body["error"] : null;
+    const messages = {
+      "carrier_compliance_required":
+          "Carrier compliance must be approved before accepting shipments or starting trips.",
+      "payment_hold_active":
+          "Payment is on hold until the shipper accepts delivery or the 48-hour hold expires.",
+      "active_organization_required": "Choose an organization to continue.",
+      "membership_inactive":
+          "Your access to this organization is no longer active. Choose another organization.",
+      "forbidden":
+          "You do not have permission for this action in the selected organization.",
+      "not_found": "This record is unavailable in the selected organization.",
+      "unauthorized": "Your session has expired. Please sign in again.",
+    };
+    if (messages.containsKey(code)) return messages[code]!;
+    if (e.type == DioExceptionType.connectionError ||
+        e.type == DioExceptionType.unknown) {
       final msg = e.message ?? "";
-      if (msg.contains("XMLHttpRequest onError") || msg.contains("connection errored")) {
+      if (msg.contains("XMLHttpRequest onError") ||
+          msg.contains("connection errored")) {
         return "Cannot reach API at ${api.baseUrl} from the browser. "
             "This is usually CORS — redeploy the API with CORS enabled, or run a local API with "
             "--dart-define=API_BASE_URL=http://localhost:3000.";
       }
-      if (msg.contains("Failed host lookup") || msg.contains("Network is unreachable")) {
+      if (msg.contains("Failed host lookup") ||
+          msg.contains("Network is unreachable")) {
         return "Cannot reach API at ${api.baseUrl}. Check device Wi‑Fi/mobile data, or run with "
             "--dart-define=API_BASE_URL=http://10.0.2.2:3000 for a local API on the emulator. ($msg)";
       }
@@ -97,7 +176,9 @@ String? firstCarrierOrgIdFromPilotMe(Map<String, dynamic>? data) {
       final kind = o["kind"] as String?;
       final id = o["id"] as String?;
       if (id == null || id.isEmpty) continue;
-      if (kind == "CARRIER_SOLO" || kind == "CARRIER_FLEET" || kind == "CARRIER_LEGACY") return id;
+      if (kind == "CARRIER_SOLO" ||
+          kind == "CARRIER_FLEET" ||
+          kind == "CARRIER_LEGACY") return id;
     }
   }
   if (orgs.isNotEmpty && orgs.first is Map<String, dynamic>) {
@@ -107,7 +188,8 @@ String? firstCarrierOrgIdFromPilotMe(Map<String, dynamic>? data) {
   return null;
 }
 
-String? carrierOrgDisplayNameFromPilotMe(Map<String, dynamic>? data, String orgId) {
+String? carrierOrgDisplayNameFromPilotMe(
+    Map<String, dynamic>? data, String orgId) {
   final orgs = data?["organizations"];
   if (orgs is! List<dynamic>) return null;
   for (final o in orgs) {
@@ -135,14 +217,18 @@ String formatIstIsoFromUtc(DateTime utc) {
   return "$y-$m-${d}T$h:$min:$s+05:30";
 }
 
-void defaultAnchorTripWindow(TextEditingController w1, TextEditingController w2) {
+void defaultAnchorTripWindow(
+    TextEditingController w1, TextEditingController w2) {
   final utc = DateTime.now().toUtc();
   final istNow = utc.add(const Duration(hours: 5, minutes: 30));
   final y = istNow.year;
   final m = istNow.month;
   final d = istNow.day;
-  final startUtc = DateTime.utc(y, m, d).subtract(const Duration(hours: 5, minutes: 30));
-  final endUtc = DateTime.utc(y, m, d + 2).subtract(const Duration(hours: 5, minutes: 30)).subtract(const Duration(seconds: 1));
+  final startUtc =
+      DateTime.utc(y, m, d).subtract(const Duration(hours: 5, minutes: 30));
+  final endUtc = DateTime.utc(y, m, d + 2)
+      .subtract(const Duration(hours: 5, minutes: 30))
+      .subtract(const Duration(seconds: 1));
   w1.text = formatIstIsoFromUtc(startUtc);
   w2.text = formatIstIsoFromUtc(endUtc);
 }
@@ -154,7 +240,7 @@ String shipmentStatusLabel(String status) {
     case "BOOKED":
       return "Accepted";
     case "PENDING_RELEASE":
-      return "Awaiting ops release";
+      return "Awaiting payment release";
     case "DELIVERED":
       return "Delivered";
     default:
@@ -241,7 +327,21 @@ String formatTripWindowRange(String? windowStart, String? windowEnd) {
     final date = t > 0 ? iso.substring(0, t) : iso;
     final parts = date.split("-");
     if (parts.length < 3) return date;
-    const months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const months = [
+      "",
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec"
+    ];
     final m = int.tryParse(parts[1]) ?? 0;
     final d = int.tryParse(parts[2]) ?? 0;
     if (m < 1 || m > 12 || d < 1) return date;
@@ -298,7 +398,10 @@ List<ShipmentTimelineStep> shipmentTimelineSteps({
       label: "Load started",
       subtitle: "Carrier marked the trip as started",
       complete: started || delivered || pendingRelease,
-      current: shipmentStatus == "BOOKED" && !started && !delivered && !pendingRelease,
+      current: shipmentStatus == "BOOKED" &&
+          !started &&
+          !delivered &&
+          !pendingRelease,
     ),
     ShipmentTimelineStep(
       label: "In transit",
@@ -311,7 +414,11 @@ List<ShipmentTimelineStep> shipmentTimelineSteps({
       current: started && !delivered && !pendingRelease,
     ),
     ShipmentTimelineStep(
-      label: delivered ? "Delivered" : pendingRelease ? "Delivered (processing)" : "Delivered",
+      label: delivered
+          ? "Delivered"
+          : pendingRelease
+              ? "Delivered (processing)"
+              : "Delivered",
       subtitle: delivered
           ? "Shipment complete"
           : pendingRelease

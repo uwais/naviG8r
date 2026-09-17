@@ -1,3 +1,4 @@
+import { httpFixture } from "../test/httpFixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
@@ -51,11 +52,11 @@ test("production disables legacy demo routes that expose or mutate operator stat
 
   await withApp(t, async (baseUrl) => {
     const users = await fetch(`${baseUrl}/v1/users`);
-    assert.equal(users.status, 403);
-    assert.deepEqual(await users.json(), { error: "legacy_demo_surface_disabled" });
+    assert.equal(users.status, 401);
+    assert.deepEqual(await users.json(), { error: "unauthorized" });
 
     const carriers = await fetch(`${baseUrl}/carriers`);
-    assert.equal(carriers.status, 403);
+    assert.equal(carriers.status, 410);
 
     const detail = await fetch(`${baseUrl}/shipments/shp_123`);
     assert.equal(detail.status, 401);
@@ -66,20 +67,20 @@ test("production disables legacy demo routes that expose or mutate operator stat
     assert.deepEqual(await shipments.json(), { error: "unauthorized" });
 
     const pod = await postJson(baseUrl, "/shipments/shp_123/pod", {});
-    assert.equal(pod.status, 401);
-    assert.deepEqual(await pod.json(), { error: "unauthorized" });
+    assert.equal(pod.status, 410);
+    assert.deepEqual(await pod.json(), { error: "legacy_route_retired" });
 
     const refund = await postJson(baseUrl, "/shipments/shp_123/fail-refund", {});
     assert.equal(refund.status, 401);
     assert.deepEqual(await refund.json(), { error: "unauthorized" });
 
     const login = await postJson(baseUrl, "/v1/pilot/driver/login", { phone: "9876543210" });
-    assert.equal(login.status, 403);
-    assert.deepEqual(await login.json(), { error: "legacy_demo_surface_disabled" });
+    assert.equal(login.status, 410);
+    assert.deepEqual(await login.json(), { error: "legacy_route_retired" });
   });
 });
 
-test("legacy demo surface remains available outside production", async (t) => {
+test("legacy demo mutations are retired in every environment", async (t) => {
   const prev = {
     DATA_FILE: process.env.DATA_FILE,
     NODE_ENV: process.env.NODE_ENV,
@@ -97,9 +98,8 @@ test("legacy demo surface remains available outside production", async (t) => {
 
   await withApp(t, async (baseUrl) => {
     const res = await postJson(baseUrl, "/carriers", { name: "Carrier One" });
-    assert.equal(res.status, 201);
-    const body = (await res.json()) as { carrier?: { name?: string } };
-    assert.equal(body.carrier?.name, "Carrier One");
+    assert.equal(res.status, 410);
+    assert.deepEqual(await res.json(), { error: "legacy_route_retired" });
   });
 });
 
@@ -119,77 +119,11 @@ test("POST /shipments/:id/driver-pod requires authenticated user", async (t) => 
   });
 });
 
-test("POST /v1/pilot/carrier/shipments/:id/accept accepts pending booking", async (t) => {
-  const prev = {
-    DATA_FILE: process.env.DATA_FILE,
-    NODE_ENV: process.env.NODE_ENV,
-    ALLOW_X_USER_ID: process.env.ALLOW_X_USER_ID,
-  };
-  t.after(() => {
-    process.env.DATA_FILE = prev.DATA_FILE;
-    process.env.NODE_ENV = prev.NODE_ENV;
-    process.env.ALLOW_X_USER_ID = prev.ALLOW_X_USER_ID;
-  });
-
-  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
-  process.env.NODE_ENV = "test";
-  process.env.ALLOW_X_USER_ID = "1";
-
-  async function authedPost(baseUrl: string, path: string, userId: string, body: unknown): Promise<Response> {
-    return fetch(`${baseUrl}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-user-id": userId },
-      body: JSON.stringify(body),
-    });
-  }
-
-  await withApp(t, async (baseUrl) => {
-    const reg = await postJson(baseUrl, "/v1/pilot/driver/register", {
-      fullName: "Ravi Kumar",
-      phone: "9876543210",
-      orgDisplayName: "Ravi Transport",
-      vehicleRegistrationNumber: "HR26AB1234",
-      vehicleClass: "MEDIUM",
-      vehicleCapacityKg: 5000,
-    });
-    assert.equal(reg.status, 201);
-    const onboard = (await reg.json()) as { user: { id: string }; org: { id: string } };
-    const userId = onboard.user.id;
-
-    const tripRes = await authedPost(baseUrl, "/v1/pilot/anchor-trips", userId, {
-      orgId: onboard.org.id,
-      originCity: "Gurugram",
-      destCity: "Jaipur",
-      windowStart: "2026-04-24T00:00:00+05:30",
-      windowEnd: "2026-04-25T23:59:59+05:30",
-      vehicleClass: "MEDIUM",
-      capacityKg: 1000,
-    });
-    assert.equal(tripRes.status, 201);
-    const tripBody = (await tripRes.json()) as { trip: { id: string } };
-
-    const book = await postJson(baseUrl, "/shipments/book", {
-      anchorTripId: tripBody.trip.id,
-      customerOrgName: "ACME Manufacturing",
-      weightKg: 200,
-      pickupAddress: "Sector 44, Gurugram",
-      dropAddress: "Sitapura, Jaipur",
-    });
-    assert.equal(book.status, 201);
-    const shipment = (await book.json()) as { shipment: { id: string; status: string } };
-    assert.equal(shipment.shipment.status, "PENDING_CARRIER_ACCEPT");
-
-    const accept = await authedPost(
-      baseUrl,
-      `/v1/pilot/carrier/shipments/${shipment.shipment.id}/accept`,
-      userId,
-      {},
-    );
-    const acceptText = await accept.text();
-    assert.equal(accept.status, 200, acceptText);
-    const accepted = JSON.parse(acceptText) as { shipment: { status: string } };
-    assert.equal(accepted.shipment.status, "BOOKED");
-  });
+test("POST /v1/pilot/carrier/shipments/:id/accept accepts pending booking with OTP bearer", async t => {
+  const f = await httpFixture(t);
+  const book = await f.book(); assert.equal(book.status, 201);
+  const accepted = await f.request(`/v1/pilot/carrier/shipments/${book.body.shipment.id}/accept`, "POST", {}, f.tokens.carrierA);
+  assert.equal(accepted.status, 200); assert.equal(accepted.body.shipment.status, "BOOKED");
 });
 
 test("GET /ops returns ops portal HTML", async (t) => {
@@ -204,8 +138,22 @@ test("GET /ops returns ops portal HTML", async (t) => {
     const res = await fetch(`${baseUrl}/ops`);
     assert.equal(res.status, 200);
     const html = await res.text();
-    assert.ok(html.includes("naviG8r Ops"));
+    assert.ok(html.includes("NaviG8r operations"));
     assert.ok(html.includes("pending-release"));
+  });
+});
+
+test("GET /workflow returns the shipment/POD workspace shell", async (t) => {
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+
+  await withApp(t, async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/workflow`);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.ok(html.includes("<title>NaviG8r shipments</title>"));
+    assert.ok(html.includes("const workflowOnly = true"));
+    assert.ok(html.includes("Accept POD"));
+    assert.ok(html.includes("Admin workspace"));
   });
 });
 

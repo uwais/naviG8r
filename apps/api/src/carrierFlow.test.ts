@@ -1,22 +1,23 @@
+import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import {
   ApiError,
   acceptCarrierShipment,
-  bookShipment,
+
   completeAnchorTripAsPilot,
   inviteCarrierDriver,
   publishAnchorTripAsPilotDriver,
   registerCustomerUser,
-  registerSoloOwnerOperatorDriver,
+
   startAnchorTripAsPilot,
   submitDriverPod,
 } from "./services.ts";
 
 test("booking awaits carrier accept then trip start before live tracking", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Ravi Kumar",
     phone: "9876543210",
     orgDisplayName: "Ravi Transport",
@@ -36,7 +37,7 @@ test("booking awaits carrier accept then trip start before live tracking", () =>
     capacityKg: 1000,
   });
 
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "ACME Manufacturing",
     weightKg: 200,
@@ -64,7 +65,7 @@ test("booking awaits carrier accept then trip start before live tracking", () =>
 
 test("POD on last booking auto-completes IN_PROGRESS trip", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Ravi Kumar",
     phone: "9876543220",
     orgDisplayName: "Ravi Transport",
@@ -82,7 +83,7 @@ test("POD on last booking auto-completes IN_PROGRESS trip", () => {
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "ACME",
     weightKg: 100,
@@ -102,7 +103,7 @@ test("POD on last booking auto-completes IN_PROGRESS trip", () => {
 
 test("completeAnchorTripAsPilot requires all shipments POD'd", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Ravi Kumar",
     phone: "9876543221",
     orgDisplayName: "Ravi Transport",
@@ -120,7 +121,7 @@ test("completeAnchorTripAsPilot requires all shipments POD'd", () => {
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "ACME",
     weightKg: 100,
@@ -142,7 +143,7 @@ test("completeAnchorTripAsPilot requires all shipments POD'd", () => {
 
 test("dispatcher invite reuses carrier org primary vehicle", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Owner",
     phone: "9876543211",
     orgDisplayName: "Fleet Co",
