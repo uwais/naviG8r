@@ -5,6 +5,7 @@ import {
   shipmentWithCarrierDisplay,
   tripWithCarrierDisplay,
   attachRazorpayOrderForShipment,
+  rollbackBooking,
 } from "./services.ts";
 import type {
   GeoPoint,
@@ -41,6 +42,31 @@ function id(prefix: string): string {
 
 function idempotencyStoreKey(orgId: string, key: string): string {
   return `${orgId}:${key}`;
+}
+
+const integrationLoadCreationLocks = new Map<string, Promise<void>>();
+
+async function withIntegrationLoadCreationLock<T>(keys: string[], fn: () => Promise<T>): Promise<T> {
+  const lockKeys = [...new Set(keys)].sort();
+  const pending = lockKeys
+    .map((key) => integrationLoadCreationLocks.get(key))
+    .filter((lock): lock is Promise<void> => lock != null);
+
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  for (const key of lockKeys) integrationLoadCreationLocks.set(key, current);
+
+  await Promise.allSettled(pending);
+  try {
+    return await fn();
+  } finally {
+    for (const key of lockKeys) {
+      if (integrationLoadCreationLocks.get(key) === current) integrationLoadCreationLocks.delete(key);
+    }
+    release();
+  }
 }
 
 export function assertCustomerOrg(store: Store, orgId: string): void {
@@ -132,8 +158,10 @@ export function createIntegrationApiKey(
   return { key, token, connection: conn };
 }
 
-export function revokeIntegrationApiKey(store: Store, orgId: string, keyRecordId: string): void {
-  const key = store.integrationApiKeys.get(keyRecordId);
+export function revokeIntegrationApiKey(store: Store, orgId: string, keyIdOrRecordId: string): void {
+  const lookup = keyIdOrRecordId.trim();
+  const key = store.integrationApiKeys.get(lookup)
+    ?? [...store.integrationApiKeys.values()].find((k) => k.orgId === orgId && k.keyId === lookup);
   if (!key || key.orgId !== orgId) throw new Error("integration_key_not_found");
   key.status = "REVOKED";
   store.integrationApiKeys.set(key.id, key);
@@ -179,6 +207,20 @@ function applyErpPreauthorizedPayment(store: Store, shipment: Shipment): void {
     pay.updatedAtUtcMs = nowUtcMs();
   }
   store.payments.set(pay.id, pay);
+}
+
+function removeIntegrationArtifactsForShipment(store: Store, shipmentId: string): void {
+  const eventIds = new Set<string>();
+  for (const event of store.integrationEvents.values()) {
+    if (event.shipmentId === shipmentId) eventIds.add(event.id);
+  }
+  for (const eventId of eventIds) store.integrationEvents.delete(eventId);
+  for (const delivery of store.integrationWebhookDeliveries.values()) {
+    if (eventIds.has(delivery.eventId)) store.integrationWebhookDeliveries.delete(delivery.id);
+  }
+  for (const rec of store.integrationIdempotency.values()) {
+    if (rec.shipmentId === shipmentId) store.integrationIdempotency.delete(rec.key);
+  }
 }
 
 export function integrationLoadResponse(store: Store, shipment: Shipment, connection: IntegrationConnection) {
@@ -230,65 +272,80 @@ export async function createIntegrationLoad(
   const externalLoadId = params.externalLoadId.trim();
   if (!externalLoadId) throw new Error("external_load_id_required");
 
-  if (params.idempotencyKey?.trim()) {
-    const existing = findShipmentByIdempotencyKey(store, ctx.orgId, params.idempotencyKey.trim());
-    if (existing) {
-      return { shipment: existing, response: integrationLoadResponse(store, existing, conn), created: false };
+  const idempotencyKey = params.idempotencyKey?.trim();
+  const lockKeys = [
+    `integration-load:${ctx.orgId}:external:${externalLoadId}`,
+    ...(idempotencyKey ? [`integration-load:${ctx.orgId}:idempotency:${idempotencyKey}`] : []),
+  ];
+
+  return withIntegrationLoadCreationLock(lockKeys, async () => {
+    if (idempotencyKey) {
+      const existing = findShipmentByIdempotencyKey(store, ctx.orgId, idempotencyKey);
+      if (existing) {
+        if (existing.externalLoadId !== externalLoadId) throw new Error("idempotency_key_conflict");
+        return { shipment: existing, response: integrationLoadResponse(store, existing, conn), created: false };
+      }
     }
-  }
 
-  const dup = findShipmentByExternalLoadId(store, ctx.orgId, externalLoadId);
-  if (dup) {
-    return { shipment: dup, response: integrationLoadResponse(store, dup, conn), created: false };
-  }
+    const dup = findShipmentByExternalLoadId(store, ctx.orgId, externalLoadId);
+    if (dup) {
+      return { shipment: dup, response: integrationLoadResponse(store, dup, conn), created: false };
+    }
 
-  let anchorTripId = params.anchorTripId?.trim();
-  if (params.lanePreference !== "explicit" || !anchorTripId) {
-    const ranked = customerEligibleAnchorTripsPhaseA(store, {
+    let anchorTripId = params.anchorTripId?.trim();
+    if (params.lanePreference !== "explicit" || !anchorTripId) {
+      const ranked = customerEligibleAnchorTripsPhaseA(store, {
+        pickup: params.pickup,
+        drop: params.drop,
+        weightKg: params.weightKg,
+      });
+      const eligible = ranked.filter((r) => r.eligibility.eligible);
+      if (!eligible.length) {
+        throw new Error("no_eligible_lane");
+      }
+      anchorTripId = eligible[0]!.trip.id;
+    }
+
+    const shipment = bookShipment(store, {
+      anchorTripId: anchorTripId!,
+      customerOrgName: org.displayName,
+      customerOrg: { id: org.id, displayName: org.displayName },
+      weightKg: params.weightKg,
+      pickupAddress: params.pickupAddress,
+      dropAddress: params.dropAddress,
       pickup: params.pickup,
       drop: params.drop,
-      weightKg: params.weightKg,
+      externalLoadId,
+      externalSource: conn.externalSource,
+      integrationConnectionId: conn.id,
+      metadata: params.metadata,
     });
-    const eligible = ranked.filter((r) => r.eligibility.eligible);
-    if (!eligible.length) {
-      throw new Error("no_eligible_lane");
+
+    if (conn.paymentPolicy === "portal_checkout" && razorpayPaymentsEnabled()) {
+      try {
+        await attachRazorpayOrderForShipment(store, shipment.id);
+      } catch (e) {
+        removeIntegrationArtifactsForShipment(store, shipment.id);
+        rollbackBooking(store, shipment.id);
+        throw e;
+      }
     }
-    anchorTripId = eligible[0]!.trip.id;
-  }
 
-  const shipment = bookShipment(store, {
-    anchorTripId: anchorTripId!,
-    customerOrgName: org.displayName,
-    customerOrg: { id: org.id, displayName: org.displayName },
-    weightKg: params.weightKg,
-    pickupAddress: params.pickupAddress,
-    dropAddress: params.dropAddress,
-    pickup: params.pickup,
-    drop: params.drop,
-    externalLoadId,
-    externalSource: conn.externalSource,
-    integrationConnectionId: conn.id,
-    metadata: params.metadata,
+    if (conn.paymentPolicy === "erp_preauthorized") {
+      applyErpPreauthorizedPayment(store, shipment);
+      emitIntegrationEvent(store, { eventType: "load.payment_authorized", shipmentId: shipment.id });
+    }
+
+    if (idempotencyKey) {
+      recordIdempotency(store, ctx.orgId, idempotencyKey, shipment.id);
+    }
+
+    return {
+      shipment,
+      response: integrationLoadResponse(store, shipment, conn),
+      created: true,
+    };
   });
-
-  if (conn.paymentPolicy === "portal_checkout" && razorpayPaymentsEnabled()) {
-    await attachRazorpayOrderForShipment(store, shipment.id);
-  }
-
-  if (conn.paymentPolicy === "erp_preauthorized") {
-    applyErpPreauthorizedPayment(store, shipment);
-    emitIntegrationEvent(store, { eventType: "load.payment_authorized", shipmentId: shipment.id });
-  }
-
-  if (params.idempotencyKey?.trim()) {
-    recordIdempotency(store, ctx.orgId, params.idempotencyKey.trim(), shipment.id);
-  }
-
-  return {
-    shipment,
-    response: integrationLoadResponse(store, shipment, conn),
-    created: true,
-  };
 }
 
 export function listIntegrationLoads(
@@ -359,7 +416,7 @@ export function listIntegrationEvents(
     events = idx >= 0 ? events.slice(idx + 1) : events;
   }
   const limit = Math.min(params.limit ?? 100, 500);
-  return events.slice(-limit);
+  return events.slice(0, limit);
 }
 
 export function listWebhookDeliveries(

@@ -250,11 +250,13 @@ export async function handleIntegrationPortalRoutes(
 
     const retryMatch = new RegExp(`^${base}/deliveries/([^/]+)/retry$`).exec(url.pathname);
     if (method === "POST" && retryMatch) {
-      const d = retryWebhookDelivery(store, retryMatch[1]!);
-      if (d.orgId !== orgId) {
+      const deliveryId = retryMatch[1]!;
+      const existing = store.integrationWebhookDeliveries.get(deliveryId);
+      if (!existing || existing.orgId !== orgId) {
         json(res, 404, { error: "webhook_delivery_not_found" });
         return true;
       }
+      const d = retryWebhookDelivery(store, deliveryId);
       json(res, 200, { delivery: d });
       return true;
     }
