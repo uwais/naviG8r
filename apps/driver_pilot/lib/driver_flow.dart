@@ -388,6 +388,20 @@ class _DriverWelcomeScreenState extends State<DriverWelcomeScreen> {
         onTap: () => context.go("/driver/onboarding/join"),
       ),
       const SizedBox(height: 24),
+      // Pilot feedback, 2026-09-12: shippers were opening this app and trying to sign in here,
+      // then reporting that a load they posted "is not showing on my login ID". Nothing on this
+      // screen said the app was not for them. There is deliberately no customer flow on Android,
+      // so the only useful thing to offer is the address of the one that is.
+      const Text(
+        "Shipping a load?",
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: DriverTheme.navy),
+      ),
+      const SizedBox(height: 6),
+      const Text(
+        "This app is for drivers and carriers. Book freight at navig8r.org.",
+        style: TextStyle(color: DriverTheme.mutedOnBackground, height: 1.4),
+      ),
+      const SizedBox(height: 24),
       TextButton(onPressed: () => context.go("/pilot-lab"), child: const Text("Developer lab")),
     ];
   }
