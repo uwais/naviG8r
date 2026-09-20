@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
-import { verifyRazorpayWebhookSignature } from "./razorpayPayments.ts";
+import {
+  isRazorpayAlreadyCapturedError,
+  isRazorpayAlreadyRefundedError,
+  verifyRazorpayWebhookSignature,
+} from "./razorpayPayments.ts";
 
 test("Razorpay webhook signature verification", () => {
   const secret = "whsec_unit_test";
@@ -10,4 +14,9 @@ test("Razorpay webhook signature verification", () => {
   assert.equal(verifyRazorpayWebhookSignature(payload, good, secret), true);
   assert.equal(verifyRazorpayWebhookSignature(payload, "deadbeef", secret), false);
   assert.equal(verifyRazorpayWebhookSignature(payload, undefined, secret), false);
+});
+
+test("already-captured / already-refunded error classifiers", () => {
+  assert.equal(isRazorpayAlreadyCapturedError("This payment has already been captured"), true);
+  assert.equal(isRazorpayAlreadyRefundedError("payment already refunded"), true);
 });

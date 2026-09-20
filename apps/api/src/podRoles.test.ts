@@ -9,8 +9,10 @@ import {
   publishAnchorTrip,
   registerSoloOwnerOperatorDriver,
   releasePaymentAndDeliver,
+  startAnchorTripAsPilot,
   submitDriverPod,
   registerCustomerOrgAdmin,
+  ApiError,
 } from "./services.ts";
 
 function seedBookedShipment(store: ReturnType<typeof createStore>) {
@@ -44,9 +46,15 @@ function seedBookedShipment(store: ReturnType<typeof createStore>) {
   return { driver, trip, shipment: booked };
 }
 
+function seedInProgressShipment(store: ReturnType<typeof createStore>) {
+  const seeded = seedBookedShipment(store);
+  startAnchorTripAsPilot(store, { userId: seeded.driver.user.id, tripId: seeded.trip.id });
+  return seeded;
+}
+
 test("submitDriverPod: driver on carrier org moves BOOKED to PENDING_RELEASE", () => {
   const store = createStore();
-  const { driver, shipment } = seedBookedShipment(store);
+  const { driver, shipment } = seedInProgressShipment(store);
 
   const out = submitDriverPod(store, {
     shipmentId: shipment.id,
@@ -58,9 +66,19 @@ test("submitDriverPod: driver on carrier org moves BOOKED to PENDING_RELEASE", (
   assert.equal(out.podNotes, "Left at gate");
 });
 
+test("submitDriverPod: rejects POD before trip start", () => {
+  const store = createStore();
+  const { driver, shipment, trip } = seedBookedShipment(store);
+  assert.equal(store.anchorTrips.get(trip.id)?.status, "OPEN");
+  assert.throws(
+    () => submitDriverPod(store, { shipmentId: shipment.id, userId: driver.user.id }),
+    (e: unknown) => e instanceof ApiError && (e as ApiError).message === "trip_not_started_for_pod",
+  );
+});
+
 test("submitDriverPod: customer user forbidden", () => {
   const store = createStore();
-  const { shipment } = seedBookedShipment(store);
+  const { shipment } = seedInProgressShipment(store);
   const cust = registerCustomerOrgAdmin(store, {
     fullName: "Buyer",
     phone: "9100000002",
@@ -74,7 +92,7 @@ test("submitDriverPod: customer user forbidden", () => {
 
 test("releasePaymentAndDeliver: requires PENDING_RELEASE then DELIVERED", async () => {
   const store = createStore();
-  const { driver, shipment } = seedBookedShipment(store);
+  const { driver, shipment } = seedInProgressShipment(store);
 
   submitDriverPod(store, { shipmentId: shipment.id, userId: driver.user.id });
 

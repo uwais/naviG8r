@@ -51,17 +51,48 @@ export async function createAuthorizeOnlyOrder(amountPaise: number, receiptShipm
   return { id: oid };
 }
 
+/** True when Razorpay rejects capture because the payment is already captured. */
+export function isRazorpayAlreadyCapturedError(err: unknown): boolean {
+  const msg = String((err as Error)?.message ?? err ?? "").toLowerCase();
+  return (
+    msg.includes("already been captured") ||
+    msg.includes("already_captured") ||
+    msg.includes("payment_already_captured") ||
+    (msg.includes("captured") && msg.includes("already"))
+  );
+}
+
+/** True when Razorpay rejects refund because the payment is already fully refunded. */
+export function isRazorpayAlreadyRefundedError(err: unknown): boolean {
+  const msg = String((err as Error)?.message ?? err ?? "").toLowerCase();
+  return (
+    msg.includes("already refunded") ||
+    msg.includes("already_refunded") ||
+    msg.includes("payment_already_refunded") ||
+    (msg.includes("refund") && msg.includes("fully"))
+  );
+}
+
 export async function captureRazorpayPayment(paymentId: string, amountPaise: number): Promise<void> {
   const rzp = await getRzp();
-  await rzp.payments.capture(paymentId, amountPaise, "INR");
+  try {
+    await rzp.payments.capture(paymentId, amountPaise, "INR");
+  } catch (e) {
+    // Idempotent retry after gateway success + local crash/persist loss.
+    if (!isRazorpayAlreadyCapturedError(e)) throw e;
+  }
 }
 
 export async function razorpayRefundPayment(paymentId: string, amountPaise?: number): Promise<void> {
   const rzp = await getRzp();
-  if (amountPaise != null) {
-    await rzp.payments.refund(paymentId, { amount: amountPaise });
-  } else {
-    await rzp.payments.refund(paymentId);
+  try {
+    if (amountPaise != null) {
+      await rzp.payments.refund(paymentId, { amount: amountPaise });
+    } else {
+      await rzp.payments.refund(paymentId);
+    }
+  } catch (e) {
+    if (!isRazorpayAlreadyRefundedError(e)) throw e;
   }
 }
 
