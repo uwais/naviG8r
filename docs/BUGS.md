@@ -81,6 +81,20 @@ of this section.
 - [ ] **A developer instruction is rendered to drivers** — one screen tells them to "merge
   driver-onboarding PR". `read`
 
+## High — reported by pilot users
+
+From #navig8r-pilot. These came from real customers and drivers, not from review.
+
+- [ ] **Customers are signing in on the driver screen and getting stuck.** Reported 2026-09-12:
+  *"We have posted load from drivers login but it's not showing on my login ID and showing in
+  Azaad's login but unable to book the load."* PR #107 rebuilt the landing for drivers, which was
+  the assigned action — but **the landing still has no mention of customers at all** (`ran`,
+  checked against `origin/main`). A shipper who arrives there has no path and no explanation. The
+  fix is one line of signposting to the web portal, not a customer flow on Android.
+- [ ] **Trip status wording is wrong at two points.** Reported 2026-09-17. At load start it should
+  read *"Load started - waiting for driver GPS"*, and the in-transit state should say *"In
+  transit"*. Today the status is a raw enum.
+
 ## Medium — broken flows and dead ends
 
 - [ ] **Start is gated on reserved kilos, not on an accepted shipment,** so the list offers an

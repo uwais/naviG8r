@@ -66,6 +66,22 @@ all. But a 50/50 split of design effort is currently an assumption, not a findin
 - [ ] **One word for the central object.** It is currently anchor trip, trip, load and lane.
 - [ ] **A type and spacing scale in the theme,** so screens stop improvising.
 
+## Asked for by pilot users
+
+From #navig8r-pilot, 2026-09-14. Verbatim requests, not my interpretation.
+
+- [ ] **GPS tracking integration with a device on the truck** (they named Wheels Eye). This is
+  the same conclusion the research reached independently as recommendation 1 — the phone alone is
+  not a reliable position source on these handsets or these highways. Two separate lines of
+  evidence pointing at one change is the strongest signal on this page.
+- [ ] **Drivers in an org visible to the carrier admin.** There is a fleet screen today but no
+  roster view.
+- [ ] **"Match my Route"** — search loads against a route the driver already runs, rather than
+  browsing everything.
+
+Also raised 2026-09-17: changes are *"stuck in beta"* and pilot requests should be vetted into
+beta too. That is a release-process question, not a product one, and belongs on the standup.
+
 ## Never build these
 
 Drawn from what the incumbents are being criticised or sued over:
