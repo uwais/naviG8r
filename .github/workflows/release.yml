@@ -4,6 +4,20 @@ on:
   push:
     branches:
       - main
+    # None of these go into any image, so they have no business rebuilding three
+    # services and asking someone to approve a production deploy. A push touching
+    # only these paths is skipped entirely; a push touching these AND any source
+    # file still runs, which is the behaviour we want.
+    #
+    # .github/** is here because a workflow change cannot reach production by
+    # definition, yet it was stopping this pipeline at the approval gate every
+    # time. Cost: an edit to this file is no longer exercised on its own merge.
+    # It is exercised on the next source merge instead, which is soon enough, and
+    # cheaper than a manual cancellation per workflow edit.
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".github/**"
 
   workflow_dispatch:
 
@@ -13,7 +27,13 @@ permissions:
 
 concurrency:
   group: navig8r-main-release
-  cancel-in-progress: true
+  # Deliberately false. deploy-production targets an environment with required
+  # reviewers, so the job waits for a human. With cancel-in-progress: true, the
+  # next merge to main killed that waiting run and its pending approval with it --
+  # which is exactly what happened to the #110 release on 2026-09-21. Queueing
+  # instead means a release is never silently dropped; a forgotten approval blocks
+  # the queue, which is visible and therefore the better failure.
+  cancel-in-progress: false
 
 env:
   API_IMAGE: ghcr.io/uwais/navig8r-api

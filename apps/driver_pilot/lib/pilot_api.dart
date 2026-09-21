@@ -255,7 +255,7 @@ String tripStatusLabel(String status) {
     case "FULL":
       return "Full";
     case "IN_PROGRESS":
-      return "In progress";
+      return "In transit";
     case "COMPLETED":
       return "Done";
     default:
