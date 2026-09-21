@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+    # A documentation change does not go into any image, so it has no business
+    # rebuilding three services and asking someone to approve a production deploy.
+    # A push touching only these paths is skipped entirely; a push touching these
+    # AND any source file still runs, which is the behaviour we want.
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
 
   workflow_dispatch:
 
@@ -13,7 +20,13 @@ permissions:
 
 concurrency:
   group: navig8r-main-release
-  cancel-in-progress: true
+  # Deliberately false. deploy-production targets an environment with required
+  # reviewers, so the job waits for a human. With cancel-in-progress: true, the
+  # next merge to main killed that waiting run and its pending approval with it --
+  # which is exactly what happened to the #110 release on 2026-09-21. Queueing
+  # instead means a release is never silently dropped; a forgotten approval blocks
+  # the queue, which is visible and therefore the better failure.
+  cancel-in-progress: false
 
 env:
   API_IMAGE: ghcr.io/uwais/navig8r-api
