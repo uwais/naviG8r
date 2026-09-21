@@ -35,13 +35,17 @@ jobs:
         working-directory: apps/driver_pilot
         run: flutter pub get
 
-      # Errors only, on purpose. main currently carries 19 infos and 9 warnings (unused
-      # imports, redundant null assertions), and a gate that is red on the day it lands is a
-      # gate everyone learns to ignore. Clear those 28 in their own change, then tighten this
-      # to --no-fatal-infos, then to a bare `flutter analyze`.
+      # Warnings are now fatal. This is the tightening the previous revision of this file
+      # said to make once the backlog was cleared: main was at 9 warnings when the gate
+      # landed, reached 10 after the RBAC restructure, and is at 0 as of this change. A
+      # warning from here on is a new one, so failing on it costs nobody anything.
+      #
+      # Infos stay non-fatal: 37 remain, most of them prefer_const_constructors and
+      # curly_braces_in_flow_control_structures. Clear those in their own change and then
+      # this becomes a bare `flutter analyze`.
       - name: Analyze
         working-directory: apps/driver_pilot
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        run: flutter analyze --no-fatal-infos
 
       - name: Test
         working-directory: apps/driver_pilot
