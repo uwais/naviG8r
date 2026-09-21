@@ -4,13 +4,20 @@ on:
   push:
     branches:
       - main
-    # A documentation change does not go into any image, so it has no business
-    # rebuilding three services and asking someone to approve a production deploy.
-    # A push touching only these paths is skipped entirely; a push touching these
-    # AND any source file still runs, which is the behaviour we want.
+    # None of these go into any image, so they have no business rebuilding three
+    # services and asking someone to approve a production deploy. A push touching
+    # only these paths is skipped entirely; a push touching these AND any source
+    # file still runs, which is the behaviour we want.
+    #
+    # .github/** is here because a workflow change cannot reach production by
+    # definition, yet it was stopping this pipeline at the approval gate every
+    # time. Cost: an edit to this file is no longer exercised on its own merge.
+    # It is exercised on the next source merge instead, which is soon enough, and
+    # cheaper than a manual cancellation per workflow edit.
     paths-ignore:
       - "docs/**"
       - "**.md"
+      - ".github/**"
 
   workflow_dispatch:
 
