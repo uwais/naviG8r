@@ -9,38 +9,67 @@ Anything that works as designed and could merely be designed better lives in
 [`UX-REVIEW.md`](UX-REVIEW.md) and is not repeated here.
 
 **How to read the provenance column.** `ran` means I executed something and saw the result.
-`read` means I read it in the source at `9cc20cc`. `claimed` means it comes from a PR author or
-a doc and I have not independently confirmed it.
+`read` means I read it in the source. `claimed` means it comes from a PR author or a doc and I
+have not independently confirmed it.
+
+**Re-verified against `4461e67` on 2026-09-21**, after the RBAC restructure reached `main`. That
+push closed three of the items below without a PR. Rows it did not close are marked with what is
+still true. Per-PR evidence is in [`PR-TRIAGE.md`](PR-TRIAGE.md).
 
 ---
 
 ## Critical — live in production now
 
-These are stated at impact-and-module level on purpose. **This repository is public and none of
-these fixes has merged**, so the reproduction detail is held outside it — see the note at the end
-of this section.
+Stated at impact-and-module level on purpose: **this repository is public and these fixes have not
+merged.** Reproduction detail is held outside it — see the note at the end of this section.
 
-- [ ] **An invited fleet driver can redirect the carrier's entire weekly payout to their own bank
-  account.** Payout authorization in `apps/api` accepts a role it should not. Production settles
-  real money weekly through RazorpayX. **Fix already written in PR #82**, unreviewed since 8 Aug.
 - [ ] **A debug sign-in path is honoured in production, which is a complete authentication
-  bypass** — not a log leak, the login itself. Fix in PR #100, unreviewed since 31 Aug.
-- [ ] **Sensitive API routes are reachable without authentication.** Fix in PR #2, unreviewed
-  since **1 May — 142 days**.
+  bypass** — not a log leak, the login itself. Both the driver app and the ops portal auto-fill
+  whatever code the server hands back. `read`
+  **Fix in PR #100**, unreviewed since 31 Aug. It still merges, but **its tests do not run** — one
+  identifier needs updating for the new fixtures, and then the suite passes. `ran`
+  **Exposure is narrower than it looks and someone should confirm it:** `render.yaml` disables the
+  debug path in beta and production and enables it only in alpha `read`, but the live production
+  service predates the blueprint and is configured by hand. **Read the production environment in
+  the Render dashboard** — that decides whether this is defence-in-depth or an open door.
+- [ ] **An authorized payment is downgraded to failed by a later webhook for a different attempt
+  on the same order,** and the reference to the successful payment is overwritten with the failed
+  attempt's. A customer who fails once then succeeds can end up recorded as not having paid.
+  **Proven live on `4461e67`** with a test that fails before the fix and passes after. `ran`
+  **Fix in PR #13**, which merges clean and passes the full suite. Unreviewed since 12 May.
 - [ ] **Production persistence writes to a path that is discarded on every redeploy,** so each
-  deploy starts from an empty store. `render.yaml` is configured correctly; the live service
-  predates it and is set up by hand. Fix in PR #102, unreviewed since 3 Sep.
+  deploy starts from an empty store. `render.yaml` is correct; the live service predates it and is
+  set up by hand. Still the default on `main`. `read` Fix in PR #102, now conflicting.
 - [ ] **Nothing refuses to boot when the persistence path is wrong.** A missing `AUTH_SECRET`
-  exits 1; a data path pointing at disposable storage does not. This is what turns a config slip
-  into silent total data loss, and **PR #102 does not address it** — the guard is still unwritten.
-- [ ] **Stored XSS in the production ops portal shipment tables.** Fix in PR #87, unreviewed
-  since 13 Aug. `claimed`
-- [ ] **Carrier payout history leaks other carriers' settlements.** Fix in PR #98, unreviewed
-  since 20 Aug. `claimed`
-- [ ] **Concurrent RazorpayX payouts can double-pay.** Fix in PR #85, unreviewed since 11 Aug.
-  `claimed`
+  exits 1; a data path pointing at disposable storage does not. Still true on `main` — startup
+  checks only `AUTH_SECRET`. `read` This turns a config slip into silent total data loss, and
+  **PR #102 does not address it** — the guard is still unwritten.
+- [ ] **Sensitive API routes are reachable without authentication.** Fix in PR #2, unreviewed
+  since **1 May — 143 days**, and now 115 commits behind. `claimed`
+  **Re-check this one before acting.** The RBAC restructure moved authorization out of the route
+  layer and into the domain functions, so the specific routes #2 named may already be closed. I
+  did not verify #2's list. A skipped check is a failed check until someone names it.
+- [ ] **Concurrent RazorpayX payouts can double-pay.** Fix in PR #85, unreviewed since 11 Aug,
+  now conflicting. `claimed` — not independently confirmed.
 
-> **Where the detail lives.** File, line and mechanism for each of the above are in
+### Closed by the RBAC restructure, not by a PR
+
+Verified by reading both sides at `9cc20cc` and `4461e67`. Their PRs should be closed as superseded.
+
+- [x] **An invited fleet driver can redirect the carrier's entire weekly payout to their own bank
+  account.** Payout setup now requires a permission granted only to owner subroles, and a unit test
+  pins it. `read` PR #82's payout half is superseded; its other two fixes still need review.
+- [x] **Stored XSS in the production ops portal shipment tables.** The portal moved to its own
+  module and builds rows as DOM nodes with `textContent`. The old code concatenated the
+  customer-supplied organization name into `innerHTML`. `read` PR #87 superseded.
+- [x] **Carrier payout history leaks other carriers' settlements.** Batch listing now filters
+  transfers and ledger lines to the requesting carrier and recomputes the total from the filtered
+  set. `read` PR #98 superseded.
+
+That three security fixes arrived with no PR, no review and no release note is itself the finding.
+Nobody would have known they were fixed, and nobody would have known if they had been broken.
+
+> **Where the detail lives.** File, line and mechanism for the open rows are in
 > `SECURITY-DETAIL.md`, which is listed in `.git/info/exclude` and mirrored to the internal doc.
 > Move each row's detail back into this file once its fix is merged.
 >
