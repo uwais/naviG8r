@@ -13,6 +13,8 @@ import {
   registerSoloOwnerOperatorDriver,
   reportAnchorTripLocation,
   startAnchorTripAsPilot,
+  tripForPublicListing,
+  tripWithCarrierDisplay,
 } from "./services.ts";
 
 function acceptAndStartTrip(
@@ -24,6 +26,37 @@ function acceptAndStartTrip(
   acceptCarrierShipment(store, { shipmentId, userId: driverUserId });
   startAnchorTripAsPilot(store, { userId: driverUserId, tripId });
 }
+
+test("tripForPublicListing omits lastLiveLocation while full display keeps it", () => {
+  const store = createStore();
+  const driver = registerSoloOwnerOperatorDriver(store, {
+    fullName: "Ravi",
+    phone: "9100000009",
+    orgDisplayName: "Ravi Transport",
+    vehicleRegistrationNumber: "HR00",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 500,
+  });
+  const trip = publishAnchorTrip(store, {
+    carrierId: driver.org.id,
+    originCity: "Gurugram",
+    destCity: "Jaipur",
+    windowStart: "2026-04-24T00:00:00+05:30",
+    windowEnd: "2026-04-25T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+  });
+  store.anchorTrips.set(trip.id, {
+    ...trip,
+    lastLiveLocation: { lat: 28.5, lng: 77.1, recordedAtUtcMs: 1_700_000_000_000 },
+  });
+  const stored = store.anchorTrips.get(trip.id)!;
+  const full = tripWithCarrierDisplay(store, stored);
+  assert.equal(full.lastLiveLocation?.lat, 28.5);
+  const publicTrip = tripForPublicListing(store, stored);
+  assert.equal("lastLiveLocation" in publicTrip, false);
+  assert.equal(publicTrip.carrierDisplayName, driver.org.displayName);
+});
 
 test("reportAnchorTripLocation stores ping on anchor trip", () => {
   const store = createStore();

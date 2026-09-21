@@ -171,14 +171,18 @@ function recordIdempotency(store: Store, orgId: string, idempotencyKey: string, 
 function applyErpPreauthorizedPayment(store: Store, shipment: Shipment): void {
   const pay = store.payments.get(shipment.paymentId);
   if (!pay) return;
-  if (razorpayPaymentsEnabled()) {
-    pay.status = "AUTHORIZED";
-    pay.updatedAtUtcMs = nowUtcMs();
-  } else {
-    pay.status = "CAPTURED";
-    pay.updatedAtUtcMs = nowUtcMs();
-  }
-  store.payments.set(pay.id, pay);
+  // ERP settled funds outside NaviG8r. Never mark RAZORPAY AUTHORIZED without a
+  // razorpayPaymentId — that dead-ends ops release (payment_id_missing) after POD.
+  const now = nowUtcMs();
+  store.payments.set(pay.id, {
+    ...pay,
+    status: "CAPTURED",
+    provider: "MOCK",
+    providerRef: pay.providerRef || `erp_preauth_${shipment.id}`,
+    razorpayOrderId: undefined,
+    razorpayPaymentId: undefined,
+    updatedAtUtcMs: now,
+  });
 }
 
 export function integrationLoadResponse(store: Store, shipment: Shipment, connection: IntegrationConnection) {
