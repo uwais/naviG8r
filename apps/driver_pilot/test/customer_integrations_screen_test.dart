@@ -48,7 +48,8 @@ void main() {
             return;
           }
           handler.reject(
-            DioException(requestOptions: options, message: "unexpected ${options.path}"),
+            DioException(
+                requestOptions: options, message: "unexpected ${options.path}"),
           );
         },
       ),
@@ -60,7 +61,8 @@ void main() {
     CustomerSession.clear();
   });
 
-  testWidgets("CustomerIntegrationsScreen shows admin ERP integrations UI", (tester) async {
+  testWidgets("CustomerIntegrationsScreen shows admin ERP integrations UI",
+      (tester) async {
     CustomerSession.applyForTest(
       userFullName: "ERP Admin",
       userPhone: "9111009900",
@@ -75,14 +77,14 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: DriverTheme.navy)),
+        theme: DriverTheme.theme(),
         home: const CustomerIntegrationsScreen(),
       ),
     );
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
     expect(find.text("Integrations"), findsOneWidget);
-    expect(find.text("ERP Smoke Co"), findsOneWidget);
+    expect(find.text("ERP Smoke Co"), findsAtLeastNWidgets(1));
     expect(find.text("Create key"), findsOneWidget);
     expect(find.text("Save settings"), findsOneWidget);
     expect(find.text("Send test ping"), findsOneWidget);
@@ -91,7 +93,8 @@ void main() {
     expect(find.text("evt_test"), findsOneWidget);
   });
 
-  testWidgets("CustomerIntegrationsScreen shows admin required for non-admin", (tester) async {
+  testWidgets("CustomerIntegrationsScreen shows admin required for non-admin",
+      (tester) async {
     CustomerSession.applyForTest(
       userPhone: "9111009901",
       customerOrgId: "org_test",

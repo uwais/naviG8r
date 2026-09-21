@@ -1,3 +1,4 @@
+import { isActiveEntity } from "./softDelete.ts";
 import crypto from "node:crypto";
 import type { IntegrationApiKey, IntegrationApiScope } from "./types.ts";
 import type { Store } from "./store.ts";
@@ -68,10 +69,10 @@ export function resolveIntegrationAuth(
   if (!key) throw new Error("integration_unauthorized");
 
   const conn = store.integrationConnections.get(key.connectionId);
-  if (!conn || conn.status !== "ACTIVE") throw new Error("integration_connection_inactive");
+  if (!conn || !isActiveEntity(conn) || conn.orgId !== key.orgId || conn.status !== "ACTIVE") throw new Error("integration_connection_inactive");
 
   const org = store.organizations.get(key.orgId);
-  if (!org || org.kind !== "CUSTOMER") throw new Error("integration_org_invalid");
+  if (!org || !isActiveEntity(org) || org.kind !== "CUSTOMER") throw new Error("integration_org_invalid");
 
   key.lastUsedAtUtcMs = nowUtcMs();
   store.integrationApiKeys.set(key.id, key);

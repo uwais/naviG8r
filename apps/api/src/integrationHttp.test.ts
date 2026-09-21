@@ -110,6 +110,10 @@ async function seedCarrierTrip(baseUrl: string): Promise<{ tripId: string }> {
   assert.equal(reg.status, 201);
   const onboard = (await reg.json()) as { user: { id: string }; org: { id: string } };
 
+  const start = await postJson(baseUrl, "/v1/auth/otp/start", { phone: "9876548800" });
+  const challenge = await start.json();
+  const verification = await postJson(baseUrl, "/v1/auth/otp/verify", { phone: "9876548800", challengeId: challenge.challengeId, code: challenge.debugCode });
+  const signedIn = await verification.json();
   const tripRes = await postJson(baseUrl, "/v1/pilot/anchor-trips", {
     orgId: onboard.org.id,
     originCity: "Gurugram",
@@ -120,7 +124,7 @@ async function seedCarrierTrip(baseUrl: string): Promise<{ tripId: string }> {
     windowEnd: "2026-04-25T23:59:59+05:30",
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
-  }, { "x-user-id": onboard.user.id });
+  }, { authorization: `Bearer ${signedIn.accessToken}` });
   assert.equal(tripRes.status, 201);
   const tripBody = (await tripRes.json()) as { trip: { id: string } };
   return { tripId: tripBody.trip.id };

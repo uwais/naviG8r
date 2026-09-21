@@ -1,16 +1,17 @@
+import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TRIP_TRACKING_STALE_MS } from "./config.ts";
 import { createStore } from "./store.ts";
 import {
-  bookShipment,
+
   createCarrier,
   acceptCarrierShipment,
   getShipmentTripTracking,
   isTripLocationLive,
   publishAnchorTrip,
   registerCustomerOrgAdmin,
-  registerSoloOwnerOperatorDriver,
+
   reportAnchorTripLocation,
   startAnchorTripAsPilot,
 } from "./services.ts";
@@ -27,7 +28,7 @@ function acceptAndStartTrip(
 
 test("reportAnchorTripLocation stores ping on anchor trip", () => {
   const store = createStore();
-  const driver = registerSoloOwnerOperatorDriver(store, {
+  const driver = registerCompliantCarrier(store, {
     fullName: "Ravi",
     phone: "9100000010",
     orgDisplayName: "Ravi Transport",
@@ -46,7 +47,7 @@ test("reportAnchorTripLocation stores ping on anchor trip", () => {
     origin: { lat: 28.46, lng: 77.03 },
     destination: { lat: 26.91, lng: 75.79 },
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "Test Co",
     weightKg: 50,
@@ -69,7 +70,7 @@ test("reportAnchorTripLocation stores ping on anchor trip", () => {
 
 test("getShipmentTripTracking: customer sees live driver when BOOKED and ping is fresh", () => {
   const store = createStore();
-  const driver = registerSoloOwnerOperatorDriver(store, {
+  const driver = registerCompliantCarrier(store, {
     fullName: "Ravi",
     phone: "9100000011",
     orgDisplayName: "Ravi Transport",
@@ -91,7 +92,7 @@ test("getShipmentTripTracking: customer sees live driver when BOOKED and ping is
     phone: "9100000012",
     orgDisplayName: "ACME Buyer",
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: cust.org.displayName,
     weightKg: 50,
@@ -115,7 +116,7 @@ test("getShipmentTripTracking: customer sees live driver when BOOKED and ping is
 
 test("getShipmentTripTracking: stale ping is not live", () => {
   const store = createStore();
-  const driver = registerSoloOwnerOperatorDriver(store, {
+  const driver = registerCompliantCarrier(store, {
     fullName: "Ravi",
     phone: "9100000013",
     orgDisplayName: "Ravi Transport",
@@ -137,7 +138,7 @@ test("getShipmentTripTracking: stale ping is not live", () => {
     phone: "9100000014",
     orgDisplayName: "ACME Buyer",
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: cust.org.displayName,
     weightKg: 50,
@@ -172,7 +173,7 @@ test("getShipmentTripTracking: other customer cannot see shipment", () => {
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "ACME",
     weightKg: 50,

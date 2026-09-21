@@ -1,14 +1,15 @@
+import { registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import {
-  registerSoloOwnerOperatorDriver,
+
   updatePilotDriverVehicle,
 } from "./services.ts";
 
 test("updatePilotDriverVehicle updates primary vehicle fields", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Aazad Khan",
     phone: "9896966907",
     orgDisplayName: "MKM Cargo",
@@ -32,7 +33,7 @@ test("updatePilotDriverVehicle updates primary vehicle fields", () => {
 
 test("updatePilotDriverVehicle allows partial updates", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Aazad Khan",
     phone: "9896966908",
     orgDisplayName: "MKM Cargo 2",
@@ -52,7 +53,7 @@ test("updatePilotDriverVehicle allows partial updates", () => {
 
 test("updatePilotDriverVehicle rejects empty registration", () => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Aazad Khan",
     phone: "9896966909",
     orgDisplayName: "MKM Cargo 3",

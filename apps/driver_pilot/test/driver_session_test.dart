@@ -25,27 +25,52 @@ void main() {
         onRequest: (options, handler) async {
           // Hold the response open so the test can sign out mid-flight.
           await release.future;
-          handler.resolve(
-            Response<Map<String, dynamic>>(
+          final auth = options.path.endsWith('/v1/auth/me');
+          handler.resolve(Response<Map<String, dynamic>>(
               requestOptions: options,
               statusCode: 200,
-              data: const {
-                "user": {"fullName": "Ravi Kumar", "phone": "9876543210"},
-                "organizations": [
-                  {"id": "org_1", "kind": "CARRIER_SOLO", "displayName": "Ravi Transport", "kycStatus": "APPROVED"},
-                ],
-                "memberships": [
-                  {"orgId": "org_1", "role": "OWNER_DRIVER"},
-                ],
-              },
-            ),
-          );
+              data: auth
+                  ? const {
+                      'user': {
+                        'id': 'driver-1',
+                        'fullName': 'Ravi Kumar',
+                        'phone': '9876543210'
+                      },
+                      'organizations': [
+                        {
+                          'id': 'org_1',
+                          'kind': 'CARRIER_FLEET',
+                          'displayName': 'Ravi Transport',
+                          'kycStatus': 'APPROVED'
+                        },
+                      ],
+                      'principal': {
+                        'organizationId': 'org_1',
+                        'roles': ['CARRIER'],
+                        'permissions': ['organization.profile.read'],
+                      },
+                    }
+                  : const {
+                      "user": {"fullName": "Ravi Kumar", "phone": "9876543210"},
+                      "organizations": [
+                        {
+                          "id": "org_1",
+                          "kind": "CARRIER_SOLO",
+                          "displayName": "Ravi Transport",
+                          "kycStatus": "APPROVED"
+                        },
+                      ],
+                      "memberships": [
+                        {"orgId": "org_1", "role": "OWNER_DRIVER"},
+                      ],
+                    }));
         },
       ),
     );
   });
 
-  test("a refresh that lands after clear() does not repopulate the session", () async {
+  test("a refresh that lands after clear() does not repopulate the session",
+      () async {
     final pending = DriverSession.refresh();
 
     // The driver signs out while the request is still open.
@@ -62,10 +87,12 @@ void main() {
     expect(DriverSession.carrierRole, isNull);
     expect(DriverSession.kycStatus, isNull);
     expect(DriverSession.hasCarrierOrg, isFalse);
-    expect(lastRegisteredOrgId, isNull, reason: "the org-id fallback three money screens read");
+    expect(lastRegisteredOrgId, isNull,
+        reason: "the org-id fallback three money screens read");
   });
 
-  test("a refresh that lands with no sign-out still populates the session", () async {
+  test("a refresh that lands with no sign-out still populates the session",
+      () async {
     final pending = DriverSession.refresh();
     release.complete();
     final ok = await pending;
@@ -76,7 +103,9 @@ void main() {
     expect(DriverSession.hasCarrierOrg, isTrue);
   });
 
-  test("a successful refresh with no carrier clears a leftover lastRegisteredOrgId", () async {
+  test(
+      "a successful refresh with no carrier clears a leftover lastRegisteredOrgId",
+      () async {
     lastRegisteredOrgId = "org_stale";
     api.dio.interceptors.clear();
     api.dio.interceptors.add(
@@ -99,7 +128,7 @@ void main() {
 
     final ok = await DriverSession.refresh();
 
-    expect(ok, isTrue);
+    expect(ok, isFalse);
     expect(DriverSession.hasCarrierOrg, isFalse);
     expect(lastRegisteredOrgId, isNull);
   });

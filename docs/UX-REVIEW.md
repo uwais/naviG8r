@@ -218,8 +218,8 @@ ordered high severity first.
 12 findings, 6 high.
 
 
-**HIGH — No session restore: the returning driver, the most frequent actor, must tap a third-ranked button on every launch**  
-`apps/driver_pilot/lib/main.dart:77` · navigation  
+**HIGH — No session restore: the returning driver, the most frequent actor, must tap a third-ranked button on every launch**
+`apps/driver_pilot/lib/main.dart:77` · navigation
 
 *What goes wrong:* An owner-driver who signed in last week and has a valid stored token relaunches the app at a loading dock and is shown a sign-in screen. The button that actually works for him, "Continue as signed-in driver", is the third of five, styled as a secondary outline, and worded like an edge case. He is the app's highest-frequency user and gets the app's third-ranked affordance, every single time, one-handed, in sunlight.
 
@@ -241,8 +241,8 @@ CORRECTED FIX — make the landing screen session-aware instead of adding a rout
 UNVERIFIABLE FROM SOURCE: the finding's scenario says the driver "signed in last week and has a valid stored token". Token lifetime is set server-side and is not visible in this Dart source, so whether a week-old token still authenticates cannot be confirmed here. The fix above degrades correctly either way — an expired token makes `refresh()` return false and the signed-out stack renders.
 
 
-**HIGH — The Home tab and every back gesture land a signed-in driver on the sign-in screen**  
-`apps/driver_pilot/lib/driver_flow.dart:2271` · navigation  
+**HIGH — The Home tab and every back gesture land a signed-in driver on the sign-in screen**
+`apps/driver_pilot/lib/driver_flow.dart:2271` · navigation
 
 *What goes wrong:* A driver mid-shift on the Loads tab presses the Android back button and is shown "Sign in with phone" and "Register as new carrier". Nothing tells him he is still signed in. The reasonable reading is that the app logged him out, so he signs in again and burns an OTP; the less reasonable one is that he taps "Register as new carrier" and tries to create a second carrier org. The app has five bottom-nav destinations and not one of them is a home screen for a signed-in carrier.
 
@@ -257,8 +257,8 @@ Corrected fix, same shape plus a bootstrap:
 4. On the interim four-tab variant: pointing index 0 and the PopScope fallback at "/driver/loads" is fine, but note that main.dart:77 `initialLocation: kIsWeb ? "/customer" : "/driver"` and the sign-out at driver_flow.dart:1411 both still target "/driver", so the welcome screen must remain reachable at that path — do not repurpose "/driver" to Loads outright, or a signed-out driver lands on a Loads screen that will 401.
 
 
-**HIGH — "Join a carrier fleet" registers the driver on the customer endpoint and loops him back to a message telling him to register as a carrier**  
-`apps/driver_pilot/lib/driver_flow.dart:501` · navigation  
+**HIGH — "Join a carrier fleet" registers the driver on the customer endpoint and loops him back to a message telling him to register as a carrier**
+`apps/driver_pilot/lib/driver_flow.dart:501` · navigation
 
 *What goes wrong:* A hired driver taps the one button on the landing screen that describes his situation, fills in his name and phone, is sent straight to sign-in, requests an OTP, verifies it, and is bounced back to the landing screen with a message telling him to register as a new carrier — which would create a fake one-truck org under his own name and detach him from his employer's fleet. He has no way to tell that he did the right thing and simply has to wait. Nothing in the app shows a pending state, and the route he is pushed toward is actively wrong for him.
 
@@ -288,8 +288,8 @@ One addition outside the original three: the same misdirection sits at driver_fl
 Finally, retitle the finding. "registers the driver on the customer endpoint" is not the defect. Use: "Join a carrier fleet dead-ends the driver at sign-in, and the rejection tells him to register as a new carrier, which always fails."
 
 
-**HIGH — The OTP screen has no back affordance, so a mistyped phone number is a dead end**  
-`apps/driver_pilot/lib/driver_flow.dart:353` · navigation  
+**HIGH — The OTP screen has no back affordance, so a mistyped phone number is a dead end**
+`apps/driver_pilot/lib/driver_flow.dart:353` · navigation
 
 *What goes wrong:* A driver typos one digit, the code goes to a stranger's phone, and the screen offers him only "Verify" (which will fail) and "Resend code" (which resends to the same wrong number). The Android system back button has nothing to pop, so it drops him out of the app; he has to relaunch and start over. This is the narrowest point in the whole sign-in path and it is the one screen with no exit.
 
@@ -298,8 +298,8 @@ Finally, retitle the finding. "registers the driver on the customer endpoint" is
 *Needs a device to confirm.*
 
 
-**HIGH — Sign-in sends two OTP messages per attempt and discards the first challenge**  
-`apps/driver_pilot/lib/driver_flow.dart:293` · error-state  
+**HIGH — Sign-in sends two OTP messages per attempt and discards the first challenge**
+`apps/driver_pilot/lib/driver_flow.dart:293` · error-state
 
 *What goes wrong:* Every driver sign-in costs two SMS instead of one, and the driver receives two different codes seconds apart on a screen that says "Code sent to …" once. If he reads the first message he types a code belonging to a discarded challenge and verification fails with no explanation. On a rate-limited OTP endpoint the doubled traffic is also the fastest route to locking a legitimate driver out of his own app.
 
@@ -319,8 +319,8 @@ Corrected fix — make the OTP screen start a challenge only when it was not han
 Unchecked: none of this was run. Flutter is not installed, so the claim that the register path currently breaks under the proposed fix is read from the source and the backend handler, not observed.
 
 
-**HIGH — A signed-out user sees all five authenticated tabs, and tapping one shows a raw HTTP error instead of a sign-in prompt**  
-`apps/driver_pilot/lib/driver_flow.dart:2262` · empty-state  
+**HIGH — A signed-out user sees all five authenticated tabs, and tapping one shows a raw HTTP error instead of a sign-in prompt**
+`apps/driver_pilot/lib/driver_flow.dart:2262` · empty-state
 
 *What goes wrong:* A first-time user opens the app and the bottom bar invites him into four sections he cannot use. Tapping Loads shows red text reading roughly "HTTP 401: {error: unauthorized}" — which tells a truck driver that the app is broken, not that he needs to sign in. Tapping Profile shows a card reading "Carrier" and "— · —", which reads like a bug or like lost data. The sign-in screen he needed is one tab away and he has no reason to believe that.
 
@@ -341,8 +341,8 @@ c) Gating the nav itself is a separate, larger change and per the house rule on 
 *Needs a device to confirm.*
 
 
-**MEDIUM — The developer lab is a peer action on the driver landing screen**  
-`apps/driver_pilot/lib/driver_flow.dart:199` · navigation  
+**MEDIUM — The developer lab is a peer action on the driver landing screen**
+`apps/driver_pilot/lib/driver_flow.dart:199` · navigation
 
 *What goes wrong:* A pilot driver exploring a new app taps the last item on the list and lands in a tool built for engineers: raw JSON output, buttons labelled with HTTP verbs, someone else's phone number pre-filled in a registration form, and a logout icon in the app bar that silently clears his session. He can get back (main.dart:255-257 offers "Back to driver app (welcome)"), but he may well have registered a junk org or signed himself out first.
 
@@ -357,8 +357,8 @@ c) Gating the nav itself is a separate, larger change and per the house rule on 
 Also fix the copy in the finding's own rationale rather than the code: the lab logout is not silent, it shows `SnackBar(content: Text("Logged out (token cleared)."))` at main.dart:212-213. The sharper problem is that main.dart:211 clears the shared token without calling `DriverSession.clear()` (compare driver_flow.dart:1409-1411, which clears both), leaving the driver app holding session state for a token that no longer exists. If the lab stays, add `DriverSession.clear();` after main.dart:211 so the two sign-out paths leave the same state.
 
 
-**MEDIUM — Outlined and text buttons on the landing are visually indistinguishable: the border token is 1.15:1 against the background**  
-`apps/driver_pilot/lib/driver_theme.dart:31` · contrast  
+**MEDIUM — Outlined and text buttons on the landing are visually indistinguishable: the border token is 1.15:1 against the background**
+`apps/driver_pilot/lib/driver_theme.dart:31` · contrast
 
 *What goes wrong:* Items two through five all render as navy text on the same pale ground, with the outline that is supposed to distinguish two of them sitting a hair above invisible. On a mid-range screen at full daylight brightness, the landing reads as one dark button followed by four lines of blue text, so a first-time carrier owner cannot see that "Register as new carrier" is a stronger, more considered action than "Developer lab". The one tier the eye does catch, the filled button, is the wrong one for both new actors.
 
@@ -373,8 +373,8 @@ The restructure half of the fix needs correcting, because it silently drops two 
 3. The supporting-line suggestion is good but should be implemented as a `Column` inside the button child with `crossAxisAlignment: CrossAxisAlignment.start`, not as free text under the button, otherwise the second line is outside the tap target — which matters for the one-handed-in-a-cab context. It also forces a taller button; give both a `minimumSize: const Size.fromHeight(64)` rather than relying on intrinsic height.
 
 
-**MEDIUM — DriverTrackScreen is a dead route: nothing in the app navigates to it, and its tab index belongs to Publish**  
-`apps/driver_pilot/lib/driver_flow.dart:60` · navigation  
+**MEDIUM — DriverTrackScreen is a dead route: nothing in the app navigates to it, and its tab index belongs to Publish**
+`apps/driver_pilot/lib/driver_flow.dart:60` · navigation
 
 *What goes wrong:* No direct user harm today, because no user can reach the screen. The cost is to the next person changing navigation: the tab table claims five destinations map to four paths, one screen's worth of code is maintained and never rendered, and anyone who restores a Track entry point will find the Publish tab highlights instead.
 
@@ -391,16 +391,16 @@ Corrected fix, same four deletions plus one addition:
 3. If the product instead wants Track restored as a destination, it needs its own index and its own `_pathForIndex` case, not a shared one — as the finding says. That means a sixth NavigationDestination, which is one past the five now in the bar (125-143) and past Material's comfortable limit, so the likelier answer is the filter chip above.
 
 
-**MEDIUM — The Fleet screen highlights the Home tab while its app bar says "Fleet"**  
-`apps/driver_pilot/lib/driver_flow.dart:61` · consistency  
+**MEDIUM — The Fleet screen highlights the Home tab while its app bar says "Fleet"**
+`apps/driver_pilot/lib/driver_flow.dart:61` · consistency
 
 *What goes wrong:* A carrier owner taps Profile, then "Fleet — invite drivers", and the bottom bar jumps back to Home while the app bar reads "Fleet". The nav is telling him he is somewhere he is not, and the tab that would take him back to where he came from looks unselected. On a screen where he is about to type a driver's phone number and grant them access to his org, a lost sense of place is the wrong thing to introduce.
 
 *Fix:* Add `|| path.startsWith("/driver/fleet")` to the condition at driver_flow.dart:61-63, so it reads `if (path.startsWith("/driver/profile") || path.startsWith("/driver/earnings") || path.startsWith("/driver/payout") || path.startsWith("/driver/fleet")) return 4;`. Everything reachable from Profile should highlight Profile.
 
 
-**MEDIUM — The Join screen's "Back" button destroys the navigation stack when the screen was pushed from Fleet**  
-`apps/driver_pilot/lib/driver_flow.dart:537` · navigation  
+**MEDIUM — The Join screen's "Back" button destroys the navigation stack when the screen was pushed from Fleet**
+`apps/driver_pilot/lib/driver_flow.dart:537` · navigation
 
 *What goes wrong:* A carrier owner inviting a new driver taps "New driver? Register account first", fills the form, and is dropped either on the landing screen (via Back) or on a sign-in screen (via submit) — both of which throw away the invite he was halfway through, and one of which looks like he has been signed out of his own org. He then has to go Home, Profile, Fleet and re-enter everything.
 
@@ -433,8 +433,8 @@ Corrected version.
 4. Worth adding to the finding rather than the fix: driver_flow.dart:519 is `appBar: AppBar(title: const Text("Join a fleet")),` with no `leading` override, so when the screen is pushed from Fleet the AppBar already renders a back arrow that pops correctly. The screen therefore ships two back affordances with different destinations. Once fix 1 lands they agree, and the bottom "Back" TextButton becomes redundant on the pushed path — acceptable, since it is the only back affordance on the `go` path where the arrow is absent.
 
 
-**MEDIUM — The OTP screen puts a raw "Challenge id" field in front of the driver, and it is the field that silently blocks him**  
-`apps/driver_pilot/lib/driver_flow.dart:363` · form-ux  
+**MEDIUM — The OTP screen puts a raw "Challenge id" field in front of the driver, and it is the field that silently blocks him**
+`apps/driver_pilot/lib/driver_flow.dart:363` · form-ux
 
 *What goes wrong:* A driver, possibly reading English as a second language, is shown two fields where he expected one, the first labelled with an internal term and filled with an opaque identifier he must not touch. If his connection dropped during the start call the field is empty, the snackbar explaining that has already vanished, and pressing Verify fails with another transient message — he has no way to work out that the blocker is a field he was never meant to see.
 
@@ -456,16 +456,16 @@ The persistent-inline-error half of the fix is sound as written: replace the :30
 12 findings, 8 high.
 
 
-**HIGH — Earnings screen renders zero rupees when the earnings fetch fails**  
-`apps/driver_pilot/lib/driver_flow.dart:1888` · error-state  
+**HIGH — Earnings screen renders zero rupees when the earnings fetch fails**
+`apps/driver_pilot/lib/driver_flow.dart:1888` · error-state
 
 *What goes wrong:* There is no catch clause. When the request fails — 45-second timeout in a dead zone, 500, expired token — the finally still sets _loading = false, so the spinner clears and _summary stays null. build() then coalesces both figures to 0 and _StatTile renders "Pending (accrued) ₹0" and "Paid out ₹0". An owner-operator who opens Earnings on a patchy connection is told, in the app's most confident typography (22px bold navy, driver_flow.dart:1954), that he has earned nothing. There is no error text, no retry, and no RefreshIndicator on this screen, so his only recourse is to back out and re-enter. This is the screen he checks to decide whether he has been paid.
 
 *Fix:* The fix is sound in shape but names a function that does not exist. `friendlyApiError` appears nowhere in the codebase — grep returns zero hits. The only error formatter is `formatApiError` at pilot_api.dart:57, and its output is developer-facing: it returns strings such as "Cannot reach API at ... This is usually CORS — redeploy the API with CORS enabled, or run a local API with --dart-define=API_BASE_URL=http://localhost:3000" (lines 64-68) and "run with --dart-define=API_BASE_URL=http://10.0.2.2:3000 for a local API on the emulator" (lines 69-72), plus raw "HTTP 500: {body}" (line 74). Showing that to an owner-operator is worse than showing ₹0. Corrected fix: add `String? _error;` to _DriverEarningsScreenState and a `catch (e) { setState(() => _error = "Could not load your earnings. Your balance has not changed."); debugPrint(formatApiError(e)); }` between the try and the finally at driver_flow.dart:1895 — a fixed driver-facing string, with formatApiError kept for logs only. Also clear `_error = null` at the top of _load alongside `_loading = true`, or a retry that succeeds will still render the error. In build(), when `_error != null || _summary == null`, render the error Card plus a FilledButton labelled "Try again" calling _load() INSTEAD of the two _StatTile widgets — keep that Card as a child of the same ListView, not in place of it, so the RefreshIndicator still has a scrollable to attach to; with `physics: const AlwaysScrollableScrollPhysics()` pull-to-refresh then works on the error state too. One case the original fix misses: driver_flow.dart:1905 falls back to `DriverSession.kycStatus ?? "NOT_STARTED"`, so on a failed load the KYC Card and the "Set up payouts" FilledButton still render confident NOT_STARTED copy ("Customer payments sit on the platform ledger until you add a verified payout method"). Suppress that Card and both buttons in the error branch as well, so no part of the screen makes a claim about money state that was never fetched.
 
 
-**HIGH — Payout history shows the "no payouts yet" empty state when the fetch fails**  
-`apps/driver_pilot/lib/driver_flow.dart:2062` · empty-state  
+**HIGH — Payout history shows the "no payouts yet" empty state when the fetch fails**
+`apps/driver_pilot/lib/driver_flow.dart:2062` · empty-state
 
 *What goes wrong:* Same missing catch as the Earnings screen. On any failure _batches stays empty and the screen renders a confident, specific empty state that tells the carrier his payouts have not been settled yet and implies he needs to go do more PODs. A network failure is presented as a factual statement about his money. There is no error text and no retry affordance on this screen either.
 
@@ -501,8 +501,8 @@ Everything else stands: gate the existing copy as `if (_error == null && _batche
 Worth flagging to the owner as a follow-up rather than folding in here: _DriverEarningsScreenState._load at driver_flow.dart:1888-1898 has the identical defect and should be fixed in the same commit, since the two screens link to each other (the "Payout history" OutlinedButton at driver_flow.dart:1935) and fixing only one leaves the pair inconsistent.
 
 
-**HIGH — A signed-in driver who is offline is told to sign in**  
-`apps/driver_pilot/lib/driver_flow.dart:183` · offline-state  
+**HIGH — A signed-in driver who is offline is told to sign in**
+`apps/driver_pilot/lib/driver_flow.dart:183` · offline-state
 
 *What goes wrong:* DriverSession.refresh() returns false for every failure mode — no network, timeout, 500, 401 — with no way for the caller to tell them apart. So a driver with a perfectly valid stored token who taps "Continue as signed-in driver" in a tunnel or a low-signal stretch gets "Sign in first, or complete carrier registration." The app has told him his account is the problem. The recovery path he will then take, Sign in with phone, needs the same network he does not have, so he lands in a loop where OTP start also fails. This is the first screen on Android, so it is the most likely place a driver gets stuck with no explanation.
 
@@ -519,8 +519,8 @@ ONE SIMPLIFICATION worth considering over a new enum. The codebase already has `
 Finally, note that `DioExceptionType.unknown` should NOT map to `unreachable` unconditionally as the fix proposes. On dio 5.x, `unknown` is the catch-all wrapper for any non-Dio error thrown inside the request, including a JSON parse failure — mapping all of it to "check your mobile data" would tell a driver his network is broken when the server returned malformed JSON. Map connectionError, connectionTimeout, receiveTimeout and sendTimeout to `unreachable`; treat `unknown` as unreachable only when `e.error is SocketException`, and otherwise fall through to a generic "Something went wrong. Try again." so a 500 or a parse failure is not disguised as an offline state.
 
 
-**HIGH — Failed proof-of-delivery gives a four-second raw error and no retry, on the screen that releases payment**  
-`apps/driver_pilot/lib/driver_flow.dart:1838` · error-state  
+**HIGH — Failed proof-of-delivery gives a four-second raw error and no retry, on the screen that releases payment**
+`apps/driver_pilot/lib/driver_flow.dart:1838` · error-state
 
 *What goes wrong:* POD is submitted at the delivery point — a warehouse dock or yard, where signal is at its worst. If the POST to /shipments/{id}/driver-pod fails, the only feedback is a SnackBar carrying the raw output of formatApiError (pilot_api.dart:74 returns "HTTP 500: {...}" or a Dio timeout sentence). No `duration:` is passed anywhere in this codebase, so it uses the framework default, and no SnackBarAction exists anywhere in the app, so there is no Retry button on it. A driver glancing up from traffic or a loading bay reads nothing, the transient message disappears, the screen looks unchanged with the Confirm POD button re-enabled, and he has no way to know whether the delivery was recorded. POD is what releases his payment.
 
@@ -538,8 +538,8 @@ DO NOT SHIP AS PROPOSED (the write queue):
 Interim copy that is true without the queue, for the connection-error branch specifically: "Not submitted. No connection to the server. Stay on this screen and press Try again when you have signal."
 
 
-**HIGH — Driver GPS pings fail silently while the screen states that live GPS is being shared**  
-`apps/driver_pilot/lib/driver_flow.dart:1550` · offline-state  
+**HIGH — Driver GPS pings fail silently while the screen states that live GPS is being shared**
+`apps/driver_pilot/lib/driver_flow.dart:1550` · offline-state
 
 *What goes wrong:* _maybePostLocation swallows every failure, and the map keeps moving because _driverPos is updated from the local Geolocator stream at driver_flow.dart:1467 regardless of whether the POST landed. So the driver sees his own pin advancing and an unconditional sentence saying customers can see him, while every ping has in fact been dropped for the last hour of highway with no coverage. The customer side meanwhile shows "Load started — waiting for driver GPS" (pilot_api.dart:347). The driver is being told the opposite of what the customer is being told, and is given no reason to act.
 
@@ -558,8 +558,8 @@ Interim copy that is true without the queue, for the connection-error branch spe
 (f) Separately gate the false-reassurance pair on load failure. `_shipments = []` at driver_flow.dart:1585 makes both line 1703 ("All bookings have proof of delivery") and line 1776 render on a network error. Add a `bool _shipmentsLoaded` set only in the success path and require it in the 1702 and 1773 conditions, otherwise the new sync line ships next to a sentence telling an offline driver his deliveries are confirmed.
 
 
-**HIGH — Raw HTTP status and response body are shown to drivers as the error message**  
-`apps/driver_pilot/lib/pilot_api.dart:74` · error-state  
+**HIGH — Raw HTTP status and response body are shown to drivers as the error message**
+`apps/driver_pilot/lib/pilot_api.dart:74` · error-state
 
 *What goes wrong:* formatApiError is the error string for every screen in both flows. Its fallback interpolates the raw Dio response body, so a driver sees "HTTP 400: {message: capacityKg must be positive, code: VALIDATION_FAILED}". Worse, the branch that fires exactly in the target scenario — an Indian highway with no data — hands a truck driver a Flutter CLI flag, an emulator loopback address, and the raw exception text in parentheses. It also leaks the API hostname. Requests that time out (connectTimeout and receiveTimeout are both 45s, pilot_api.dart:32-33) match neither string branch and fall through to line 74 as "HTTP ?: The request connection took longer than 0:00:45.000000 and it was aborted."
 
@@ -573,16 +573,16 @@ Interim copy that is true without the queue, for the connection-error branch spe
 Everything else in the proposed fix holds: keep formatApiError for main.dart's pilot-lab surfaces (10 call sites), add friendlyApiError with the DioExceptionType mapping, drop both dart-define branches and the api.baseUrl interpolation from user-facing text, and repoint all 42 driver_flow.dart and customer_flow.dart call sites.
 
 
-**HIGH — Shipment detail spins forever with no message and no exit when the load fails**  
-`apps/driver_pilot/lib/driver_flow.dart:829` · error-state  
+**HIGH — Shipment detail spins forever with no message and no exit when the load fails**
+`apps/driver_pilot/lib/driver_flow.dart:829` · error-state
 
 *What goes wrong:* _load swallows the exception completely and never sets any error field — the class has no _error at all. It also only sets _shipment when it finds a matching id inside the /v1/pilot/carrier/shipments list, so a shipment the list no longer returns (status changed, filtered server-side) leaves _shipment null on a fully successful request. Either way the driver gets a bare, unlabelled, indefinite spinner. Nothing ever times it out, nothing explains it, there is no retry, and the screen offers no way forward — only the app bar back arrow, which is not obviously the answer to a spinner that looks like it is still working. The driver reached this screen to accept a booking or start a POD.
 
 *Fix:* The fix is sound in shape but names a helper that does not exist: `grep -n "friendlyApiError" lib/*.dart` returns zero hits. The codebase helper is `formatApiError`, used at 21 sites including line 811 inside this same class. Corrected fix: add `bool _loading = true; String? _error; bool _notFound = false;` to _DriverShipmentDetailScreenState (currently 793-794). In _load, set `_loading = true; _error = null; _notFound = false;` before the request, replace `catch (_) {}` at 829 with `catch (e) { if (mounted) setState(() => _error = formatApiError(e)); }` (NOT friendlyApiError), set `_notFound = true` when the loop completes with no match, and clear _loading in a `finally { if (mounted) setState(() => _loading = false); }`. In build (833-837), replace the bare spinner with three states: loading — spinner plus the label "Loading shipment"; error — a Card reading "Could not load this shipment." with a "Try again" FilledButton calling _load and a "Back to shipments" TextButton doing `context.go("/driver/shipments")`; not-found — "This shipment is no longer in your list." with the same Back button. Drop the ellipsis from the loading label per house no-decoration style, and keep the error text on DriverTheme tokens rather than raw Colors.red if the sibling screens are being brought onto tokens in the same pass (they currently use `TextStyle(color: Colors.red)` at 642, 679, 755, 1071, 1257, 1681, 2232 — matching that existing style is acceptable here, do not unilaterally diverge). Also correct the finding's write-up before it reaches the owner: strike "no way forward — only the app bar back arrow" (DriverShell supplies a persistent five-destination NavigationBar) and re-scope the "accept a booking" motivation to the POD back-navigation and deep-link paths, since line 772 blocks list-to-detail navigation for PENDING_CARRIER_ACCEPT.
 
 
-**HIGH — A failed payment confirmation is swallowed and the customer is routed to the shipment as if it succeeded**  
-`apps/driver_pilot/lib/customer_flow.dart:1531` · error-state  
+**HIGH — A failed payment confirmation is swallowed and the customer is routed to the shipment as if it succeeded**
+`apps/driver_pilot/lib/customer_flow.dart:1531` · error-state
 
 *What goes wrong:* _onCheckoutSuccess runs after Razorpay has reported a successful payment. If the confirm POST to our own backend then fails, the catch discards it and the navigation to the shipment page happens anyway. The customer has been charged, but our backend was never told, so the shipment detail screen they land on will render whatever stale payment state we hold — paymentStatusLabel("CREATED") is "Awaiting checkout" (pilot_api.dart:222). The customer sees money gone and a screen saying checkout has not happened, with nothing telling them a sync failed or what to do. Money screens are the one place a swallowed exception is never acceptable.
 
@@ -599,8 +599,8 @@ Concretely: in _onCheckoutSuccess, replace `catch (_) {}` with a handler that re
 Copy note: "contact support with this reference" should name the actual channel or be dropped; an instruction the user cannot act on is its own problem.
 
 
-**MEDIUM — An internal engineering note is rendered in the driver's active-trip error area**  
-`apps/driver_pilot/lib/driver_flow.dart:1586` · copy  
+**MEDIUM — An internal engineering note is rendered in the driver's active-trip error area**
+`apps/driver_pilot/lib/driver_flow.dart:1586` · copy
 
 *What goes wrong:* When the shipment sub-fetch on the active trip screen fails, the driver sees the raw formatApiError string followed by an instruction to merge a pull request, in red, on the screen he uses to run a live load. It is meaningless to him, it reads as though the app is broken, and it exposes internal branch names. It also fires for any failure of that endpoint, not just the missing-deploy case it was written for.
 
@@ -615,8 +615,8 @@ Copy note: "contact support with this reference" should name the actual channel 
 The em dash in the current string is also worth removing along with the parenthetical; no other user-facing copy in this file uses one.
 
 
-**MEDIUM — Pull-to-refresh is the only retry on two driver lists and does not fire when they are empty or errored**  
-`apps/driver_pilot/lib/driver_flow.dart:746` · error-state  
+**MEDIUM — Pull-to-refresh is the only retry on two driver lists and does not fire when they are empty or errored**
+`apps/driver_pilot/lib/driver_flow.dart:746` · error-state
 
 *What goes wrong:* Shipments (driver_flow.dart:746) and Track (driver_flow.dart:1248) wrap a ListView in a RefreshIndicator but omit AlwaysScrollableScrollPhysics, which Loads sets. When those lists are empty or errored the content is shorter than the viewport, so the ListView is not scrollable and cannot overscroll. Pull-to-refresh is also the only retry on both screens — there is no Retry button anywhere in either. The result is that the recovery gesture is unavailable in precisely the failure state it exists for: a driver who loses signal, sees an error and pulls down gets nothing, and concludes the app is frozen.
 
@@ -642,8 +642,8 @@ Same shape at 1255-1258 for Track. A TextButton is the right weight here: it is 
 *Needs a device to confirm.*
 
 
-**MEDIUM — The Shipments list shows an error and the "nothing here" empty state at the same time**  
-`apps/driver_pilot/lib/driver_flow.dart:776` · empty-state  
+**MEDIUM — The Shipments list shows an error and the "nothing here" empty state at the same time**
+`apps/driver_pilot/lib/driver_flow.dart:776` · empty-state
 
 *What goes wrong:* The empty-state condition is not gated on _error, so a failed fetch renders both a red raw-HTTP line and, below it, the sentence "No shipments to deliver." The driver gets two contradictory answers on one screen: something broke, and also you have no work. The second is the one he is likely to act on, and it is wrong — he may have a booking waiting to be accepted.
 
@@ -691,8 +691,8 @@ Headline is "No active bookings." rather than "No bookings right now." because t
 Scope of the change: one file, driver_flow.dart, lines 745, 753-756 and 776-777. It touches no other screen, adds no colour token beyond DriverTheme.muted, and leaves the customer flow untouched.
 
 
-**MEDIUM — The Loads summary pill states the carrier has no lanes when the fetch failed**  
-`apps/driver_pilot/lib/driver_flow.dart:986` · empty-state  
+**MEDIUM — The Loads summary pill states the carrier has no lanes when the fetch failed**
+`apps/driver_pilot/lib/driver_flow.dart:986` · empty-state
 
 *What goes wrong:* _trips is left empty by a failed _load (driver_flow.dart:904-905 only sets _error), so the summary pill at the top of the Loads tab asserts "No anchor trips · tap Publish to add a lane" whenever the request fails. A carrier with ten published lanes who opens the tab on a weak connection is told he has none and instructed to create one — which risks a duplicate lane. The red error text sits below it, but the pill is the confident, styled element at the top of the screen and reads as the app's summary of his business. There is also no empty state in the list body at all when _trips is empty: the guard at driver_flow.dart:1074 is `if (!_loading && _trips.isNotEmpty && _filtered.isEmpty)`, so the truly-empty case shows filter chips over blank space.
 
@@ -725,8 +725,8 @@ Once the body carries the empty state, drop "tap Publish to add a lane" from the
 12 findings, 9 high.
 
 
-**HIGH — Phone field's "+91 …" hint produces input the validator always rejects**  
-`apps/driver_pilot/lib/driver_flow.dart:255` · form-ux  
+**HIGH — Phone field's "+91 …" hint produces input the validator always rejects**
+`apps/driver_pilot/lib/driver_flow.dart:255` · form-ux
 
 *What goes wrong:* A driver who types their number the way the hint shows it is told "Enter a 10-digit mobile number" — while looking at a field containing what they consider a 10-digit number with the country code the app asked for. The error never mentions the +91. There is no way past this screen until they guess that the app wants the country code dropped, and this is the first screen in the Android app after the landing screen. The same flow's other phone fields are labelled "Phone (10 digits)" (L458, L529, L645), so the one screen that contradicts the rule is the one every driver hits first.
 
@@ -739,8 +739,8 @@ Once the body carries the empty state, drop "tap Publish to add a lane" from the
 3. Keep `maxLength: 10` paired with `counterText: ""` as proposed, and leave the L226 length check in place as the backstop — the formatter and maxLength are input affordances, not validation.
 
 
-**HIGH — Every server-side form error reaches the driver as a raw JSON envelope**  
-`apps/driver_pilot/lib/pilot_api.dart:74` · error-state  
+**HIGH — Every server-side form error reaches the driver as a raw JSON envelope**
+`apps/driver_pilot/lib/pilot_api.dart:74` · error-state
 
 *What goes wrong:* The most common first-run case — a driver who taps "Sign in with phone" before registering — produces the snackbar `HTTP 400: {error: user_not_found}`. A wrong code produces `HTTP 400: {error: otp_incorrect}`; an expired one `HTTP 400: {error: otp_expired}`. For a driver in a truck who may not read English as a first language, none of these say what happened or what to do, and the recovery for `user_not_found` ("Register as new carrier", already on the landing screen) is never mentioned. Every form in the app inherits this.
 
@@ -757,24 +757,24 @@ Two smaller points: "Tap Resend code" for otp_expired should be checked against 
 Finally, the location citation apps/api/src/auth.ts:91 should read auth.ts:92. Line 91 is const user = findUserByPhone(store, params.phone); the throw is on 92.
 
 
-**HIGH — Opening the OTP screen sends a second SMS and silently invalidates the first code**  
-`apps/driver_pilot/lib/driver_flow.dart:293` · form-ux  
+**HIGH — Opening the OTP screen sends a second SMS and silently invalidates the first code**
+`apps/driver_pilot/lib/driver_flow.dart:293` · form-ux
 
 *What goes wrong:* Two SMS arrive seconds apart with different 6-digit codes. The app only holds the second challenge, so a driver who opens the first SMS to arrive and types that code gets rejected — and, per the finding above, the rejection reads `HTTP 400: {error: otp_incorrect}`. They retry the same wrong code, or request another resend, and can be locked out of a working number. It also doubles SMS cost on every single sign-in and makes any server-side rate limit twice as likely to trip.
 
 *Fix:* The proposed fix would break sign-in in the current pilot build. `_resend` is not only the challenge starter — L302-306 also read `debugCode` from the response and autofill the code field (`_debugCode = dc; _code.text = dc;`). With no SMS sender in the codebase, that autofill is the only route by which a code reaches a tester. Suppressing the mount call while forwarding only `challengeId` leaves the "6-digit code" TextField (L363) empty with no way to learn the code. Corrected fix, three edits: (1) In `_DriverPhoneScreenState._send`, bind the existing L232 response and forward both values through go_router's `extra` rather than the query string, so no code ever lands in a URL: `final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start", data: {"phone": phone}); ... context.go("/driver/onboarding/otp?phone=$phone", extra: {"challengeId": r.data?["challengeId"], "debugCode": r.data?["debugCode"]});`. (2) In `_DriverOtpScreenState.didChangeDependencies`, read `GoRouterState.of(context).extra` as a `Map`; when it carries a non-null `challengeId`, set `_challengeId.text` and (if present) `_debugCode`/`_code.text` from it and do NOT call `_resend()`; call `_resend()` only when that map is absent or has no challengeId, which keeps deep-linking to the route working. (3) Apply the same `extra` payload at L437 in the register flow — but note that path does NOT currently call otp/start at all (it posts /v1/pilot/driver/register), so it must keep relying on the mount-time `_resend()`; the absent-challengeId branch in (2) covers it, so leave L437 as is. Leave the explicit "Resend code" TextButton (L372) as the single deliberate new-challenge path. Also worth pairing with the real gap this exposes: auth.ts has no rate limit on /v1/auth/otp/start (types.ts:91 names it as future work), so a fix here should not be mistaken for one.
 
 
-**HIGH — Bank account number is optional in the submit payload but its helper text calls it required**  
-`apps/driver_pilot/lib/driver_flow.dart:1995` · form-ux  
+**HIGH — Bank account number is optional in the submit payload but its helper text calls it required**
+`apps/driver_pilot/lib/driver_flow.dart:1995` · form-ux
 
 *What goes wrong:* A carrier owner can leave the account number blank, tap "Save and verify", get a success message, be pushed to payout history, and afterwards see "Payout method on file" on their profile — with no bank account recorded anywhere. They believe they are set up to be paid and find out at the first weekly settlement that they are not. This is the app telling someone their money is arranged when it is not.
 
 *Fix:* The finding stands but its first half is not the cure, and the second half is. apps/api/src/types.ts:46-56 shows `Organization` has only `id, kind, displayName, kycStatus, createdAtUtcMs, payoutContactId?, payoutFundAccountId?` — no bank fields. In the non-RazorpayX path (services.ts:1104) the accountHolderName, ifsc and accountNumber the driver typed are all discarded; only kycStatus flips to SUBMITTED. So even after making the account number mandatory on the client, nothing is stored, and "Payout method on file" at driver_flow.dart:1388 is still false. Do the copy fix first and treat it as the required one: change that line to `subtitle: Text(DriverSession.payoutSetupComplete ? "Payout details submitted - verification pending" : "Set up before first transfer")`, which also matches the server's own message string at services.ts:1107-1108 and the earnings card at :1929-1930 ("Payout profile status: $kyc"). Keep the client validation as the second half, with two adjustments: (1) the field at driver_flow.dart:2025-2031 uses `const InputDecoration`, so errorText needs a `String? _accountNumberError` in `_DriverPayoutSetupScreenState` and the `const` dropped from that decoration, set in `setState` before the early return in `_save()`; (2) a client-only guard leaves the same blank-submit reachable from any other caller, so mirror it in `pilotSubmitPayoutSetup` by moving `if (!accountNumber) throw new ApiError("invalid_payout_profile", ...)` out of the `razorpayPayoutsEnabled()` block to sit alongside the `!accountHolderName || !ifsc` check at services.ts:1066. Minor: the helper text "Required to receive real transfers" is conditionally true rather than a flat "this field is required", so the title overstates that half — the load-bearing defect is the profile row, not the helper text.
 
 
-**HIGH — IFSC field has no keyboard type, no case handling, no length limit and no format check**  
-`apps/driver_pilot/lib/driver_flow.dart:2023` · form-ux  
+**HIGH — IFSC field has no keyboard type, no case handling, no length limit and no format check**
+`apps/driver_pilot/lib/driver_flow.dart:2023` · form-ux
 
 *What goes wrong:* An IFSC is 11 characters where the fifth is always the digit zero — the single most common data-entry error is typing the letter O there, and the second most common is lowercase. Nothing in this screen catches either, so a malformed IFSC is accepted locally and the failure surfaces later as a provider error the driver cannot interpret, or as a payout that does not arrive. This is the one screen in the app where a typo costs the user a week's earnings, and it is the least defended field in the binary.
 
@@ -795,8 +795,8 @@ ADDITION 2 — scope the rename honestly. The current label is "IFSC / bank iden
 Finally, keep the finding's own caveat: verify `^[A-Z]{4}0[A-Z0-9]{6}$` against an RBI primary source before shipping it. I did not verify it either. A wrong regex on this field is worse than no regex, because it rejects valid codes on the one screen where the driver cannot route around it.
 
 
-**HIGH — Bank account number is entered once with no confirmation field and no digit constraint**  
-`apps/driver_pilot/lib/driver_flow.dart:2024` · form-ux  
+**HIGH — Bank account number is entered once with no confirmation field and no digit constraint**
+`apps/driver_pilot/lib/driver_flow.dart:2024` · form-ux
 
 *What goes wrong:* A single mistyped digit in a 9-to-18-digit account number routes every future weekly payout to a different account, and neither the app nor the driver has any way to notice before the money moves. `TextInputType.number` also still permits pasted spaces or hyphens on many Android IMEs, which are passed through untouched. Every consumer banking flow in India double-enters this number precisely because it cannot be checked any other way.
 
@@ -817,8 +817,8 @@ One addition the fix misses: the masked echo has to be built from the locally ty
 Note also that the field is optional in practice — `if (acct.isNotEmpty)` at L1995 means an empty account number posts successfully and, on the non-Razorpay branch (services.ts L1103-1108), returns "Payout details received for verification" while the `helperText` at L2029 says it is required. That is a separate finding, but any mismatch check must not accidentally make an empty-empty pair pass silently.
 
 
-**HIGH — Payout setup and POD screens cannot scroll, so the keyboard can bury the submit button**  
-`apps/driver_pilot/lib/driver_flow.dart:2012` · form-ux  
+**HIGH — Payout setup and POD screens cannot scroll, so the keyboard can bury the submit button**
+`apps/driver_pilot/lib/driver_flow.dart:2012` · form-ux
 
 *What goes wrong:* When the soft keyboard opens on a mid-range Android phone, the Scaffold shrinks the body and lifts the bottom navigation bar above the keyboard, leaving roughly a third of the screen for content that needs an intro paragraph, three text fields and a submit button. The `Spacer` collapses to zero and there is no scroll view, so once the content exceeds the space the driver cannot reach "Save and verify" or "Confirm POD" at all — on the two screens that move money. On these screens the recovery (dismiss the keyboard, tap the button) is not obvious to someone who has never used the app.
 
@@ -869,8 +869,8 @@ Whichever option is taken, verify against text scale, not just device height: th
 *Needs a device to confirm.*
 
 
-**HIGH — Publishing a lane requires hand-typing ISO-8601 timestamps into fields labelled with API field names**  
-`apps/driver_pilot/lib/driver_flow.dart:2226` · form-ux  
+**HIGH — Publishing a lane requires hand-typing ISO-8601 timestamps into fields labelled with API field names**
+`apps/driver_pilot/lib/driver_flow.dart:2226` · form-ux
 
 *What goes wrong:* Publishing an anchor lane is the core carrier task, and the only way to change the pickup window is to edit an ISO-8601 string by hand on a phone QWERTY keyboard. "windowStart" and "ISO" mean nothing to a truck driver. A malformed edit is sent to the API unchecked, and comes back as a raw HTTP error. In practice the driver's only safe move is the "Reset pickup window (today–tomorrow, IST)" button at L2200-2204, which means the window cannot really be set at all.
 
@@ -887,8 +887,8 @@ Recommended shape: one full-width `OutlinedButton.icon` with `Icons.date_range`,
 One addition the finding misses: main.dart:1134-1135 is the developer lab and is staying, so leave those two TextFields as they are — a lab screen labelled with API field names is correct for its audience. Only driver_flow.dart:2226-2227 should change.
 
 
-**HIGH — Vehicle class is a free-text field for a three-value enum, unvalidated on the registration screen**  
-`apps/driver_pilot/lib/driver_flow.dart:461` · form-ux  
+**HIGH — Vehicle class is a free-text field for a three-value enum, unvalidated on the registration screen**
+`apps/driver_pilot/lib/driver_flow.dart:461` · form-ux
 
 *What goes wrong:* A driver with a small truck must edit this field, and anything other than the three exact tokens fails. "Small truck", "7 ton", "mini" all pass client-side on the registration screen and kill the whole registration POST with a raw error that does not say which of the six fields was wrong. The label itself leaks the API's pipe-delimited enum to the user. Where validation does exist, the message is written in API terms: L1322 "vehicleClass must be SMALL, MEDIUM, or LARGE." and L2158 the same.
 
@@ -906,8 +906,8 @@ One addition the finding misses: main.dart:1134-1135 is the developer lab and is
 4. Evidence wording. "a raw error that does not say which of the six fields was wrong" overstates what the source proves. pilot_api.dart:74 returns `"HTTP ${status ?? "?"}: ${body ?? e.message ?? e.toString()}"`, so the user sees a raw status-plus-body dump; whether that body names the field is server-side and was not checked. Phrase it as "surfaces a raw HTTP status and response-body dump" and drop the claim about the six fields.
 
 
-**MEDIUM — "Challenge id" is an editable input in the driver sign-in path**  
-`apps/driver_pilot/lib/driver_flow.dart:363` · form-ux  
+**MEDIUM — "Challenge id" is an editable input in the driver sign-in path**
+`apps/driver_pilot/lib/driver_flow.dart:363` · form-ux
 
 *What goes wrong:* The verify screen shows a driver two fields when there is one thing to do. The first holds an opaque internal id they did not choose, cannot interpret and have no reason to touch — but can edit or clear, after which "Verify" fails with an error that mentions nothing about it. It also makes the screen read as unfinished software at the exact moment the user is deciding whether to trust the app with their carrier account.
 
@@ -920,8 +920,8 @@ One addition the finding misses: main.dart:1134-1135 is the developer lab and is
 Leave main.dart:571 alone. It is inside the developer lab, which the product owner has kept, and an operator pasting a challengeId by hand is the actual job of that screen.
 
 
-**MEDIUM — Driver OTP code field has no numeric keyboard, no length limit and no SMS autofill, while the customer one in the same binary does**  
-`apps/driver_pilot/lib/driver_flow.dart:364` · form-ux  
+**MEDIUM — Driver OTP code field has no numeric keyboard, no length limit and no SMS autofill, while the customer one in the same binary does**
+`apps/driver_pilot/lib/driver_flow.dart:364` · form-ux
 
 *What goes wrong:* Tapping the code field raises a full QWERTY keyboard, so the driver has to find the number row or switch modes to type six digits, one-handed, while the SMS notification is still on screen. Nothing stops a seventh character. Android's SMS code autofill never offers the code because the field does not declare `oneTimeCode`, so the driver has to memorise or copy it manually. The customer flow gets the better treatment on the same screen concept.
 
@@ -952,8 +952,8 @@ and wrap the ListView at driver_flow.dart:352 in an `AutofillGroup` so the hint 
 5. One thing to check before shipping, not assume: that the backend OTP is always exactly 6 digits and always numeric. `maxLength: 6` plus `digitsOnly` makes a longer or alphanumeric code untypeable, which turns a cosmetic gap into a hard block on login. The label at line 364 already asserts 6 digits and the debug prefill path at driver_flow.dart:304-306 writes the server's debugCode straight into _code, so confirm against the /v1/auth/otp/start implementation. I did not verify the server side.
 
 
-**MEDIUM — No form in the app sets textInputAction, so multi-field forms need a tap per field**  
-`apps/driver_pilot/lib/driver_flow.dart:457` · form-ux  
+**MEDIUM — No form in the app sets textInputAction, so multi-field forms need a tap per field**
+`apps/driver_pilot/lib/driver_flow.dart:457` · form-ux
 
 *What goes wrong:* On registration the driver types a value, sees a keyboard "return" key that does nothing useful, dismisses or ignores it, hunts for the next field under the keyboard, taps it, and repeats six times. On a mid-range phone in a vehicle that is where people abandon a signup. The keyboard also never advances focus, so there is no way to complete the form without lifting the thumb between every field.
 
@@ -982,8 +982,8 @@ While editing these screens, note that a related gap sits on the same lines and 
 10 findings, 4 high.
 
 
-**HIGH — The muted token fails AA on the app background, and it is the colour of nearly all body text**  
-`lib/driver_theme.dart:8` · contrast  
+**HIGH — The muted token fails AA on the app background, and it is the colour of nearly all body text**
+`lib/driver_theme.dart:8` · contrast
 
 *What goes wrong:* I computed #64748B on #F4F7FA = 4.43:1, against the 4.5:1 floor for normal text (WCAG 1.4.3). It is a near miss on paper and a real one in a truck cab: this token carries the sentence that explains what the POD button is about to do (driver_flow.dart:1853, "Ops will release customer payment to your carrier ledger after review") and the one that explains the payout screen (driver_flow.dart:2018). On white Cards the same token measures 4.76:1 and does pass, so the text gets legibly darker when it happens to sit on a card and lighter when it sits on the page — the driver has no way to predict which. In direct sunlight on a mid-range panel the 4.43:1 lines are the first to disappear.
 
@@ -996,8 +996,8 @@ Two corrections to the rest of the fix:
 2. Add a check the original fix omits. Darkening `muted` narrows the gap between the unselected NavigationBar label (driver_theme.dart:64 `return const TextStyle(color: muted, fontSize: 11);`) and the selected one (driver_theme.dart:62, `color: navy, fontWeight: FontWeight.w600`). The distinction survives on weight and on the `indicatorColor: navy.withOpacity(0.12)` pill at driver_theme.dart:59, so no change is needed — but confirm it visually once Flutter is available rather than assuming, because selected-state legibility in a nav bar is exactly the kind of thing a token change degrades quietly.
 
 
-**HIGH — Every error message in both flows uses Colors.red, which fails AA on both surfaces**  
-`lib/driver_flow.dart:1681` · contrast  
+**HIGH — Every error message in both flows uses Colors.red, which fails AA on both surfaces**
+`lib/driver_flow.dart:1681` · contrast
 
 *What goes wrong:* `Colors.red` is #F44336. I computed 3.42:1 on the #F4F7FA page and 3.68:1 on a white Card, both under the 4.5:1 floor. This is the colour of the only text that tells a carrier why a booking would not accept (driver_flow.dart:755), why a trip would not publish (driver_flow.dart:2232), and what went wrong on the active trip (driver_flow.dart:1681) — the messages a driver most needs to read and act on, rendered in the least readable colour in the app. The legacy pilot-lab screens actually get this right (main.dart:704 uses `Theme.of(context).colorScheme.error`, which resolves to the M3 default #B3261E at 6.54:1 on white), so the newer driver and customer flows regressed against the older code.
 
@@ -1012,8 +1012,8 @@ Two corrections to the rest of the fix:
 One addition the finding does not cover and should, since these are money-path screens: colour is currently the only thing marking these strings as errors, which fails WCAG 1.4.1 independently of the ratio. When touching all 24 sites anyway, wrap the error text in a small shared widget that pairs `DriverTheme.danger` with a leading `Icon(Icons.error_outline, size: 18, color: DriverTheme.danger)` and a `Semantics(liveRegion: true)`, so the message is announced and is still identifiable to a driver in sunlight or with a red-green colour deficiency. That is one widget, not an abstraction layer, and it removes 24 copies of the same TextStyle.
 
 
-**HIGH — Text input boundaries are drawn at 1.23:1, far below the 3:1 required for control boundaries**  
-`lib/driver_theme.dart:41` · contrast  
+**HIGH — Text input boundaries are drawn at 1.23:1, far below the 3:1 required for control boundaries**
+`lib/driver_theme.dart:41` · contrast
 
 *What goes wrong:* I computed #E2E8F0 against the white fill at 1.23:1 and against the #F4F7FA page at 1.15:1 — and the white fill itself is only 1.08:1 against the page. WCAG 1.4.11 Non-text Contrast requires 3:1 for the visual boundary that identifies a control, and a text input's outline is the canonical example in the Understanding document. The practical result is that an unfocused, empty text field is a barely-tinted rectangle: on the payout screen the driver is asked to type a bank account number into a box whose edge is three times below the legibility floor, and there is nothing else on that screen marking where the field starts. Anyone with reduced contrast sensitivity, and anyone holding the phone in sunlight, is guessing where to tap.
 
@@ -1047,8 +1047,8 @@ Net: `border` retains one consumer (line 49), `controlBorder` takes lines 31, 41
 Report-copy fix: replace "there is nothing else on that screen marking where the field starts" with "the field's extent is marked only by a 1.08:1 fill and a 1.23:1 outline; the labelText is legible but does not delineate where the input begins or ends." And do not assert anything about the current focus ring's appearance — Flutter is not installed and the M3 fallback was not verified.
 
 
-**HIGH — Four driver screens put the submit button after a Spacer in a non-scrolling Column, so it is clipped at large font sizes**  
-`lib/driver_flow.dart:2032` · text-scaling  
+**HIGH — Four driver screens put the submit button after a Spacer in a non-scrolling Column, so it is clipped at large font sizes**
+`lib/driver_flow.dart:2032` · text-scaling
 
 *What goes wrong:* `Spacer` is `Expanded(child: SizedBox.shrink())`. In a bounded Column, Expanded receives whatever height is left after the inflexible children; when those already exceed the box it gets zero and the Column overflows, and the overflow is clipped at the bottom — which is exactly where the submit button is. Two everyday conditions trigger it. First, opening the keyboard: `resizeToAvoidBottomInset` defaults to true, so tapping the bank-account field on the payout screen removes roughly 40% of the body height while three fields and a paragraph are still laid out above the button. Second, an Android system font scale above about 1.5, which is a setting drivers with presbyopia actually use. When it clips there is no scroll view to reach the button, so the task is not merely hard, it is impossible — on the screen where a carrier enters the bank details they get paid into, and on the POD screen that releases payment. This is WCAG 1.4.4, loss of functionality on resize, not just loss of polish. The exact scale and device where it first clips needs a real handset; the clipping mechanism itself follows from Flutter's Column layout rule and is not in doubt.
 
@@ -1061,16 +1061,16 @@ FIX, PART ONE. Replacing `Padding(child: Column(...))` with `ListView(padding: c
 FIX, PART TWO — this part is wrong as written. "move the FilledButton into the Scaffold's `bottomNavigationBar` slot" cannot be done from these screens. None of the four owns a Scaffold; they are the `child` handed to DriverShell (2262-2266), and DriverShell's Scaffold has already filled `bottomNavigationBar` with the five-tab NavigationBar (driver_flow.dart:118-145). `persistentFooterButtons` is likewise the shell's to give. Two workable routes: either pin the action inside the screen — `Column(children: [Expanded(child: ListView(padding: const EdgeInsets.all(20), children: [fields])), SafeArea(top: false, child: Padding(padding: const EdgeInsets.fromLTRB(20, 8, 20, 12), child: FilledButton(...)))])`, which needs no shell change and sits above the navigation bar — or add a `Widget? bottomAction` parameter to DriverShell and have the shell compose it above the NavigationBar, which touches the shell and every route that uses it. Prefer the first; it is contained to the four files under discussion. Also drop the claim that the bottomNavigationBar slot "rides above the keyboard": I did not verify Scaffold's inset handling for that slot and it should not be stated as fact.
 
 
-**MEDIUM — The driver app bar back button has no accessible name**  
-`lib/driver_flow.dart:103` · accessibility  
+**MEDIUM — The driver app bar back button has no accessible name**
+`lib/driver_flow.dart:103` · accessibility
 
 *What goes wrong:* IconButton derives its accessible name from `tooltip`; with none, and with a bare `Icon` that has no `semanticLabel`, TalkBack announces the control as an unlabelled button. This is the back affordance on every pushed driver route — active trip, POD, earnings, payout setup, payout history, fleet invite — so a driver using TalkBack has no spoken name for the only way out of those screens. It is also the single miss in an otherwise consistent codebase, which makes it cheap to close. Note this is the opposite of the case the brief flagged: the "Switch to driver" button at customer_flow.dart:119-125 is correctly labelled.
 
 *Fix:* Replace the whole `IconButton(...)` at driver_flow.dart:103-106 with `BackButton(onPressed: () => context.pop())`. BackButton pulls its tooltip from `MaterialLocalizations.of(context).backButtonTooltip`, so it is labelled and will translate for free when localisation is added. If the explicit IconButton is preferred, add `tooltip: "Back"` as the first argument.
 
 
-**MEDIUM — The empty-map message on the driver active-trip screen is 4.23:1 and carries its own off-palette greys**  
-`lib/location_editor.dart:212` · contrast  
+**MEDIUM — The empty-map message on the driver active-trip screen is 4.23:1 and carries its own off-palette greys**
+`lib/location_editor.dart:212` · contrast
 
 *What goes wrong:* I computed #757575 on #F5F5F5 at 4.23:1, under the 4.5:1 floor for 13px text. This block is not decorative: it is the only explanation the driver gets for why the map on the live-trip screen is blank, and it contains the two actions that would fix it (allow location, or republish with pins). It also introduces #F5F5F5, #E0E0E0 and #757575 — three greys that exist nowhere in DriverTheme — so the panel reads as a different product, and its border sits at 1.21:1 against its own fill.
 
@@ -1089,16 +1089,16 @@ Corrected edit, at location_editor.dart:201, 203, 212, plus the import:
 giving 4.76:1 for the text on white today. White fill is the right choice rather than DriverTheme.background, because it matches the existing cardTheme (Colors.white with a BorderSide(color: border), driver_theme.dart:44-51) and the panel sits on the #F4F7FA scaffold, so it reads as a card rather than dissolving into the page.
 
 
-**MEDIUM — Shipment timeline step state is conveyed only by icon glyph, with no text or semantic equivalent**  
-`lib/customer_flow.dart:2126` · accessibility  
+**MEDIUM — Shipment timeline step state is conveyed only by icon glyph, with no text or semantic equivalent**
+`lib/customer_flow.dart:2126` · accessibility
 
 *What goes wrong:* A screen-reader user hears "Carrier accepted. Carrier confirmed they will carry your load" whether that step has happened or not, and the same for all five steps — so the entire tracking timeline reads as if every stage is already done. The visual affordance is fine (three distinct glyph shapes, not just colour, so 1.4.1 is satisfied for sighted users), but there is no text alternative for the state, which is WCAG 1.3.1. This is the customer web tracking page, so it is not on the Android driver path, but it is the screen a customer opens to find out where their freight is.
 
 *Fix:* Wrap the Row at customer_flow.dart:2122 in `Semantics(container: true, excludeSemantics: true, label: "${steps[i].label}. ${steps[i].complete ? 'Done' : steps[i].current ? 'In progress' : 'Not started'}. ${steps[i].subtitle}", child: Row(...))`. Adding `semanticLabel` to the Icon alone would work too but reads worse, because the state would be announced before the step name.
 
 
-**MEDIUM — Field validation errors exist only as transient SnackBars and are never attached to the field**  
-`lib/driver_flow.dart:228` · error-state  
+**MEDIUM — Field validation errors exist only as transient SnackBars and are never attached to the field**
+`lib/driver_flow.dart:228` · error-state
 
 *What goes wrong:* The message names a rule ("10 digits") but never points at the field, and a SnackBar auto-dismisses after about four seconds. A driver who looks away mid-message has lost the only error text on screen, with no way to bring it back and nothing marking which of the six fields on the register screen was wrong. Flutter's SnackBar is a live region so TalkBack does announce it, but when the user then swipes back through the form the field reports itself as valid — the error is not programmatically associated with the input it belongs to (WCAG 3.3.1). The payout screen is the sharpest case: `_save` at driver_flow.dart:1984 validates nothing at all client-side, so an empty IFSC or account-holder name is posted and the driver only learns what was wrong from whatever the server returns into a SnackBar.
 
@@ -1119,16 +1119,16 @@ Two additions worth folding in while the files are open:
 Keep the SnackBar at driver_flow.dart:237 and the other `formatApiError(e)` sites as they are — those have no owning field and the finding is right to exempt them.
 
 
-**LOW — A navy disc sits in the app bar action slot with no label, no role and no action**  
-`lib/driver_flow.dart:113` · accessibility  
+**LOW — A navy disc sits in the app bar action slot with no label, no role and no action**
+`lib/driver_flow.dart:113` · accessibility
 
 *What goes wrong:* This renders a 36dp solid navy circle in the position every Android user reads as the account or profile control, on every driver screen. It has no semantics node, so a screen-reader user never encounters it — which is correct for decoration — but a sighted driver will tap it and nothing happens, with no feedback explaining why. It is a dead target sitting in the highest-value slot in the app bar, and it duplicates the Profile destination already in the bottom nav (driver_flow.dart:142).
 
 *Fix:* Prefer the deletion branch, and reword the scope. Primary fix: delete driver_flow.dart:111-114 outright, leaving `actions: [if (actions != null) ...actions!],`. Profile is already a labelled bottom-nav destination at :142, the shell's `actions` parameter is never populated by the only caller (:2262-2266) so nothing else depends on the list being non-empty, and removing a dead 36-pixel target from the highest-value app-bar slot costs a one-handed driver in sunlight nothing. The proposed IconButton alternative must not be implemented as written: `DriverSession.userFullName` is `static String?` (driver_session.dart:8), set only inside `DriverSession.refresh()` (driver_session.dart:30), so it is null before sign-in, and it is a bare static with no Listenable while `DriverShell` is a StatelessWidget — the initial would render blank pre-sign-in and would not repaint when refresh() completes. If a profile affordance in the app bar is wanted anyway, it needs all three of: a non-null fallback (`Icon(Icons.person_outline, color: Colors.white, size: 18)` when userFullName is null or empty), a text colour set explicitly to `Colors.white` on navy for AA contrast since CircleAvatar with a colour-only background applies no foreground token, and a rebuild trigger — make the session a `ValueNotifier<String?>` and wrap the avatar in a `ValueListenableBuilder` — otherwise the initial is stale. Also fix the finding's scope line to "every in-shell driver screen": the four onboarding routes at driver_flow.dart:2301-2304 sit outside the ShellRoute and never show this AppBar.
 
 
-**LOW — The bottom-nav selection indicator is drawn at 1.25:1 against the nav bar**  
-`lib/driver_theme.dart:59` · contrast  
+**LOW — The bottom-nav selection indicator is drawn at 1.25:1 against the nav bar**
+`lib/driver_theme.dart:59` · contrast
 
 *What goes wrong:* I computed #E3E6EB on #FFFFFF at 1.25:1, so the selection pill is very nearly invisible and will be fully invisible in sunlight. This does not fail WCAG 1.4.11, because selection is redundantly carried by two cues that do pass: the selected icon switches from outlined to filled (driver_flow.dart:126-142, e.g. `Icons.home_outlined` to `Icons.home`) and the label goes navy w600 against muted (driver_theme.dart:60-71), which I measured at 12.93:1 against the white bar. So the state is identifiable — the pill just contributes nothing, and a driver glancing down at the bar in daylight is relying entirely on the icon fill difference. Recording it because bright-sunlight use is the stated context, not because it blocks anyone.
 
@@ -1140,16 +1140,16 @@ Keep the SnackBar at driver_flow.dart:237 and the other `formatApiError(e)` site
 12 findings, 3 high.
 
 
-**HIGH — Colors.red is the app's only error colour and fails WCAG AA on both surfaces, across all 21 error sites**  
-`apps/driver_pilot/lib/driver_flow.dart:2232` · accessibility  
+**HIGH — Colors.red is the app's only error colour and fails WCAG AA on both surfaces, across all 21 error sites**
+`apps/driver_pilot/lib/driver_flow.dart:2232` · accessibility
 
 *What goes wrong:* Every failure message a driver or carrier sees is drawn in the app's least-legible colour. These are not cosmetic strings: driver_flow.dart:2232 is the publish-trip failure, 755 is the shipments-list load failure, 1681 is the active-trip failure on the screen that gates POD, and the payout and booking paths use the same construction. A carrier who cannot read why a publish or a payout-setup failed will retry blindly or call support, and on a mid-range Android outdoors a 3.4:1 red on a near-white page is the first thing to wash out.
 
 *Fix:* The fix is sound and implementable as written; two refinements. First, the edit count is slightly mis-described: of the 21 Colors.red sites, 20 are the error-Text construction (7 driver_flow, 13 customer_flow) and one — customer_flow.dart:1037 `icon: const Icon(Icons.delete_outline, color: Colors.red)` — is an icon, not text. Replacing it with the same danger token is still right (#B3261E clears the 3:1 non-text floor comfortably at 6.54:1 on the white card), but it is a separate case, so the instruction is better phrased as "20 error-Text sites plus one destructive-action icon". Second, on `error: danger` in ColorScheme.fromSeed: the M3 default light error is already #B3261E, so the seeded scheme very likely resolves to the same value today and main.dart:704/808/1106 probably already pass AA. That does not make the override wrong — pinning it keeps the token and the scheme from drifting apart and makes the palette self-documenting — but it should not be sold as fixing the legacy lab, because the lab is probably not broken. Unchecked: I could not confirm what the seeded scheme resolves error to without running Flutter, which is not installed. Also note main.dart:1106 (`_rateError`) is a third scheme-error site the finding did not list; it needs no edit.
 
 
-**HIGH — DriverTheme.muted is 4.43:1 on DriverTheme.background - the app's most-used text colour misses AA on the surface it is most often drawn on**  
-`apps/driver_pilot/lib/driver_theme.dart:8` · accessibility  
+**HIGH — DriverTheme.muted is 4.43:1 on DriverTheme.background - the app's most-used text colour misses AA on the surface it is most often drawn on**
+`apps/driver_pilot/lib/driver_theme.dart:8` · accessibility
 
 *What goes wrong:* The miss is narrow but it lands on the app's default secondary-text colour, so a large share of every screen's explanatory copy is below the legibility floor - including driver_flow.dart:1854, the sentence on the POD screen that tells a carrier payment is released after ops review, and driver_flow.dart:2019 on payout setup. Several of these are additionally set at fontSize 11 and 12 (driver_flow.dart:1022, :1047, :1149), where a borderline ratio is least forgiving. The stated users are drivers reading one-handed in bright sunlight on mid-range screens, which is the worst case for a 4.43:1 grey.
 
@@ -1166,8 +1166,8 @@ So make it two tokens, not a global swap:
 If a single token is strongly preferred, then the nav bar needs a separate compensating change in the same commit -- for example raising the indicator to `navy.withOpacity(0.18)` -- and the selected/unselected distinction should be confirmed by eye once Flutter is available. I could not check that here; nothing was run.
 
 
-**HIGH — Cards have no perceivable boundary: elevation 0 with a 1.15:1 border and a 1.08:1 fill difference from the page**  
-`apps/driver_pilot/lib/driver_theme.dart:44` · contrast  
+**HIGH — Cards have no perceivable boundary: elevation 0 with a 1.15:1 border and a 1.08:1 fill difference from the page**
+`apps/driver_pilot/lib/driver_theme.dart:44` · contrast
 
 *What goes wrong:* Cards are the app's only grouping device and they are used for every list row a driver acts on - the shipments list (driver_flow.dart:762), the POD list on the active-trip screen (driver_flow.dart:1756), the earnings stat tiles (driver_flow.dart:1948), the payout-batch history (driver_flow.dart:2090). At 1.08:1 fill difference and a 1.15:1 edge, where one tappable row ends and the next begins is carried almost entirely by the gap between them, not by a visible boundary. For a carrier scanning a list of loads to find the one to act on, and for anyone reading in glare, the structure that was designed into the screen does not reach the eye.
 
@@ -1182,16 +1182,16 @@ The advice against reaching for elevation is correct and worth keeping: a shadow
 *Needs a device to confirm.*
 
 
-**MEDIUM — No semantic status colour exists anywhere in the app, so every trip status renders as an identical chip**  
-`apps/driver_pilot/lib/driver_flow.dart:1114` · status-encoding  
+**MEDIUM — No semantic status colour exists anywhere in the app, so every trip status renders as an identical chip**
+`apps/driver_pilot/lib/driver_flow.dart:1114` · status-encoding
 
 *What goes wrong:* On the Loads screen - the carrier's main working surface, and the screen whose two filter rows are entirely about status - an in-progress load, a completed one, a full one and an open one are visually interchangeable. The driver has to read four same-looking chips per card, and status is also the first chip in a wrap that includes vehicle class and free capacity, so the meaningful token and the incidental ones compete equally. Not rated high because the labels are present and correct and the action button does change (driver_flow.dart:1160-1168 shows Track / Summary / View), so nothing is corrupted - it is scanning cost, paid on every load, every time.
 
 *Fix:* The token additions and the contrast numbers are sound - keep them, and add the danger token from the error finding. The mapping is not sound: sending OPEN to navy defeats the fix's own stated goal, because the vehicle-class chip, the "kg available" chip and the "Has bookings" chip already render navy from driver_theme.dart:54, so on an OPEN card the status chip is still visually identical to its neighbours - and OPEN is the state a loads list spends most of its time in (it is also rank 1 of 4 in _statusRank, driver_flow.dart:917-930). Two changes. First, demote the incidental chips instead of only promoting the status one: in _LoadCard (driver_flow.dart:1113-1119) give the vehicle-class, "kg available" and "Has bookings" chips `labelStyle: const TextStyle(color: DriverTheme.muted, fontWeight: FontWeight.w500)` and `side: const BorderSide(color: DriverTheme.border)`. This is safe here and only here: muted #64748B is 4.76:1 on the white card surface (cardTheme color Colors.white, driver_theme.dart:45) but only 4.43:1 on the #F4F7FA page background, so do not reuse the muted-chip treatment for chips placed directly on the scaffold. Second, give OPEN a colour of its own rather than navy - reuse DriverTheme.navy only as the default fallback for an unrecognised status string, which tripStatusLabel already passes through unchanged (pilot_api.dart:174-176). A `Color statusColour(String status)` helper in driver_theme.dart maps IN_PROGRESS to inProgress, COMPLETED to success, FULL to warning, OPEN to a fourth distinct token, default to navy; the status chip alone takes `side: BorderSide(color: statusColour(status))` and `labelStyle: TextStyle(color: statusColour(status), fontWeight: FontWeight.w600)`. Keep the text label - colour stays a second channel, never the only one. Verify any new OPEN token to the same bar as the other three (at least 4.5:1 on both #FFFFFF and #F4F7FA) before it lands. One scope note the finding left out: tripStatusLabel is also rendered uncoloured at driver_flow.dart:1691 ("Status: ${tripStatusLabel(tripStatus)}"), so route the helper through that site too, or the same load reads as two different visual languages on the card and on the detail screen.
 
 
-**MEDIUM — On the active-trip screen the load's state is drawn in the de-emphasis token while a lesser heading below it gets the strongest treatment**  
-`apps/driver_pilot/lib/driver_flow.dart:1688` · hierarchy  
+**MEDIUM — On the active-trip screen the load's state is drawn in the de-emphasis token while a lesser heading below it gets the strongest treatment**
+`apps/driver_pilot/lib/driver_flow.dart:1688` · hierarchy
 
 *What goes wrong:* This is the screen a driver is on while running a load, and the question it exists to answer -- is this load started, and can I still act on it -- is typeset as the least important thing on the page. The visually dominant element is instead the "Next pickup" / "Trip summary" label. A driver glancing at the phone in a cab reads the loudest thing first and gets the wrong answer about trip state, which is the state that gates GPS sharing (driver_flow.dart:1776) and the Complete load button.
 
@@ -1206,8 +1206,8 @@ The advice against reaching for elevation is correct and worth keeping: a shadow
 4. Add a deletion the finding missed. driver_flow.dart:1690-1693 renders `"Status: ${tripStatusLabel(tripStatus)}"`, and pilot_api.dart:171-174 maps IN_PROGRESS to "In progress" and COMPLETED to "Done". That is the same fact the promoted line already states, one line below it, in muted 13. Once 1688 carries the state at 20pt navy, delete the Text at 1690-1693 rather than leaving two restatements of trip state stacked.
 
 
-**MEDIUM — Money is rendered four different ways, and the carrier's own payout figure gets the weakest treatment of the four**  
-`apps/driver_pilot/lib/driver_flow.dart:850` · hierarchy  
+**MEDIUM — Money is rendered four different ways, and the carrier's own payout figure gets the weakest treatment of the four**
+`apps/driver_pilot/lib/driver_flow.dart:850` · hierarchy
 
 *What goes wrong:* The carrier is paid on a weekly schedule and the number that matters to them is net-to-carrier. On the shipment detail screen (driver_flow.dart:839-866) that number is indistinguishable from the pickup address, and on the payout-history screen it is an unstyled list title. Meanwhile the customer-side price estimate gets the largest type in the app. The amount a carrier is owed should not be the least prominent money in the binary, and a driver scanning payout history for a figure has to read rather than glance.
 
@@ -1230,8 +1230,8 @@ Leave customer_flow.dart:1735 at 24. The finding's reason for lowering it — "s
 One caveat I could not check: whether 22/w700 at driver_flow.dart:1759 or :2092 causes text overflow at the narrowest supported width. That needs a running app, which is not available here, so treat the 16px choice at :1759 as reasoning rather than a verified fit.
 
 
-**MEDIUM — Page padding alternates between 16 and 20 across sibling screens inside the same shell**  
-`apps/driver_pilot/lib/driver_flow.dart:157` · consistency  
+**MEDIUM — Page padding alternates between 16 and 20 across sibling screens inside the same shell**
+`apps/driver_pilot/lib/driver_flow.dart:157` · consistency
 
 *What goes wrong:* The content's left edge shifts by 4px as the driver moves between tabs and drills into detail screens, against a fixed app bar and fixed bottom nav that do not move. It reads as a rendering wobble rather than a design, and it is most visible on the exact transition a driver makes most often: Shipments list at 16 into shipment detail at 20.
 
@@ -1246,8 +1246,8 @@ One caveat I could not check: whether 22/w700 at driver_flow.dart:1759 or :2092 
 Severity medium is defensible but sits at the top of low: a 4px symmetric shift is real and traceable, though it is polish next to anything on the money path.
 
 
-**MEDIUM — The Loads screen is the only shell screen with zero top padding, so its first element butts against the app bar**  
-`apps/driver_pilot/lib/driver_flow.dart:1002` · consistency  
+**MEDIUM — The Loads screen is the only shell screen with zero top padding, so its first element butts against the app bar**
+`apps/driver_pilot/lib/driver_flow.dart:1002` · consistency
 
 *What goes wrong:* Loads is the carrier's primary working screen and it is the one screen where the content starts flush under the app bar, with the summary box's top border sitting hard against the bar's lower edge. Against the near-invisible card borders documented separately, a container with no breathing room above it reads as part of the chrome rather than as content.
 
@@ -1266,8 +1266,8 @@ If matching `EdgeInsets.all(16)` to the other screens matters more than the diff
 Also strike the "removes one of the four distinct EdgeInsets.symmetric shapes" sentence from the fix: the count is six call sites and five shapes, and consolidating them is not what this change does.
 
 
-**MEDIUM — Four type sizes inside a single card, for three lines of equally secondary metadata**  
-`apps/driver_pilot/lib/driver_flow.dart:1131` · typography  
+**MEDIUM — Four type sizes inside a single card, for three lines of equally secondary metadata**
+`apps/driver_pilot/lib/driver_flow.dart:1131` · typography
 
 *What goes wrong:* The three metadata lines in a load card - capacity, vehicle-and-booked-weight, pickup window - are equally important to a carrier deciding whether to act on a load, but they are typeset in three descending sizes, which implies a ranking that does not exist. The smallest, at fontSize 11 (the pickup window at driver_flow.dart:1149), is the one a driver most needs to read outdoors, and it is set in the muted colour that already misses AA on this surface.
 
@@ -1284,16 +1284,16 @@ Also strike the "removes one of the four distinct EdgeInsets.symmetric shapes" s
 4. Scope the 16/20/26 cleanup separately and ask before running it. driver_flow.dart:108 `fontSize: 26` is an AppBar title applied across driver screens and :1750 `fontSize: 16` is the next-pickup line; folding them into 18/22 is a cross-file visual change touching more than three files, which under the house rules is a pause-and-ask refactor, not a side effect of introducing tokens. Introduce the tokens first, migrate _LoadCard, then propose the sweep as its own change.
 
 
-**MEDIUM — The section-title role is fontSize 18 in five places and fontSize 16 in one, on the active-trip screen**  
-`apps/driver_pilot/lib/driver_flow.dart:1750` · typography  
+**MEDIUM — The section-title role is fontSize 18 in five places and fontSize 16 in one, on the active-trip screen**
+`apps/driver_pilot/lib/driver_flow.dart:1750` · typography
 
 *What goes wrong:* A single orphan size means the section heading on the active-trip screen sits one step lower than the visually identical heading on Fleet, Publish, and the customer detail screens, so the same rank reads as two ranks as a driver moves between screens. It is the kind of drift that compounds: with no named role, the next heading someone writes picks whichever nearby number they copy.
 
 *Fix:* The fix as written is unsound on two counts. (1) It says "change to the shared `sectionTitle` role" — no such role exists. `grep -rn "sectionTitle"` returns nothing, and driver_theme.dart is 75 lines with four colour tokens and no typography. The role has to be created before anything can be changed to it. (2) More importantly, the slot at driver_flow.dart:1750 is not a section title in two of its three states. The ternary renders "Trip summary" (a heading), `"Next pickup: ${next["pickupAddress"]}"` (a variable-length postal address — a data line), or "No pending deliveries on this load" (an empty state). Promoting all three to 18/w700/navy would set a full Indian street address in heavy navy at 18sp, which on a 360dp mid-range Android wraps to two or three lines and reads as a headline rather than as the pickup detail it is. Corrected fix, in two parts. First, add one role to driver_theme.dart, e.g. `static const TextStyle sectionTitle = TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: navy);`, and point the five existing 18 literals at it (driver_flow.dart:633, :2192; customer_flow.dart:653, :934, :1650), so the role has a single definition. Second, split the 1750 slot by state rather than resizing it wholesale: emit a fixed `Text("Deliveries", style: DriverTheme.sectionTitle)` as the heading above the shipment list in every state, and render the variable part beneath it as body text — "Next pickup: {address}" at the existing 13sp muted style used at :1692 and :1699, "All deliveries confirmed" / "No pending deliveries on this load" likewise. That removes 16 from the codebase, gives the active-trip list a heading at the same rank as the other screens, and stops an address being typeset as a heading. If splitting the slot is out of scope for this pass, the minimum safe change is 1750 -> `DriverTheme.sectionTitle` only in the `tripComplete` branch, leaving the other two branches at body size. Worth folding in while the role exists: driver_flow.dart:1365 uses `Theme.of(context).textTheme.titleMedium` for the same job and should move to the same token, or the drift returns from the other direction.
 
 
-**MEDIUM — location_editor.dart carries a second, unrelated palette that reaches driver screens, and its placeholder text fails AA**  
-`apps/driver_pilot/lib/location_editor.dart:200` · consistency  
+**MEDIUM — location_editor.dart carries a second, unrelated palette that reaches driver screens, and its placeholder text fails AA**
+`apps/driver_pilot/lib/location_editor.dart:200` · consistency
 
 *What goes wrong:* `LocationEndpointEditor` is embedded directly in the driver Publish trip screen (driver_flow.dart:2206 and :2216) and `activeTripMap` in the active trip screen (driver_flow.dart:1666), so a driver sees a map container with a different corner radius, a different border colour and a different grey than every card around it on the same scroll. When there are no coordinates yet, the explanatory message telling the driver to republish with map pins - the text that tells them how to fix the problem - is the one string in that view below the contrast floor.
 
@@ -1310,8 +1310,8 @@ One trap worth recording next to this: do not "fix" :212 by reaching for DriverT
 Finally, restate the impact honestly: the palette drift and the sub-AA string reach a driver through activeTripMap's no-coordinates branch on the active trip screen (driver_flow.dart:1666), not through LocationEndpointEditor on Publish. LocationEndpointEditor is theme-clean apart from its radius.
 
 
-**MEDIUM — The two production flow files abandoned the textTheme and colorScheme that the legacy pilot lab still uses correctly**  
-`apps/driver_pilot/lib/customer_flow.dart:107` · design-system  
+**MEDIUM — The two production flow files abandoned the textTheme and colorScheme that the legacy pilot lab still uses correctly**
+`apps/driver_pilot/lib/customer_flow.dart:107` · design-system
 
 *What goes wrong:* No direct user-visible defect from this line alone - it is the mechanism behind the other findings. Because the theme carries no typography, every screen author has had to pick numbers, and the numbers diverged: 9 sizes, 5 weights, 2 line heights, 4 page-padding conventions. The practical cost is that every fix above has to be applied at dozens of call sites instead of one, and the next screen written will diverge again. Worth recording plainly: the newer production code is the less theme-driven code, and the legacy lab is the better-behaved half.
 
@@ -1333,8 +1333,8 @@ Also worth folding into the same pass, since it is the same mechanism: the 21 `C
 11 findings, 8 high.
 
 
-**HIGH — Location permission denial is a silent dead end with no path to settings**  
-`lib/driver_flow.dart:1458` · permissions  
+**HIGH — Location permission denial is a silent dead end with no path to settings**
+`lib/driver_flow.dart:1458` · permissions
 
 *What goes wrong:* A driver who declines the system dialog, or who declined it on a previous trip and is now in `deniedForever`, gets a bare `return`. No snackbar, no banner, no state change. `_startTrip` (1515) still succeeds, the trip goes IN_PROGRESS, the screen still says "Load in progress" (1686), and the customer's tracking map never moves. The driver believes they are being tracked, the customer believes the driver has not started, and neither finds out until someone phones. On Android, two declines make the denial permanent and there is nothing in this app that can recover it — the driver would have to know to go to Android Settings, Apps, naviG8r, Permissions unaided.
 
@@ -1353,8 +1353,8 @@ On the new token: DriverTheme has only four colours, so `DriverTheme.warning` mu
 One case the fix still leaves open, worth a separate finding rather than bolting on here: `LocationPermission.whileInUse` passes the 1458 guard, but on Android it stops delivering updates once the app is backgrounded. A driver who pockets the phone stops being tracked with the banner showing nothing. That needs `alwaysUse` plus a foreground service, which is an architecture decision, not a copy fix.
 
 
-**HIGH — Live GPS sharing is bound to one screen's lifetime and stops when the driver taps any tab**  
-`lib/driver_flow.dart:1638` · navigation  
+**HIGH — Live GPS sharing is bound to one screen's lifetime and stops when the driver taps any tab**
+`lib/driver_flow.dart:1638` · navigation
 
 *What goes wrong:* Mid-trip, a driver who taps Profile to check earnings, or Shipments to look at the next drop, unmounts the active-trip screen and silently kills GPS sharing. Nothing tells them. Nothing restarts it except navigating back into that exact trip screen. Because there is no foreground-service configuration and no background-location permission, the same thing happens when the driver locks the screen or takes a call — which is most of a driving day. The customer's live track freezes at whatever point the driver last had the screen open, and the app's own copy at 1776 keeps claiming GPS is being shared.
 
@@ -1373,8 +1373,8 @@ One case the fix still leaves open, worth a separate finding rather than bolting
 *Needs a device to confirm.*
 
 
-**HIGH — The driver is told tracking is live only once there is nothing left to deliver**  
-`lib/driver_flow.dart:1773` · glanceability  
+**HIGH — The driver is told tracking is live only once there is nothing left to deliver**
+`lib/driver_flow.dart:1773` · glanceability
 
 *What goes wrong:* The only sentence in the app that tells a driver GPS is being shared appears exactly when there are no active shipments left — that is, after the last delivery, when it no longer matters. Through the entire run, with drops still outstanding, the screen shows no tracking state at all. Combined with the silent permission failure above, a driver has no way at any point to answer the one question that matters mid-trip: is the customer seeing me right now? It is also a 12px muted string at the bottom of a scrolling list, which is not something a driver reads at a traffic light.
 
@@ -1391,8 +1391,8 @@ One case the fix still leaves open, worth a separate finding rather than bolting
 Copy: keep "Location off — customer cannot see you" for the blocked state, which is accurate and not confirmshaming. For the success state prefer "Customer can see your location" over "Sharing location" — it names the consequence the driver is actually asking about. Navy #122C53 on white clears WCAG AA at 14px.
 
 
-**HIGH — Device location services being off is never checked, and the resulting errors are swallowed**  
-`lib/driver_flow.dart:1459` · error-state  
+**HIGH — Device location services being off is never checked, and the resulting errors are swallowed**
+`lib/driver_flow.dart:1459` · error-state
 
 *What goes wrong:* Location permission granted but the phone's location toggle switched off — extremely common on a mid-range Android where drivers turn it off to save battery — is a completely different failure from a denied permission, and it produces exactly the same nothing. `getCurrentPosition()` throws `LocationServiceDisabledException`, which `catch (_) {}` at 1462 discards. The position stream then also errors, and with no `onError` that error escapes to the zone rather than reaching any UI. The driver sees a map with no truck on it and, if the lane happens to geocode, not even the placeholder hint at 1674. The fix is one toggle away but the app never says so.
 
@@ -1417,8 +1417,8 @@ Placement: inside the `ListView` at driver_flow.dart:1676, above the status `Tex
 One scope note the finding should carry: the denied-permission branch at 1458 is a bare `return` with no UI either. If the banner is built for services-off and permission-denied still fails silently, the driver gets the same blank map for the other half of the cases. Reuse the same banner with the copy "Allow location access so the customer can see this load moving." and `Geolocator.openAppSettings()`, driven by a second value on the same field rather than a second banner.
 
 
-**HIGH — The POD screen never says which delivery it is confirming**  
-`lib/driver_flow.dart:1846` · money-path  
+**HIGH — The POD screen never says which delivery it is confirming**
+`lib/driver_flow.dart:1846` · money-path
 
 *What goes wrong:* A load can carry several shipments — the active-trip screen maps over `_shipments` at 1753 — and the driver reaches this screen by tapping a `TextButton` labelled "Confirm delivery" (1765) in a card row. Once the screen opens, every identifying detail is gone: no customer name, no drop address, no weight, no amount. A driver with three drops on one lane, confirming the second one at a loading dock in the rain, has no way to check they are about to file POD against the right shipment. This is an irreversible POST (1825) on the money path and there is no confirmation step anywhere in driver_flow.dart (`showDialog` appears zero times in the file).
 
@@ -1435,8 +1435,8 @@ Leave the button label at 1863 short. "Confirm delivery" is the right change —
 Separately, and worth raising as its own finding rather than folding in here: 1825-1830 posts irreversibly with no confirmation, and grep confirms showDialog appears zero times in the file.
 
 
-**HIGH — Developer error strings, including dart-define flags, are shown to drivers when a money action fails**  
-`lib/pilot_api.dart:74` · error-state  
+**HIGH — Developer error strings, including dart-define flags, are shown to drivers when a money action fails**
+`lib/pilot_api.dart:74` · error-state
 
 *What goes wrong:* A driver on a highway with two bars taps "Confirm POD", the request times out, and a SnackBar tells them to run with `--dart-define=API_BASE_URL=http://10.0.2.2:3000`. Or the server 500s and they get `HTTP 500: {"error":"internal"}` as a raw JSON blob in a four-second SnackBar. There is no indication of whether the POD was filed, no retry, and nothing actionable. For a user who may not be a first-language English reader, the message is worse than no message: it looks like the app broke in a way they caused.
 
@@ -1451,8 +1451,8 @@ Separately, and worth raising as its own finding rather than folding in here: 18
 The inline-error-row-plus-"Try again" change to the POD screen is sound and needs a new `String? _error` field on `_DriverPodScreenState` (the class currently holds only `_notes` and `_busy`), rendered between the notes field and the Spacer so it sits above the FilledButton as proposed.
 
 
-**HIGH — Publishing a lane requires typing an ISO-8601 timestamp and an enum by hand**  
-`lib/driver_flow.dart:2226` · form-ux  
+**HIGH — Publishing a lane requires typing an ISO-8601 timestamp and an enum by hand**
+`lib/driver_flow.dart:2226` · form-ux
 
 *What goes wrong:* An owner-operator publishing tomorrow's Gurugram-Jaipur lane from the cab has to hand-edit `2026-09-15T00:00:00+05:30` on a phone keyboard, and type `MEDIUM` in capitals into a free-text box or the submit is rejected at 2157 with "vehicleClass must be SMALL, MEDIUM, or LARGE." — an error message that names an API field. Realistically this is not completable one-handed, and the only path that works is accepting whatever `defaultAnchorTripWindow` prefilled, which means the pickup window is almost always wrong. The same free-text enum blocks a driver from correcting their own vehicle class on the Profile screen (1373).
 
@@ -1471,8 +1471,8 @@ The inline-error-row-plus-"Try again" change to the POD screen is sound and need
 6. Drop "which means the pickup window is almost always wrong" from the impact claim. defaultAnchorTripWindow (pilot_api.dart:138-148) sets today 00:00 IST to end of tomorrow IST, which does cover a lane running tomorrow. Whether drivers need a narrower window cannot be settled from source.
 
 
-**HIGH — The muted text token fails WCAG AA on the app background, and error text fails badly**  
-`lib/driver_theme.dart:8` · contrast  
+**HIGH — The muted text token fails WCAG AA on the app background, and error text fails badly**
+`lib/driver_theme.dart:8` · contrast
 
 *What goes wrong:* `DriverTheme.muted` carries nearly every secondary string in the driver app, and it is applied at 11px, 12px and 13px — the pickup window on each load card (1149, 11px), the trip status line (1692, 13px), the earnings tile labels (1955, 12px), the filter group headers (1022, 1047, 12px). Indoors this is marginal. In a truck cab at midday with a phone at arm's length it is the layer of the interface that carries the times, the weights and the status, and it is the layer that disappears first. The error text is worse: at 3.43:1 the message telling a driver their POD failed is the least legible text on the screen.
 
@@ -1489,8 +1489,8 @@ The inline-error-row-plus-"Try again" change to the POD screen is sound and need
 On severity: high is carried by the error red, not by muted. Colors.red at 3.42:1 on a POD or payment failure message is a wide miss on a money path. The muted token misses by 0.07 (4.43 against a 4.5 floor) — on its own that is medium. Keep high, but attribute it to the error text.
 
 
-**MEDIUM — The mid-trip primary action is the last child of a list that grows with every shipment**  
-`lib/driver_flow.dart:1780` · touch-target  
+**MEDIUM — The mid-trip primary action is the last child of a list that grows with every shipment**
+`lib/driver_flow.dart:1780` · touch-target
 
 *What goes wrong:* "Mark arrived / POD" is the one thing a driver does on this screen once the load is moving, and it is below a 220px map, four status paragraphs, and one card per shipment. With three drops on a lane it is off-screen on arrival and has to be scrolled to — one-handed, parked at a dock. The "Complete load" button (1729), which the driver presses once per trip, sits far above it. The label itself is a slash-composite of a jargon acronym and an instruction, which is two things to parse at the moment the driver is least able to parse anything.
 
@@ -1531,8 +1531,8 @@ Do NOT "leave Complete load at 1729 in the scrolling list" as the finding propos
 6. Leave the GPS note at 1773-1778 in the list. It is the `!_hasActiveShipments` branch and is informational, not an action.
 
 
-**MEDIUM — The bottom nav is live and unauthenticated on the landing screen, and dead-ends in an API error**  
-`lib/driver_flow.dart:2269` · navigation  
+**MEDIUM — The bottom nav is live and unauthenticated on the landing screen, and dead-ends in an API error**
+`lib/driver_flow.dart:2269` · navigation
 
 *What goes wrong:* A driver's very first screen on Android shows a five-tab bar under a sign-in menu. The natural first tap is a tab, not one of the five stacked buttons above it. That tap fires an authenticated API call with no token and paints `HTTP 401: {...}` in red on the Shipments screen, with no sign-in prompt and no way back except the Home tab. It is the first impression the app makes, and it is a failure the driver did not cause.
 
@@ -1549,8 +1549,8 @@ Concretely:
 4. If a route guard is still wanted later, it needs a startup `await DriverSession.refresh()` before runApp (with a loading route while it is in flight) so hasCarrierOrg means "no session" rather than "not asked yet". That is an architecture change, not a one-line addition, and should be a separate decision.
 
 
-**MEDIUM — A returning signed-in driver gets the full sign-in menu every launch**  
-`lib/driver_flow.dart:151` · empty-state  
+**MEDIUM — A returning signed-in driver gets the full sign-in menu every launch**
+`lib/driver_flow.dart:151` · empty-state
 
 *What goes wrong:* The token survives app restarts, so the driver is still signed in — but the screen cannot know that because it never asks. Every single launch, a driver who has been using the app for weeks is shown five options and has to work out that the third one, an outlined button reading "Continue as signed-in driver", is the one that applies to them. The primary-weighted button on the screen is "Sign in with phone", which is the wrong action for every returning user. If they press the third one and the network is patchy, `refresh()` returns false (driver_session.dart:85-87) and they get "Sign in first, or complete carrier registration." (190) — telling a signed-in driver they are not signed in.
 
@@ -1570,8 +1570,8 @@ Also: "Not {carrierOrgName}?" reads oddly — `carrierOrgName` (driver_session.d
 12 findings, 11 high.
 
 
-**HIGH — Every driver-facing error is a raw HTTP body or a build instruction**  
-`apps/driver_pilot/lib/driver_flow.dart:1839` · error-state  
+**HIGH — Every driver-facing error is a raw HTTP body or a build instruction**
+`apps/driver_pilot/lib/driver_flow.dart:1839` · error-state
 
 *What goes wrong:* A driver whose delivery confirmation fails — the step that captures payment — is told `HTTP 500: {error: membership_not_found}` or told to redeploy an API with CORS enabled. They cannot tell whether the delivery was recorded, whether to retry, or whether they just lost the payment. On patchy connectivity this is the most-seen screen state in the app.
 
@@ -1591,8 +1591,8 @@ Also: "Not {carrierOrgName}?" reads oddly — `carrierOrgName` (driver_session.d
 The structural half of the fix is sound and should ship as proposed: add `driverErrorMessage(Object e)` beside formatApiError in pilot_api.dart, swap it into the SnackBar and `_error` sites in driver_flow.dart and customer_flow.dart, and leave formatApiError for the main.dart lab (10 call sites) where the CORS and --dart-define strings are addressed to a developer and are genuinely useful. Log the raw formatApiError output to console at each swapped site so field debugging does not lose the status code.
 
 
-**HIGH — One object, four names: anchor trip, trip, load, lane**  
-`apps/driver_pilot/lib/driver_flow.dart:986` · terminology  
+**HIGH — One object, four names: anchor trip, trip, load, lane**
+`apps/driver_pilot/lib/driver_flow.dart:986` · terminology
 
 *What goes wrong:* In Indian trucking a 'load' is the cargo you carry. This app puts published routes under a tab called 'Loads' and the actual cargo under 'Shipments', which inverts the driver's own vocabulary — so a driver looking for the goods they must accept goes to the wrong tab. 'Anchor' is internal data-model vocabulary with no meaning to a driver, and 'lane' is dispatcher English.
 
@@ -1611,8 +1611,8 @@ The structural half of the fix is sound and should ship as proposed: add `driver
 6. Keep the route paths as they are. `/driver/loads` appears at lines 56, 74, 187, 327, 1739, 2177 and 2284 and is a deep-link contract; renaming display strings without touching paths is the right call and the fix already does that. Same for the Dart identifiers DriverLoadsScreen, `_loadsSummary`, `canCompleteLoad`, `_completeLoad`, `defaultAnchorTripWindow` — renaming those is optional cleanup, not part of the user-facing fix, and mixing it in makes the diff harder to review.
 
 
-**HIGH — The action that captures payment has three different labels and an unexplained acronym**  
-`apps/driver_pilot/lib/driver_flow.dart:1789` · button-label  
+**HIGH — The action that captures payment has three different labels and an unexplained acronym**
+`apps/driver_pilot/lib/driver_flow.dart:1789` · button-label
 
 *What goes wrong:* This is the step that releases the driver's money. A driver who learned the flow from the shipment list sees 'Confirm delivery', then from the active trip screen sees 'Mark arrived / POD' — a slash construction naming two different things — and on the final screen 'Confirm POD'. 'POD' is never expanded next to the button, and a non-first-language English reader has no way to decode it.
 
@@ -1631,8 +1631,8 @@ The structural half of the fix is sound and should ship as proposed: add `driver
 5. Same concern, one line the finding missed: driver_flow.dart:2088 reads `const Text("No payout batches yet. Complete POD on shipments and wait for batch settlement."),` — a bare "POD" on the payout-history screen, far from any expansion. Change to "Complete delivery confirmation on shipments and wait for batch settlement."
 
 
-**HIGH — Payout history shows a raw epoch timestamp and ledger jargon instead of a date**  
-`apps/driver_pilot/lib/driver_flow.dart:2093` · money-copy  
+**HIGH — Payout history shows a raw epoch timestamp and ledger jargon instead of a date**
+`apps/driver_pilot/lib/driver_flow.dart:2093` · money-copy
 
 *What goes wrong:* A carrier owner checking whether last week's money arrived reads 'Cutoff 1757894400000 · 3 lines'. The one screen whose whole job is to answer 'was I paid, and for what' answers in milliseconds since 1970 and an accounting word. There is no date anywhere on the row.
 
@@ -1649,8 +1649,8 @@ The mechanical part of the fix is sound. `formatIstDate` does belong beside `for
 The empty-state rewrite at line 2088 is sound as proposed and needs no correction.
 
 
-**HIGH — The landing screen promises payment after "cooling-off", a term used once and never defined**  
-`apps/driver_pilot/lib/driver_flow.dart:168` · money-copy  
+**HIGH — The landing screen promises payment after "cooling-off", a term used once and never defined**
+`apps/driver_pilot/lib/driver_flow.dart:168` · money-copy
 
 *What goes wrong:* This is the first and often only sentence a driver reads before deciding to sign up, and it is the app's only statement about when they get paid. 'Cooling-off' is legal-contract English; a driver cannot tell whether it means one day or one month, and no later screen tells them. The earnings screen then says the money 'sits on the platform ledger' with no timeframe either.
 
@@ -1676,8 +1676,8 @@ Same string on the payout history empty state, driver_flow.dart:2088, which curr
 Cross-check before implementing: I verified the 7-day hold and Wednesday 18:00 IST cutoff in source, but I have not verified that this is the policy the business has actually committed to pilot carriers. Confirm with the product owner that code matches policy before this number goes in front of a driver.
 
 
-**HIGH — "Ops" is the named gatekeeper of the driver's money**  
-`apps/driver_pilot/lib/driver_flow.dart:865` · jargon  
+**HIGH — "Ops" is the named gatekeeper of the driver's money**
+`apps/driver_pilot/lib/driver_flow.dart:865` · jargon
 
 *What goes wrong:* 'Ops' is internal team shorthand. A truck driver or owner-operator reading 'Awaiting ops payment release' has no referent for it — it is not a person, a company name, or a process they can chase. It appears on exactly the screens where the driver is waiting for money, so it is the word standing between them and knowing who to call.
 
@@ -1694,8 +1694,8 @@ Also add the instance the finding missed. driver_flow.dart:1853 is the standing 
 One further note on the 1768 rewrite: "Being checked" as a bare ListTile trailing loses the money referent entirely — the row's subtitle at driver_flow.dart:1759 shows the net amount, so the trailing is the only thing saying what is pending. Prefer `const Text("Payment check", ...)` or `const Text("Payment pending", ...)`, keeping the existing `style: TextStyle(fontSize: 12, color: DriverTheme.muted)`. Note DriverTheme.muted (#64748B) on the card surface should be contrast-checked at 12sp regardless; that is a separate finding, not this one.
 
 
-**HIGH — A driver-facing error tells the user to merge a pull request**  
-`apps/driver_pilot/lib/driver_flow.dart:1587` · developer-string-leak  
+**HIGH — A driver-facing error tells the user to merge a pull request**
+`apps/driver_pilot/lib/driver_flow.dart:1587` · developer-string-leak
 
 *What goes wrong:* A driver on an active trip whose booking list fails to load is shown a raw HTTP error followed by an instruction to merge a named pull request. It is unactionable, it leaks internal branch names, and it reads as if the app is broken beyond recovery — which may cause the driver to abandon a trip that is actually fine.
 
@@ -1715,8 +1715,8 @@ Either way, move the deploy note to `debugPrint("shipments fetch failed: $msg")`
 Two adjacent notes, out of scope for this finding but touching the same lines: `Colors.red` (#F44336) at 1681 on the #F4F7FA background is about 3.7:1, under WCAG AA 4.5:1 for body text, and the theme has no error token; and because the assignment at 1586 only writes when `_error == null`, a trip-fetch error at 1565 suppresses the shipments error entirely, so the driver sees one of two failures, never both.
 
 
-**HIGH — "Debug OTP" and a "Challenge id" field sit on the driver's real sign-in screen**  
-`apps/driver_pilot/lib/driver_flow.dart:363` · developer-string-leak  
+**HIGH — "Debug OTP" and a "Challenge id" field sit on the driver's real sign-in screen**
+`apps/driver_pilot/lib/driver_flow.dart:363` · developer-string-leak
 
 *What goes wrong:* A pilot driver verifying their phone sees a field labelled 'Challenge id' holding an opaque string they did not type and cannot understand. It is editable: clearing or altering it makes verification fail with a raw HTTP error, and nothing on screen tells them how to recover. 'Debug OTP' above it announces that the app is in a test mode, which undermines trust on the screen that guards their account.
 
@@ -1732,8 +1732,8 @@ Corrected fix for driver_flow.dart:
 For customer_flow.dart: apply the same flag to the 430-432 block and to the `_debugCode = dc;` assignment at 361 plus whatever autofill accompanies it. Note that this screen is the customer web login and has no "Challenge id" field, so only the label and autofill change there.
 
 
-**HIGH — The Publish screen labels its inputs with raw API field names**  
-`apps/driver_pilot/lib/driver_flow.dart:2226` · form-copy  
+**HIGH — The Publish screen labels its inputs with raw API field names**
+`apps/driver_pilot/lib/driver_flow.dart:2226` · form-copy
 
 *What goes wrong:* Publishing a trip is one of the two things a carrier owner comes to this app to do, and the form asks them for 'windowStart (ISO)', 'capacityKg' and a pipe-delimited enum. A camelCase identifier is not readable as English at all to a non-first-language reader, and the ISO datetime field invites a format error whose only feedback is another camelCase string.
 
@@ -1748,8 +1748,8 @@ For customer_flow.dart: apply the same flag to the 430-432 block and to the `_de
 With a dropdown in place, the 2158 branch becomes unreachable for empty-state only; keep a "Choose a truck size." message for the unselected case rather than deleting the check.
 
 
-**HIGH — Customer sees "Estimated price" then a button that charges a figure from a different API call**  
-`apps/driver_pilot/lib/customer_flow.dart:1732` · money-copy  
+**HIGH — Customer sees "Estimated price" then a button that charges a figure from a different API call**
+`apps/driver_pilot/lib/customer_flow.dart:1732` · money-copy
 
 *What goes wrong:* The customer reads a number labelled 'Estimated', taps a button that says it will pay, and the Razorpay sheet opens with a figure the screen never displayed. There is also no line for GST, platform fee or any surcharge on the same screen as the headline number, so the customer cannot tell what the total includes.
 
@@ -1767,8 +1767,8 @@ With a dropdown in place, the 2158 branch becomes unreachable for empty-state on
 4. Copy: relabel line 1732 from "Estimated price" to "Price for this shipment", and put a plain line under the total before the button: "This is the amount you pay now." That is accurate — `payment.amountPaise = grossPaise` at services.ts:1591 from the same pure function — once the three divergence paths above are closed. Keep "Book & pay" as the button label.
 
 
-**HIGH — Every string is a hard-coded English literal with no localization layer**  
-`apps/driver_pilot/lib/main.dart:102` · accessibility  
+**HIGH — Every string is a hard-coded English literal with no localization layer**
+`apps/driver_pilot/lib/main.dart:102` · accessibility
 
 *What goes wrong:* The Android app targets truck drivers and owner-operators in India who may not read English, and the money path — confirm delivery, payout setup, earnings — is English-only with no path to a second language. Separately, because the strings are inline rather than in a table, there is nothing to hand a translator; the cost of adding Hindi or a regional language grows with every screen added.
 
@@ -1785,8 +1785,8 @@ Hole in the fix: an ARB file does not reach the error text these screens actuall
 Keep the finding's last sentence as written: record the English-only decision explicitly rather than letting it stand as a default.
 
 
-**MEDIUM — Payout setup copy is written from the platform's point of view, not the driver's**  
-`apps/driver_pilot/lib/driver_pilot_placeholder:2018` · money-copy  
+**MEDIUM — Payout setup copy is written from the platform's point of view, not the driver's**
+`apps/driver_pilot/lib/driver_pilot_placeholder:2018` · money-copy
 
 *What goes wrong:* 'Collect once' is an instruction to whoever built the form, not to the driver entering their bank details — read as an imperative it tells the driver to collect something. 'Your payment provider' is wrong from the driver's side: the driver does not have one, NaviG8r does. 'Real transfers' implies there are fake ones, leaking the pilot context onto a bank-details screen. 'Save and verify' promises verification that the screen does not perform — it pushes to payout history (line 2002).
 
@@ -1806,8 +1806,8 @@ Keep the finding's last sentence as written: record the English-only decision ex
 11 findings, 5 high.
 
 
-**HIGH — Payout setup asks for a bank account number that the default backend mode throws away, then reports it as on file**  
-`apps/driver_pilot/lib/driver_flow.dart:2029` · data-minimisation  
+**HIGH — Payout setup asks for a bank account number that the default backend mode throws away, then reports it as on file**
+`apps/driver_pilot/lib/driver_flow.dart:2029` · data-minimisation
 
 *What goes wrong:* On the two environments a pilot carrier will actually use, the app collects a live bank account number over the network for a feature that cannot use it, discards it, says it was received for verification, and then tells the carrier their payout method is on file. The carrier believes they are set up to be paid when no account exists anywhere, and no verification of any kind has run.
 
@@ -1822,8 +1822,8 @@ Keep the finding's last sentence as written: record the English-only decision ex
 Everything else in the fix stands: remove the field in BOOKKEEPING with body copy "Bank details are collected when real transfers are switched on for your carrier."; rename the button at 2037 from "Save and verify" to "Save payout details" since nothing is verified; and replace the driver_flow.dart:1388 ternary with a three-way subtitle — "Bank account registered" only when payoutFundAccountId is present, "Details submitted, not yet verified" for SUBMITTED, "Set up before first transfer" otherwise. Also update the body copy at driver_flow.dart:2018 ("Collect once before your first transfer. KYC may be required by your payment provider."), which makes the same implicit promise the button did.
 
 
-**HIGH — No screen anywhere tells the carrier when the money actually arrives**  
-`apps/driver_pilot/lib/driver_flow.dart:168` · money-disclosure  
+**HIGH — No screen anywhere tells the carrier when the money actually arrives**
+`apps/driver_pilot/lib/driver_flow.dart:168` · money-disclosure
 
 *What goes wrong:* An owner-operator financing diesel cannot plan. Delivery to bank is 7 calendar days from the POD date and then the next Wednesday 18:00 IST batch - between 7 and 13 days, plus an ops release step with no stated SLA. "Cooling-off" and "batch settlement" are terms a pilot driver in India has no way to convert into a date, and the app never gives one even though the API returns the exact instant per shipment (Shipment.payoutBatchCutoffUtcMs, types.ts:187).
 
@@ -1842,8 +1842,8 @@ Everything else in the fix stands: remove the field in BOOKKEEPING with body cop
 3. Add a third change the finding missed: driver_flow.dart:2093 prints a raw epoch integer. Replace `"Cutoff ${b["cutoffUtcMs"]} · ..."` with the same formatIstDateFromUtcMs helper and a plain label, e.g. "Paid in the batch of 17 Sep 2026 · 3 lines".
 
 
-**HIGH — Earnings screen silently shows zero rupees when the request fails**  
-`apps/driver_pilot/lib/driver_flow.dart:1888` · error-state  
+**HIGH — Earnings screen silently shows zero rupees when the request fails**
+`apps/driver_pilot/lib/driver_flow.dart:1888` · error-state
 
 *What goes wrong:* On patchy connectivity beside a truck - the normal case for this user - a failed fetch is presented as the truthful answer "Pending 0, Paid out 0" and "No payout batches yet". A carrier is told they are owed nothing and have been paid nothing when the app simply could not reach the API. There is no error text, no retry, and no pull-to-refresh on either screen.
 
@@ -1858,8 +1858,8 @@ Everything else in the fix stands: remove the field in BOOKKEEPING with body cop
 4. Also gate the KYC card, not just the tiles. Line 1905 falls back to `DriverSession.kycStatus ?? "NOT_STARTED"`, so a failed load shows the "No bank details required at signup" NOT_STARTED message to a carrier who may already be verified. When `_error != null`, render the error card in place of the tiles and the KYC card together.
 
 
-**HIGH — "Pending (accrued)" excludes every delivery waiting on ops, so a carrier who has delivered sees zero owed**  
-`apps/driver_pilot/lib/driver_flow.dart:1914` · money-disclosure  
+**HIGH — "Pending (accrued)" excludes every delivery waiting on ops, so a carrier who has delivered sees zero owed**
+`apps/driver_pilot/lib/driver_flow.dart:1914` · money-disclosure
 
 *What goes wrong:* A carrier can deliver five loads, submit POD on all five, and open Earnings to see "Pending (accrued) ₹0". The money exists and is owed, but it does not appear in any total until a human at ops presses release. The label "Pending" is exactly the word a carrier reads as "what I am owed", so the screen reads as a denial of the debt rather than a status of the paperwork.
 
@@ -1874,8 +1874,8 @@ Everything else in the fix stands: remove the field in BOOKKEEPING with body cop
 The explanatory copy is fine and is not a dark pattern, but drop any implied date for the ops-release bucket: a PENDING_RELEASE shipment has no payoutBatchCutoffUtcMs yet, since that is assigned in finalizeDeliveredShipment (services.ts:1651, 1676). "Both are money you have earned. The difference is which step it is on." is accurate; anything naming a payout date for the first tile is not.
 
 
-**HIGH — Payout history row shows the whole batch total across all carriers as if it were this carrier's payment**  
-`apps/driver_pilot/lib/driver_flow.dart:2092` · money-disclosure  
+**HIGH — Payout history row shows the whole batch total across all carriers as if it were this carrier's payment**
+`apps/driver_pilot/lib/driver_flow.dart:2092` · money-disclosure
 
 *What goes wrong:* Once more than one carrier settles in the same weekly batch, every carrier sees the platform-wide total presented as their payout, and a line count that includes other carriers' loads. It will look correct in a single-carrier pilot and silently become wrong at the moment the pilot grows. Alongside it, "Cutoff 1770000000000" is a raw epoch millisecond value shown to a truck driver, and a carrier whose transfer was skipped for a missing bank account sees no row and no explanation at all.
 
@@ -1892,8 +1892,8 @@ The explanatory copy is fine and is not a dark pattern, but drop any implied dat
 The rest of the fix stands: title from the matching transfer's `netToCarrierPaise`, count from that transfer's `lineIds.length`, and PROCESSING / FAILED / SKIPPED_NO_FUND_ACCOUNT mapped to the plain-language strings given.
 
 
-**MEDIUM — The 10% platform commission is never shown to the carrier, only the post-deduction figure**  
-`apps/driver_pilot/lib/driver_flow.dart:850` · hidden-costs  
+**MEDIUM — The 10% platform commission is never shown to the carrier, only the post-deduction figure**
+`apps/driver_pilot/lib/driver_flow.dart:850` · hidden-costs
 
 *What goes wrong:* The carrier is shown what they receive but never what the customer paid or what was deducted, and the word "net" is left to carry the whole explanation - to a reader whose first language may not be English. The house rule is that fees appear on the same screen as the headline number; here the fee is in the payload and is simply not rendered, so a carrier cannot check the platform's arithmetic on their own earnings.
 
@@ -1906,8 +1906,8 @@ The rest of the fix stands: title from the matching transfer's `netToCarrierPais
 Otherwise implement as proposed: on DriverShipmentDetailScreen replace line 850 with one Card holding "Customer paid" / "Platform commission −" / a FontWeight.w700 "You get", using DriverTheme.muted for the first two labels and DriverTheme.navy for the total. The figures always reconcile exactly, because services.ts:143 computes net as `grossPaise - commissionPaise` by subtraction rather than a second floor, so a carrier checking the arithmetic will never see a rounding discrepancy. The list change at 1759 to "You get ₹X of ₹Y" is good and fits the dense-layout house preference; apply the same null gate there and keep the existing "net" wording when gross is unavailable.
 
 
-**MEDIUM — "Invite driver" adds a person to the carrier org immediately, with no invitation and no notification**  
-`apps/driver_pilot/lib/driver_flow.dart:615` · misleading-framing  
+**MEDIUM — "Invite driver" adds a person to the carrier org immediately, with no invitation and no notification**
+`apps/driver_pilot/lib/driver_flow.dart:615` · misleading-framing
 
 *What goes wrong:* The carrier owner believes an invitation was sent and waits for the driver to accept. The driver is silently attached to an organisation, with a vehicle record created against their user, and learns about it only by opening the app. Nobody is told what actually happened, and the driver was never asked.
 
@@ -1928,8 +1928,8 @@ One addition the proposed fix omits and the code justifies: the screen should te
 Keep the word "Invite" reserved for a future flow that writes a pending record and waits for acceptance, which the current `Membership` type (types.ts:65-70) cannot represent without a new field.
 
 
-**MEDIUM — GPS sharing is disclosed only once there is nothing left to track, and cannot be stopped from the app**  
-`apps/driver_pilot/lib/driver_flow.dart:1776` · consent  
+**MEDIUM — GPS sharing is disclosed only once there is nothing left to track, and cannot be stopped from the app**
+`apps/driver_pilot/lib/driver_flow.dart:1776` · consent
 
 *What goes wrong:* The one sentence explaining that a driver's live position goes to customers renders exactly when it no longer applies, and never while customers are actually watching. The driver sees only the OS location prompt, which says nothing about who receives the data or how often. There is also no in-app control to stop sharing during a break - the only way out is to finish the load or back out of the screen, which is not discoverable as a privacy control.
 
@@ -1948,8 +1948,8 @@ Corrected fix:
 - Leave the snackbar at 936 alone, and consider making 167 and 1252 consistent with the new sentence in a separate copy pass — out of scope for this fix.
 
 
-**MEDIUM — A carrier can create an organisation in two taps but cannot leave it or close the account anywhere in the app**  
-`apps/driver_pilot/lib/driver_flow.dart:1405` · roach-motel  
+**MEDIUM — A carrier can create an organisation in two taps but cannot leave it or close the account anywhere in the app**
+`apps/driver_pilot/lib/driver_flow.dart:1405` · roach-motel
 
 *What goes wrong:* Signing out is fine and easy to find, but a carrier who registered by mistake, or a driver who left the fleet, has no way to remove themselves or their vehicle registration from the platform. Registration is a two-tap commitment; undoing it requires knowing to contact a company they have no contact details for inside the app.
 
@@ -1962,8 +1962,8 @@ Corrected fix:
 The interim shipping advice in the original fix stands and is the part to do first: add a ListTile below Sign out (insert after the block at 1405-1413), leading `Icon(Icons.no_accounts_outlined, color: DriverTheme.navy)`, title `Text("Close my account")`, pushing a screen that states plainly what happens to in-flight loads and unpaid earnings, gives the support phone number and email, and says closure is processed by ops within a stated number of days. Neutral copy, no confirmshaming on the way out.
 
 
-**MEDIUM — Customer booking screen keeps a stale price card and charges without the app showing the amount**  
-`apps/driver_pilot/lib/customer_flow.dart:1723` · bait-and-switch  
+**MEDIUM — Customer booking screen keeps a stale price card and charges without the app showing the amount**
+`apps/driver_pilot/lib/customer_flow.dart:1723` · bait-and-switch
 
 *What goes wrong:* A customer fetches a quote for 200 kg, edits the weight to 800 kg, and the card still shows the 200 kg price while Book & pay authorises the 800 kg amount. The Razorpay sheet does show the true amount, so the charge is not blind, but the app's own number and the charge can disagree at the moment of commitment - and a customer who never taps Get quote is taken to a payment sheet without the app having shown a price at all.
 
@@ -1978,8 +1978,8 @@ The interim shipping advice in the original fix stands and is the part to do fir
 4. Citation hygiene for the writeup: the quote card block is 1723-1741, not 1723-1740, and the `_checkout!.open(...)` call is 1605-1610, not 1608-1613 (1608 is the `amountPaise: amountPaise,` line inside it).
 
 
-**MEDIUM — Developer lab sits in the driver landing button stack and opens forms pre-filled with someone else's identity**  
-`apps/driver_pilot/lib/driver_flow.dart:199` · navigation  
+**MEDIUM — Developer lab sits in the driver landing button stack and opens forms pre-filled with someone else's identity**
+`apps/driver_pilot/lib/driver_flow.dart:199` · navigation
 
 *What goes wrong:* A pilot driver reading down the landing screen finds a fifth tappable option with no warning, and lands in a surface whose first button posts a carrier registration under a phone number and vehicle that are not theirs. Best case they get an error they cannot interpret; worst case they create junk records on the pilot server and believe they have registered.
 
@@ -1991,8 +1991,8 @@ The interim shipping advice in the original fix stands and is the part to do fir
 10 findings, 5 high.
 
 
-**HIGH — Landing shows the same five-button wall to every visitor and never uses the session the app already holds**  
-`apps/driver_pilot/lib/driver_flow.dart:172` · navigation  
+**HIGH — Landing shows the same five-button wall to every visitor and never uses the session the app already holds**
+`apps/driver_pilot/lib/driver_flow.dart:172` · navigation
 
 *What goes wrong:* Every launch, a driver who signed in weeks ago sees five choices and has to work out that the third one — an OutlinedButton with the low-contrast border, ranked below "Register as new carrier" — is the one that gets them to work. A carrier owner registering a business and a driver joining someone else's fleet are given no language that names them; they are given four verbs. In a vehicle, one-handed, that is a guess with a 1-in-4 chance, and the wrong guesses are expensive: "Register as new carrier" creates an organization.
 
@@ -2009,8 +2009,8 @@ The interim shipping advice in the original fix stands and is the part to do fir
 Unchanged and still right: state 2's "Copy my number" as the primary action (it matches the invite field at driver_flow.dart:645), the neutral "Sign out" wired exactly like the existing one at driver_flow.dart:1408-1411 (`api.clearToken(); DriverSession.clear();`), deleting "Continue as signed-in driver", and moving "Developer lab" out of the button stack. Also replace the post-OTP snackbar at driver_flow.dart:329-333, which currently names only "Register as new carrier" and omits the join-a-fleet route that exists at driver_flow.dart:2303 — with state 2 present, drop the snackbar and let `context.go("/driver")` (334) land the user on it.
 
 
-**HIGH — The "Join a carrier fleet" path dead-ends and the app then tells that driver to register a carrier business they should not own**  
-`apps/driver_pilot/lib/driver_flow.dart:331` · navigation  
+**HIGH — The "Join a carrier fleet" path dead-ends and the app then tells that driver to register a carrier business they should not own**
+`apps/driver_pilot/lib/driver_flow.dart:331` · navigation
 
 *What goes wrong:* A driver joining an existing fleet does exactly what the app told them, signs in before their owner has added them, and is instructed to create a new carrier organization. If they follow that instruction they register a second carrier org against their own phone via /v1/pilot/driver/register (driver_flow.dart:421), which their employer does not control and which will then own trips and payouts. The instruction is wrong for the one person it is most likely to be shown to, and it is destructive rather than merely confusing.
 
@@ -2025,8 +2025,8 @@ Unchanged and still right: state 2's "Copy my number" as the primary action (it 
 One claim in the report should be softened before it ships. "Will then own trips and payouts" is a server-side assertion that cannot be checked from Dart. What driver_flow.dart:420-428 shows is that the client posts `orgDisplayName` to /v1/pilot/driver/register and stores the returned id in `lastRegisteredOrgId` (:429-430). Whether the backend even accepts a second org for a phone that already has a user record from /v1/pilot/customer/users/register (:497-500), and what that org ends up owning, is unverified here. Write it as "either a confusing server error or a second carrier org, and which one is unverified from the client source" — the UX defect is the same either way.
 
 
-**HIGH — "Continue as signed-in driver" fires a network call with no pending state behind a 45-second timeout**  
-`apps/driver_pilot/lib/driver_flow.dart:183` · error-state  
+**HIGH — "Continue as signed-in driver" fires a network call with no pending state behind a 45-second timeout**
+`apps/driver_pilot/lib/driver_flow.dart:183` · error-state
 
 *What goes wrong:* On patchy connectivity the driver taps and the screen does nothing at all for up to 45 seconds. They tap again, and again, each tap starting another /v1/pilot/me request; the first one to return wins and may navigate under their finger. This is the single most-tapped control for a returning user, and it is the one with no feedback.
 
@@ -2056,8 +2056,8 @@ with `onPressed: _checking ? null : _continueAsSignedIn`. The `finally` matters 
 2. Fix the failure copy at the same time, or the spinner just makes a misleading message arrive more politely. refresh() returns false for a network timeout and for a genuinely signed-out user alike (driver_session.dart:85-87), so "Sign in first, or complete carrier registration." is wrong half the time. Either have refresh() distinguish the two — return a result that separates "request failed" from "no carrier org" — or, minimally, change the snackbar to copy that does not assert a cause: "Could not check your sign-in. Check your connection and try again, or sign in with your phone." One sentence, no blame, and it stays true in both cases.
 
 
-**HIGH — A network failure is reported to the driver as "Sign in first", because refresh() collapses every error into false**  
-`apps/driver_pilot/lib/driver_session.dart:85` · error-state  
+**HIGH — A network failure is reported to the driver as "Sign in first", because refresh() collapses every error into false**
+`apps/driver_pilot/lib/driver_session.dart:85` · error-state
 
 *What goes wrong:* A driver who is signed in, in a dead zone or with the API cold-starting, is told their account is the problem. The honest message is "we could not reach the server". The wrong message pushes them toward signing in again, or toward "Register as new carrier" — the destructive option — to fix a problem that is a bar of signal.
 
@@ -2098,8 +2098,8 @@ Changing the return type is safe: the other two call sites (driver_flow.dart:324
 Verification note: none of this was compiled or run, since Flutter is not installed on this machine.
 
 
-**HIGH — The signed-out landing sits inside the authenticated shell with all five bottom-nav tabs live**  
-`apps/driver_pilot/lib/driver_flow.dart:2262` · navigation  
+**HIGH — The signed-out landing sits inside the authenticated shell with all five bottom-nav tabs live**
+`apps/driver_pilot/lib/driver_flow.dart:2262` · navigation
 
 *What goes wrong:* The first-time visitor is not choosing between five buttons, they are choosing between ten targets. Four of the bottom tabs require an account that does not exist yet, and the reward for tapping one is an unstyled red API error string such as "HTTP 401: {error: unauthorized}". That is the first impression of the product, and it is also the reason the landing reads as a debug page.
 
@@ -2115,8 +2115,8 @@ Keep the finding's second guard, and make it the copy, not raw error text: in Dr
 Note for the owner: this is a three-file change touching routing and session bootstrap, which is at the "pause and ask before a refactor touching more than three files" line, so it should be agreed before implementation rather than landed as the "one-argument change" the finding describes.
 
 
-**MEDIUM — "Developer lab" is presented as a peer of the real onboarding actions, 8dp from "Join a carrier fleet"**  
-`apps/driver_pilot/lib/driver_flow.dart:199` · navigation  
+**MEDIUM — "Developer lab" is presented as a peer of the real onboarding actions, 8dp from "Join a carrier fleet"**
+`apps/driver_pilot/lib/driver_flow.dart:199` · navigation
 
 *What goes wrong:* A pilot driver reading down the list sees five options of descending prominence and no signal that the last one is not for them. An 8dp gap between two 40dp TextButtons is a realistic mis-tap in a moving vehicle. What they land on is a raw API console with prefilled test data ("Ravi Transport", "HR26AB1234" at main.dart:354-355) and a live register button — they can create junk records from it.
 
@@ -2164,8 +2164,8 @@ Two things the original fix left out that should go in the same change:
 4. Optional but cheap, and it is the part that actually stops the junk record: the prefills at main.dart:354-355 ("Ravi Transport", "HR26AB1234") make the live POST at :380 a single tap from a fresh screen. Either clear them to empty and let the labels at :411-412 carry the meaning, or change them to obviously-not-real values ("SAMPLE ORG", "SAMPLE0000"). Prefer clearing them — an empty field plus the existing 10-digit phone guard at :376 means the form cannot be submitted meaningfully by accident.
 
 
-**MEDIUM — The landing is the only driver screen that is not scrollable, and it uses a Spacer that will collapse before it overflows**  
-`apps/driver_pilot/lib/driver_flow.dart:171` · layout  
+**MEDIUM — The landing is the only driver screen that is not scrollable, and it uses a Spacer that will collapse before it overflows**
+`apps/driver_pilot/lib/driver_flow.dart:171` · layout
 
 *What goes wrong:* Three paragraph lines plus five stacked buttons plus 20dp padding inside a shell that also carries an AppBar and a NavigationBar leaves very little slack on a small mid-range Android screen. Raise the system font scale — common for older owner-operators — and the Spacer goes to zero first, then the Column overflows and Flutter paints the yellow-and-black stripe over the bottom button, which on this screen is a navigation control. The user cannot scroll to recover it.
 
@@ -2187,8 +2187,8 @@ Everything about the overflow threshold stays unverified. No device or emulator 
 *Needs a device to confirm.*
 
 
-**MEDIUM — Landing copy is written for an operations reader, not for a driver, and introduces a term that appears nowhere else**  
-`apps/driver_pilot/lib/driver_flow.dart:166` · copy  
+**MEDIUM — Landing copy is written for an operations reader, not for a driver, and introduces a term that appears nowhere else**
+`apps/driver_pilot/lib/driver_flow.dart:166` · copy
 
 *What goes wrong:* The first sentence a truck driver reads contains an ampersand heading that names two roles without saying which is theirs, the phrase "confirm your carrier organization", and an unexplained "cooling-off" that in context sounds like a delay to their money. For a reader whose first language is not English this is four abstractions before a single actionable word, and none of it helps answer the only question they have: which button is mine.
 
@@ -2203,8 +2203,8 @@ Everything about the overflow threshold stays unverified. No device or emulator 
 Heading "Drivers and carriers" is correct as proposed.
 
 
-**LOW — The app bar on the landing shows a filled avatar circle for a user who is not signed in and cannot be tapped**  
-`apps/driver_pilot/lib/driver_flow.dart:113` · consistency  
+**LOW — The app bar on the landing shows a filled avatar circle for a user who is not signed in and cannot be tapped**
+`apps/driver_pilot/lib/driver_flow.dart:113` · consistency
 
 *What goes wrong:* A solid navy circle in the top-right of a sign-in screen reads as an account or profile button. It does nothing when tapped, and there is no account behind it. It is a small thing, but on the one screen whose whole job is telling a stranger where to go, a decoy control works against that job.
 
@@ -2230,8 +2230,8 @@ Heading "Drivers and carriers" is correct as proposed.
 White on navy #122C53 is roughly 14:1, so the initial clears WCAG AA. Use context.go, not context.push, to match how the bottom nav moves between tab roots (:148). Two things to know: DriverShell is a StatelessWidget reading static mutable DriverSession state, so the avatar only appears once the shell rebuilds — which a route change does, and every sign-in path ends in one (:187) — and the same static-read pattern is already used for the Fleet tile at :1397, so this adds no new coupling. Separately, the signed-out landing still shows the Profile destination in the bottom nav; if the goal is to remove signed-out decoys, pass showBottomNav: false from the ShellRoute builder when the path is exactly "/driver" and the session is empty, and track that as its own change rather than folding it in here.
 
 
-**LOW — The only widget test asserts nav labels the driver landing does not render, so it cannot protect this redesign**  
-`apps/driver_pilot/test/widget_test.dart:9` · test-coverage  
+**LOW — The only widget test asserts nav labels the driver landing does not render, so it cannot protect this redesign**
+`apps/driver_pilot/test/widget_test.dart:9` · test-coverage
 
 *What goes wrong:* No user impact directly. It matters for this work: there is no test standing behind the landing screen, so any of the three redesign options can be built without a regression signal, and whoever builds it should not assume a green suite means the landing still works.
 

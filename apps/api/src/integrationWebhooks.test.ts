@@ -1,12 +1,13 @@
+import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 import { createStore } from "./store.ts";
 import {
   acceptCarrierShipment,
-  bookShipment,
+
   publishAnchorTripAsPilotDriver,
   registerCustomerOrgAdmin,
-  registerSoloOwnerOperatorDriver,
+
 } from "./services.ts";
 import { updateIntegrationConnection } from "./integrationServices.ts";
 import {
@@ -22,7 +23,7 @@ const JAIPUR = { lat: 26.9124, lng: 75.7873, label: "Jaipur" };
 
 function seedShipmentWithWebhook(store: ReturnType<typeof createStore>) {
   process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
-  const driver = registerSoloOwnerOperatorDriver(store, {
+  const driver = registerCompliantCarrier(store, {
     fullName: "Webhook Driver",
     phone: "9876547700",
     orgDisplayName: "Webhook Carrier",
@@ -49,10 +50,9 @@ function seedShipmentWithWebhook(store: ReturnType<typeof createStore>) {
   });
   const conn = updateIntegrationConnection(store, admin.org.id, {
     webhookUrl: "https://erp.example.com/hook",
-    webhookSecret: "whsec_test_secret",
     paymentPolicy: "erp_preauthorized",
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: admin.org.displayName,
     customerOrg: { id: admin.org.id, displayName: admin.org.displayName },

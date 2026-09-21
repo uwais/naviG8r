@@ -1,3 +1,5 @@
+import { authorizationContext } from "./rbac.ts";
+import { randomUUID } from "node:crypto";
 import { createApp } from "./httpServer.ts";
 import { runPayoutBatch } from "./services.ts";
 import { processPendingWebhookDeliveries } from "./integrationWebhooks.ts";
@@ -27,7 +29,7 @@ async function main(): Promise<void> {
   setInterval(() => {
     void (async () => {
       try {
-        const batch = await runPayoutBatch(store, { nowUtcMs: Date.now() });
+        const batch = await authorizationContext.run({ system: true, requestId: randomUUID() }, () => runPayoutBatch(store, { nowUtcMs: Date.now() }));
         if (batch.lineIds.length > 0) {
           await persist();
           // eslint-disable-next-line no-console

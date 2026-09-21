@@ -1,3 +1,4 @@
+import { migrateAuthorization, type Role, type AuditEvent } from "./rbac.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { createStore, type Store } from "./store.ts";
@@ -72,7 +73,7 @@ type StoreJsonV3 = {
   payoutBatches: PayoutBatch[];
 };
 
-type StoreJsonV4 = StoreJsonV3 & {
+type StoreJsonV4 = Omit<StoreJsonV3, "version"> & {
   version: 4;
   integrationConnections: IntegrationConnection[];
   integrationApiKeys: IntegrationApiKey[];
@@ -81,9 +82,13 @@ type StoreJsonV4 = StoreJsonV3 & {
   integrationWebhookDeliveries: IntegrationWebhookDelivery[];
 };
 
-function dumpStore(store: Store): StoreJsonV4 {
+type StoreJsonV5 = Omit<StoreJsonV4, "version"> & { version: 5; membershipRoles: [string, Role[]][]; auditEvents: AuditEvent[] };
+
+export function dumpStore(store: Store): StoreJsonV5 {
   return {
-    version: 4,
+    version: 5,
+    membershipRoles: [...store.membershipRoles],
+    auditEvents: [...store.auditEvents.values()],
     carriers: [...store.carriers.values()],
     organizations: [...store.organizations.values()],
     users: [...store.users.values()],
@@ -142,6 +147,7 @@ function hydrateStoreV4(json: StoreJsonV4): Store {
   for (const l of json.ledgerLines ?? []) store.ledgerLines.set(l.id, l);
   for (const b of json.payoutBatches ?? []) store.payoutBatches.set(b.id, b);
   hydrateIntegrationMaps(store, json);
+  migrateAuthorization(store);
   return store;
 }
 
@@ -206,16 +212,26 @@ function migrateV1ToStore(v1: StoreJsonV1): Store {
     }
   }
 
+  migrateAuthorization(store);
+  return store;
+}
+
+function hydrateStoreV5(json: StoreJsonV5): Store {
+  const store = hydrateStoreV4({ ...json, version: 4 });
+  store.membershipRoles = new Map(json.membershipRoles ?? []);
+  store.auditEvents = new Map((json.auditEvents ?? []).map(e => [e.id, e]));
+  migrateAuthorization(store);
   return store;
 }
 
 export function loadStoreFromDisk(dataFilePath: string): Store {
   try {
     const raw = fs.readFileSync(dataFilePath, "utf8");
-    const parsed = JSON.parse(raw) as StoreJsonV1 | StoreJsonV2 | StoreJsonV3 | StoreJsonV4;
+    const parsed = JSON.parse(raw) as StoreJsonV1 | StoreJsonV2 | StoreJsonV3 | StoreJsonV4 | StoreJsonV5;
     if (parsed?.version === 1) return migrateV1ToStore(parsed);
     if (parsed?.version === 2) return migrateV2JsonToStore(parsed);
     if (parsed?.version === 3) return hydrateStoreV3(parsed);
+    if (parsed?.version === 5) return hydrateStoreV5(parsed);
     if (parsed?.version === 4) return hydrateStoreV4(parsed);
     throw new Error("unsupported_store_version");
   } catch (e: any) {

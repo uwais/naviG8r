@@ -1,3 +1,4 @@
+import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
@@ -5,10 +6,10 @@ import { createStore } from "./store.ts";
 import {
   attachRazorpayOrderForShipment,
   acceptCarrierShipment,
-  bookShipment,
+
   confirmRazorpayCheckoutAuthorization,
   publishAnchorTripAsPilotDriver,
-  registerSoloOwnerOperatorDriver,
+
   submitDriverPod,
 } from "./services.ts";
 
@@ -24,7 +25,7 @@ function checkoutSignature(orderId: string, paymentId: string): string {
 
 test("confirmRazorpayCheckoutAuthorization moves CREATED to AUTHORIZED for driver POD", async (t) => {
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Driver Confirm",
     phone: "9876543210",
     orgDisplayName: "Confirm Transport",
@@ -43,7 +44,7 @@ test("confirmRazorpayCheckoutAuthorization moves CREATED to AUTHORIZED for drive
     capacityKg: 1000,
   });
 
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "Buyer",
     weightKg: 100,

@@ -1,3 +1,5 @@
+import { requirePermission } from "./rbac.ts";
+import { isActiveEntity } from "./softDelete.ts";
 import crypto from "node:crypto";
 import {
   bookShipment,
@@ -45,13 +47,12 @@ function idempotencyStoreKey(orgId: string, key: string): string {
 
 export function assertCustomerOrg(store: Store, orgId: string): void {
   const org = store.organizations.get(orgId);
-  if (!org || org.kind !== "CUSTOMER") throw new Error("integration_org_invalid");
+  if (!org || !isActiveEntity(org) || org.kind !== "CUSTOMER") throw new Error("integration_org_invalid");
 }
 
 export function assertCustomerOrgAdmin(store: Store, orgId: string, userId: string): void {
   assertCustomerOrg(store, orgId);
-  const m = store.memberships.get(`${userId}:${orgId}`);
-  if (!m || m.role !== "CUSTOMER_ADMIN") throw new Error("forbidden");
+  requirePermission(store, "integration.manage", { orgId }, userId);
 }
 
 export function getOrCreateIntegrationConnection(
