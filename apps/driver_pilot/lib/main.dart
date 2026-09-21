@@ -167,9 +167,8 @@ class _DriverPilotAppState extends State<DriverPilotApp>
         pages: [
           MaterialPage<void>(
               child:
-                  OrganizationAccess(child: child ?? const SizedBox.shrink()))
+                OrganizationAccess(child: child ?? const SizedBox.shrink()))
         ],
-        onDidRemovePage: (_) {},
       ),
       title: kIsWeb ? "NaviG8r Customer" : "NaviG8r Driver",
       theme: DriverTheme.theme(),
