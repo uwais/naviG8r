@@ -246,7 +246,7 @@ Widget bookShipmentRouteMap({
     if (hasAnchor)
       Polyline(
         polylineId: const PolylineId("anchor_trip_leg"),
-        points: [anchorOrigin!, anchorDestination!],
+        points: [anchorOrigin, anchorDestination],
         color: const Color(0xFFE65100),
         width: 9,
         startCap: Cap.roundCap,
@@ -268,13 +268,13 @@ Widget bookShipmentRouteMap({
     if (hasAnchor) ...[
       Marker(
         markerId: const MarkerId("book_map_anchor_start"),
-        position: anchorOrigin!,
+        position: anchorOrigin,
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
         infoWindow: const InfoWindow(title: "Anchor trip start"),
       ),
       Marker(
         markerId: const MarkerId("book_map_anchor_end"),
-        position: anchorDestination!,
+        position: anchorDestination,
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
         infoWindow: const InfoWindow(title: "Anchor trip end"),
       ),
@@ -294,7 +294,7 @@ Widget bookShipmentRouteMap({
   };
 
   final allPoints = <LatLng>[
-    if (hasAnchor) ...[anchorOrigin!, anchorDestination!],
+    if (hasAnchor) ...[anchorOrigin, anchorDestination],
     shipmentPickup,
     shipmentDrop,
   ];

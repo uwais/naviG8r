@@ -838,9 +838,7 @@ class _CustomerIntegrationsScreenState
   }
 
   Future<void> _bootstrap() async {
-    if (!CustomerSession.skipRefreshInTests) {
-      await CustomerSession.refresh();
-    }
+    await CustomerSession.refresh();
     if (!mounted) return;
     if (!CustomerSession.isSignedIn) {
       context.go("/customer/login");
