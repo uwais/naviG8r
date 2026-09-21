@@ -203,8 +203,16 @@ export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTr
 export function tripForPublicListing(
   store: Store,
   trip: AnchorTrip,
-): Omit<AnchorTrip, "lastLiveLocation"> & { carrierDisplayName: string } {
-  const { lastLiveLocation: _omit, ...rest } = tripWithCarrierDisplay(store, trip);
+): Omit<AnchorTrip, "lastLiveLocation" | "startedByUserId" | "completedByUserId"> & { carrierDisplayName: string } {
+  // These three never reach an unauthenticated caller. lastLiveLocation is where the
+  // driver is right now; the two user ids are stable per driver, so collecting them
+  // across trips maps which driver runs which lanes without ever needing a token.
+  const {
+    lastLiveLocation: _location,
+    startedByUserId: _startedBy,
+    completedByUserId: _completedBy,
+    ...rest
+  } = tripWithCarrierDisplay(store, trip);
   return rest;
 }
 

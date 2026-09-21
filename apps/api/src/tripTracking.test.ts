@@ -230,17 +230,39 @@ test("tripForPublicListing strips live GPS that unauthenticated browse must not 
     recordedAtUtcMs: 1_700_000_000_000,
   });
 
+  // Written directly: this test covers the projection, not the completion flow, which
+  // would need POD accepted on every shipment first.
+  store.anchorTrips.set(trip.id, {
+    ...store.anchorTrips.get(trip.id)!,
+    completedByUserId: driver.user.id,
+  });
+
   const stored = store.anchorTrips.get(trip.id);
   assert.ok(stored?.lastLiveLocation, "precondition: the driver ping must be stored");
+  assert.ok(stored?.startedByUserId, "precondition: the trip records who started it");
+  assert.ok(stored?.completedByUserId, "precondition: the trip records who completed it");
 
   const authenticated = tripWithCarrierDisplay(store, stored!);
   assert.ok(authenticated.lastLiveLocation, "the authenticated view still carries it");
+  assert.ok(authenticated.startedByUserId, "and still carries the driver ids");
 
-  const publicView = tripForPublicListing(store, stored!);
+  const publicView = tripForPublicListing(store, stored!) as Record<string, unknown>;
   assert.equal(
-    (publicView as Record<string, unknown>).lastLiveLocation,
+    publicView.lastLiveLocation,
     undefined,
     "public browse must not expose the driver's live position",
+  );
+  // Stable per driver, so collecting them across trips maps which driver runs which
+  // lanes. Not location, but it gets you there with no token.
+  assert.equal(
+    publicView.startedByUserId,
+    undefined,
+    "public browse must not expose which user started the trip",
+  );
+  assert.equal(
+    publicView.completedByUserId,
+    undefined,
+    "public browse must not expose which user completed the trip",
   );
   assert.equal(publicView.id, trip.id, "everything else is still present");
   assert.equal(publicView.carrierDisplayName, "Ravi Transport");
