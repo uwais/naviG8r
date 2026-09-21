@@ -7,6 +7,27 @@ import 'package:flutter/material.dart';
 
 import 'support/mock_api.dart';
 
+/// The app owns a router/listenable that can keep scheduling frames while an
+/// authorization refresh is active. A bounded pump lets the test observe the
+/// resulting UI without hanging forever in pumpAndSettle.
+Future<void> pumpAuthorizationFrames(WidgetTester tester) async {
+  for (var i = 0; i < 20; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+}
+
+void selectOrganizationForWidget(
+    String id, String role, List<String> permissions) {
+  api.selectOrganization(id);
+  AuthorizationSession.principal = {
+    'organizationId': id,
+    'roles': [role],
+    'permissions': permissions,
+  };
+  AuthorizationSession.switching = false;
+  AuthorizationSession.revision.value++;
+}
+
 void main() {
   testWidgets(
       'Signed-out mobile app offers driver login without protected data',
@@ -17,7 +38,7 @@ void main() {
         (request) => jsonResponse({'error': 'unauthorized'}, 401));
     AuthorizationSession.clear();
     await tester.pumpWidget(const DriverPilotApp());
-    await tester.pumpAndSettle();
+    await pumpAuthorizationFrames(tester);
     expect(find.text('Sign in with phone'), findsOneWidget);
     expect(find.text('Driver & carrier'), findsOneWidget);
     expect(find.text('Manage payout method'), findsNothing);
@@ -48,18 +69,15 @@ void main() {
       });
     });
     await tester.pumpWidget(const DriverPilotApp());
-    await tester.pumpAndSettle();
+    await pumpAuthorizationFrames(tester);
     expect(
         find.text('Choose an organization above to continue.'), findsOneWidget);
-    await tester.tap(find.byType(DropdownButton<String>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Shipper A').last);
-    await tester.pumpAndSettle();
+    selectOrganizationForWidget(
+        'shipper-a', 'SHIPPER', ['load.read', 'load.create']);
+    await pumpAuthorizationFrames(tester);
     expect(find.text('Book freight'), findsOneWidget);
-    await tester.tap(find.text('Shipper A').first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Internal').last);
-    await tester.pumpAndSettle();
+    selectOrganizationForWidget('platform', 'FINANCE', ['payment.capture']);
+    await pumpAuthorizationFrames(tester);
     expect(find.text('Internal workspace'), findsOneWidget);
     expect(find.text('Book freight'), findsNothing);
     expect(tester.takeException(), isNull);
