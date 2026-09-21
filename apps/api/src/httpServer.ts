@@ -224,9 +224,11 @@ export async function createApp(): Promise<{
     };
   }
 
-  let requests: Promise<unknown> = Promise.resolve();
   const server = http.createServer((req, res) => {
-    requests = requests.then(() => authorizationContext.run(requestContext(), async () => {
+    // Isolate authorization context per request. Do not chain requests: a slow
+    // or incomplete body (or a hung payment-provider call) must not stall health
+    // checks, OTP, tracking, or other callers.
+    void authorizationContext.run(requestContext(), async () => {
     try {
       const method = req.method ?? "GET";
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -1081,7 +1083,7 @@ export async function createApp(): Promise<{
       }
       return json(res, 400, { error: msg });
     }
-  })).catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
+    }).catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
   });
 
   return { server, store, persist, dataFilePath };
