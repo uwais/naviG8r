@@ -48,14 +48,6 @@ abstract final class DriverTheme {
           borderSide: const BorderSide(color: border),
         ),
       ),
-      cardTheme: const CardThemeData(
-        color: Colors.white,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(16)),
-          side: BorderSide(color: border),
-        ),
-      ),
       chipTheme: ChipThemeData(
         side: const BorderSide(color: border),
         labelStyle: const TextStyle(color: navy, fontWeight: FontWeight.w500),
