@@ -180,7 +180,14 @@ class DriverWelcomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    // This column is taller than a short viewport. The Spacer that used to sit here
+    // pushed the buttons to the bottom, but a Spacer cannot go negative: once the
+    // content exceeds the height it collapses to zero and the column overflows.
+    // Adding the shipper signpost made that real - 32 pixels over, caught by the
+    // widget test. Scrolling is the honest fix; the buttons now follow the text
+    // instead of being pinned, which costs nothing on a phone.
+    return SingleChildScrollView(
+        child: Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -198,7 +205,25 @@ class DriverWelcomeScreen extends StatelessWidget {
             "and get paid after proof of delivery and cooling-off.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
-          const Spacer(),
+          const SizedBox(height: 16),
+          // Pilot feedback, 2026-09-12: shippers opened this app, signed in here, and then
+          // reported a load they had posted was "not showing on my login ID". The heading above
+          // tells them this is the wrong app; it does not tell them the right one. There is
+          // deliberately no customer flow on Android, so the address is the only useful answer.
+          // Placed above the buttons on purpose - after them it is read too late.
+          const Text(
+            "Shipping a load?",
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: DriverTheme.navy),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            "This app is for drivers and carriers. Book freight at navig8r.org.",
+            style: TextStyle(color: DriverTheme.mutedOnBackground, height: 1.4),
+          ),
+          const SizedBox(height: 24),
           FilledButton(
             onPressed: () => context.go("/driver/onboarding/phone"),
             child: const Text("Sign in with phone"),
@@ -235,7 +260,7 @@ class DriverWelcomeScreen extends StatelessWidget {
               child: const Text("Developer lab")),
         ],
       ),
-    );
+    ));
   }
 }
 

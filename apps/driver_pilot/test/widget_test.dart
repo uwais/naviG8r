@@ -43,6 +43,29 @@ void main() {
     expect(find.text('Driver & carrier'), findsOneWidget);
     expect(find.text('Manage payout method'), findsNothing);
   });
+
+  // Regression test. The first version of this signpost (PR #109) shipped without one,
+  // and was silently dropped 74 minutes later when a long-running branch was merged and
+  // this file was resolved to the other side. Nothing failed, so nobody noticed.
+  testWidgets(
+      'Signed-out landing tells shippers this is the wrong app and where to go',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    api = Api('http://test');
+    api.dio.httpClientAdapter = MockApiAdapter(
+        (request) => jsonResponse({'error': 'unauthorized'}, 401));
+    AuthorizationSession.clear();
+    await tester.pumpWidget(const DriverPilotApp());
+    await pumpAuthorizationFrames(tester);
+
+    expect(find.text('Shipping a load?'), findsOneWidget,
+        reason: 'shippers need to be told this app is not for them');
+    expect(
+        find.text(
+            'This app is for drivers and carriers. Book freight at navig8r.org.'),
+        findsOneWidget,
+        reason: 'naming the app is not enough - they need the address to go to');
+  });
   testWidgets(
       'App-root organization picker switches shipper and internal workspaces',
       (tester) async {
