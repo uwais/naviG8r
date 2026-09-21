@@ -169,6 +169,7 @@ class _DriverPilotAppState extends State<DriverPilotApp>
               child:
                 OrganizationAccess(child: child ?? const SizedBox.shrink()))
         ],
+        onPopPage: (route, result) => route.didPop(result),
       ),
       title: kIsWeb ? "NaviG8r Customer" : "NaviG8r Driver",
       theme: DriverTheme.theme(),
