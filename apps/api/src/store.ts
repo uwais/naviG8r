@@ -1,3 +1,4 @@
+import type { AuditEvent, Role } from "./rbac.ts";
 import type {
   AnchorTrip,
   AuthSession,
@@ -20,7 +21,9 @@ import type {
 } from "./types.ts";
 
 export type Store = {
-  version: 4;
+  version: 5;
+  membershipRoles: Map<string, Role[]>;
+  auditEvents: Map<string, AuditEvent>;
   carriers: Map<string, Carrier>;
   organizations: Map<string, Organization>;
   users: Map<string, User>;
@@ -43,7 +46,9 @@ export type Store = {
 
 export function createStore(): Store {
   return {
-    version: 4,
+    version: 5,
+    membershipRoles: new Map(),
+    auditEvents: new Map(),
     carriers: new Map(),
     organizations: new Map(),
     users: new Map(),

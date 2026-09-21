@@ -13,12 +13,12 @@ export function publicRazorpayKeyId(): string | undefined {
 
 // Lazy-loaded so Node tests boot without `npm install` under apps/api.
 
-type Razor = InstanceType<Awaited<typeof import("razorpay")>["default"]>;
+type Razor = InstanceType<typeof import("razorpay")>;
 let cachedRzp: Razor | null = null;
 
 async function getRzp(): Promise<Razor> {
   if (cachedRzp) return cachedRzp;
-  let Razorpay: (typeof import("razorpay"))["default"];
+  let Razorpay: typeof import("razorpay");
   try {
     ({ default: Razorpay } = await import("razorpay"));
   } catch {
@@ -61,7 +61,7 @@ export async function razorpayRefundPayment(paymentId: string, amountPaise?: num
   if (amountPaise != null) {
     await rzp.payments.refund(paymentId, { amount: amountPaise });
   } else {
-    await rzp.payments.refund(paymentId);
+    await rzp.payments.refund(paymentId, {});
   }
 }
 

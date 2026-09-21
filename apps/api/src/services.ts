@@ -1,3 +1,5 @@
+import { randomUUID, createHash } from "node:crypto";
+import { authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible } from "./rbac.ts";
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
 import {
   COMMISSION_BPS,
@@ -168,19 +170,12 @@ function getOrgOrThrow(store: Store, orgId: string): Organization {
 }
 
 function assertPilotDriverCanManageOrg(store: Store, userId: string, orgId: string): void {
-  const m = store.memberships.get(membershipKey(userId, orgId));
-  if (!m) throw new Error("membership_not_found");
-  if (m.role !== "OWNER_DRIVER" && m.role !== "OWNER" && m.role !== "DISPATCHER" && m.role !== "DRIVER") {
-    throw new Error("forbidden");
-  }
+  const p = requirePermission(store, "organization.profile.read", { orgId, carrierId: orgId }, userId);
+  if (!p.roles.includes("CARRIER")) throw new AuthorizationError("forbidden");
 }
 
 function assertCarrierCanInviteStaff(store: Store, userId: string, orgId: string): void {
-  const m = store.memberships.get(membershipKey(userId, orgId));
-  if (!m) throw new Error("membership_not_found");
-  if (m.role !== "OWNER_DRIVER" && m.role !== "OWNER" && m.role !== "DISPATCHER") {
-    throw new Error("forbidden");
-  }
+  requirePermission(store, "organization.member.invite", { orgId, carrierId: orgId }, userId);
 }
 
 /** First vehicle provisioned for a carrier org (owner's solo register vehicle). */
@@ -301,14 +296,7 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
  */
 /** All CUSTOMER orgs for this user (stable order). */
 export function customerOrgsForUser(store: Store, userId: string): Organization[] {
-  const matches: Organization[] = [];
-  for (const m of store.memberships.values()) {
-    if (m.userId !== userId) continue;
-    const o = store.organizations.get(m.orgId);
-    if (o?.kind === "CUSTOMER") matches.push(o);
-  }
-  matches.sort((a, b) => a.id.localeCompare(b.id));
-  return matches;
+  try { const p = principalFor(store, userId); return p.roles.includes("SHIPPER") ? [store.organizations.get(p.organizationId)!] : []; } catch { return []; }
 }
 
 /** First CUSTOMER org for this user (stable order if several). Used when booking tags a single org. */
@@ -318,17 +306,12 @@ export function customerPrimaryOrgForUser(store: Store, userId: string): Organiz
 }
 
 function assertCustomerCanInviteMember(store: Store, userId: string, orgId: string): void {
-  const m = store.memberships.get(membershipKey(userId, orgId));
-  if (!m || m.role !== "CUSTOMER_ADMIN") throw new Error("forbidden");
-  const org = store.organizations.get(orgId);
-  if (org?.kind !== "CUSTOMER") throw new Error("org_not_customer");
+  const p = requirePermission(store, "organization.member.invite", { orgId }, userId);
+  if (!p.roles.includes("SHIPPER")) throw new AuthorizationError("forbidden");
 }
 
 export function shipmentBelongsToCustomerOrg(shipment: Shipment, org: Organization): boolean {
-  if (shipment.customerOrgId != null && shipment.customerOrgId !== "") {
-    return shipment.customerOrgId === org.id;
-  }
-  return shipment.customerOrgName === org.displayName;
+  return isActiveEntity(shipment) && isActiveEntity(org) && shipment.customerOrgId === org.id;
 }
 
 const PLATFORM_OPS_ORG_ID = "org_platform_ops";
@@ -364,24 +347,12 @@ function envOpsAdminPhones(): string[] {
  *      Once a DB grant exists for that phone, the env var entry can be removed.
  */
 export function isOpsAdmin(store: Store, userId: string): boolean {
-  const user = store.users.get(userId);
-  if (!user || !isActiveEntity(user)) return false;
-  for (const m of store.memberships.values()) {
-    if (
-      m.userId === userId &&
-      isActiveEntity(m) &&
-      (m.role === "OPS_ADMIN" || m.role === "OPS_AGENT")
-    ) {
-      return true;
-    }
-  }
-  if (envOpsAdminPhones().includes(user.phone)) return true;
-  return false;
+  try { const p = principalFor(store, userId); return p.internal && p.roles.includes("ADMIN"); } catch { return false; }
 }
 
 /** Ops/support agent: platform OPS_AGENT or OPS_ADMIN membership (or env bootstrap). */
 export function isOpsAgent(store: Store, userId: string): boolean {
-  return isOpsAdmin(store, userId);
+  try { const p = principalFor(store, userId); return p.internal && p.roles.includes("OPS"); } catch { return false; }
 }
 
 export function assertOpsAgent(store: Store, userId: string): void {
@@ -413,17 +384,6 @@ export function listOpsAdmins(store: Store): OpsAdminEntry[] {
       createdAtUtcMs: m.createdAtUtcMs,
     });
   }
-  for (const envPhone of envOpsAdminPhones()) {
-    const user = [...store.users.values()].find((u) => u.phone === envPhone);
-    if (!user || seen.has(user.id)) continue;
-    out.push({
-      userId: user.id,
-      phone: user.phone,
-      fullName: user.fullName,
-      source: "ENV",
-      createdAtUtcMs: null,
-    });
-  }
   return out.sort((a, b) => a.phone.localeCompare(b.phone));
 }
 
@@ -439,6 +399,7 @@ function normalizeOpsPhone(raw: string): string {
  * (registered as a customer/driver/operator). Creates the platform-ops org if needed.
  */
 export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdminEntry {
+  requirePermission(store, "user.role_manage");
   const phone = normalizeOpsPhone(params.phone);
   const user = [...store.users.values()].find((u) => u.phone === phone);
   if (!user) {
@@ -465,6 +426,8 @@ export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdmin
     createdAtUtcMs: nowUtcMs(),
   };
   store.memberships.set(key, m);
+  store.membershipRoles.set(key, ["OPS"]);
+  recordAudit(store, "ROLE_ASSIGNED", "membership", key, "ABSENT", "OPS");
   return {
     userId: user.id,
     phone: user.phone,
@@ -483,6 +446,7 @@ export function revokeOpsAdmin(
   store: Store,
   params: { phone: string; actingUserId: string },
 ): { revoked: boolean } {
+  requirePermission(store, "user.role_manage", undefined, params.actingUserId);
   const phone = normalizeOpsPhone(params.phone);
   const user = [...store.users.values()].find((u) => u.phone === phone);
   if (!user) throw new ApiError("user_not_found", {});
@@ -496,13 +460,15 @@ export function revokeOpsAdmin(
   const remainingDb = [...store.memberships.values()].filter(
     (x) => (x.role === "OPS_ADMIN" || x.role === "OPS_AGENT") && x.userId !== user.id,
   ).length;
-  const envCount = envOpsAdminPhones().length;
+  const envCount = 0;
   if (remainingDb + envCount === 0) {
     throw new ApiError("cannot_revoke_last_ops_admin", {
       detail: "At least one ops admin must remain.",
     });
   }
+  store.membershipRoles.set(key, []);
   store.memberships.delete(key);
+  recordAudit(store, "ROLE_REMOVED", "membership", key, "OPS", "REMOVED");
   return { revoked: true };
 }
 
@@ -635,7 +601,7 @@ export function opsDeleteUser(
   store: Store,
   params: { actingUserId: string; userId: string; force?: boolean },
 ): OpsDeleteUserResult {
-  assertOpsAgent(store, params.actingUserId);
+  requirePermission(store, "user.role_manage", undefined, params.actingUserId);
 
   const force = params.force === true;
   const userId = String(params.userId ?? "").trim();
@@ -768,6 +734,7 @@ export function opsDeleteUser(
   }
 
   store.users.set(userId, markInactive(user, at, reason));
+  auditAsUser(store, params.actingUserId, "USER_DEACTIVATED", "user", userId, "ACTIVE", "INACTIVE");
 
   return {
     deactivatedUserId: userId,
@@ -785,18 +752,7 @@ export function opsDeleteUser(
 
 /** List/detail/POD visibility: org-scoped booking, or anonymous booking tied to the same phone as the logged-in user. */
 export function shipmentVisibleToCustomerUser(store: Store, shipment: Shipment, userId: string): boolean {
-  const user = store.users.get(userId);
-  if (!user) return false;
-  for (const org of customerOrgsForUser(store, userId)) {
-    if (shipmentBelongsToCustomerOrg(shipment, org)) return true;
-  }
-  if (shipment.bookedByPhone != null && shipment.bookedByPhone !== "" && shipment.bookedByPhone === user.phone) {
-    return true;
-  }
-  if (shipment.bookedByUserId != null && shipment.bookedByUserId === userId) {
-    return true;
-  }
-  return false;
+  try { const p = principalFor(store, userId); return p.roles.includes("SHIPPER") && visible(p, shipment); } catch { return false; }
 }
 
 export function registerCustomerOrgAdmin(store: Store, params: {
@@ -918,7 +874,8 @@ export function pilotLoginDriverByPhone(store: Store, phone: string): { user: Us
   const user = [...store.users.values()].find((u) => u.phone === p);
   if (!user) throw new Error("user_not_found");
 
-  const memberships = [...store.memberships.values()].filter((m) => m.userId === user.id);
+  const selected = authorizationContext.getStore()?.principal?.organizationId;
+  const memberships = [...store.memberships.values()].filter((m) => m.userId === user.id && isActiveEntity(m) && isActiveEntity(store.organizations.get(m.orgId)) && (!selected || m.orgId === selected));
   if (memberships.length !== 1) throw new Error("ambiguous_membership");
 
   const membership = memberships[0]!;
@@ -940,7 +897,8 @@ export function pilotMe(store: Store, userId: string): {
 } {
   const user = store.users.get(userId);
   if (!user) throw new Error("user_not_found");
-  const memberships = [...store.memberships.values()].filter((m) => m.userId === user.id);
+  const selected = authorizationContext.getStore()?.principal?.organizationId;
+  const memberships = [...store.memberships.values()].filter((m) => m.userId === user.id && isActiveEntity(m) && isActiveEntity(store.organizations.get(m.orgId)) && (!selected || m.orgId === selected));
   const orgs = memberships.map((m) => getOrgOrThrow(store, m.orgId));
   const vehicles = [...store.vehicles.values()].filter((v) => orgs.some((o) => o.id === v.orgId));
   const driverProfile = store.driverProfiles.get(user.id) ?? null;
@@ -962,7 +920,7 @@ export function updatePilotDriverVehicle(
 ): { vehicle: Vehicle; driverProfile: DriverProfile } {
   const profile = store.driverProfiles.get(userId);
   if (!profile) throw new Error("driver_profile_missing");
-  assertPilotDriverCanManageOrg(store, userId, profile.orgId);
+  requirePermission(store, "load.status_update", { carrierId: profile.orgId }, userId);
 
   const vehicle = store.vehicles.get(profile.primaryVehicleId);
   if (!vehicle) throw new Error("vehicle_missing");
@@ -1005,28 +963,18 @@ export function updatePilotDriverVehicle(
  * Anchor trips published under any carrier org the user belongs to (pilot driver context).
  */
 export function pilotListMyAnchorTrips(store: Store, userId: string): AnchorTrip[] {
-  const me = pilotMe(store, userId);
-  const carrierOrgIds = new Set(
-    me.organizations
-      .filter((o) => o.kind === "CARRIER_SOLO" || o.kind === "CARRIER_FLEET" || o.kind === "CARRIER_LEGACY")
-      .map((o) => o.id),
-  );
-  const trips = [...store.anchorTrips.values()].filter((t) => carrierOrgIds.has(t.carrierId));
-  trips.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
-  return trips;
+  const p = principalFor(store, userId);
+  return [...store.anchorTrips.values()].filter(t => visible(p, t)).sort((a,b) => b.createdAtUtcMs - a.createdAtUtcMs);
 }
 
 export function pilotCarrierOrgIds(store: Store, userId: string): string[] {
-  const me = pilotMe(store, userId);
-  return me.organizations
-    .filter((o) => o.kind === "CARRIER_SOLO" || o.kind === "CARRIER_FLEET" || o.kind === "CARRIER_LEGACY")
-    .map((o) => o.id);
+  try { const p = principalFor(store, userId); return p.roles.includes("CARRIER") ? [p.organizationId] : []; } catch { return []; }
 }
 
 /** Driver can act on shipments for orgs they belong to as carrier staff. */
 export function shipmentVisibleToCarrierPilot(store: Store, shipment: Shipment, userId: string): boolean {
   const ids = new Set(pilotCarrierOrgIds(store, userId));
-  return ids.has(shipment.carrierId);
+  return isActiveEntity(shipment) && ids.has(shipment.carrierId);
 }
 
 export function pilotListCarrierShipments(
@@ -1035,7 +983,7 @@ export function pilotListCarrierShipments(
   params?: { anchorTripId?: string },
 ): Shipment[] {
   const ids = new Set(pilotCarrierOrgIds(store, userId));
-  let list = [...store.shipments.values()].filter((s) => ids.has(s.carrierId));
+  let list = [...store.shipments.values()].filter((s) => isActiveEntity(s) && ids.has(s.carrierId));
   const tripId = params?.anchorTripId?.trim();
   if (tripId) list = list.filter((s) => s.anchorTripId === tripId);
   list.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
@@ -1073,7 +1021,7 @@ export async function pilotSubmitPayoutSetup(
   userId: string,
   params: { orgId: string; accountHolderName: string; ifsc: string; accountNumber?: string },
 ): Promise<{ org: Organization; message: string }> {
-  assertPilotDriverCanManageOrg(store, userId, params.orgId);
+  requirePermission(store, "bank_account.create_token", { orgId: params.orgId }, userId);
   const org = getOrgOrThrow(store, params.orgId);
   const accountHolderName = String(params.accountHolderName ?? "").trim();
   const ifsc = String(params.ifsc ?? "").trim();
@@ -1099,11 +1047,12 @@ export async function pilotSubmitPayoutSetup(
       });
       const updated: Organization = {
         ...org,
-        kycStatus: "APPROVED",
+        kycStatus: org.kycStatus === "APPROVED" ? "APPROVED" : "SUBMITTED",
         payoutContactId: contactId,
         payoutFundAccountId: fundAccountId,
       };
       store.organizations.set(org.id, updated);
+      auditAsUser(store, userId, "BANK_ACCOUNT_CHANGED", "organization", org.id);
       return {
         org: updated,
         message:
@@ -1111,13 +1060,14 @@ export async function pilotSubmitPayoutSetup(
       };
     } catch (err) {
       throw new ApiError("payout_setup_provider_error", {
-        detail: err instanceof Error ? err.message : String(err),
+        detail: "Provider could not complete payout setup.",
       });
     }
   }
 
   const updated: Organization = { ...org, kycStatus: "SUBMITTED" };
   store.organizations.set(org.id, updated);
+      auditAsUser(store, userId, "BANK_ACCOUNT_CHANGED", "organization", org.id);
   return {
     org: updated,
     message:
@@ -1137,7 +1087,10 @@ export function pilotListCarrierPayoutBatches(store: Store, userId: string, carr
   const lineIds = new Set(
     [...store.ledgerLines.values()].filter((l) => l.carrierId === carrierOrgId).map((l) => l.id),
   );
-  const batches = [...store.payoutBatches.values()].filter((b) => b.lineIds.some((id) => lineIds.has(id)));
+  const batches = [...store.payoutBatches.values()].filter((b) => b.lineIds.some((id) => lineIds.has(id))).map(b => {
+    const transfers = b.transfers.filter(t => t.carrierId === carrierOrgId);
+    return { ...b, lineIds: b.lineIds.filter(id => lineIds.has(id)), transfers, totalNetToCarrierPaise: transfers.filter(t => ["BOOKKEEPING_PAID", "PAID", "PROCESSING"].includes(t.status)).reduce((n,t) => n + t.netToCarrierPaise, 0) };
+  });
   batches.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
   return batches;
 }
@@ -1173,6 +1126,8 @@ export function reportAnchorTripLocation(
   },
 ): AnchorTrip {
   const trip = pilotGetMyAnchorTrip(store, userId, tripId);
+  const actor = requirePermission(store, "load.status_update", trip, userId);
+  requireAssistance(store, actor, trip.carrierId);
   if (trip.status !== "IN_PROGRESS") {
     throw new ApiError("trip_not_started", {
       detail: "Mark the load as started before sending live location.",
@@ -1290,7 +1245,8 @@ export function publishAnchorTripAsPilotDriver(store: Store, params: {
   vehicleClass: VehicleClass;
   capacityKg: number;
 }): AnchorTrip {
-  assertPilotDriverCanManageOrg(store, params.userId, params.orgId);
+  const actor = requirePermission(store, "trip.publish", { carrierId: params.orgId }, params.userId);
+  requireAssistance(store, actor, params.orgId);
   const org = getOrgOrThrow(store, params.orgId);
   if (org.kind !== "CARRIER_SOLO" && org.kind !== "CARRIER_FLEET" && org.kind !== "CARRIER_LEGACY") {
     throw new Error("org_not_carrier");
@@ -1561,8 +1517,12 @@ export function bookShipment(store: Store, params: {
   integrationConnectionId?: string;
   metadata?: Record<string, string>;
 }): Shipment {
+  const actor = authorizationContext.getStore()?.principal;
+  if (!params.customerOrg) throw new AuthorizationError("customer_organization_required", 400);
+  if (actor) requirePermission(store, "load.create", { customerOrgId: params.customerOrg.id });
+  else if (!params.integrationConnectionId) requirePermission(store, "load.create", { customerOrgId: params.customerOrg.id }, params.bookedByUserId);
   const trip = store.anchorTrips.get(params.anchorTripId);
-  if (!trip) throw new Error("anchor_trip_not_found");
+  if (!trip || !isActiveEntity(trip)) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");
   if (params.weightKg <= 0) throw new Error("invalid_weightKg");
   if (trip.reservedKg + params.weightKg > trip.capacityKg) throw new Error("insufficient_capacity");
@@ -1704,9 +1664,8 @@ export function submitDriverPod(
 ): Shipment {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
-  if (!shipmentVisibleToCarrierPilot(store, s, params.userId)) {
-    throw new Error("forbidden");
-  }
+  const principal = requirePermission(store, "pod.upload", s, params.userId);
+  requireAssistance(store, principal, s.carrierId);
   if (s.status !== "BOOKED") {
     throw new ApiError("shipment_not_deliverable", { status: s.status });
   }
@@ -1733,6 +1692,7 @@ export function submitDriverPod(
     updatedAtUtcMs: podAtUtcMs,
   };
   store.shipments.set(updated.id, updated);
+  auditAsUser(store, params.userId, "POD_UPLOADED", "shipment", s.id, s.status, updated.status);
   maybeAutoCompleteAnchorTripAfterPod(store, s.anchorTripId, params.userId);
   emitIntegrationEvent(store, { eventType: "load.pod_submitted", shipmentId: updated.id });
   return updated;
@@ -1769,12 +1729,12 @@ export function acceptCarrierShipment(
 ): Shipment {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
-  if (!shipmentVisibleToCarrierPilot(store, s, params.userId)) {
-    throw new Error("forbidden");
-  }
+  const principal = requirePermission(store, "carrier.offer_accept", s, params.userId);
+  requireAssistance(store, principal, s.carrierId);
   if (s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new ApiError("shipment_not_acceptable", { status: s.status });
   }
+  assertDispatchReady(store, s.carrierId);
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
   if (!paymentAuthorizedForCarrierAccept(pay)) {
@@ -1792,6 +1752,7 @@ export function acceptCarrierShipment(
     updatedAtUtcMs: now,
   };
   store.shipments.set(updated.id, updated);
+  auditAsUser(store, params.userId, "CARRIER_ACCEPTED", "shipment", s.id, s.status, updated.status);
   emitIntegrationEvent(store, { eventType: "load.carrier_accepted", shipmentId: updated.id });
   return updated;
 }
@@ -1802,6 +1763,13 @@ export function startAnchorTripAsPilot(
   params: { userId: string; tripId: string },
 ): AnchorTrip {
   const trip = pilotGetMyAnchorTrip(store, params.userId, params.tripId);
+  const principal = requirePermission(store, "load.status_update", trip, params.userId);
+  requireAssistance(store, principal, trip.carrierId);
+  assertDispatchReady(store, trip.carrierId);
+  for (const sh of shipmentsOnAnchorTrip(store, trip.id).filter(s => s.status === "BOOKED")) {
+    const pay = store.payments.get(sh.paymentId);
+    if (!pay || !paymentAuthorizedForCarrierAccept(pay)) throw new AuthorizationError("payment_not_ready", 409);
+  }
   if (trip.status === "IN_PROGRESS") return trip;
   if (trip.status !== "OPEN" && trip.status !== "FULL") {
     throw new ApiError("trip_not_startable", { status: trip.status });
@@ -1822,6 +1790,7 @@ export function startAnchorTripAsPilot(
     startedByUserId: params.userId,
   };
   store.anchorTrips.set(updated.id, updated);
+  auditAsUser(store, params.userId, "TRIP_STATUS_CHANGED", "trip", trip.id, trip.status, updated.status);
 
   for (const sh of shipmentsOnAnchorTrip(store, updated.id)) {
     if (sh.status === "BOOKED") {
@@ -1838,6 +1807,8 @@ export function completeAnchorTripAsPilot(
   params: { userId: string; tripId: string },
 ): AnchorTrip {
   const trip = pilotGetMyAnchorTrip(store, params.userId, params.tripId);
+  const principal = requirePermission(store, "load.status_update", trip, params.userId);
+  requireAssistance(store, principal, trip.carrierId);
   if (trip.status === "COMPLETED") return trip;
   if (trip.status !== "IN_PROGRESS") {
     throw new ApiError("trip_not_completable", { status: trip.status });
@@ -1862,6 +1833,7 @@ export function completeAnchorTripAsPilot(
     lastLiveLocation: undefined,
   };
   store.anchorTrips.set(updated.id, updated);
+  auditAsUser(store, params.userId, "TRIP_STATUS_CHANGED", "trip", trip.id, trip.status, updated.status);
   return updated;
 }
 
@@ -1959,6 +1931,7 @@ export async function releasePaymentAndDeliver(
 ): Promise<{ shipment: Shipment; ledgerLine: LedgerLine }> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
+  requirePermission(store, "payment.capture", s);
   if (s.status !== "PENDING_RELEASE") {
     throw new ApiError("shipment_not_pending_release", { status: s.status });
   }
@@ -1968,8 +1941,9 @@ export async function releasePaymentAndDeliver(
   if (pay.provider !== "MOCK" && pay.status !== "CAPTURED") {
     throw new Error("payment_not_captured");
   }
-  const podAtUtcMs = params.podAtUtcMs ?? s.podAtUtcMs ?? nowUtcMs();
-  return finalizeDeliveredShipment(store, s, podAtUtcMs);
+  const result = finalizeDeliveredShipment(store, s, s.podAtUtcMs!);
+  recordAudit(store, "PAYMENT_CAPTURED", "shipment", s.id, s.status, result.shipment.status);
+  return result;
 }
 
 export function opsListPendingRelease(store: Store): Shipment[] {
@@ -2004,25 +1978,8 @@ export function opsShipmentDetail(store: Store, shipmentId: string): {
 }
 
 /** Legacy/admin instant POD: BOOKED + payment already captured (or MOCK). */
-export function markPodDelivered(store: Store, params: {
-  shipmentId: string;
-  podAtUtcMs?: number;
-}): { shipment: Shipment; ledgerLine: LedgerLine } {
-  const s = store.shipments.get(params.shipmentId);
-  if (!s) throw new Error("shipment_not_found");
-  if (s.status !== "BOOKED" && s.status !== "PENDING_RELEASE") {
-    throw new Error("shipment_not_deliverable");
-  }
-  if (s.status === "PENDING_RELEASE") {
-    throw new ApiError("use_ops_release", {
-      detail: "Shipment awaits ops payment release. POST /ops/shipments/:id/release",
-    });
-  }
-  const pay = store.payments.get(s.paymentId);
-  if (!pay || pay.status !== "CAPTURED") throw new Error("payment_not_captured");
-
-  const podAtUtcMs = params.podAtUtcMs ?? nowUtcMs();
-  return finalizeDeliveredShipment(store, s, podAtUtcMs);
+export function markPodDelivered(_store: Store, _params: { shipmentId: string; podAtUtcMs?: number }): { shipment: Shipment; ledgerLine: LedgerLine } {
+  throw new AuthorizationError("use_pod_upload_and_finance_release", 409);
 }
 
 /** Reverse a BOOKED shipment + free trip capacity if Razorpay order could not be created. */
@@ -2100,6 +2057,7 @@ export async function attachRazorpayOrderForShipment(store: Store, shipmentId: s
 export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: string): Promise<void> {
   const s = store.shipments.get(shipmentId);
   if (!s) throw new Error("shipment_not_found");
+  requirePermission(store, "payment.capture", s);
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
   if (pay.provider !== "RAZORPAY") return;
@@ -2119,6 +2077,7 @@ export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: 
 export async function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Promise<Shipment> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
+  requirePermission(store, "payment.refund", s);
   if (s.status !== "BOOKED" && s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new Error("shipment_not_refundable");
   }
@@ -2134,7 +2093,7 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
       try {
         await razorpayRefundPayment(pay.razorpayPaymentId, pay.amountPaise);
       } catch (e: any) {
-        throw new ApiError("razorpay_refund_failed", { detail: String(e?.message ?? e) });
+        throw new ApiError("razorpay_refund_failed", { detail: "Payment provider operation failed" });
       }
     } else if (pay.status !== "CREATED" && pay.status !== "FAILED") {
       throw new ApiError("payment_not_refundable", { status: pay.status });
@@ -2159,6 +2118,7 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
     updatedAtUtcMs: now,
   };
   store.shipments.set(updated.id, updated);
+  recordAudit(store, "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
   emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: updated.id });
   return updated;
 }
@@ -2172,11 +2132,20 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
  *     Carriers missing a fund account are skipped (lines stay ACCRUED to retry next run);
  *     transfers that error are marked FAILED and their lines stay ACCRUED.
  */
+const payoutRuns = new WeakMap<Store, Promise<PayoutBatch>>();
 export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }): Promise<PayoutBatch> {
+  if (!authorizationContext.getStore()?.system) requirePermission(store, "settlement.release");
+  const running = payoutRuns.get(store);
+  if (running) return running;
+  const run = runPayoutBatchAuthorized(store, params);
+  payoutRuns.set(store, run);
+  try { return await run; } finally { payoutRuns.delete(store); }
+}
+async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: number }): Promise<PayoutBatch> {
   const now = params.nowUtcMs ?? Date.now();
   const provider = payoutsMode();
   const eligibleLines = [...store.ledgerLines.values()].filter(
-    (l) => l.status === "ACCRUED" && l.payoutBatchCutoffUtcMs <= now
+    (l) => isActiveEntity(l) && l.status === "ACCRUED" && l.payoutBatchCutoffUtcMs <= now && paymentReady(store.shipments.get(l.shipmentId), now) && store.shipments.get(l.shipmentId)?.status === "DELIVERED"
   );
   if (eligibleLines.length === 0) {
     // Still create an empty batch for determinism in MVP.
@@ -2232,7 +2201,7 @@ export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }
       const result = await createRazorpayPayout({
         amountPaise: netToCarrierPaise,
         fundAccountId,
-        referenceId: `${batchId}_${carrierId}`,
+        referenceId: createHash("sha256").update(`${carrierId}:${earliestCutoff}:${[...lineIds].sort().join(",")}`).digest("hex").slice(0, 36),
         narration: "naviG8r payout",
       });
       const settledStatuses = new Set(["processed", "completed"]);
@@ -2268,7 +2237,7 @@ export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }
         netToCarrierPaise,
         lineIds,
         status: "FAILED",
-        error: err instanceof Error ? err.message : String(err),
+        error: "payout_provider_failed",
       });
       // lines stay ACCRUED to retry on the next run
     }
@@ -2287,6 +2256,17 @@ export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }
   };
 
   store.payoutBatches.set(batch.id, batch);
+  recordAudit(store, "SETTLEMENT_RELEASED", "payout_batch", batch.id, "ACCRUED", "PROCESSED");
   return batch;
 }
 
+
+function auditAsUser(store: Store, userId: string, action: string, resourceType: string, resourceId: string, previousState?: string, newState?: string): void {
+  const p = principalFor(store, userId);
+  const existing = authorizationContext.getStore();
+  authorizationContext.run({ ...existing, principal: p, requestId: existing?.requestId ?? randomUUID() }, () => recordAudit(store, action, resourceType, resourceId, previousState, newState));
+}
+function assertDispatchReady(store: Store, carrierId: string): void {
+  const org = store.organizations.get(carrierId);
+  if (!org || !isActiveEntity(org) || org.kycStatus !== "APPROVED") throw new AuthorizationError("carrier_compliance_required", 409);
+}

@@ -1,8 +1,9 @@
+import { registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
 import { createStore } from "./store.ts";
-import { publishAnchorTripAsPilotDriver, registerSoloOwnerOperatorDriver } from "./services.ts";
+import { publishAnchorTripAsPilotDriver, } from "./services.ts";
 
 test("OTP + bearer auth: verify issues token usable for protected pilot routes", (t) => {
   const prev = {
@@ -21,7 +22,7 @@ test("OTP + bearer auth: verify issues token usable for protected pilot routes",
   process.env.OTP_FIXED_CODE = "123456";
 
   const store = createStore();
-  const onboard = registerSoloOwnerOperatorDriver(store, {
+  const onboard = registerCompliantCarrier(store, {
     fullName: "Ravi Kumar",
     phone: "9876543210",
     orgDisplayName: "Ravi Transport",

@@ -27,14 +27,16 @@ abstract final class DriverTheme {
         style: FilledButton.styleFrom(
           backgroundColor: navy,
           foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: navy,
           side: const BorderSide(color: border),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -44,14 +46,6 @@ abstract final class DriverTheme {
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: border),
-        ),
-      ),
-      cardTheme: const CardTheme(
-        color: Colors.white,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(16)),
-          side: BorderSide(color: border),
         ),
       ),
       chipTheme: ChipThemeData(
@@ -64,7 +58,8 @@ abstract final class DriverTheme {
         indicatorColor: navy.withOpacity(0.12),
         labelTextStyle: MaterialStateProperty.resolveWith((states) {
           if (states.contains(MaterialState.selected)) {
-            return const TextStyle(color: navy, fontWeight: FontWeight.w600, fontSize: 11);
+            return const TextStyle(
+                color: navy, fontWeight: FontWeight.w600, fontSize: 11);
           }
           return const TextStyle(color: muted, fontSize: 11);
         }),

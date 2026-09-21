@@ -1,20 +1,23 @@
+import { asFinance, asUser } from "../test/fixtures.ts";
+import { acceptPod } from "./rbac.ts";
+import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import {
   acceptCarrierShipment,
   assertOpsAgent,
-  bookShipment,
+
   grantOpsAdmin,
   publishAnchorTrip,
-  registerSoloOwnerOperatorDriver,
+
   releasePaymentAndDeliver,
   submitDriverPod,
   registerCustomerOrgAdmin,
 } from "./services.ts";
 
 function seedBookedShipment(store: ReturnType<typeof createStore>) {
-  const driver = registerSoloOwnerOperatorDriver(store, {
+  const driver = registerCompliantCarrier(store, {
     fullName: "Carrier Driver",
     phone: "9100000000",
     orgDisplayName: "Carrier One",
@@ -31,7 +34,7 @@ function seedBookedShipment(store: ReturnType<typeof createStore>) {
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });
-  const shipment = bookShipment(store, {
+  const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "ACME",
     weightKg: 100,
@@ -68,7 +71,7 @@ test("submitDriverPod: customer user forbidden", () => {
   });
   assert.throws(
     () => submitDriverPod(store, { shipmentId: shipment.id, userId: cust.user.id }),
-    (e: Error) => e.message === "forbidden",
+    (e: Error) => e.message === "not_found",
   );
 });
 
@@ -78,15 +81,10 @@ test("releasePaymentAndDeliver: requires PENDING_RELEASE then DELIVERED", async 
 
   submitDriverPod(store, { shipmentId: shipment.id, userId: driver.user.id });
 
-  const ops = registerCustomerOrgAdmin(store, {
-    fullName: "Ops",
-    phone: "9100000099",
-    orgDisplayName: "Ops Co",
-  });
-  grantOpsAdmin(store, { phone: ops.user.phone });
-  assertOpsAgent(store, ops.user.id);
-
-  const out = await releasePaymentAndDeliver(store, { shipmentId: shipment.id });
+  await assert.rejects(() => asFinance(store, () => releasePaymentAndDeliver(store, { shipmentId: shipment.id })), /payment_hold_active/);
+  const shipper = [...store.memberships.values()].find(m => m.orgId === shipment.customerOrgId)!;
+  asUser(store, shipper.userId, () => acceptPod(store, shipment.id));
+  const out = await asFinance(store, () => releasePaymentAndDeliver(store, { shipmentId: shipment.id }));
   assert.equal(out.shipment.status, "DELIVERED");
   assert.ok(out.ledgerLine.id);
 });

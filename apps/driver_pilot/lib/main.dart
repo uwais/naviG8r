@@ -8,21 +8,25 @@ import "package:flutter/services.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 import "package:go_router/go_router.dart";
 
+import "authorization_session.dart";
+import "organization_access.dart";
 import "customer_flow.dart";
-import "customer_session.dart";
-import "driver_session.dart";
 import "driver_flow.dart";
+import "driver_session.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
 import "pilot_api.dart";
 
-Future<void> _copyToClipboard(BuildContext context, String label, String value) async {
+Future<void> _copyToClipboard(
+    BuildContext context, String label, String value) async {
   await Clipboard.setData(ClipboardData(text: value));
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Copied $label")));
+  ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text("Copied $label")));
 }
 
-Widget _legendStripe(BuildContext context, Color color, double thickness, String label) {
+Widget _legendStripe(
+    BuildContext context, Color color, double thickness, String label) {
   return Row(
     crossAxisAlignment: CrossAxisAlignment.center,
     children: [
@@ -35,7 +39,8 @@ Widget _legendStripe(BuildContext context, Color color, double thickness, String
         ),
       ),
       const SizedBox(width: 10),
-      Expanded(child: Text(label, style: Theme.of(context).textTheme.bodySmall)),
+      Expanded(
+          child: Text(label, style: Theme.of(context).textTheme.bodySmall)),
     ],
   );
 }
@@ -48,14 +53,18 @@ String _formatIst(DateTime utc) {
 }
 
 /// Default trip window: IST calendar day **today** 00:00 through **tomorrow** 23:59:59.
-void _defaultAnchorTripWindow(TextEditingController w1, TextEditingController w2) {
+void _defaultAnchorTripWindow(
+    TextEditingController w1, TextEditingController w2) {
   final utc = DateTime.now().toUtc();
   final istNow = utc.add(const Duration(hours: 5, minutes: 30));
   final y = istNow.year;
   final m = istNow.month;
   final d = istNow.day;
-  final startUtc = DateTime.utc(y, m, d).subtract(const Duration(hours: 5, minutes: 30));
-  final endUtc = DateTime.utc(y, m, d + 2).subtract(const Duration(hours: 5, minutes: 30)).subtract(const Duration(seconds: 1));
+  final startUtc =
+      DateTime.utc(y, m, d).subtract(const Duration(hours: 5, minutes: 30));
+  final endUtc = DateTime.utc(y, m, d + 2)
+      .subtract(const Duration(hours: 5, minutes: 30))
+      .subtract(const Duration(seconds: 1));
   w1.text = _formatIst(startUtc);
   w2.text = _formatIst(endUtc);
 }
@@ -68,25 +77,42 @@ void main() {
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
-class DriverPilotApp extends StatelessWidget {
+class DriverPilotApp extends StatefulWidget {
   const DriverPilotApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final router = GoRouter(
+  State<DriverPilotApp> createState() => _DriverPilotAppState();
+}
+
+class _DriverPilotAppState extends State<DriverPilotApp>
+    with WidgetsBindingObserver {
+  late final GoRouter router;
+  bool _organizationChanging = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    AuthorizationSession.bind();
+    router = GoRouter(
       navigatorKey: _rootNavigatorKey,
       initialLocation: kIsWeb ? "/customer" : "/driver",
-      refreshListenable: Listenable.merge([CustomerSession.listenable, DriverSession.listenable]),
+      refreshListenable: AuthorizationSession.revision,
+      redirect: (_, state) => mobileAccessRedirect(state.uri.path),
       routes: [
+        GoRoute(
+            path: "/workspace", builder: (_, __) => const SizedBox.shrink()),
         ...driverFlowRoutes(),
         ...customerFlowRoutes(),
         GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
-        GoRoute(path: "/", redirect: (_, __) => kIsWeb ? "/customer" : "/driver"),
+        GoRoute(
+            path: "/", redirect: (_, __) => kIsWeb ? "/customer" : "/driver"),
         GoRoute(path: "/register", builder: (_, __) => const RegisterScreen()),
         GoRoute(
           path: "/login",
           redirect: (context, state) {
-            if (state.uri.queryParameters["mode"] == "customer") return "/customer/login";
+            if (state.uri.queryParameters["mode"] == "customer")
+              return "/customer/login";
             return null;
           },
           builder: (_, __) => const LoginScreen(),
@@ -94,13 +120,56 @@ class DriverPilotApp extends StatelessWidget {
         GoRoute(path: "/trips", builder: (_, __) => const MyTripsScreen()),
         GoRoute(
           path: "/trips/:tripId",
-          builder: (_, state) => TripDetailScreen(tripId: state.pathParameters["tripId"] ?? ""),
+          builder: (_, state) =>
+              TripDetailScreen(tripId: state.pathParameters["tripId"] ?? ""),
         ),
-        GoRoute(path: "/publish", builder: (_, __) => const PublishTripScreen()),
+        GoRoute(
+            path: "/publish", builder: (_, __) => const PublishTripScreen()),
       ],
     );
 
+    AuthorizationSession.revision.addListener(_sessionChanged);
+    AuthorizationSession.refresh();
+  }
+
+  void _sessionChanged() {
+    if (!AuthorizationSession.signedIn || AuthorizationSession.switching) {
+      DriverSession.clear();
+      lastBookedShipmentId = null;
+    }
+    if (AuthorizationSession.switching) {
+      _organizationChanging = true;
+      return;
+    }
+    if (_organizationChanging) {
+      _organizationChanging = false;
+      router.go(AuthorizationSession.home);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) AuthorizationSession.refresh();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    AuthorizationSession.revision.removeListener(_sessionChanged);
+    router.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return MaterialApp.router(
+      builder: (_, child) => Navigator(
+        pages: [
+          MaterialPage<void>(
+              child:
+                OrganizationAccess(child: child ?? const SizedBox.shrink()))
+        ],
+      ),
       title: kIsWeb ? "NaviG8r Customer" : "NaviG8r Driver",
       theme: DriverTheme.theme(),
       routerConfig: router,
@@ -167,11 +236,26 @@ class PilotScaffold extends StatelessWidget {
           if (target != currentPath) context.go(target);
         },
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: "Home"),
-          NavigationDestination(icon: Icon(Icons.person_add_alt_1_outlined), selectedIcon: Icon(Icons.person_add_alt_1), label: "Register"),
-          NavigationDestination(icon: Icon(Icons.lock_open_outlined), selectedIcon: Icon(Icons.lock_open), label: "Login"),
-          NavigationDestination(icon: Icon(Icons.route_outlined), selectedIcon: Icon(Icons.route), label: "Trips"),
-          NavigationDestination(icon: Icon(Icons.local_shipping_outlined), selectedIcon: Icon(Icons.local_shipping), label: "Publish"),
+          NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: "Home"),
+          NavigationDestination(
+              icon: Icon(Icons.person_add_alt_1_outlined),
+              selectedIcon: Icon(Icons.person_add_alt_1),
+              label: "Register"),
+          NavigationDestination(
+              icon: Icon(Icons.lock_open_outlined),
+              selectedIcon: Icon(Icons.lock_open),
+              label: "Login"),
+          NavigationDestination(
+              icon: Icon(Icons.route_outlined),
+              selectedIcon: Icon(Icons.route),
+              label: "Trips"),
+          NavigationDestination(
+              icon: Icon(Icons.local_shipping_outlined),
+              selectedIcon: Icon(Icons.local_shipping),
+              label: "Publish"),
         ],
       ),
     );
@@ -200,7 +284,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final name = (user is Map<String, dynamic>) ? user["fullName"] : null;
       final orgId = firstCarrierOrgIdFromPilotMe(r.data);
       if (orgId != null) lastRegisteredOrgId = orgId;
-      setState(() => _me = "user: ${name ?? "?"} (${phone ?? "?"})\ncarrierOrg: ${orgId ?? "—"}");
+      setState(() => _me =
+          "user: ${name ?? "?"} (${phone ?? "?"})\ncarrierOrg: ${orgId ?? "—"}");
     } catch (e) {
       setState(() => _me = formatApiError(e));
     } finally {
@@ -211,7 +296,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _logout(BuildContext context) async {
     await api.clearToken();
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Logged out (token cleared).")));
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Logged out (token cleared).")));
   }
 
   Future<void> _ping() async {
@@ -264,9 +350,11 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("API health", style: Theme.of(context).textTheme.titleMedium),
+                  Text("API health",
+                      style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
-                  Text("Base URL: ${api.baseUrl}", style: Theme.of(context).textTheme.bodySmall),
+                  Text("Base URL: ${api.baseUrl}",
+                      style: Theme.of(context).textTheme.bodySmall),
                   const SizedBox(height: 8),
                   Text("GET /health → $_health"),
                 ],
@@ -277,7 +365,10 @@ class _HomeScreenState extends State<HomeScreen> {
           FilledButton.icon(
             onPressed: _loading ? null : _ping,
             icon: _loading
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.refresh),
             label: const Text("Retry health"),
           ),
@@ -289,14 +380,18 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Session", style: Theme.of(context).textTheme.titleMedium),
+                  Text("Session",
+                      style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
                   SelectableText(_me),
                   const SizedBox(height: 8),
                   FilledButton.icon(
                     onPressed: _loadingMe ? null : _loadMe,
                     icon: _loadingMe
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.badge),
                     label: const Text("Load /v1/pilot/me"),
                   ),
@@ -306,7 +401,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 12),
           Text("Quick actions", style: Theme.of(context).textTheme.titleMedium),
-          Text("Base URL: ${api.baseUrl}", style: Theme.of(context).textTheme.bodySmall),
+          Text("Base URL: ${api.baseUrl}",
+              style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: () => context.go("/register"),
@@ -329,7 +425,8 @@ class _HomeScreenState extends State<HomeScreen> {
             label: const Text("Publish anchor trip"),
           ),
           const SizedBox(height: 12),
-          Text("Customer marketplace", style: Theme.of(context).textTheme.titleMedium),
+          Text("Customer marketplace",
+              style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: () => context.go("/customer"),
@@ -407,17 +504,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(controller: _fullName, decoration: const InputDecoration(labelText: "Full name")),
-          TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone (10 digit IN)")),
-          TextField(controller: _org, decoration: const InputDecoration(labelText: "Org display name")),
-          TextField(controller: _reg, decoration: const InputDecoration(labelText: "Vehicle reg")),
-          TextField(controller: _vehClass, decoration: const InputDecoration(labelText: "Vehicle class (SMALL|MEDIUM|LARGE)")),
-          TextField(controller: _capKg, decoration: const InputDecoration(labelText: "Vehicle capacity kg")),
+          TextField(
+              controller: _fullName,
+              decoration: const InputDecoration(labelText: "Full name")),
+          TextField(
+              controller: _phone,
+              decoration:
+                  const InputDecoration(labelText: "Phone (10 digit IN)")),
+          TextField(
+              controller: _org,
+              decoration: const InputDecoration(labelText: "Org display name")),
+          TextField(
+              controller: _reg,
+              decoration: const InputDecoration(labelText: "Vehicle reg")),
+          TextField(
+              controller: _vehClass,
+              decoration: const InputDecoration(
+                  labelText: "Vehicle class (SMALL|MEDIUM|LARGE)")),
+          TextField(
+              controller: _capKg,
+              decoration:
+                  const InputDecoration(labelText: "Vehicle capacity kg")),
           const SizedBox(height: 12),
           FilledButton.icon(
             onPressed: _submitting ? null : _submit,
             icon: _submitting
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.send),
             label: const Text("POST /v1/pilot/driver/register"),
           ),
@@ -479,13 +594,16 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     try {
-      final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start", data: {"phone": phone});
+      final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
+          data: {"phone": phone});
       setState(() {
         _startOut = r.data?.toString() ?? "{}";
         final id = _extractChallengeId(r.data);
         if (id != null) _challengeId.text = id;
         final debugCode = r.data?["debugCode"];
-        _debugCode = debugCode is String && debugCode.trim().isNotEmpty ? debugCode.trim() : null;
+        _debugCode = debugCode is String && debugCode.trim().isNotEmpty
+            ? debugCode.trim()
+            : null;
         if (_debugCode != null) _code.text = _debugCode!;
       });
     } catch (e) {
@@ -558,23 +676,36 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        TextField(controller: _phone, decoration: const InputDecoration(labelText: "Phone")),
+        TextField(
+            controller: _phone,
+            decoration: const InputDecoration(labelText: "Phone")),
         FilledButton.icon(
           onPressed: _starting ? null : _start,
           icon: _starting
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.sms),
           label: const Text("POST /v1/auth/otp/start"),
         ),
         const SizedBox(height: 8),
         SelectableText(_startOut),
         const SizedBox(height: 16),
-        TextField(controller: _challengeId, decoration: const InputDecoration(labelText: "challengeId")),
-        TextField(controller: _code, decoration: const InputDecoration(labelText: "code (use OTP_DEBUG=123456 locally)")),
+        TextField(
+            controller: _challengeId,
+            decoration: const InputDecoration(labelText: "challengeId")),
+        TextField(
+            controller: _code,
+            decoration: const InputDecoration(
+                labelText: "code (use OTP_DEBUG=123456 locally)")),
         FilledButton.icon(
           onPressed: _verifying ? null : _verify,
           icon: _verifying
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.verified_user),
           label: const Text("POST /v1/auth/otp/verify"),
         ),
@@ -670,7 +801,8 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
           onPressed: () async {
             await api.clearToken();
             if (!context.mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Logged out (token cleared).")));
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Logged out (token cleared).")));
           },
           icon: const Icon(Icons.logout),
         ),
@@ -681,68 +813,77 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
-          Card(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                "Lists anchor trips for carrier orgs you belong to. Requires OTP login (Bearer token). "
-                "Uses GET /v1/pilot/anchor-trips — deploy the latest API for this route.",
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: _loading ? null : _load,
-            icon: _loading
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.refresh),
-            label: const Text("Refresh"),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            SelectableText(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-          ],
-          if (_trips.isEmpty && !_loading && _error == null) ...[
-            const SizedBox(height: 24),
-            Text("No trips yet. Publish one from the Publish tab.", style: Theme.of(context).textTheme.bodyLarge),
-          ],
-          ..._trips.map((t) {
-            final id = t["id"]?.toString() ?? "—";
-            final route = "${t["originCity"]} → ${t["destCity"]}";
-            final window = "${t["windowStart"]}\n… ${t["windowEnd"]}";
-            final status = t["status"]?.toString() ?? "—";
-            final cap = t["capacityKg"];
-            final res = t["reservedKg"];
-            final vclass = t["vehicleClass"]?.toString() ?? "—";
-            final org = t["carrierId"]?.toString() ?? "—";
-            return Card(
-              margin: const EdgeInsets.only(top: 12),
-              child: InkWell(
-                onTap: id == "—" ? null : () => context.go("/trips/$id"),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(route, style: Theme.of(context).textTheme.titleMedium),
-                      const SizedBox(height: 4),
-                      Text("id: $id", style: Theme.of(context).textTheme.bodySmall),
-                      Text("org: $org", style: Theme.of(context).textTheme.bodySmall),
-                      const SizedBox(height: 8),
-                      Text(window, style: Theme.of(context).textTheme.bodySmall),
-                      const SizedBox(height: 8),
-                      Text(
-                        "$status · $vclass · capacity ${cap}kg (reserved ${res}kg)",
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
-                  ),
+            Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  "Lists anchor trips for carrier orgs you belong to. Requires OTP login (Bearer token). "
+                  "Uses GET /v1/pilot/anchor-trips — deploy the latest API for this route.",
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ),
-            );
-          }),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _loading ? null : _load,
+              icon: _loading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.refresh),
+              label: const Text("Refresh"),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              SelectableText(_error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            if (_trips.isEmpty && !_loading && _error == null) ...[
+              const SizedBox(height: 24),
+              Text("No trips yet. Publish one from the Publish tab.",
+                  style: Theme.of(context).textTheme.bodyLarge),
+            ],
+            ..._trips.map((t) {
+              final id = t["id"]?.toString() ?? "—";
+              final route = "${t["originCity"]} → ${t["destCity"]}";
+              final window = "${t["windowStart"]}\n… ${t["windowEnd"]}";
+              final status = t["status"]?.toString() ?? "—";
+              final cap = t["capacityKg"];
+              final res = t["reservedKg"];
+              final vclass = t["vehicleClass"]?.toString() ?? "—";
+              final org = t["carrierId"]?.toString() ?? "—";
+              return Card(
+                margin: const EdgeInsets.only(top: 12),
+                child: InkWell(
+                  onTap: id == "—" ? null : () => context.go("/trips/$id"),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(route,
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 4),
+                        Text("id: $id",
+                            style: Theme.of(context).textTheme.bodySmall),
+                        Text("org: $org",
+                            style: Theme.of(context).textTheme.bodySmall),
+                        const SizedBox(height: 8),
+                        Text(window,
+                            style: Theme.of(context).textTheme.bodySmall),
+                        const SizedBox(height: 8),
+                        Text(
+                          "$status · $vclass · capacity ${cap}kg (reserved ${res}kg)",
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
           ],
         ),
       ),
@@ -769,7 +910,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       _error = null;
     });
     try {
-      final r = await api.get<Map<String, dynamic>>("/v1/pilot/anchor-trips/${widget.tripId}");
+      final r = await api
+          .get<Map<String, dynamic>>("/v1/pilot/anchor-trips/${widget.tripId}");
       final t = r.data?["trip"];
       setState(() => _trip = (t is Map<String, dynamic>) ? t : null);
     } catch (e) {
@@ -788,9 +930,12 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final trip = _trip;
-    final title = trip == null ? "Trip" : "${trip["originCity"]} → ${trip["destCity"]}";
-    final routeOrigin = trip != null ? latLngFromTripField(trip, "origin") : null;
-    final routeDest = trip != null ? latLngFromTripField(trip, "destination") : null;
+    final title =
+        trip == null ? "Trip" : "${trip["originCity"]} → ${trip["destCity"]}";
+    final routeOrigin =
+        trip != null ? latLngFromTripField(trip, "origin") : null;
+    final routeDest =
+        trip != null ? latLngFromTripField(trip, "destination") : null;
     return PilotScaffold(
       title: title,
       currentPath: "/trips",
@@ -804,9 +949,12 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text("tripId: ${widget.tripId}", style: Theme.of(context).textTheme.bodySmall),
+          Text("tripId: ${widget.tripId}",
+              style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 12),
-          if (_error != null) SelectableText(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          if (_error != null)
+            SelectableText(_error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
           if (trip != null) ...[
             Card(
               child: Padding(
@@ -818,19 +966,24 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                     const SizedBox(height: 8),
                     Text("status: ${trip["status"]}"),
                     Text("vehicleClass: ${trip["vehicleClass"]}"),
-                    Text("capacityKg: ${trip["capacityKg"]} (reserved ${trip["reservedKg"]})"),
+                    Text(
+                        "capacityKg: ${trip["capacityKg"]} (reserved ${trip["reservedKg"]})"),
                     const SizedBox(height: 8),
-                    Text("windowStart: ${trip["windowStart"]}", style: Theme.of(context).textTheme.bodySmall),
-                    Text("windowEnd: ${trip["windowEnd"]}", style: Theme.of(context).textTheme.bodySmall),
+                    Text("windowStart: ${trip["windowStart"]}",
+                        style: Theme.of(context).textTheme.bodySmall),
+                    Text("windowEnd: ${trip["windowEnd"]}",
+                        style: Theme.of(context).textTheme.bodySmall),
                     const SizedBox(height: 8),
-                    Text("org/carrierId: ${trip["carrierId"]}", style: Theme.of(context).textTheme.bodySmall),
+                    Text("org/carrierId: ${trip["carrierId"]}",
+                        style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ),
               ),
             ),
             if (routeOrigin != null && routeDest != null) ...[
               const SizedBox(height: 12),
-              Text("Route preview", style: Theme.of(context).textTheme.titleMedium),
+              Text("Route preview",
+                  style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               routePreviewMap(a: routeOrigin, b: routeDest),
             ],
@@ -954,7 +1107,8 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     try {
       final orgId = _orgId.text.trim();
       if (orgId.isEmpty) {
-        setState(() => _out = "Set orgId (from register response, or tap “Load org from /v1/pilot/me”).");
+        setState(() => _out =
+            "Set orgId (from register response, or tap “Load org from /v1/pilot/me”).");
         return;
       }
       final cap = int.tryParse(_cap.text.trim()) ?? 0;
@@ -991,7 +1145,8 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
       );
       setState(() => _out = r.data?.toString() ?? "{}");
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Trip published.")));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("Trip published.")));
       context.go("/trips");
     } catch (e) {
       setState(() => _out = formatApiError(e));
@@ -1026,7 +1181,10 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
           OutlinedButton.icon(
             onPressed: _loadingMe ? null : _loadPilotMe,
             icon: _loadingMe
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.badge_outlined),
             label: const Text("Load org from GET /v1/pilot/me"),
           ),
@@ -1037,9 +1195,12 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
             label: const Text("Reset trip window (today–tomorrow, IST)"),
           ),
           const SizedBox(height: 12),
-          TextField(controller: _orgId, decoration: const InputDecoration(labelText: "orgId (org.id)")),
+          TextField(
+              controller: _orgId,
+              decoration: const InputDecoration(labelText: "orgId (org.id)")),
           const SizedBox(height: 8),
-          Text("Origin & destination", style: Theme.of(context).textTheme.titleMedium),
+          Text("Origin & destination",
+              style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
           Text(
             "Search sets the pin; dragging updates coordinates. Text is sent as originCity / destCity and as map labels.",
@@ -1075,12 +1236,16 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
           routePreviewMap(a: _originPos, b: _destPos),
           TextField(
             controller: _vehClass,
-            decoration: const InputDecoration(labelText: "vehicleClass (SMALL|MEDIUM|LARGE)"),
+            decoration: const InputDecoration(
+                labelText: "vehicleClass (SMALL|MEDIUM|LARGE)"),
             onChanged: (_) => _scheduleRateFetch(),
           ),
           const SizedBox(height: 8),
           Card(
-            color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(0.45),
+            color: Theme.of(context)
+                .colorScheme
+                .secondaryContainer
+                .withOpacity(0.45),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -1104,42 +1269,59 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   else if (_rateError.isNotEmpty)
-                    Text(_rateError, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 13))
+                    Text(_rateError,
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 13))
                   else if (_rateEstimate != null) ...[
                     Text(
                       "Lane ≈ ${_rateEstimate!["laneKm"]} km · ${_rateEstimate!["modelVersion"] ?? ""}",
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 8),
-                    ...(List<dynamic>.from(_rateEstimate!["samples"] as List? ?? const [])
+                    ...(List<dynamic>.from(
+                            _rateEstimate!["samples"] as List? ?? const [])
                         .whereType<Map>()
                         .map((s) {
-                          final m = Map<String, dynamic>.from(s);
-                          final w = m["weightKg"];
-                          final gp = m["grossPaise"];
-                          final rupees = (gp is num)
-                              ? (gp / 100).toStringAsFixed((gp.remainder(100).abs() < 1e-6) ? 0 : 2)
-                              : "?";
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text("≈ ₹$rupees total at ${w ?? "?"} kg"),
-                          );
-                        })),
-                  ]
-                  else
-                    Text("Sign in as a driver and adjust pins to load estimates.", style: Theme.of(context).textTheme.bodySmall),
+                      final m = Map<String, dynamic>.from(s);
+                      final w = m["weightKg"];
+                      final gp = m["grossPaise"];
+                      final rupees = (gp is num)
+                          ? (gp / 100).toStringAsFixed(
+                              (gp.remainder(100).abs() < 1e-6) ? 0 : 2)
+                          : "?";
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text("≈ ₹$rupees total at ${w ?? "?"} kg"),
+                      );
+                    })),
+                  ] else
+                    Text(
+                        "Sign in as a driver and adjust pins to load estimates.",
+                        style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),
           ),
-          TextField(controller: _w1, decoration: const InputDecoration(labelText: "windowStart (ISO +05:30)")),
-          TextField(controller: _w2, decoration: const InputDecoration(labelText: "windowEnd (ISO +05:30)")),
-          TextField(controller: _cap, decoration: const InputDecoration(labelText: "capacityKg")),
+          TextField(
+              controller: _w1,
+              decoration:
+                  const InputDecoration(labelText: "windowStart (ISO +05:30)")),
+          TextField(
+              controller: _w2,
+              decoration:
+                  const InputDecoration(labelText: "windowEnd (ISO +05:30)")),
+          TextField(
+              controller: _cap,
+              decoration: const InputDecoration(labelText: "capacityKg")),
           const SizedBox(height: 12),
           FilledButton.icon(
             onPressed: _submitting ? null : _submit,
             icon: _submitting
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.send),
             label: const Text("POST /v1/pilot/anchor-trips"),
           ),

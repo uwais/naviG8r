@@ -1,27 +1,28 @@
+import { internalUser } from "../test/fixtures.ts";
+import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import {
   ApiError,
-  bookShipment,
+
   grantOpsAdmin,
   inviteCarrierDriver,
   opsDeleteUser,
   publishAnchorTripAsPilotDriver,
   registerCustomerUser,
-  registerSoloOwnerOperatorDriver,
+
 } from "./services.ts";
 import { isActiveEntity } from "./softDelete.ts";
 
 function grantOps(store: ReturnType<typeof createStore>, phone: string) {
-  registerCustomerUser(store, { fullName: "Ops " + phone.slice(-4), phone });
-  return grantOpsAdmin(store, { phone });
+  return internalUser(store, "ADMIN", `admin-${phone}`);
 }
 
 test("opsDeleteUser soft-deactivates sole-owned carrier org (audit retained)", () => {
   const store = createStore();
   const ops = grantOps(store, "9000000001");
-  const driver = registerSoloOwnerOperatorDriver(store, {
+  const driver = registerCompliantCarrier(store, {
     fullName: "Delete Me",
     phone: "9000000002",
     orgDisplayName: "Doomed Cargo",
@@ -62,7 +63,7 @@ test("opsDeleteUser soft-deactivates sole-owned carrier org (audit retained)", (
 test("opsDeleteUser blocks active shipments without force", () => {
   const store = createStore();
   const ops = grantOps(store, "9000000011");
-  const driver = registerSoloOwnerOperatorDriver(store, {
+  const driver = registerCompliantCarrier(store, {
     fullName: "Active Driver",
     phone: "9000000012",
     orgDisplayName: "Active Cargo",
@@ -80,7 +81,7 @@ test("opsDeleteUser blocks active shipments without force", () => {
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });
-  bookShipment(store, {
+  bookTestShipment(store, {
     anchorTripId: trip.id,
     customerOrgName: "Acme",
     weightKg: 100,
@@ -103,7 +104,7 @@ test("opsDeleteUser blocks active shipments without force", () => {
 test("opsDeleteUser deactivates membership only for shared fleet org", () => {
   const store = createStore();
   const ops = grantOps(store, "9000000021");
-  const owner = registerSoloOwnerOperatorDriver(store, {
+  const owner = registerCompliantCarrier(store, {
     fullName: "Owner",
     phone: "9000000022",
     orgDisplayName: "Fleet Co",
