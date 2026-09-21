@@ -14,6 +14,8 @@ import {
 
   reportAnchorTripLocation,
   startAnchorTripAsPilot,
+  tripForPublicListing,
+  tripWithCarrierDisplay,
 } from "./services.ts";
 
 function acceptAndStartTrip(
@@ -189,4 +191,57 @@ test("getShipmentTripTracking: other customer cannot see shipment", () => {
     () => getShipmentTripTracking(store, other.user.id, shipment.id),
     (e: Error) => e.message === "shipment_not_found",
   );
+});
+
+test("tripForPublicListing strips live GPS that unauthenticated browse must not see", () => {
+  const store = createStore();
+  const driver = registerCompliantCarrier(store, {
+    fullName: "Ravi",
+    phone: "9100000099",
+    orgDisplayName: "Ravi Transport",
+    vehicleRegistrationNumber: "HR09",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 500,
+  });
+  const trip = publishAnchorTrip(store, {
+    carrierId: driver.org.id,
+    originCity: "Gurugram",
+    destCity: "Jaipur",
+    windowStart: "2026-04-24T00:00:00+05:30",
+    windowEnd: "2026-04-25T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+    origin: { lat: 28.46, lng: 77.03 },
+    destination: { lat: 26.91, lng: 75.79 },
+  });
+  const shipment = bookTestShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: "Test Co",
+    weightKg: 50,
+    pickupAddress: "A",
+    dropAddress: "B",
+    pickup: { lat: 28.46, lng: 77.03 },
+    drop: { lat: 26.91, lng: 75.79 },
+  });
+  acceptAndStartTrip(store, driver.user.id, trip.id, shipment.id);
+  reportAnchorTripLocation(store, driver.user.id, trip.id, {
+    lat: 27.5,
+    lng: 76.4,
+    recordedAtUtcMs: 1_700_000_000_000,
+  });
+
+  const stored = store.anchorTrips.get(trip.id);
+  assert.ok(stored?.lastLiveLocation, "precondition: the driver ping must be stored");
+
+  const authenticated = tripWithCarrierDisplay(store, stored!);
+  assert.ok(authenticated.lastLiveLocation, "the authenticated view still carries it");
+
+  const publicView = tripForPublicListing(store, stored!);
+  assert.equal(
+    (publicView as Record<string, unknown>).lastLiveLocation,
+    undefined,
+    "public browse must not expose the driver's live position",
+  );
+  assert.equal(publicView.id, trip.id, "everything else is still present");
+  assert.equal(publicView.carrierDisplayName, "Ravi Transport");
 });

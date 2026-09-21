@@ -193,6 +193,21 @@ export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTr
   return { ...trip, carrierDisplayName: carrierDisplayName(store, trip.carrierId) };
 }
 
+/**
+ * Marketplace and browse responses must not expose live driver GPS. `lastLiveLocation` is
+ * written by the driver app every 30 seconds while a trip runs and is intended for the
+ * authenticated tracking view only, where the caller is scoped to their own shipment.
+ *
+ * Taken from PR #81, which fixes this alongside an unrelated ERP payment bug.
+ */
+export function tripForPublicListing(
+  store: Store,
+  trip: AnchorTrip,
+): Omit<AnchorTrip, "lastLiveLocation"> & { carrierDisplayName: string } {
+  const { lastLiveLocation: _omit, ...rest } = tripWithCarrierDisplay(store, trip);
+  return rest;
+}
+
 export function shipmentWithCarrierDisplay(
   store: Store,
   shipment: Shipment,
