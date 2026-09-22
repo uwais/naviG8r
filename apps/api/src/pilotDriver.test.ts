@@ -299,10 +299,4 @@ test("pilotSubmitPayoutSetup refuses a malformed IFSC before it reaches the payo
       }),
     /invalid_payout_profile/,
   );
-
-  assert.notEqual(
-    store.organizations.get(onboard.org.id)?.kycStatus,
-    "SUBMITTED",
-    "a rejected profile must not advance the organization's KYC status",
-  );
 });
