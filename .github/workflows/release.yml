@@ -24,6 +24,10 @@ on:
 permissions:
   contents: read
   packages: write
+  # Read-only, for the beta digest: it reads production deployment statuses, and looks for release
+  # runs stuck at the approval gate.
+  deployments: read
+  actions: read
 
 concurrency:
   group: navig8r-main-release
@@ -253,6 +257,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The digest step below walks git log from the last production SHA, which the default
+          # shallow clone does not contain.
+          fetch-depth: 0
 
       - name: Prepare wait script
         run: chmod +x scripts/wait-for-release.sh
@@ -285,6 +293,16 @@ jobs:
 
         run: |
           node scripts/beta-smoke.mjs
+
+      # Prints what beta has that production does not, into the run summary, so the person at the
+      # production gate can see what they are approving. Informational only: continue-on-error
+      # keeps a broken digest from blocking a release, at the cost of it failing quietly. That
+      # trade is deliberate - a reporting script must never be able to stop a deploy.
+      - name: Beta release digest
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/beta-digest.mjs
 
   deploy-production:
     name: Deploy Production
