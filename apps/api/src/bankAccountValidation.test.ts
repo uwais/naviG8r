@@ -42,10 +42,39 @@ test("accepts the shortest and longest account numbers the payout provider allow
   ok({ ...VALID, accountNumber: "1".repeat(35) });
 });
 
-test("accepts real-world names with punctuation", () => {
-  for (const name of ["O'Brien Transport", "Ravi Kumar & Sons".replace("&", "-"), "M/S Sharma (Delhi)", "Shree Ram Transport Co., Ltd."]) {
+// The first version of this test listed "Ravi Kumar & Sons" and then called
+// .replace("&", "-") on it, so the only ampersand case was rewritten into a
+// hyphen before it was checked - and the validator rejected ampersands. A test
+// that edits its input until it passes reads as coverage and is not.
+test("accepts real-world Indian carrier names", () => {
+  for (const name of [
+    "O'Brien Transport",
+    "Kumar & Sons Transport",
+    "M/s Sharma & Co.",
+    "M/S Sharma (Delhi)",
+    "Shree Ram Transport Co., Ltd.",
+  ]) {
     ok({ ...VALID, accountHolderName: name });
   }
+});
+
+test("rejects a name made only of punctuation", () => {
+  rejects({ ...VALID, accountHolderName: "..." }, "accountHolderName");
+  rejects({ ...VALID, accountHolderName: "///" }, "accountHolderName");
+});
+
+// The payout provider is sent name.slice(0, 50), so accepting 51+ here would
+// silently send something the carrier never typed.
+test("caps the name at the length actually sent to the payout provider", () => {
+  ok({ ...VALID, accountHolderName: "A".repeat(50) });
+  rejects({ ...VALID, accountHolderName: "A".repeat(51) }, "accountHolderName");
+});
+
+// Upper-casing expands some non-ASCII characters into letters, which would
+// produce a valid-looking IFSC that the carrier never typed.
+test("rejects a non-ASCII IFSC rather than upper-casing it into a valid-looking one", () => {
+  rejects({ ...VALID, ifsc: "\ufb05hd0000123" }, "ifsc");
+  rejects({ ...VALID, ifsc: "\u0131dfc0000123" }, "ifsc");
 });
 
 test("rejects an IFSC whose fifth character is not zero", () => {

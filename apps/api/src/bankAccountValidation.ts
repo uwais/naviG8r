@@ -31,8 +31,27 @@ const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
  */
 const ACCOUNT_NUMBER_PATTERN = /^[A-Za-z0-9]{5,35}$/;
 
-/** RazorpayX: 3 to 120 characters, letters, digits, space and ' - _ / ( ) , */
-const ACCOUNT_HOLDER_NAME_PATTERN = /^[A-Za-z0-9 '\-_/(),.]{3,120}$/;
+/**
+ * Letters, digits, space and ' - _ / ( ) , . &
+ *
+ * The ampersand is here because "Kumar & Sons Transport" and "M/s Sharma & Co."
+ * are ordinary Indian carrier names, and the first version of this file rejected
+ * both. That is the failure this module's header warns about, committed in the
+ * module itself.
+ *
+ * Capped at 50, not RazorpayX's documented 120, because razorpayPayouts.ts:107
+ * and :118 both truncate with slice(0, 50) before sending. Validating to 120
+ * would accept a name, silently cut it, and send the provider something the
+ * carrier never typed.
+ */
+const ACCOUNT_HOLDER_NAME_PATTERN = /^[A-Za-z0-9 '\-_/(),.&]{3,50}$/;
+
+/** A name made only of punctuation is not a name: "..." passed the pattern above. */
+const CONTAINS_A_LETTER = /[A-Za-z]/;
+
+/** Non-ASCII is rejected before upper-casing, because some characters expand when
+ * upper-cased and would produce a valid-looking IFSC the carrier never typed. */
+const ASCII_ONLY = /^[\x00-\x7F]*$/;
 
 /**
  * Checks the three fields and returns them normalised: IFSC upper-cased, the
@@ -49,7 +68,8 @@ export function validatePayoutBankDetails(input: {
   accountNumber?: string;
 }): BankDetailsCheck {
   const accountHolderName = String(input.accountHolderName ?? "").trim();
-  const ifsc = String(input.ifsc ?? "").trim().toUpperCase();
+  const ifscRaw = String(input.ifsc ?? "").trim();
+  const ifsc = ASCII_ONLY.test(ifscRaw) ? ifscRaw.toUpperCase() : ifscRaw;
   const accountNumber = String(input.accountNumber ?? "").trim();
 
   if (!accountHolderName) {
@@ -60,8 +80,11 @@ export function validatePayoutBankDetails(input: {
       ok: false,
       field: "accountHolderName",
       detail:
-        "Account holder name must be 3 to 120 characters and use only letters, numbers, spaces and ' - _ / ( ) , .",
+        "Account holder name must be 3 to 50 characters and use only letters, numbers, spaces and ' - _ / ( ) , . &",
     };
+  }
+  if (!CONTAINS_A_LETTER.test(accountHolderName)) {
+    return { ok: false, field: "accountHolderName", detail: "Account holder name must contain a letter." };
   }
 
   if (!ifsc) {
