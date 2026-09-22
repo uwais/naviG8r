@@ -1,0 +1,54 @@
+name: API tests
+
+# Why this exists: before it, npm test ran in exactly one place - release.yml, on push to main.
+# That is after the merge. A pull request could break all 153 tests and still show a full set of
+# green ticks, because the only checks a PR ran were two Docker builds (no Dockerfile has a test
+# step) and the Flutter job, which only covers apps/driver_pilot. The API suite gated nothing.
+#
+# Measured 2026-09-22 with `gh pr checks 122`, a PR that changed apps/api: five checks, none of
+# which ran an API test.
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+# Least privilege, matching release.yml:24 and bootstrap-ghcr.yml:6. This job reads the code and
+# runs tests; it publishes nothing and needs no write scope anywhere.
+permissions:
+  contents: read
+
+# Deliberately no `paths:` filter. Restricting this to apps/api would be cheaper, but a required
+# status check that never runs leaves the pull request waiting on it forever, and this job is
+# meant to become required. Running it on every PR costs about 40 seconds and, on a public repo,
+# no money.
+#
+# Deliberately no `push: main` trigger either. release.yml:63 already runs this same suite on push
+# to main, so adding it here would run the tests twice per merge and gate nothing extra.
+
+jobs:
+  api-tests:
+    name: API tests
+    runs-on: ubuntu-latest
+
+    # The suite finishes in under a second, but several tests bind a localhost HTTP server. Once
+    # this check is required, a hung server would hold the merge for the full 360-minute default
+    # before anyone saw a failure. Ten minutes is ~900x the observed runtime and still fails fast.
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 to match release.yml:56, Dockerfile:3 and Dockerfile.www:3. The suite needs
+      # --experimental-strip-types, which Node 20 rejects outright, so matching the shipped
+      # runtime is a correctness requirement here and not just tidiness.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
