@@ -204,8 +204,8 @@ export function tripForPublicListing(
   store: Store,
   trip: AnchorTrip,
 ): Omit<AnchorTrip, "lastLiveLocation"> & { carrierDisplayName: string } {
-  const { ...rest } = tripWithCarrierDisplay(store, trip);
-  return rest as Omit<AnchorTrip, "lastLiveLocation"> & { carrierDisplayName: string };
+  const { lastLiveLocation: _omit, ...rest } = tripWithCarrierDisplay(store, trip);
+  return rest;
 }
 
 export function shipmentWithCarrierDisplay(
