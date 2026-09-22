@@ -42,6 +42,60 @@ When there genuinely is not one, say so and name who has to read the diff. Do no
 
 ---
 
+## What a UI change has to be tested with
+
+Added 2026-09-22, after a reviewed 14-line change to the driver landing screen was merged and then
+silently dropped 74 minutes later, when a long-running branch was merged and the file was resolved
+to that branch's version. Nothing went red. Nobody noticed for a day.
+
+**The rule: every user-visible element that exists because someone asked for it gets a named
+assertion.** Not a screenshot — an assertion that names the thing and says why it is there.
+
+```dart
+expect(find.text('Shipping a load?'), findsOneWidget,
+    reason: 'shippers need to be told this app is not for them');
+```
+
+That is the whole rule. It costs a line, it runs in the existing `flutter test` step, and it cannot
+be silenced by a flag.
+
+**Why this and not visual testing.** The obvious answer to "a UI element vanished" is to photograph
+the screen and compare. We looked into it properly before writing this rule, and the evidence went
+the other way.
+
+| Approach | Verdict | The reason |
+|---|---|---|
+| **A named assertion** | **Use this** | Caught the drop *and* a layout overflow the change introduced. 2.8s, deterministic |
+| Flutter golden tests | Do not use | See below |
+| Maestro on a real device | Not now | 8-12 minutes to cover what the assertion covers in 2.8. No APK is built in CI, and the Android build needs an untracked local key file |
+| Playwright screenshots | Later | Real, but needs bundled fonts and a pinned browser; CI renders in software GL and a developer Mac does not, so baselines differ |
+| A model looking at screenshots | Advisory only | Never a required check |
+
+**Golden tests specifically, because they look like the right answer and are not.** Under
+`flutter test` the default font renders every character as a filled square, so a golden cannot read
+text. We tested this: changing the signpost address from `navig8r.org` to `navig8r.com` — same
+character count — left the golden **passing**. It would ship every shipper to the wrong domain.
+Worse for this repo, `flutter test --update-goldens` turns a failing golden green in one command
+with no prompt, which is a second way to lose a change quietly. `golden_toolkit` is discontinued and
+`alchemist` requires a newer Flutter than we pin.
+
+Goldens do catch pure styling drift that no text assertion can see, which is a real but different
+problem. If theme regressions start recurring, one or two goldens over the theme are defensible.
+
+**What a model judging screenshots cannot do**, so nobody proposes it again as a gate: shown a
+landing page with the signpost missing, nothing looks wrong. It is a clean, plausible screen. Catching
+a removal needs a before-and-after comparison, and the two renders differ in every glyph anyway,
+so the model has to be told to ignore rendering differences — the same instruction that teaches it
+to ignore real ones.
+
+**For the reviewer.** On any PR that changes a screen, look for the assertion. If the description
+says a button, a line of copy or a warning was added, and no test names it, that is a finding — say
+so. The question to ask is not "did they test it" but **"if someone deleted this tomorrow, what
+turns red?"** If the answer is nothing, the change is not protected, however carefully it was
+reviewed.
+
+---
+
 ## For the reviewer who does not read code
 
 You are not being asked to verify the code. You are being asked to judge whether the PR has made
