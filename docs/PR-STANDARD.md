@@ -32,6 +32,13 @@ single most useful line in a PR description, because it tells the reviewer where
 **Keep it small.** A four-file diff can be reviewed by a non-coder with help. A forty-file diff
 cannot be reviewed by anyone, including its author.
 
+**Keep the description short — 400 words or fewer, tables included.** Condense the narrative;
+never drop a section, since a missing "Not verified" is itself a finding. A one-line summary of a
+command's output counts as output. Measured 2026-09-22: #117 to #123 averaged 843 words, while
+#124 fits all six sections and a seven-row table into 356. The measure is
+`gh pr view <n> --json body --jq '.body|split(" ")|length'`, which reads about 5% below other word
+counters, so that command decides.
+
 **Do not put exploit detail in a public PR.** This repository is public. For a security fix,
 describe the impact and the owning module — not the file, line, and mechanism — until the fix is
 merged. Afterwards it can be written up fully. See the Critical section of
@@ -153,3 +160,6 @@ PRs #108 to #111 on this repo were written to this standard and are worth copyin
 summary, a verification table with commands and exit codes, an explicit unverified item, and a
 non-code check. #110 also names the limit of its own evidence — that the workflow had never run on
 a GitHub runner at the time of writing — and a follow-up comment records the result once it did.
+
+Copy their shape, not their length. #109, #110 and #111 come in at 319, 394 and 236 words; #108 is
+522 and would be trimmed under the cap above.
