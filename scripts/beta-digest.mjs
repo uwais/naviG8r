@@ -54,13 +54,26 @@ function git(args, { allowFail = false } = {}) {
   }
 }
 
+/**
+ * After one GitHub call times out, the rest are skipped. The per-call cap alone did not bound the
+ * run: up to 36 calls at 30 seconds each still runs past the step's 5-minute limit when the API is
+ * down, and the process is killed before finish() with a blank summary.
+ */
+let ghTimedOut = false;
+let ghSkipped = 0;
+
 /** Returns the output, or null when the call FAILED. Null and "" mean different things here. */
 function gh(path, jq) {
+  if (ghTimedOut) {
+    ghSkipped += 1;
+    return null;
+  }
   const args = ["api", path];
   if (jq) args.push("--jq", jq);
   try {
     return execFileSync("gh", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: CALL_TIMEOUT_MS }).trim();
   } catch (err) {
+    if (err.code === "ETIMEDOUT") ghTimedOut = true;
     failures.push(`gh api ${path.split("?")[0]}: ${String(err.message).split("\n")[0]}`);
     return null;
   }
@@ -89,6 +102,9 @@ function lastSuccessfulProduction() {
     const [id, sha, createdAt] = line.split("\t");
     const states = gh(`repos/${REPO}/deployments/${id}/statuses`, '[.[].state]|join(",")');
     if (states === null) {
+      // After a timeout the remaining reads are skipped, so carrying on would end in "no deployment
+      // reached success" - a claim about records never read. Report the history as unreadable.
+      if (ghTimedOut) return null;
       notSucceeded.push({ sha: sha.slice(0, 8), states: "could not read" });
       continue;
     }
@@ -190,12 +206,17 @@ async function alertSlack() {
   const runUrl = process.env.GITHUB_RUN_ID
     ? `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${REPO}/actions/runs/${process.env.GITHUB_RUN_ID}`
     : null;
+  // With any failure the counts can be wrong and the payout warning can be missing, so the alert
+  // sends none of them. The run summary lists what failed.
+  const incomplete = failures.length > 0;
   const text = [
     "*A release is waiting for production approval*",
-    alertFacts.commits === null
-      ? "Open the release for the summary."
-      : `${alertFacts.commits} commits since production last took a deploy, ${alertFacts.age} ago.`,
-    ...(alertFacts.touchesPayouts
+    incomplete
+      ? "The summary could not read everything, so its numbers may be wrong. Open the release before approving."
+      : alertFacts.commits === null
+        ? "Open the release for the summary."
+        : `${alertFacts.commits} commits since production last took a deploy, ${alertFacts.age} ago.`,
+    ...(!incomplete && alertFacts.touchesPayouts
       ? ["It changes payout code, which beta does not rehearse. Read the summary before approving."]
       : []),
     (runUrl ? `<${runUrl}|Open the release to review and approve.>` : "Open the latest release run to approve.") +
@@ -219,6 +240,7 @@ async function alertSlack() {
 
 /** Every exit goes through here, so a broken digest is never a blank one. */
 async function finish() {
+  if (ghSkipped) failures.push(`${ghSkipped} further GitHub calls skipped after the first timed out`);
   await alertSlack();
   if (alertFailure) {
     // Only vouch for the summary when nothing else failed; otherwise the next section says it is
@@ -260,13 +282,14 @@ if (prod === null || !prod.sha) {
 }
 
 const range = `${prod.sha}..${HEAD}`;
-const files = git(["diff", "--name-only", range], { allowFail: true });
+// Not allowFail: the real error goes into failures, since a timeout and a missing commit need
+// different fixes.
+const files = git(["diff", "--name-only", range]);
 
 if (files === null) {
-  say(`**The last production commit \`${prod.sha.slice(0, 8)}\` is not in this clone**, so the ` +
-    "range could not be computed. The checkout needs `fetch-depth: 0`, or that commit was removed " +
-    "from the branch by a force-push.");
-  failures.push(`git diff ${range}: revision not present`);
+  say(`**The range from the last production commit \`${prod.sha.slice(0, 8)}\` could not be ` +
+    "computed.** Usually the checkout lacks `fetch-depth: 0`, or that commit was force-pushed " +
+    "away. The exact error is listed below.");
   await finish();
 }
 
@@ -383,7 +406,7 @@ const sourceDiff = git(
   { allowFail: true },
 );
 if (sourceDiff === null) {
-  failures.push("could not read the source diff, so the payout warning below may be missing");
+  failures.push("could not read the source diff, so the payout warning above may be missing");
 } else if (PAYOUT_IDENTIFIERS.test(sourceDiff)) {
   alertFacts.touchesPayouts = true;
   say("### Read this before approving");
