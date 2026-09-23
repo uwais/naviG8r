@@ -332,3 +332,33 @@ jobs:
           curl --fail-with-body --get \
             --data-urlencode "imgURL=${IMAGE}@${DIGEST}" \
             "$HOOK"
+
+  # Alpha and beta wait for the new release to be serving; production did not, so a deploy that
+  # did not take still read as success.
+  #
+  # Its own job rather than steps in deploy-production: checkout stays out of the job holding the
+  # production deploy hooks, and re-running a failed check does not deploy production again.
+  # Cost: a failed check turns the run red but leaves the production deployment record as success.
+  verify-production:
+    name: Verify Production
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    # Read only. Without this the job inherits the workflow's packages: write, and checkout
+    # receives that token even with persist-credentials off.
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The host the driver app and customer web build call. Customer web and www are not
+      # checked yet.
+      - name: Wait for Production API
+        run: |
+          ./scripts/wait-for-release.sh \
+            "https://navig8r.onrender.com/health" \
+            "${{ github.sha }}" \
+            "Production API"
