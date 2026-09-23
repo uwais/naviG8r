@@ -157,8 +157,59 @@ function emit() {
   }
 }
 
+/** Filled in as the digest learns things, so the Slack alert can say whatever is known. */
+const alertFacts = { commits: null, age: null, touchesPayouts: false };
+
+/**
+ * Tell the channel a release is waiting, instead of hoping someone opens the run page.
+ *
+ * On 2026-09-22 a release sat at the production gate for 40 hours unnoticed, and the one behind it
+ * could not start, because release.yml's concurrency group lets one run wait at a time. A summary
+ * that nobody is told about is not visible, whatever the release.yml comment says.
+ *
+ * Needs a Slack incoming webhook in the SLACK_RELEASE_WEBHOOK secret. Without it the digest says
+ * the alert was not sent, so a missing alert can never pass for a sent one. Incoming webhooks take
+ * Slack's own markup, not markdown: *bold*, <url|label>.
+ */
+async function alertSlack() {
+  const webhook = process.env.SLACK_RELEASE_WEBHOOK;
+  if (!webhook) {
+    say("Slack alert **not sent**: the `SLACK_RELEASE_WEBHOOK` secret is not set.");
+    return;
+  }
+  const runUrl = process.env.GITHUB_RUN_ID
+    ? `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${REPO}/actions/runs/${process.env.GITHUB_RUN_ID}`
+    : null;
+  const text = [
+    "*A release is waiting for production approval*",
+    alertFacts.commits === null
+      ? "The summary could not be built. Open the release for details."
+      : `${alertFacts.commits} commits since production last took a deploy, ${alertFacts.age} ago.`,
+    ...(alertFacts.touchesPayouts
+      ? ["It changes payout code, which beta does not rehearse. Read the summary before approving."]
+      : []),
+    (runUrl ? `<${runUrl}|Open the release to review and approve.>` : "Open the latest release run to approve.") +
+      " Whoever merged it cannot approve it.",
+  ].join("\n");
+
+  try {
+    const res = await fetch(webhook, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.ok) say("Slack alert sent to the release channel.");
+    else failures.push(`Slack alert failed: HTTP ${res.status}`);
+  } catch (err) {
+    // The cause code, never the message: a message can echo the URL, and the URL is the secret.
+    failures.push(`Slack alert failed: ${err.cause?.code || err.name}`);
+  }
+}
+
 /** Every exit goes through here, so a broken digest is never a blank one. */
-function finish(code) {
+async function finish() {
+  await alertSlack();
   if (failures.length) {
     say();
     say("### This digest is incomplete");
@@ -172,7 +223,7 @@ function finish(code) {
   say(`Generated ${new Date().toISOString().replace("T", " ").slice(0, 16)} UTC, when beta was ` +
     `deployed. Ages below are from that moment, not from when you are reading this.`);
   emit();
-  process.exit(code);
+  process.exit(failures.length ? 1 : 0);
 }
 
 say("## What beta has that production does not");
@@ -189,7 +240,7 @@ if (prod === null || !prod.sha) {
     say();
     for (const d of prod.notSucceeded) say(`- \`${d.sha}\` — ${d.states}`);
   }
-  finish(failures.length ? 1 : 0);
+  await finish();
 }
 
 const range = `${prod.sha}..${HEAD}`;
@@ -200,7 +251,7 @@ if (files === null) {
     "range could not be computed. The checkout needs `fetch-depth: 0`, or that commit was removed " +
     "from the branch by a force-push.");
   failures.push(`git diff ${range}: revision not present`);
-  finish(1);
+  await finish();
 }
 
 const fileList = files.split("\n").filter(Boolean);
@@ -221,6 +272,8 @@ const prs = [...new Set(
 
 const hours = Math.round((Date.now() - Date.parse(prod.createdAt)) / 3600000);
 const age = hours >= 48 ? `${Math.round(hours / 24)} days` : `${hours} hours`;
+alertFacts.commits = commits.length;
+alertFacts.age = age;
 
 say(`Production last accepted a deploy hook for \`${prod.sha.slice(0, 8)}\`, **${age} ago**.`);
 say();
@@ -316,6 +369,7 @@ const sourceDiff = git(
 if (sourceDiff === null) {
   failures.push("could not read the source diff, so the payout warning below may be missing");
 } else if (PAYOUT_IDENTIFIERS.test(sourceDiff)) {
+  alertFacts.touchesPayouts = true;
   say("### Read this before approving");
   say();
   say("This release changes payout code, and **beta did not rehearse it**. `PAYOUTS_MODE` is");
@@ -329,4 +383,4 @@ if (sourceDiff === null) {
 say(`Range \`${prod.sha.slice(0, 8)}..${HEAD.slice(0, 8)}\`. The last production SHA is the newest`);
 say("deployment whose status reached `success`, which is not the same as the newest record.");
 
-finish(failures.length ? 1 : 0);
+await finish();

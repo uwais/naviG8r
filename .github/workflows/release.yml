@@ -302,6 +302,9 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A Slack incoming webhook for the release channel. Until someone with repo settings
+          # access adds it, the digest still runs and says plainly that no alert was sent.
+          SLACK_RELEASE_WEBHOOK: ${{ secrets.SLACK_RELEASE_WEBHOOK }}
         run: node scripts/beta-digest.mjs
 
   deploy-production:
