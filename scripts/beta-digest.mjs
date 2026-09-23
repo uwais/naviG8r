@@ -46,15 +46,21 @@ const failures = [];
 const CALL_TIMEOUT_MS = 30_000;
 
 /**
- * The deployment history is the only loop of network calls: up to 30, which at 30 seconds each
- * would still outlast the step's 5-minute limit. This caps the whole loop, leaving room for the
- * few calls after it.
+ * Reading deployment history is the only run of many network calls: one list plus up to 30
+ * status reads, which at 30 seconds each would outlast the step's 5-minute limit. The budget
+ * covers the list and the reads, and a read only starts if it can finish inside it. Worst case
+ * for the whole script: 120s here, four local git calls, one runs call and the Slack post, 280s.
  */
-const HISTORY_BUDGET_MS = 150_000;
+const HISTORY_BUDGET_MS = 120_000;
 
-/** The command's own error when it wrote one; a timeout writes none, so fall back to the message. */
+/**
+ * Node's own failures (timeout, buffer overflow, missing binary) carry a code, and for those the
+ * message is the real cause even if the command had already written something. Otherwise the
+ * command's first stderr line says more than Node's "Command failed".
+ */
 function errorText(err) {
-  return String(err.stderr || err.message).trim().split("\n")[0];
+  const commandSaid = err.code ? "" : String(err.stderr || "").trim().split("\n")[0];
+  return commandSaid || String(err.message).split("\n")[0];
 }
 
 function git(args, { allowFail = false } = {}) {
@@ -83,41 +89,45 @@ const HEAD = process.env.GITHUB_SHA || git(["rev-parse", "HEAD"]);
 /**
  * The newest production deployment whose status actually reached `success`.
  *
- * One list call gets id, sha and created_at together; only the per-deployment statuses need a
- * second call. The previous version fetched each sha separately, which was 30 wasted requests.
+ * One list call gets id and sha; each record then needs one statuses read, newest status first.
+ *
+ * The age comes from when the status reached `success`, not from the record's creation. A record
+ * is created when a release reaches the approval gate, which can be days before it goes out:
+ * 9cc20cc9 was created on 16 Sep and succeeded on 18 Sep.
  *
  * Any record that cannot be read, or running out of time, makes the whole history unreadable
  * (null). Carrying on past a gap would end in "no deployment reached success" - a claim about
  * records never read - or walk past a good deployment to an older one.
  */
 function lastSuccessfulProduction() {
-  const raw = gh(
-    `repos/${REPO}/deployments?environment=production&per_page=30`,
-    '.[]|"\\(.id)\\t\\(.sha)\\t\\(.created_at)"',
-  );
+  const started = Date.now();
+  const raw = gh(`repos/${REPO}/deployments?environment=production&per_page=30`, '.[]|"\\(.id)\\t\\(.sha)"');
   if (raw === null) return null;
 
   const notSucceeded = [];
-  const started = Date.now();
   for (const line of raw.split("\n").filter(Boolean)) {
-    if (Date.now() - started > HISTORY_BUDGET_MS) {
-      failures.push(`stopped reading production deployment history after ${HISTORY_BUDGET_MS / 1000}s`);
+    if (Date.now() - started + CALL_TIMEOUT_MS > HISTORY_BUDGET_MS) {
+      failures.push(`stopped reading production deployment history after ${Math.round((Date.now() - started) / 1000)}s`);
       return null;
     }
-    const [id, sha, createdAt] = line.split("\t");
-    const states = gh(`repos/${REPO}/deployments/${id}/statuses`, '[.[].state]|join(",")');
-    if (states === null) return null;
-    if (states.split(",").includes("success")) return { sha, createdAt, notSucceeded };
+    const [id, sha] = line.split("\t");
+    const read = gh(
+      `repos/${REPO}/deployments/${id}/statuses`,
+      '([.[].state]|join(",")) + "\\t" + ([.[]|select(.state=="success")|.created_at][0] // "")',
+    );
+    if (read === null) return null;
+    const [states, liveAt] = read.split("\t");
+    if (liveAt) return { sha, liveAt, notSucceeded };
     notSucceeded.push({ sha: sha.slice(0, 8), states: states || "no status recorded" });
   }
-  return { sha: null, createdAt: null, notSucceeded };
+  return { sha: null, liveAt: null, notSucceeded };
 }
 
 /** Releases that reached the production gate and are still sitting there. */
 function waitingForApproval() {
   const raw = gh(
     `repos/${REPO}/actions/workflows/release.yml/runs?per_page=20`,
-    '[.workflow_runs[]|select(.status=="waiting" or .status=="pending")|{sha:.head_sha,created:.created_at,url:.html_url}]',
+    '[.workflow_runs[]|select(.status=="waiting" or .status=="pending")|{sha:.head_sha,created:.created_at,url:.html_url,status:.status}]',
   );
   if (raw === null) return [];
   try {
@@ -271,8 +281,8 @@ const prod = lastSuccessfulProduction();
 if (prod === null || !prod.sha) {
   say(prod === null
     ? "**Could not read the production deployment history**, so the range below cannot be computed."
-    : "**No production deployment in the last 30 records reached `success`.** That is worth a look " +
-      "at the production environment history.");
+    : `**None of the last ${prod.notSucceeded.length} production deployment records reached \`success\`.** ` +
+      "That is worth a look at the production environment history.");
   if (prod && prod.notSucceeded.length) {
     say();
     for (const d of prod.notSucceeded) say(`- \`${d.sha}\` — ${d.states}`);
@@ -293,7 +303,9 @@ if (files === null) {
 }
 
 const fileList = files.split("\n").filter(Boolean);
-const commits = (git(["log", "--oneline", range]) || "").split("\n").filter(Boolean);
+// Null when git log failed, so the headline says "unavailable" rather than a false "0 commits".
+const commitLog = git(["log", "--oneline", range]);
+const commits = commitLog === null ? null : commitLog.split("\n").filter(Boolean);
 const subjects = (git(["log", "--format=%s", range]) || "").split("\n").filter(Boolean);
 
 // A revert names the PR it undid, so counting it as included would over-report.
@@ -308,9 +320,9 @@ const prs = [...new Set(
     .filter(Boolean),
 )].filter((n) => !reverted.has(n));
 
-const hours = Math.round((Date.now() - Date.parse(prod.createdAt)) / 3600000);
+const hours = Math.round((Date.now() - Date.parse(prod.liveAt)) / 3600000);
 const age = hours >= 48 ? `${Math.round(hours / 24)} days` : `${hours} hours`;
-alertFacts.commits = commits.length;
+alertFacts.commits = commits === null ? null : commits.length;
 alertFacts.age = age;
 
 say(`Production last accepted a deploy hook for \`${prod.sha.slice(0, 8)}\`, **${age} ago**.`);
@@ -319,30 +331,39 @@ say(`> A \`success\` deployment status means the three deploy hooks returned 2xx
   `never checks that the new image is serving, so this is the last deploy *attempted*, not ` +
   `confirmed. Run \`/health\` against production if you need to know what it is actually running.`);
 say();
-say(`Beta is at \`${HEAD.slice(0, 8)}\`: **${commits.length} commits**, ${fileList.length} files` +
+say(`Beta is at \`${HEAD.slice(0, 8)}\`: ` +
+  (commits === null ? "commit count unavailable" : `**${commits.length} commits**`) +
+  `, ${fileList.length} files` +
   (prs.length ? `, from ${prs.map((n) => `#${n}`).join(", ")}` : "") + ".");
 say();
 
 if (prod.notSucceeded.length) {
-  const waiting = prod.notSucceeded.filter((d) => d.states.includes("waiting") && !d.states.includes("error"));
-  const errored = prod.notSucceeded.filter((d) => d.states.includes("error"));
+  // By the newest status only. Every production record passes through `waiting`, so a deploy that
+  // was approved and then failed still has "waiting" further down its history.
+  const latest = (d) => d.states.split(",")[0];
+  const meanings = [
+    ["waiting", "still at the approval gate; nothing is wrong with the build"],
+    ["error", "usually a run cancelled at or before the approval gate, not a broken build"],
+    ["failure", "**approved, then the deploy itself failed**"],
+  ];
   say(`**${prod.notSucceeded.length} newer production deployment records did not succeed.**`);
-  if (errored.length) {
-    say(`- ${errored.length} with state \`error\`: ${errored.map((d) => `\`${d.sha}\``).join(", ")}. ` +
-      "That usually means the run was cancelled at or before the approval gate, not that the build broke.");
+  for (const [state, meaning] of meanings) {
+    const hits = prod.notSucceeded.filter((d) => latest(d) === state);
+    if (hits.length) say(`- ${hits.length} \`${state}\` (${hits.map((d) => `\`${d.sha}\``).join(", ")}): ${meaning}.`);
   }
-  if (waiting.length) {
-    say(`- ${waiting.length} still \`waiting\`: ${waiting.map((d) => `\`${d.sha}\``).join(", ")}. ` +
-      "Sitting at the approval gate with nothing wrong.");
-  }
+  const other = prod.notSucceeded.filter((d) => !meanings.some(([state]) => state === latest(d)));
+  if (other.length) say(`- ${other.length} other: ${other.map((d) => `\`${d.sha}\` (\`${latest(d)}\`)`).join(", ")}.`);
   say();
 }
 
-const queued = waitingForApproval();
-if (queued.length) {
-  say(`**${queued.length} release${queued.length > 1 ? "s" : ""} waiting for production approval:**`);
-  for (const w of queued) {
-    say(`- \`${w.sha.slice(0, 8)}\` — waiting ${Math.round((Date.now() - Date.parse(w.created)) / 3600000)}h — ${w.url}`);
+// `waiting` is at the approval gate; `pending` is queued behind another run and has not started.
+const runs = waitingForApproval();
+for (const [status, label] of [["waiting", "waiting for production approval"], ["pending", "queued, not yet started"]]) {
+  const matching = runs.filter((w) => w.status === status);
+  if (!matching.length) continue;
+  say(`**${matching.length} release${matching.length > 1 ? "s" : ""} ${label}:**`);
+  for (const w of matching) {
+    say(`- \`${w.sha.slice(0, 8)}\` — ${Math.round((Date.now() - Date.parse(w.created)) / 3600000)}h — ${w.url}`);
   }
   say();
 }
