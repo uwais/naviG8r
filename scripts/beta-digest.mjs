@@ -45,36 +45,35 @@ const failures = [];
  */
 const CALL_TIMEOUT_MS = 30_000;
 
+/**
+ * The deployment history is the only loop of network calls: up to 30, which at 30 seconds each
+ * would still outlast the step's 5-minute limit. This caps the whole loop, leaving room for the
+ * few calls after it.
+ */
+const HISTORY_BUDGET_MS = 150_000;
+
+/** The command's own error when it wrote one; a timeout writes none, so fall back to the message. */
+function errorText(err) {
+  return String(err.stderr || err.message).trim().split("\n")[0];
+}
+
 function git(args, { allowFail = false } = {}) {
   try {
     return execFileSync("git", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: CALL_TIMEOUT_MS }).trim();
   } catch (err) {
-    if (!allowFail) failures.push(`git ${args.slice(0, 2).join(" ")}: ${String(err.message).split("\n")[0]}`);
+    if (!allowFail) failures.push(`git ${args.slice(0, 2).join(" ")}: ${errorText(err)}`);
     return null;
   }
 }
 
-/**
- * After one GitHub call times out, the rest are skipped. The per-call cap alone did not bound the
- * run: up to 36 calls at 30 seconds each still runs past the step's 5-minute limit when the API is
- * down, and the process is killed before finish() with a blank summary.
- */
-let ghTimedOut = false;
-let ghSkipped = 0;
-
 /** Returns the output, or null when the call FAILED. Null and "" mean different things here. */
 function gh(path, jq) {
-  if (ghTimedOut) {
-    ghSkipped += 1;
-    return null;
-  }
   const args = ["api", path];
   if (jq) args.push("--jq", jq);
   try {
     return execFileSync("gh", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: CALL_TIMEOUT_MS }).trim();
   } catch (err) {
-    if (err.code === "ETIMEDOUT") ghTimedOut = true;
-    failures.push(`gh api ${path.split("?")[0]}: ${String(err.message).split("\n")[0]}`);
+    failures.push(`gh api ${path.split("?")[0]}: ${errorText(err)}`);
     return null;
   }
 }
@@ -87,8 +86,9 @@ const HEAD = process.env.GITHUB_SHA || git(["rev-parse", "HEAD"]);
  * One list call gets id, sha and created_at together; only the per-deployment statuses need a
  * second call. The previous version fetched each sha separately, which was 30 wasted requests.
  *
- * A statuses call that fails is recorded as unknown rather than assumed non-successful, because
- * assuming would invent a failed deployment out of a network error and walk past a good one.
+ * Any record that cannot be read, or running out of time, makes the whole history unreadable
+ * (null). Carrying on past a gap would end in "no deployment reached success" - a claim about
+ * records never read - or walk past a good deployment to an older one.
  */
 function lastSuccessfulProduction() {
   const raw = gh(
@@ -98,16 +98,15 @@ function lastSuccessfulProduction() {
   if (raw === null) return null;
 
   const notSucceeded = [];
+  const started = Date.now();
   for (const line of raw.split("\n").filter(Boolean)) {
+    if (Date.now() - started > HISTORY_BUDGET_MS) {
+      failures.push(`stopped reading production deployment history after ${HISTORY_BUDGET_MS / 1000}s`);
+      return null;
+    }
     const [id, sha, createdAt] = line.split("\t");
     const states = gh(`repos/${REPO}/deployments/${id}/statuses`, '[.[].state]|join(",")');
-    if (states === null) {
-      // After a timeout the remaining reads are skipped, so carrying on would end in "no deployment
-      // reached success" - a claim about records never read. Report the history as unreadable.
-      if (ghTimedOut) return null;
-      notSucceeded.push({ sha: sha.slice(0, 8), states: "could not read" });
-      continue;
-    }
+    if (states === null) return null;
     if (states.split(",").includes("success")) return { sha, createdAt, notSucceeded };
     notSucceeded.push({ sha: sha.slice(0, 8), states: states || "no status recorded" });
   }
@@ -198,6 +197,7 @@ let alertFailure = null;
  * Slack's own markup, not markdown: *bold*, <url|label>.
  */
 async function alertSlack() {
+  say();
   const webhook = process.env.SLACK_RELEASE_WEBHOOK;
   if (!webhook) {
     say("Slack alert **not sent**: the `SLACK_RELEASE_WEBHOOK` secret is not set.");
@@ -206,17 +206,17 @@ async function alertSlack() {
   const runUrl = process.env.GITHUB_RUN_ID
     ? `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${REPO}/actions/runs/${process.env.GITHUB_RUN_ID}`
     : null;
-  // With any failure the counts can be wrong and the payout warning can be missing, so the alert
-  // sends none of them. The run summary lists what failed.
+  // With any failure the counts may be wrong, so they are not sent. The payout warning still is:
+  // it is only set after the source diff was actually read and matched, so when present it is true.
   const incomplete = failures.length > 0;
   const text = [
     "*A release is waiting for production approval*",
     incomplete
-      ? "The summary could not read everything, so its numbers may be wrong. Open the release before approving."
+      ? "The summary is incomplete. Open the release before approving."
       : alertFacts.commits === null
         ? "Open the release for the summary."
         : `${alertFacts.commits} commits since production last took a deploy, ${alertFacts.age} ago.`,
-    ...(!incomplete && alertFacts.touchesPayouts
+    ...(alertFacts.touchesPayouts
       ? ["It changes payout code, which beta does not rehearse. Read the summary before approving."]
       : []),
     (runUrl ? `<${runUrl}|Open the release to review and approve.>` : "Open the latest release run to approve.") +
@@ -240,7 +240,6 @@ async function alertSlack() {
 
 /** Every exit goes through here, so a broken digest is never a blank one. */
 async function finish() {
-  if (ghSkipped) failures.push(`${ghSkipped} further GitHub calls skipped after the first timed out`);
   await alertSlack();
   if (alertFailure) {
     // Only vouch for the summary when nothing else failed; otherwise the next section says it is
@@ -259,7 +258,7 @@ async function finish() {
   say();
   say(`---`);
   say(`Generated ${new Date().toISOString().replace("T", " ").slice(0, 16)} UTC, when beta was ` +
-    `deployed. Ages below are from that moment, not from when you are reading this.`);
+    `deployed. Ages above are from that moment, not from when you are reading this.`);
   emit();
   process.exit(failures.length || alertFailure ? 1 : 0);
 }
