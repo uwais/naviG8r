@@ -1939,19 +1939,28 @@ export async function releasePaymentAndDeliver(
 ): Promise<{ shipment: Shipment; ledgerLine: LedgerLine }> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
-  requirePermission(store, "payment.capture", s);
-  if (s.status !== "PENDING_RELEASE") {
-    throw new ApiError("shipment_not_pending_release", { status: s.status });
+  beginShipmentPaymentOp(s.id);
+  try {
+    requirePermission(store, "payment.capture", s);
+    if (s.status !== "PENDING_RELEASE") {
+      throw new ApiError("shipment_not_pending_release", { status: s.status });
+    }
+    await ensureRazorpayCapturedBeforePod(store, params.shipmentId);
+    const latest = store.shipments.get(params.shipmentId);
+    if (!latest || latest.status !== "PENDING_RELEASE") {
+      throw new ApiError("shipment_not_pending_release", { status: latest?.status });
+    }
+    const pay = store.payments.get(latest.paymentId);
+    if (!pay) throw new Error("payment_not_found");
+    if (pay.provider !== "MOCK" && pay.status !== "CAPTURED") {
+      throw new Error("payment_not_captured");
+    }
+    const result = finalizeDeliveredShipment(store, latest, latest.podAtUtcMs!);
+    recordAudit(store, "PAYMENT_CAPTURED", "shipment", latest.id, latest.status, result.shipment.status);
+    return result;
+  } finally {
+    endShipmentPaymentOp(s.id);
   }
-  await ensureRazorpayCapturedBeforePod(store, params.shipmentId);
-  const pay = store.payments.get(s.paymentId);
-  if (!pay) throw new Error("payment_not_found");
-  if (pay.provider !== "MOCK" && pay.status !== "CAPTURED") {
-    throw new Error("payment_not_captured");
-  }
-  const result = finalizeDeliveredShipment(store, s, s.podAtUtcMs!);
-  recordAudit(store, "PAYMENT_CAPTURED", "shipment", s.id, s.status, result.shipment.status);
-  return result;
 }
 
 export function opsListPendingRelease(store: Store): Shipment[] {
@@ -2085,6 +2094,8 @@ export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: 
 export async function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Promise<Shipment> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
+  beginShipmentPaymentOp(s.id);
+  try {
   requirePermission(store, "payment.refund", s);
   if (s.status !== "BOOKED" && s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new Error("shipment_not_refundable");
@@ -2129,6 +2140,9 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
   recordAudit(store, "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
   emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: updated.id });
   return updated;
+  } finally {
+    endShipmentPaymentOp(s.id);
+  }
 }
 
 /**
@@ -2141,6 +2155,18 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
  *     transfers that error are marked FAILED and their lines stay ACCRUED.
  */
 const payoutRuns = new WeakMap<Store, Promise<PayoutBatch>>();
+/** Prevents overlapping capture/refund on the same shipment across concurrent requests. */
+const shipmentPaymentOps = new Set<string>();
+function beginShipmentPaymentOp(shipmentId: string): void {
+  if (shipmentPaymentOps.has(shipmentId)) {
+    throw new ApiError("shipment_busy", { detail: "Another payment operation is already in progress for this shipment." }, 409);
+  }
+  shipmentPaymentOps.add(shipmentId);
+}
+function endShipmentPaymentOp(shipmentId: string): void {
+  shipmentPaymentOps.delete(shipmentId);
+}
+
 export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }): Promise<PayoutBatch> {
   if (!authorizationContext.getStore()?.system) requirePermission(store, "settlement.release");
   const running = payoutRuns.get(store);
