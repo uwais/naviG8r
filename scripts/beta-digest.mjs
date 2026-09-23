@@ -340,19 +340,28 @@ say();
 if (prod.notSucceeded.length) {
   // By the newest status only. Every production record passes through `waiting`, so a deploy that
   // was approved and then failed still has "waiting" further down its history.
-  const latest = (d) => d.states.split(",")[0];
-  const meanings = [
-    ["waiting", "still at the approval gate; nothing is wrong with the build"],
-    ["error", "usually a run cancelled at or before the approval gate, not a broken build"],
-    ["failure", "**approved, then the deploy itself failed**"],
-  ];
+  // `in_progress` in the history means the deploy job actually started, so the release was approved.
+  // Without it, nothing reached production, whatever the final state says.
+  const kind = (d) => {
+    const states = d.states.split(",");
+    const started = states.includes("in_progress");
+    if (states[0] === "waiting") return "waiting";
+    if (states[0] === "error") return started ? "cancelled mid-deploy" : "cancelled";
+    if (states[0] === "failure") return started ? "failed deploy" : "stopped before deploy";
+    return `other (\`${states[0]}\`)`;
+  };
+  const meanings = {
+    waiting: "last recorded waiting at the approval gate; not a build problem",
+    cancelled: "usually a run cancelled at or before the approval gate, not a broken build",
+    "cancelled mid-deploy": "**cancelled while deploying; some deploy hooks may already have fired**",
+    "failed deploy": "**approved, then the deploy itself failed**",
+    "stopped before deploy": "stopped before the deploy started, for example rejected at the gate",
+  };
   say(`**${prod.notSucceeded.length} newer production deployment records did not succeed.**`);
-  for (const [state, meaning] of meanings) {
-    const hits = prod.notSucceeded.filter((d) => latest(d) === state);
-    if (hits.length) say(`- ${hits.length} \`${state}\` (${hits.map((d) => `\`${d.sha}\``).join(", ")}): ${meaning}.`);
+  for (const k of [...new Set(prod.notSucceeded.map(kind))]) {
+    const hits = prod.notSucceeded.filter((d) => kind(d) === k);
+    say(`- ${hits.length} ${k} (${hits.map((d) => `\`${d.sha}\``).join(", ")})` + (meanings[k] ? `: ${meanings[k]}.` : "."));
   }
-  const other = prod.notSucceeded.filter((d) => !meanings.some(([state]) => state === latest(d)));
-  if (other.length) say(`- ${other.length} other: ${other.map((d) => `\`${d.sha}\` (\`${latest(d)}\`)`).join(", ")}.`);
   say();
 }
 
