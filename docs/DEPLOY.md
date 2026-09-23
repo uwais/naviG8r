@@ -1,6 +1,16 @@
+> **Historical document — last updated 2026-04-24.** It records the one-off first push to
+> GitHub and an early hosting comparison. It does not describe how this repo deploys today.
+> Since 2026-09-04 the release model is image-based: merging to `main` runs
+> `.github/workflows/release.yml`, which builds `Dockerfile`, `Dockerfile.customer-web` and
+> `Dockerfile.www`, pushes them to GHCR, and deploys the same image digests to the alpha,
+> beta and production Render environments declared in `render.yaml`. Read `docs/RENDER.md`
+> and `render.yaml` before acting on anything below.
+
 ## Push to GitHub
 
-This folder is intended to be the **git repository root** (`logistics-mvp/`).
+This repo is already on GitHub, with `origin` at `https://github.com/uwais/naviG8r.git`.
+There is no `logistics-mvp/` directory — `logistics-mvp` survives only as the `name` field
+in the root `package.json`.
 
 ### 1) Create an empty GitHub repo
 On GitHub: **New repository** → name it (example) `logistics-mvp` → **do not** add a README/license/gitignore (avoids merge friction).

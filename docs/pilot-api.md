@@ -24,7 +24,7 @@ This document defines the **first concrete API resources** for the Flutter pilot
 - **`RAZORPAY_WEBHOOK_SECRET`**: Razorpay dashboard webhook secret; required for **`POST /v1/payments/razorpay/webhook`**.
 - **`PAYOUTS_MODE`**: omit or **`BOOKKEEPING`** (default) — `POST /payout-batches/run` only marks ledger lines **`PAID`** (no money moves; MVP bookkeeping). **`RAZORPAYX`** — creates a real **RazorpayX payout per carrier** (reuses `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`, test keys in dev). Carriers without a fund account are skipped (lines stay `ACCRUED` to retry); errored transfers are marked `FAILED` and retried next run. `POST /payout-batches/run`, `GET /payout-batches`, and `GET /carriers/:id/ledger` require an **Ops Admin/Agent** bearer token.
 - **`RAZORPAYX_ACCOUNT_NUMBER`**: source account number from the RazorpayX dashboard; required when `PAYOUTS_MODE=RAZORPAYX`.
-- **`RAZORPAYX_PAYOUT_MODE`**: optional transfer rail — `IMPS` (default) | `NEFT` | `RTGS` | `UPI`. To register a carrier for payouts, call `POST /v1/pilot/carrier/payout-setup` with `accountHolderName`, `ifsc`, and (in RAZORPAYX mode) `accountNumber`; the server creates a RazorpayX contact + fund account and stores the ids on the org.
+- **`RAZORPAYX_PAYOUT_MODE`**: optional transfer rail — `IMPS` (default) | `NEFT` | `RTGS` | `UPI`. To register a carrier for payouts, call `POST /v1/pilot/carrier/payout-setup` with `orgId` (required — the caller must hold an `OWNER_DRIVER`, `OWNER`, `DISPATCHER` or `DRIVER` membership on it), `accountHolderName`, `ifsc`, and (in RAZORPAYX mode) `accountNumber`; the server creates a RazorpayX contact + fund account and stores the ids on the org.
 
 ### Data model (persistence)
 
@@ -112,6 +112,12 @@ Headers:
 - `Authorization: Bearer <accessToken>`
 
 Returns the signed-in user, memberships, organizations, vehicles on those orgs, and `driverProfile` (if any).
+#### `GET /v1/auth/me`
+Headers:
+- `Authorization: Bearer <accessToken>`
+
+Returns `{ user, isOpsAdmin }` — the signed-in user plus whether that user is an ops admin. Bearer only: unlike `/v1/pilot/me`, this route ignores the `x-user-id` dev header even when `ALLOW_X_USER_ID=1`. Returns **401** `unauthorized` without a valid Bearer, and **404** `user_not_found` when the token resolves to a user that is no longer in the store. The built-in HTML consoles call it for the ops-admin check; the Flutter customer session calls it alongside `/v1/pilot/me` on refresh.
+
 
 #### `PATCH /v1/pilot/me/vehicle`
 Update the signed-in driver's **primary vehicle** (registration, class, and/or capacity). Requires Bearer and an existing driver profile. Partial updates are allowed — omit a field to leave it unchanged.
@@ -159,6 +165,12 @@ Response:
 ```
 
 Trips are limited to **carrier orgs** your user belongs to (`CARRIER_SOLO`, `CARRIER_FLEET`, `CARRIER_LEGACY`), newest first.
+#### `GET /v1/pilot/anchor-trips/:tripId`
+Headers:
+- `Authorization: Bearer <accessToken>`
+
+Response `{ trip }` for one trip on a carrier org you belong to, including **`carrierDisplayName`**. A trip id that is not yours is indistinguishable from one that does not exist: both return **400** `anchor_trip_not_found`.
+
 
 #### `POST /v1/pilot/anchor-trips/:tripId/location`
 Driver live GPS ping while a trip is in progress (Bearer; trip must belong to your carrier org). The server stores the latest point on the anchor trip (`lastLiveLocation`). The driver app sends pings about every 30s when on the active-trip map screen.
@@ -193,6 +205,32 @@ Carrier explicitly starts a load (`OPEN`/`FULL` → `IN_PROGRESS`). Requires at 
 
 #### `POST /v1/pilot/anchor-trips/:tripId/complete`
 Carrier marks the load done (`IN_PROGRESS` → `COMPLETED`). Requires every shipment on the trip to be **`PENDING_RELEASE`** or **`DELIVERED`** (no remaining **`BOOKED`** or **`PENDING_CARRIER_ACCEPT`**). Clears `lastLiveLocation` and stops live tracking. Submitting driver POD on the last active booking **auto-completes** the trip when these conditions are met.
+#### `POST /shipments/:shipmentId/driver-pod`
+
+Authenticates with `requireUserId` (`httpServer.ts:1515`), not `requireBearerUserId`, so on any service running with `ALLOW_X_USER_ID=1` an `x-user-id` header satisfies it with no token — see H1 in `docs/IMPROVEMENTS.md`.
+The driver POD route the Driver app actually calls. Requires Bearer, and the caller must belong to the shipment's carrier org (**403** `forbidden` otherwise). The shipment must be `BOOKED` (**400** `shipment_not_deliverable`) and its payment `AUTHORIZED`, or `CAPTURED` under MOCK (**400** `checkout_not_completed_for_pod`).
+
+Body:
+```json
+{ "notes": "optional free text" }
+```
+
+Response `{ shipment }` with status `PENDING_RELEASE` and `podAtUtcMs` / `podSubmittedByUserId` set. Emits the `load.pod_submitted` integration event and may auto-complete the anchor trip. Not behind `ENABLE_LEGACY_DEMO_SURFACE`.
+
+#### Ops release (Ops Admin/Agent Bearer)
+
+| Method | Path | What it does |
+|--------|------|--------------|
+| `GET` | `/ops/shipments/pending-release` | Shipments waiting on ops release — `{ shipments }` |
+| `GET` | `/ops/shipments/delivered` | Recently delivered shipments — `{ shipments }` |
+| `GET` | `/ops/shipments/:shipmentId` | `{ shipment, payment, carrierOrgName, podSubmittedBy }` |
+| `POST` | `/ops/shipments/:shipmentId/release` | `PENDING_RELEASE` → `DELIVERED`; captures Razorpay first, then writes the ledger line. Optional body `{ "podAtUtcMs": 123 }`. **400** `shipment_not_pending_release` from any other status |
+
+All four return **401** without a Bearer and **403** `forbidden` for a non-ops user. None is behind `ENABLE_LEGACY_DEMO_SURFACE`. The HTML console that drives them is served at `GET /ops` with no auth check of its own; the JSON behind it still requires the ops token.
+
+
+#### `GET /v1/pilot/carrier/shipments?anchorTripId=...`
+Headers: `Authorization: Bearer <accessToken>`. Lists shipments across every carrier org the user belongs to, newest first. `anchorTripId` is optional and narrows the list to one trip. Response `{ shipments }`, each carrying **`carrierDisplayName`**.
 
 #### `POST /v1/pilot/carrier/shipments/:shipmentId/accept`
 Carrier accepts a customer booking (`PENDING_CARRIER_ACCEPT` → `BOOKED`). Payment must be authorized (or MOCK captured).
@@ -203,6 +241,39 @@ Fleet: owner/dispatcher invites an **existing** user (by phone) to the carrier o
 Driver app: **Profile → Fleet — invite drivers** (owners/dispatchers). Invitee must register a user account first (`POST /v1/pilot/customer/users/register` or driver welcome **Join a carrier fleet**).
 
 For **`DISPATCHER`**, vehicle fields are optional in the request body — the server links the invitee to the carrier org's **primary vehicle** (owner's registration from solo register). For **`DRIVER`**, provide `vehicleRegistrationNumber`, `vehicleClass`, and `vehicleCapacityKg` as before.
+#### `GET /v1/pilot/carrier/earnings?orgId=...`
+Headers: `Authorization: Bearer <accessToken>`. The caller needs a membership on `orgId` with role `OWNER_DRIVER`, `OWNER`, `DISPATCHER` or `DRIVER`.
+
+Response:
+```json
+{
+  "summary": {
+    "carrierOrgId": "org_...",
+    "kycStatus": "NOT_STARTED",
+    "pendingAccruedPaise": 0,
+    "paidPaise": 0,
+    "bookedCount": 0,
+    "deliveredCount": 0
+  }
+}
+```
+
+Every figure is scoped to `orgId`. `pendingAccruedPaise` sums `netToCarrierPaise` over that org's `ACCRUED` ledger lines and `paidPaise` over its `PAID` lines. `bookedCount` counts its shipments in `PENDING_CARRIER_ACCEPT`, `BOOKED` or `PENDING_RELEASE`; `deliveredCount` counts `DELIVERED`.
+
+#### `GET /v1/pilot/carrier/ledger?orgId=...`
+Same auth. Response `{ lines }` — that carrier org's own ledger lines, newest first. This is the carrier-facing view; `GET /carriers/:id/ledger` is the ops-only equivalent and needs an Ops Admin/Agent token instead.
+
+#### `GET /v1/pilot/carrier/payout-batches?orgId=...`
+Same auth. Response `{ payoutBatches }` — only batches containing at least one of this carrier's ledger lines, newest first.
+
+Like the ops ledger and payout routes below, the three carrier money routes
+(`/earnings`, `/ledger`, `/payout-batches`) authenticate with `requireUserId`
+(`httpServer.ts:755`, `:775`, `:782`), not `requireBearerUserId`, so on any service running with
+`ALLOW_X_USER_ID=1` an `x-user-id` header satisfies them with no token — see H1 in
+`docs/IMPROVEMENTS.md`. `render.yaml` sets that variable on no service.
+
+**The filter picks which batches, not what is inside them.** Each element is the whole `PayoutBatch`, carrying `totalNetToCarrierPaise`, `lineIds` and `transfers[]` — one entry per carrier settled in that weekly batch, not just this one (`services.ts:1120-1127`, `types.ts:252-261`). Rendering the response as-is shows a driver other carriers' settlement amounts. Narrow it server-side before it reaches a screen; see H8 in `docs/IMPROVEMENTS.md`.
+
 
 #### Carrier onboarding (driver app)
 New carriers: **Register as new carrier** → `POST /v1/pilot/driver/register` → OTP verify → signed-in driver shell. Sign-in alone is for existing users only.
@@ -292,15 +363,32 @@ Lists users + memberships for a customer org. Requires `CUSTOMER_ADMIN` on that 
   - **`PAYMENT_PROVIDER=MOCK` (default):** response **`201`** `{ shipment, payment }` where `payment.status` is **`CAPTURED`** immediately.
   - **`PAYMENT_PROVIDER=RAZORPAY`:** after booking, server creates an order with **`payment_capture: false`**. Response **`201`** **`{ shipment, payment, razorpayKeyId? }`** — `payment.status` starts **`CREATED`** with **`razorpayOrderId`**. Flutter (or Web) opens Razorpay Standard Checkout with **`key`=`razorpayKeyId`**, **`order_id`=`razorpayOrderId`**, and amount from `payment.amountPaise`. After customer pays, **authorization** is applied when Razorpay calls **`POST /v1/payments/razorpay/webhook`** (`payment.authorized` / `payment.failed`). **Capture** happens on **`POST /shipments/:id/pod`** (server captures before ledger). Booking may be rolled back if order creation fails.
 - `GET /shipments`, `GET /shipments/:id`, and **`GET /shipments/:id/tracking`** require `Authorization: Bearer`. Responses include shipments for your **CUSTOMER** org (`customerOrgId` match, or legacy match on `customerOrgName` vs org `displayName`) **or** shipments whose **`bookedByPhone`** equals your user’s phone.
-- `POST /shipments/:id/pod` and `POST /shipments/:id/fail-refund` require the same Bearer and the same visibility rules as GET. With Razorpay, POD triggers **capture** then delivery/ledger logic; **`fail-refund`** may refund an **AUTHORIZED** or **CAPTURED** payment where applicable.
+- `POST /shipments/:id/pod` and `POST /shipments/:id/fail-refund` accept a Bearer token; sent without one they return **401** unless `ENABLE_LEGACY_DEMO_SURFACE=1`, in which case they run unauthenticated. Their visibility rules are wider than `GET /shipments/:id`, and differ from each other: `pod` also allows an ops admin or the **carrier pilot** on that shipment, `fail-refund` also allows an ops admin but not the carrier pilot. `POST /shipments/:id/pod` takes a shipment from `BOOKED` to `DELIVERED` in one step and rejects one already in `PENDING_RELEASE` with **400** `use_ops_release` — the Driver app uses `POST /shipments/:id/driver-pod` and ops uses `POST /ops/shipments/:id/release` instead. With Razorpay, POD triggers **capture** then delivery/ledger logic; **`fail-refund`** works only from `BOOKED` or `PENDING_CARRIER_ACCEPT` (**400** `shipment_not_refundable`) and may refund an **AUTHORIZED** or **CAPTURED** payment where applicable.
 
 #### `GET /health`
-Returns **`{ ok: true, persistence: "file"|"db", paymentProvider: "mock"|"razorpay" }`** — useful when wiring Razorpay and Postgres locally.
+Returns **`{ ok: true, persistence: "file"|"db", paymentProvider: "mock"|"razorpay", release: "<RELEASE_SHA>"|"unknown" }`** — useful when wiring Razorpay and Postgres locally, and `release` is how you confirm which build is live.
 
 #### `POST /v1/payments/razorpay/webhook`
 **Unauthenticated** (signature only). Razorpay posts the JSON event body raw; validate **`x-razorpay-signature`** using **`RAZORPAY_WEBHOOK_SECRET`**. Implemented events: **`payment.authorized`**, **`payment.captured`**, **`payment.failed`**. The server finds the internal payment by Razorpay order/payment ids and updates state idempotently. Configure this URL on the Razorpay dashboard (test mode webhook for dev).
+#### `POST /v1/payments/razorpay/confirm`
+**Unauthenticated** (Razorpay checkout signature only) and part of the public marketplace surface, so it stays enabled in production. Returns **503** `razorpay_not_enabled` unless `PAYMENT_PROVIDER=RAZORPAY`.
 
-**Production vs legacy demo:** legacy admin/demo JSON that exposes or mutates operator state (`/admin`, `/v1/users`, unauthenticated legacy `/carriers` list/create, legacy `POST /anchor-trips`, ledger/payout toys, **`POST /v1/pilot/driver/login`**, etc.) returns **403** unless `ENABLE_LEGACY_DEMO_SURFACE=1`. The customer marketplace routes above stay enabled in production; without a Bearer token, protected shipment routes return **401**.
+Body (all four fields required; **400** `missing_confirm_fields` otherwise):
+```json
+{
+  "shipmentId": "shp_...",
+  "razorpayOrderId": "order_...",
+  "razorpayPaymentId": "pay_...",
+  "razorpaySignature": "<checkout signature>"
+}
+```
+
+Response `{ payment }` with **`status`** moved `CREATED` → `AUTHORIZED` and `razorpayPaymentId` stored. A payment already `AUTHORIZED` or `CAPTURED` is returned unchanged, so the call is idempotent. The order id must match the one on the payment (**400** `razorpay_order_mismatch`) and the signature is verified before any state change (**400** `invalid_razorpay_signature`). Unknown shipment returns **404** `shipment_not_found`; a non-Razorpay shipment returns **400** `not_razorpay_shipment`; a payment in any other state returns **400** `payment_not_confirmable` with the current **`status`**. Emits the `load.payment_authorized` integration event.
+
+This is the path the Flutter customer flow calls as soon as Standard Checkout returns, so authorization does not wait on the webhook. The webhook above stays as the server-to-server backstop.
+
+
+**Production vs legacy demo:** legacy admin/demo JSON that exposes or mutates operator state (`GET /admin`, `GET /v1/users`, `GET /v1/orgs`, unauthenticated legacy `GET /carriers` and `POST /carriers`, legacy `POST /anchor-trips`, **`POST /v1/pilot/driver/login`**) returns **403** `legacy_demo_surface_disabled` unless `ENABLE_LEGACY_DEMO_SURFACE=1`. That is the whole list. The ledger and payout routes (`GET /carriers/:id/ledger`, `POST /payout-batches/run`, `GET /payout-batches`) are **not** behind that flag — they require an Ops Admin/Agent identity in every environment, flag or no flag. Note they authenticate with `requireUserId` (`httpServer.ts:1653`, `:1661`, `:1670`), not `requireBearerUserId`, so on any service running with `ALLOW_X_USER_ID=1` an `x-user-id` header naming an ops user satisfies them with no token at all — see H1 in `docs/IMPROVEMENTS.md`. The customer marketplace routes above stay enabled in production; without a Bearer token, protected shipment routes return **401**.
 
 ---
 
@@ -384,8 +472,7 @@ Response:
         "reason": "near_endpoints",
         "score": 0.92,
         "pickupDistanceKm": 3.1,
-        "dropDistanceKm": 4.8,
-        "detourKmEstimate": 6.5
+        "dropDistanceKm": 4.8
       }
     }
   ]
@@ -398,6 +485,12 @@ MVP eligibility rules (simple + explainable):
 - Pickup/drop must be within detour tolerance. During rollout:
   - **Phase A**: near endpoints (pickup near origin, drop near destination)
   - **Phase B**: near route polyline (pickup/drop near the computed route)
+Notes on the response:
+- No authentication. The handler reads only the query params above; it is not behind `ENABLE_LEGACY_DEMO_SURFACE`.
+- Ineligible trips come back too. For those, `eligible` is `false` and `reason` is `too_far_from_endpoints`. Those two values, plus `near_endpoints`, are the only ones `reason` ever takes. Rows with `eligible: false` must not be offered as bookable — they are sorted into the same `score`-ranked list as the rest, so filter them out before rendering rather than treating it as a display preference.
+- A trip missing either `origin` or `destination` is skipped with no signal, so a legacy city-only trip never appears here.
+- Rows are sorted by `score` descending. `score` is `max(0, 1 - (pickupDistanceKm / maxPickupKm + dropDistanceKm / maxDropKm) / 2)`, where `maxPickupKm` and `maxDropKm` come from `PHASE_A_MAX_PICKUP_KM` and `PHASE_A_MAX_DROP_KM` (both default to 15). The score is computed from the unrounded distances; the `pickupDistanceKm` and `dropDistanceKm` fields are rounded to one decimal place.
+
 
 ### Customer: quote + book (en-route)
 
@@ -473,6 +566,8 @@ Body:
 Server behavior:
 - Reserve capacity immediately (`reservedKg += weightKg`)
 - If capacity becomes fully reserved, mark trip `FULL`
+- Reject the booking unless the anchor trip is `OPEN` (**400** `anchor_trip_not_open`) and has room (**400** `insufficient_capacity`)
+- When the anchor trip has map endpoints (`origin` + `destination`), enforce Phase A: `pickup` **and** `drop` are required (**400** `phase_a_pickup_drop_required`) and each must sit inside its endpoint radius, else **400** `phase_a_not_eligible` carrying `reason: "too_far_from_endpoints"`, `pickupDistanceKm`, `dropDistanceKm`, `maxPickupKm` and `maxDropKm`. The radii come from `PHASE_A_MAX_PICKUP_KM` and `PHASE_A_MAX_DROP_KM`, both defaulting to **15** km. Trips published without map endpoints skip the check entirely
 
 ### Phase C: en-route status + detour tolerance (accepted)
 
@@ -484,7 +579,7 @@ Define detour tolerance with simple thresholds:
 - `maxPickupDetourKm` and `maxDropDetourKm` (e.g. 10–20 km)
 - Optional `maxTotalDetourKm` for combined pickup + drop (e.g. 25–40 km)
 
-Eligibility computes and returns `detourKmEstimate` so the UI can explain why a lane is eligible/ineligible.
+Not implemented. `GET /v1/customer/eligible-anchor-trips` computes no detour figure. The only distances in its `eligibility` object are `pickupDistanceKm` and `dropDistanceKm` — straight-line haversine distance from pickup to the trip origin and from drop to the trip destination — alongside `eligible`, `reason` and `score`. There is no `maxTotalDetourKm`. The thresholds that do exist are the Phase A endpoint radii `PHASE_A_MAX_PICKUP_KM` and `PHASE_A_MAX_DROP_KM`, both defaulting to 15 km (see `apps/api/src/services.ts`).
 
 Future upgrade (non-MVP):
 - Use actual route distance deltas from Google Directions to compute detour cost.
@@ -545,5 +640,21 @@ Requires Ops Admin/Agent Bearer. **Soft-deletes** the user — rows are marked I
 Query: `force=1` to override active-work / sole-owner-of-shared-org guards.
 
 Admin UI: `/admin` → Ops Admins card → **Deactivate user**.
+### Ops: manage ops admins
+
+| Method | Path | Response |
+|--------|------|----------|
+| `GET` | `/v1/ops-admins` | **200** `{ opsAdmins }` — DB grants plus any `OPS_ADMIN_PHONES` entry that has not been materialised yet |
+| `POST` | `/v1/ops-admins` | **201** `{ opsAdmin }`; body `{ "phone": "9876543210" }` |
+| `DELETE` | `/v1/ops-admins/:phone` | **200** `{ "revoked": true }` |
+
+All three need a Bearer from an existing ops admin: **401** `unauthorized` without a valid token, **403** `forbidden` for anyone else.
+
+Errors: granting a phone that is not already a registered user returns `user_not_found`; revoking a phone with no DB grant returns `ops_admin_not_found`; revoking the last remaining ops admin returns `cannot_revoke_last_ops_admin`.
+
+`POST /v1/auth/otp/verify` auto-promotes a phone listed in `OPS_ADMIN_PHONES` to a stored grant on first login, so the env var can be removed once every admin has signed in once.
+
+Admin UI: `/admin` → Ops Admins card.
+
 
 If using `PERSISTENCE=DB`, run `npx prisma db push` after deploy so `inactiveAtUtcMs` / `inactiveReason` columns exist.
