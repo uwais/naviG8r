@@ -300,6 +300,8 @@ jobs:
       # trade is deliberate - a reporting script must never be able to stop a deploy.
       - name: Beta release digest
         continue-on-error: true
+        # continue-on-error does not cover a hang, and deploy-production waits on this job.
+        timeout-minutes: 5
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # A Slack incoming webhook for the release channel. Until someone with repo settings

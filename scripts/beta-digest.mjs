@@ -160,6 +160,9 @@ function emit() {
 /** Filled in as the digest learns things, so the Slack alert can say whatever is known. */
 const alertFacts = { commits: null, age: null, touchesPayouts: false };
 
+/** Kept apart from `failures`: a failed alert says nothing about whether the summary is right. */
+let alertFailure = null;
+
 /**
  * Tell the channel a release is waiting, instead of hoping someone opens the run page.
  *
@@ -183,7 +186,7 @@ async function alertSlack() {
   const text = [
     "*A release is waiting for production approval*",
     alertFacts.commits === null
-      ? "The summary could not be built. Open the release for details."
+      ? "Open the release for the summary."
       : `${alertFacts.commits} commits since production last took a deploy, ${alertFacts.age} ago.`,
     ...(alertFacts.touchesPayouts
       ? ["It changes payout code, which beta does not rehearse. Read the summary before approving."]
@@ -200,16 +203,19 @@ async function alertSlack() {
       signal: AbortSignal.timeout(10_000),
     });
     if (res.ok) say("Slack alert sent to the release channel.");
-    else failures.push(`Slack alert failed: HTTP ${res.status}`);
+    else alertFailure = `HTTP ${res.status}`;
   } catch (err) {
     // The cause code, never the message: a message can echo the URL, and the URL is the secret.
-    failures.push(`Slack alert failed: ${err.cause?.code || err.name}`);
+    alertFailure = err.cause?.code || err.name;
   }
 }
 
 /** Every exit goes through here, so a broken digest is never a blank one. */
 async function finish() {
   await alertSlack();
+  if (alertFailure) {
+    say(`Slack alert **failed** (\`${alertFailure}\`). The summary above is complete; only the alert did not go out.`);
+  }
   if (failures.length) {
     say();
     say("### This digest is incomplete");
@@ -223,7 +229,7 @@ async function finish() {
   say(`Generated ${new Date().toISOString().replace("T", " ").slice(0, 16)} UTC, when beta was ` +
     `deployed. Ages below are from that moment, not from when you are reading this.`);
   emit();
-  process.exit(failures.length ? 1 : 0);
+  process.exit(failures.length || alertFailure ? 1 : 0);
 }
 
 say("## What beta has that production does not");
