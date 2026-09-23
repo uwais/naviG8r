@@ -85,12 +85,13 @@ runs smoke tests. Production sends three deploy hooks and the job ends — `rele
 line 334 on the last one. `read`
 
 A deploy hook returning 200 means the host accepted the request, not that the new image is
-serving. Whether that has actually bitten is **unresolved**. As of 22 Sep, the last production
-deployment to reach `success` is `9cc20cc9`, on 18 Sep after 32 hours at the gate. Yet `/health`
-reported `ad0572e6` on 21 Sep, and three production deploys reached `success` after `ad0572e6`'s
-last one. If both readings are right, three deploys in a row reported success without taking,
-which points at a misrouted hook or the wrong host rather than one flaky deploy. `ran`, statuses
-endpoint on 2026-09-22; `/health` read once on 2026-09-21 in an earlier session, not re-checked
+serving. **Resolved 2026-09-22: production deploys do take.** The live production API,
+`navig8r.onrender.com`, which the driver app and customer web call, reports `9cc20cc9` (PR #107),
+the last release approved at the gate. The `ad0572e6` reading came from `navig8r-api.onrender.com`,
+a separate service that `render.yaml` names as production but nothing uses. It still runs 10 Sep
+code. `ran`, both `/health` endpoints on 2026-09-22
+
+Nothing in the pipeline would have caught either fact, which is the gap.
 
 **Corrected 2026-09-22.** An earlier version of this paragraph said GitHub "recorded a successful
 production deployment of `4461e67`". It did not. `4461e67` reached alpha and beta but never
