@@ -85,8 +85,17 @@ runs smoke tests. Production sends three deploy hooks and the job ends — `rele
 line 334 on the last one. `read`
 
 A deploy hook returning 200 means the host accepted the request, not that the new image is
-serving. That is the likely explanation for 2026-09-21, when GitHub recorded a successful
-production deployment of `4461e67` while `/health` reported `ad0572e6`. `ran`, on 2026-09-21
+serving. Whether that has actually bitten is **unresolved**. As of 22 Sep, the last production
+deployment to reach `success` is `9cc20cc9`, on 18 Sep after 32 hours at the gate. Yet `/health`
+reported `ad0572e6` on 21 Sep, and three production deploys reached `success` after `ad0572e6`'s
+last one. If both readings are right, three deploys in a row reported success without taking,
+which points at a misrouted hook or the wrong host rather than one flaky deploy. `ran`, statuses
+endpoint on 2026-09-22; `/health` read once on 2026-09-21 in an earlier session, not re-checked
+
+**Corrected 2026-09-22.** An earlier version of this paragraph said GitHub "recorded a successful
+production deployment of `4461e67`". It did not. `4461e67` reached alpha and beta but never
+production; it sat at the approval gate with state `waiting` until it was cancelled. The deployments list carries no state, and a record was
+misread as a success. The statuses endpoint is the one to trust.
 
 **The most protected stage in the pipeline is the least verified one.**
 
@@ -182,10 +191,12 @@ The real problem is not review quality. It is that change arrives faster than a 
 so the beta-to-production approval approves something nobody has seen whole. Fix that by
 generating the thing being approved.
 
-The last production SHA is queryable, which makes this cheap: `ran`
+The last production SHA is queryable, which makes this cheap, with one trap: the newest
+deployment *record* is not the last release, because the list carries no state. Walk each
+record's statuses and take the newest that reached `success`. `ran`
 
 ```
-gh api "repos/uwais/naviG8r/deployments?environment=production&per_page=1" --jq '.[0].sha'
+gh api repos/uwais/naviG8r/deployments/<id>/statuses --jq '[.[].state]'
 ```
 
 On each beta deploy, diff that against `HEAD` and post to the release channel:
@@ -238,6 +249,16 @@ production without the review the gate exists to require. That is a reasonable e
 small team, but it makes the production gate a convention rather than a control. Worth deciding
 which it should be.
 
+The evidence since points the other way, though. On 21-22 Sep the gate was not bypassed; it
+went unanswered. One release waited 41 hours at the gate with every stage green. The next could
+not start behind it: it sat 25 hours without running a single stage, then waited another 6 at the
+gate once green. `ran`, jobs endpoint for runs 35557611123 and 35645505581
+
+The comment in `release.yml` calls a blocked queue "visible and therefore the better failure".
+Queueing was the right trade, but visible did not mean seen. A gate that blocks unnoticed fails the
+same way as one that is bypassed: the release does not ship. Alerting the approvers matters more
+than tightening the gate. Whether GitHub already notifies required reviewers is unchecked.
+
 ---
 
 ## 7. Not verified
@@ -247,7 +268,8 @@ which it should be.
   for Cursor. Test it on one PR before relying on it.
 - **Live beta and production behaviour.** Outbound network access to the deploy hosts was
   unavailable when this was written, so everything about the running services comes from the repo,
-  the workflow files and GitHub's deployment records — not from observing them.
+  the workflow files and GitHub's deployment records — not from observing them. The one exception
+  is a single production `/health` reading from 21 Sep, taken in an earlier session.
 - **Every `docs` row in the cost table.** Those are vendor pricing pages read while writing this,
   not anything executed, and vendor pricing moves. Re-check before committing money.
 - **Who pays for Cursor, and on what tier.**
@@ -264,7 +286,8 @@ Everything marked `ran` came from one of these, on 2026-09-22 against `acf0e96`:
 gh api repos/uwais/naviG8r --jq '{visibility,allow_auto_merge,plan:.owner.type}'
 gh api repos/uwais/naviG8r/rulesets/15994825 --jq '{conditions,rules:[.rules[].type]}'
 gh api repos/uwais/naviG8r/environments/production
-gh api "repos/uwais/naviG8r/deployments?environment=production&per_page=1" --jq '.[0].sha'
+gh api repos/uwais/naviG8r/deployments/<id>/statuses --jq '[.[].state]'
+gh api "repos/uwais/naviG8r/actions/runs/<run>/jobs?filter=all" --jq '.jobs[]|[.name,.created_at]'
 gh pr checks 122
 gh api repos/uwais/naviG8r/pulls/122/reviews
 grep -rn "npm test" .github/workflows/
