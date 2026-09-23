@@ -38,9 +38,16 @@ const REPO = process.env.GITHUB_REPOSITORY || "uwais/naviG8r";
 /** Anything that stopped this digest from knowing what it claims to know. Never empty silently. */
 const failures = [];
 
+/**
+ * 30 seconds per call. Without a cap, one hung call runs into the step's 5-minute limit, which
+ * kills the process before finish() - so the summary comes out blank, the one outcome this file
+ * promises never to produce. With it, the hang is recorded as a failure and reported.
+ */
+const CALL_TIMEOUT_MS = 30_000;
+
 function git(args, { allowFail = false } = {}) {
   try {
-    return execFileSync("git", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 }).trim();
+    return execFileSync("git", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: CALL_TIMEOUT_MS }).trim();
   } catch (err) {
     if (!allowFail) failures.push(`git ${args.slice(0, 2).join(" ")}: ${String(err.message).split("\n")[0]}`);
     return null;
@@ -52,7 +59,7 @@ function gh(path, jq) {
   const args = ["api", path];
   if (jq) args.push("--jq", jq);
   try {
-    return execFileSync("gh", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }).trim();
+    return execFileSync("gh", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: CALL_TIMEOUT_MS }).trim();
   } catch (err) {
     failures.push(`gh api ${path.split("?")[0]}: ${String(err.message).split("\n")[0]}`);
     return null;
@@ -214,7 +221,10 @@ async function alertSlack() {
 async function finish() {
   await alertSlack();
   if (alertFailure) {
-    say(`Slack alert **failed** (\`${alertFailure}\`). The summary above is complete; only the alert did not go out.`);
+    // Only vouch for the summary when nothing else failed; otherwise the next section says it is
+    // partial, and the two lines would contradict each other.
+    say(`Slack alert **failed** (\`${alertFailure}\`).` +
+      (failures.length ? "" : " The summary above is complete; only the alert did not go out."));
   }
   if (failures.length) {
     say();
