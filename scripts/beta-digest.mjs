@@ -20,8 +20,9 @@
  *   2. A production deployment RECORD is not a production deployment. Five records since 16 Sep
  *      are `error` or `waiting`, and the list endpoint carries no state. This walks the statuses
  *      endpoint and takes the newest deployment that actually reached `success`. Even then,
- *      `success` only means the three deploy hooks returned 2xx - `release.yml` never checks that
- *      the new image is serving - so the wording stays "accepted a deploy hook", not "released".
+ *      `success` only means the three deploy hooks returned 2xx - the Verify Production job checks
+ *      the API afterwards, but a failed check does not change this record - so the wording stays
+ *      "accepted a deploy hook", not "released".
  *
  *   3. Beta does not rehearse production's money path. PAYOUTS_MODE is BOOKKEEPING on alpha and
  *      beta and RAZORPAYX on production (render.yaml), so the branch inside
@@ -327,9 +328,10 @@ alertFacts.age = age;
 
 say(`Production last accepted a deploy hook for \`${prod.sha.slice(0, 8)}\`, **${age} ago**.`);
 say();
-say(`> A \`success\` deployment status means the three deploy hooks returned 2xx. \`release.yml\` ` +
-  `never checks that the new image is serving, so this is the last deploy *attempted*, not ` +
-  `confirmed. Run \`/health\` against production if you need to know what it is actually running.`);
+say(`> A \`success\` deployment status means the three deploy hooks returned 2xx. The Verify ` +
+  `Production job's result is on that release's run, not on this record, so this is the last ` +
+  `deploy *attempted*, not confirmed. Run \`/health\` against production if you need to know what ` +
+  `it is actually running.`);
 say();
 say(`Beta is at \`${HEAD.slice(0, 8)}\`: ` +
   (commits === null ? "commit count unavailable" : `**${commits.length} commits**`) +
@@ -415,8 +417,8 @@ if (nonGatingTests > 0) {
 say("- **Alpha: 4 endpoints.** health, OTP start, OTP verify, `/v1/pilot/me`. Auth happy path only.");
 say("- **Beta: 1 endpoint.** `/health` — checks `ok`, the payment provider string, and that the");
 say("  release SHA matches. It exercises no application behaviour.");
-say("- **Production: nothing.** `release.yml` fires three deploy hooks and the job ends. No wait,");
-say("  no health check, no smoke test.");
+say("- **Production: nothing yet.** After approval, Verify Production waits for the API's");
+say("  `/health` to report this release. Customer web and www are not checked; no smoke test.");
 say();
 
 /**
