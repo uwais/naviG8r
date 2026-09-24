@@ -169,10 +169,21 @@ Add to "Sanity check mainline":
 Dismissing stale approvals is what would have caught the #122 sequence: the approval of the
 broken commit would not have survived the fix commit.
 
-### Step 3 — turn on auto-merge (free)
+### Step 3 — turn on auto-merge, only once the tests can catch a regression (free)
 
-Set `allow_auto_merge`, then have agents finish with `gh pr merge --auto --squash`. The merge
-fires by itself once required checks pass, and never fires if one fails.
+**Not yet.** Auto-merge trusts green checks, so it is only as safe as the tests behind them. Once
+step 1 lands, a PR runs the API suite, which includes one journey over HTTP: sign in, book,
+accept, upload proof of delivery, release payment, against a server the test starts itself
+(`apps/api/src/rbacHttp.test.ts`). It uses a temporary file for storage and the mock payment
+provider. A PR also runs the app's screen tests. Nothing drives the driver app or customer web
+through a journey, so a PR can break a screen flow and still go green. Two browser test files
+exist but no workflow runs them, and they check pages and access rules, not journeys. `read`,
+`origin/main` at `6722529` on 2026-09-23.
+
+Precondition: journey tests through both apps run on every PR, and have been seen failing on a
+deliberately broken PR. That work is not yet scoped in this document. Then set
+`allow_auto_merge`, and have agents finish with `gh pr merge --auto --squash`. The merge fires
+once required checks pass, never if one fails.
 
 ### Step 4 — narrow, blocking AI checks (paid, and optional)
 
@@ -238,7 +249,14 @@ production. Without this, a production deploy that silently did not take reads a
 
 ---
 
-## 6. Two things to decide
+## 6. Three things to decide
+
+**Where agents get product direction.** This proposal does not cover it. Agents should read the
+current PRD before they start work, so direction is set at the start rather than argued at review.
+Review against a PRD cannot be a pass-or-fail check, so it does not belong in step 4. The latest
+PRD is in a Drive folder (per Uwais on #123), which a GitHub job cannot read without a Drive
+credential. A copy in the repository is already proposed in #86, and a copy goes stale. Which is
+the source of truth is a team call, and it decides #86 too.
 
 **Merge queue needs an organization.** It is the feature that stops two independently-green PRs
 from breaking `main` when merged together — exactly the failure a high merge rate produces. It is
