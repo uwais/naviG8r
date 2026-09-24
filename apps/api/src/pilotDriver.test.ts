@@ -272,3 +272,31 @@ test("carrier pilot can list org shipments, mark POD visibility, and submit payo
   const summary = pilotCarrierEarningsSummary(store, onboard.user.id, onboard.org.id);
   assert.equal(summary.bookedCount, 1);
 });
+
+// The format rules themselves live in bankAccountValidation.test.ts. This one
+// exists so that deleting the validation CALL from pilotSubmitPayoutSetup turns
+// something red - without it, the rules could be wired out and every unit test
+// would still pass.
+test("pilotSubmitPayoutSetup refuses a malformed IFSC before it reaches the payout provider", async () => {
+  const store = createStore();
+  const onboard = registerCompliantCarrier(store, {
+    fullName: "Ravi Kumar",
+    phone: "9876500011",
+    orgDisplayName: "Ravi Transport",
+    vehicleRegistrationNumber: "HR26AB9999",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 5000,
+  });
+
+  await assert.rejects(
+    () =>
+      pilotSubmitPayoutSetup(store, onboard.user.id, {
+        orgId: onboard.org.id,
+        accountHolderName: "Ravi Kumar",
+        // Fifth character must be zero. This is the single most common typo and
+        // the provider only reports it on payout day.
+        ifsc: "HDFC1001234",
+      }),
+    /invalid_payout_profile/,
+  );
+});

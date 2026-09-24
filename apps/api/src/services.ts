@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from "node:crypto";
+import { validatePayoutBankDetails } from "./bankAccountValidation.ts";
 import { authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible } from "./rbac.ts";
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
 import {
@@ -1031,12 +1032,16 @@ export async function pilotSubmitPayoutSetup(
 ): Promise<{ org: Organization; message: string }> {
   requirePermission(store, "bank_account.create_token", { orgId: params.orgId }, userId);
   const org = getOrgOrThrow(store, params.orgId);
-  const accountHolderName = String(params.accountHolderName ?? "").trim();
-  const ifsc = String(params.ifsc ?? "").trim();
-  const accountNumber = String(params.accountNumber ?? "").trim();
-  if (!accountHolderName || !ifsc) {
-    throw new ApiError("invalid_payout_profile", { detail: "accountHolderName and ifsc are required." });
+  // Format only. This catches a typo before it reaches the payout provider; it
+  // does not prove the account exists or belongs to this carrier.
+  const checked = validatePayoutBankDetails(params);
+  if (!checked.ok) {
+    throw new ApiError("invalid_payout_profile", {
+      detail: checked.detail,
+      field: checked.field,
+    });
   }
+  const { accountHolderName, ifsc, accountNumber } = checked.value;
 
   // With real payouts enabled, provision a RazorpayX contact + fund account so this
   // carrier can actually receive transfers. Requires a bank account number.

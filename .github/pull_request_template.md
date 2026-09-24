@@ -41,6 +41,7 @@ the same breath. If you cannot describe it without jargon, the PR is probably to
 ---
 
 - [ ] One problem per PR. If this supersedes an earlier PR, say which, and close it.
+- [ ] 400 words or fewer, tables included. Condense the narrative; never drop a section.
 - [ ] No exploit detail in the description — this repository is public. See `docs/PR-STANDARD.md`.
 - [ ] **Changes a screen?** Every user-visible element you added is named in a test. Ask: if
       someone deleted it tomorrow, what turns red? If the answer is nothing, it is not protected.
