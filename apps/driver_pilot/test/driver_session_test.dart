@@ -1,6 +1,7 @@
 import "dart:async";
 
 import "package:dio/dio.dart";
+import "package:driver_pilot/authorization_session.dart";
 import "package:driver_pilot/driver_session.dart";
 import "package:driver_pilot/pilot_api.dart";
 import "package:flutter_test/flutter_test.dart";
@@ -131,5 +132,93 @@ void main() {
     expect(ok, isFalse);
     expect(DriverSession.hasCarrierOrg, isFalse);
     expect(lastRegisteredOrgId, isNull);
+  });
+
+  test("refresh and organization switch keep the signed-in session", () async {
+    api.selectOrganization(null);
+    api.dio.interceptors.clear();
+    api.dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final selected = api.activeOrganizationId;
+          final auth = options.path.endsWith("/v1/auth/me");
+          handler.resolve(Response<Map<String, dynamic>>(
+            requestOptions: options,
+            statusCode: 200,
+            data: auth
+                ? {
+                    "user": {
+                      "id": "driver-1",
+                      "fullName": "Ravi Kumar",
+                      "phone": "9876543210"
+                    },
+                    "organizations": [
+                      {
+                        "id": "org_1",
+                        "kind": "CARRIER_FLEET",
+                        "displayName": "Ravi Transport",
+                        "kycStatus": "APPROVED"
+                      },
+                      {
+                        "id": "org_2",
+                        "kind": "CARRIER_FLEET",
+                        "displayName": "Second Fleet",
+                        "kycStatus": "APPROVED"
+                      },
+                    ],
+                    if (selected != null)
+                      "principal": {
+                        "organizationId": selected,
+                        "roles": ["CARRIER"],
+                        "subrole": "OWNER",
+                        "permissions": [
+                          "organization.profile.read",
+                          "load.read"
+                        ],
+                      },
+                  }
+                : {
+                    "driverProfile": {"primaryVehicleId": "veh_1"},
+                    "vehicles": [
+                      {
+                        "id": "veh_1",
+                        "registrationNumber": "DL01AB1234",
+                        "vehicleClass": "MEDIUM",
+                        "capacityKg": 1000
+                      },
+                    ],
+                  },
+          ));
+        },
+      ),
+    );
+
+    var depth = 0;
+    void listener() {
+      depth++;
+      expect(depth, lessThan(8),
+          reason: "the session listener must not call back into session clear");
+      if (!AuthorizationSession.signedIn || AuthorizationSession.switching) {
+        DriverSession.clearCarrierCache();
+      }
+    }
+
+    AuthorizationSession.revision.addListener(listener);
+    addTearDown(() => AuthorizationSession.revision.removeListener(listener));
+
+    await AuthorizationSession.refresh();
+    expect(AuthorizationSession.signedIn, isTrue);
+
+    api.selectOrganization("org_1");
+    final ok = await DriverSession.refresh();
+    expect(ok, isTrue, reason: "a signed-in carrier refresh has to finish");
+    expect(AuthorizationSession.signedIn, isTrue,
+        reason: "refresh must not wipe the session the listener is watching");
+    expect(DriverSession.carrierOrgName, "Ravi Transport");
+    expect(DriverSession.vehicleRegistrationNumber, "DL01AB1234");
+
+    await AuthorizationSession.selectOrganization("org_2");
+    expect(AuthorizationSession.signedIn, isTrue);
+    expect(AuthorizationSession.organizationId, "org_2");
   });
 }

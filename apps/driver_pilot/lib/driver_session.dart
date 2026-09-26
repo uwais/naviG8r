@@ -31,7 +31,12 @@ abstract final class DriverSession {
   static bool get complianceApproved => kycStatus == "APPROVED";
 
   static Future<bool> refresh() async {
-    clear();
+    // The auth session stays. clear() wipes it, the app listener on that session
+    // calls back in here, and the two recurse until the stack overflows. The
+    // router also treats the wipe as a sign-out and sends a signed-in carrier
+    // to the phone screen. A refresh only needs to drop this cache so a late
+    // response cannot refill it after sign-out.
+    clearCarrierCache();
     final epoch = _epoch;
     await AuthorizationSession.refresh();
     if (epoch != _epoch) return false;
@@ -67,13 +72,19 @@ abstract final class DriverSession {
     }
   }
 
-  static void clear() {
+  /// Drops the in-process carrier cache. Does not touch the auth session, so it
+  /// is safe to call from the auth session's own listener.
+  static void clearCarrierCache() {
     _epoch++;
-    AuthorizationSession.clear();
     lastRegisteredOrgId = null;
     vehicleId = null;
     vehicleRegistrationNumber = null;
     vehicleClass = null;
     vehicleCapacityKg = null;
+  }
+
+  static void clear() {
+    clearCarrierCache();
+    AuthorizationSession.clear();
   }
 }

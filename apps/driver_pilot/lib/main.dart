@@ -132,7 +132,8 @@ class _DriverPilotAppState extends State<DriverPilotApp>
 
   void _sessionChanged() {
     if (!AuthorizationSession.signedIn || AuthorizationSession.switching) {
-      DriverSession.clear();
+      // DriverSession.clear() notifies this listener. Only drop the carrier cache.
+      DriverSession.clearCarrierCache();
       lastBookedShipmentId = null;
     }
     if (AuthorizationSession.switching) {

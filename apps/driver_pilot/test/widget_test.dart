@@ -81,4 +81,23 @@ void main() {
     expect(find.text('Book freight'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+      'A logged-out launch resolves the session without recursing',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    api = Api('http://test');
+    api.dio.httpClientAdapter = MockApiAdapter(
+        (request) => jsonResponse({'error': 'unauthorized'}, 401));
+    AuthorizationSession.clear();
+    // A real process starts uninitialized. Clearing first hides the notify
+    // that the app listener used to answer by clearing the session again.
+    AuthorizationSession.initialized = false;
+    await tester.pumpWidget(const DriverPilotApp());
+    await pumpAuthorizationFrames(tester);
+    expect(find.text('Sign in with phone'), findsOneWidget,
+        reason: 'a logged-out launch has to reach the driver welcome screen');
+    expect(AuthorizationSession.signedIn, isFalse);
+    expect(tester.takeException(), isNull);
+  });
 }
