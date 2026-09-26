@@ -24,6 +24,7 @@ import {
   listOpsAdmins,
   markPodDelivered,
   opsListPendingRelease,
+  opsListUnapprovedCarriers,
   opsListRecentlyDelivered,
   opsShipmentDetail,
   releasePaymentAndDeliver,
@@ -968,6 +969,11 @@ export async function createApp(): Promise<{
           if (msg === "forbidden") return json(res, 403, { error: "forbidden" });
           throw e;
         }
+      }
+
+      if (method === "GET" && url.pathname === "/ops/compliance/pending") {
+        requirePermission(store, "kyc.verify");
+        return json(res, 200, { organizations: opsListUnapprovedCarriers(store) });
       }
 
       if (method === "GET" && url.pathname === "/ops/shipments/pending-release") {

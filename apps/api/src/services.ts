@@ -1972,6 +1972,15 @@ export function opsListRecentlyDelivered(store: Store, limit = 20): Shipment[] {
     .slice(0, limit);
 }
 
+/** Carriers ops has not approved yet. Ones that submitted bank details come first, then the oldest. */
+export function opsListUnapprovedCarriers(store: Store): Organization[] {
+  const reviewOrder: Record<string, number> = { SUBMITTED: 0, NOT_STARTED: 1, REJECTED: 2 };
+  return [...store.organizations.values()]
+    .filter((o) => isActiveEntity(o) && o.kycStatus !== "APPROVED")
+    .filter((o) => o.kind === "CARRIER_SOLO" || o.kind === "CARRIER_FLEET" || o.kind === "CARRIER_LEGACY")
+    .sort((a, b) => reviewOrder[a.kycStatus] - reviewOrder[b.kycStatus] || a.createdAtUtcMs - b.createdAtUtcMs);
+}
+
 export function opsShipmentDetail(store: Store, shipmentId: string): {
   shipment: Shipment;
   payment: Payment | null;

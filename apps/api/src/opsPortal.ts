@@ -3,12 +3,12 @@ export function opsPortalHtml(options: { workflowOnly?: boolean } = {}): string 
   const workflowOnly = options.workflowOnly === true;
   const title = workflowOnly ? "NaviG8r shipments" : "NaviG8r operations";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
-<style>body{font:16px system-ui;max-width:960px;margin:32px auto;padding:16px;color:#17243b}button,input,select{padding:10px;margin:6px}article{border:1px solid #ccd3de;border-radius:8px;padding:16px;margin:12px 0}label{display:block}#error{color:#a11212}small{display:block;color:#526079}</style></head><body>
+<style>body{font:16px system-ui;max-width:960px;margin:32px auto;padding:16px;color:#17243b}button,input,select{padding:10px;margin:6px}article{border:1px solid #ccd3de;border-radius:8px;padding:16px;margin:12px 0}label{display:block}#error{color:#a11212}#notice{color:#16623a;font-weight:600}small{display:block;color:#526079}</style></head><body>
 <h1>${title}</h1><nav><a href="${workflowOnly ? "/admin" : "/workflow"}">${workflowOnly ? "Admin workspace" : "Shipment/POD workspace"}</a></nav><p id="error" role="alert"></p>
 <section id="login"><label>Phone<input id="phone" autocomplete="tel"></label><button id="start">Send code</button><label>Verification code<input id="code" autocomplete="one-time-code"></label><button id="verify">Sign in</button></section>
 <section id="workspace" hidden><label>Acting organization<select id="organization"><option value="">Select an organization</option></select></label><button id="signout">Sign out</button><p id="roles"></p><p id="access"></p><div id="shipments"></div>
 <section id="roleManagement" hidden><h2>Membership roles</h2><label>User ID<input id="memberUser"></label><label>Organization ID<input id="memberOrg"></label><label>Roles (comma separated)<input id="memberRoles" placeholder="OPS,FINANCE"></label><button id="saveRoles">Save roles</button></section>
-<section id="compliance" hidden><h2>Carrier compliance review</h2><label>Carrier organization ID<input id="carrierOrg"></label><label>Reason code<input id="reason" placeholder="DOCUMENTS_REVIEWED"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
+<section id="compliance" hidden><h2>Carrier compliance review</h2><p id="notice" role="status"></p><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="reason"></label><h3>Not yet approved</h3><p id="kycEmpty" hidden>Every carrier is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Carrier organization ID<input id="carrierOrg"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
 <script>
 const workflowOnly = ${workflowOnly};
 let challenge = '', principal, token = sessionStorage.getItem('navig8r_access') || '', org = sessionStorage.getItem('navig8r_org') || '';
@@ -46,9 +46,31 @@ async function loadWorkspace(){
   if(s.status==='PENDING_RELEASE'&&!s.podAcceptedAtUtcMs&&principal.permissions.includes('pod.accept')){const b=document.createElement('button');b.textContent='Accept POD';b.onclick=perform(async()=>{await request('/shipments/'+s.id+'/accept-pod','POST',{});await loadWorkspace();});row.append(b);}
   $('shipments').append(row);
  }
+ if(!$('compliance').hidden) await loadKycQueue();
+}
+const kycLabels={SUBMITTED:'Bank details submitted',NOT_STARTED:'No bank details yet',REJECTED:'Rejected'};
+async function loadKycQueue(){
+ const out=await request('/ops/compliance/pending'); $('kycQueue').replaceChildren(); $('kycEmpty').hidden=out.organizations.length>0;
+ for(const o of out.organizations){
+  const row=document.createElement('article'), name=document.createElement('strong'), detail=document.createElement('small');
+  name.textContent=o.displayName; detail.textContent=(kycLabels[o.kycStatus]||o.kycStatus)+' · joined '+new Date(o.createdAtUtcMs).toLocaleDateString()+' · '+o.id; row.append(name,detail);
+  for(const status of ['APPROVED','REJECTED']){const b=document.createElement('button');b.textContent=status==='APPROVED'?'Approve':'Reject';b.onclick=perform(()=>recordReview(o.id,status));row.append(b);}
+  $('kycQueue').append(row);
+ }
+}
+async function recordReview(orgId,status){
+ const reason=$('reason').value.trim(), buttons=$('compliance').querySelectorAll('button');
+ if(!orgId) throw Error('Enter the carrier organization ID.');
+ if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(reason)) throw Error('Reason code must be 3 to 64 capitals, numbers or underscores, starting with a letter, for example DOCUMENTS_REVIEWED.');
+ buttons.forEach(b=>b.disabled=true);
+ try{
+  const out=await request('/v1/organizations/'+encodeURIComponent(orgId)+'/kyc','POST',{status},{'x-reason-code':reason});
+  $('reason').value=''; $('notice').textContent='Last review recorded: '+out.org.displayName+' ('+out.org.id+') is now '+out.org.kycStatus+'.';
+  await loadKycQueue();
+ }finally{buttons.forEach(b=>b.disabled=false);}
 }
 $('saveRoles').onclick=perform(async()=>{await request('/v1/roles','POST',{userId:$('memberUser').value,orgId:$('memberOrg').value,roles:$('memberRoles').value.split(',').map(s=>s.trim()).filter(Boolean)});await loadWorkspace();});
-$('verifyKyc').onclick=perform(async()=>{await request('/v1/organizations/'+encodeURIComponent($('carrierOrg').value)+'/kyc','POST',{status:$('kycStatus').value},{'x-reason-code':$('reason').value});});
+$('verifyKyc').onclick=perform(()=>recordReview($('carrierOrg').value.trim(),$('kycStatus').value));
 if(token) perform(loadOrganizations)();
 </script></body></html>`;
 }
