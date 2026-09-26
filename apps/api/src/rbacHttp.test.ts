@@ -79,3 +79,22 @@ test("HTTP multiple memberships require explicit organization and prevent Financ
   assert.equal((await f.request("/payout-batches", "GET", undefined, f.tokens.shipperA, { "x-organization-id": f.finance.orgId })).status, 200);
   assert.equal((await f.request("/payout-batches", "GET", undefined, f.tokens.shipperA, { "x-organization-id": f.shipperB.org.id })).status, 403);
 });
+
+test("HTTP ops review queue lists unapproved carriers only, to ops only", async t => {
+  const f = await httpFixture(t); const queue = "/ops/compliance/pending";
+  const ids = async () => (await f.request(queue, "GET", undefined, f.tokens.ops)).body.organizations.map((o: { id: string }) => o.id);
+  f.store.organizations.get(f.carrierA.org.id)!.kycStatus = "NOT_STARTED";
+  f.store.organizations.get(f.carrierB.org.id)!.kycStatus = "SUBMITTED";
+  f.store.organizations.get(f.carrierB.org.id)!.payoutFundAccountId = "fa_SYNTHETIC";
+  assert.equal((await f.request(queue)).status, 401);
+  for (const role of ["shipperA", "carrierA", "carrierB", "finance", "admin"] as const) assert.equal((await f.request(queue, "GET", undefined, f.tokens[role])).status, 403);
+  const pending = await f.request(queue, "GET", undefined, f.tokens.ops);
+  assert.equal(pending.status, 200);
+  assert.deepEqual(pending.body.organizations.map((o: { id: string }) => o.id), [f.carrierB.org.id, f.carrierA.org.id]);
+  assert.equal(JSON.stringify(pending.body).includes("fa_SYNTHETIC"), false);
+  const review = await f.request(`/v1/organizations/${f.carrierB.org.id}/kyc`, "POST", { status: "APPROVED" }, f.tokens.ops, { "x-reason-code": "DOCUMENTS_REVIEWED" });
+  assert.equal(review.status, 200);
+  assert.deepEqual(await ids(), [f.carrierA.org.id]);
+  f.store.organizations.get(f.carrierA.org.id)!.inactiveAtUtcMs = 1;
+  assert.deepEqual(await ids(), []);
+});

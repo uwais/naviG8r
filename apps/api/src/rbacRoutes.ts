@@ -33,6 +33,7 @@ const rules: [string, RegExp, Permission][] = [
   ["*", /^\/v1\/(?:ops-admins|ops\/users|roles)(?:\/[^/]+)?$/, "user.role_manage"],
   ["GET", /^\/v1\/(?:users|orgs)$/, "user.role_manage"],
   ["POST", /^\/v1\/organizations\/[^/]+\/kyc$/, "kyc.verify"],
+  ["GET", /^\/ops\/compliance\/pending$/, "kyc.verify"],
   ["GET", /^\/v1\/audit$/, "audit.read"],
 ];
 export function guardRequest(req: http.IncomingMessage, store: Store, url: URL): void {

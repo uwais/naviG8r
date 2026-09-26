@@ -140,6 +140,7 @@ test("GET /ops returns ops portal HTML", async (t) => {
     const html = await res.text();
     assert.ok(html.includes("NaviG8r operations"));
     assert.ok(html.includes("pending-release"));
+    assert.ok(html.includes("/ops/compliance/pending"));
   });
 });
 
