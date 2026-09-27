@@ -110,7 +110,11 @@ class DriverShell extends StatelessWidget {
                   preferredSize: Size.fromHeight(48),
                   child: OrganizationToolbar())
               : null,
-          leading: canPop
+          // Pages pushed inside the shell never show up in canPop above (that is the outer
+          // navigator), so any page that is not its tab's own root gets the arrow. Not the
+          // live trip: leaving it mid-load stops location sharing, so no one-tap exit there.
+          leading: currentPath != _pathForIndex(selected) &&
+                  !currentPath.endsWith("/active")
               ? IconButton(
                   icon: const Icon(Icons.arrow_back),
                   onPressed: () => context.pop(),
