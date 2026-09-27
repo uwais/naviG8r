@@ -141,6 +141,7 @@ test("GET /ops returns ops portal HTML", async (t) => {
     assert.ok(html.includes("NaviG8r operations"));
     assert.ok(html.includes("pending-release"));
     assert.ok(html.includes("/ops/compliance/pending"));
+    assert.ok(html.includes("Reason code for "));
   });
 });
 
