@@ -7,6 +7,7 @@ import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "authorization_session.dart";
+import "carrier_approval_banner.dart";
 import "shipment_payment_status.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
@@ -109,7 +110,11 @@ class DriverShell extends StatelessWidget {
                   preferredSize: Size.fromHeight(48),
                   child: OrganizationToolbar())
               : null,
-          leading: canPop
+          // Pages pushed inside the shell never show up in canPop above (that is the outer
+          // navigator), so any page that is not its tab's own root gets the arrow. Not the
+          // live trip: leaving it mid-load stops location sharing, so no one-tap exit there.
+          leading: currentPath != _pathForIndex(selected) &&
+                  !currentPath.endsWith("/active")
               ? IconButton(
                   icon: const Icon(Icons.arrow_back),
                   onPressed: () => context.pop(),
@@ -129,11 +134,7 @@ class DriverShell extends StatelessWidget {
         ),
         body: SafeArea(
             child: Column(children: [
-          if (DriverSession.hasCarrierOrg && !DriverSession.complianceApproved)
-            const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text(
-                    "Compliance approval pending. Accepting shipments and starting trips are blocked until Operations approves this carrier.")),
+          CarrierApprovalBanner(currentPath: currentPath),
           Expanded(child: child),
         ])),
         bottomNavigationBar: showBottomNav
@@ -2239,9 +2240,13 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
-                  child: Text(
-                    "Compliance status: $kyc. Bank setup and compliance approval are reviewed separately. Settlement remains subject to payment readiness.",
-                    style: const TextStyle(color: DriverTheme.muted),
+                  // Same live status as the banner above, so a refresh can't leave them disagreeing.
+                  child: ListenableBuilder(
+                    listenable: AuthorizationSession.revision,
+                    builder: (context, _) => Text(
+                      "Approval status: ${approvalStatusInWords(DriverSession.kycStatus ?? kyc)}. Settlement remains subject to payment readiness.",
+                      style: const TextStyle(color: DriverTheme.muted),
+                    ),
                   ),
                 ),
               ),
