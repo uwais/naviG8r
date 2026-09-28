@@ -1,15 +1,27 @@
 /** Public shell; every data request is authenticated and authorized by the API. */
-export function opsPortalHtml(options: { workflowOnly?: boolean } = {}): string {
+export function opsPortalHtml(
+  options: { workflowOnly?: boolean; operations?: boolean } = {},
+): string {
   const workflowOnly = options.workflowOnly === true;
-  const title = workflowOnly ? "NaviG8r shipments" : "NaviG8r operations";
+  const heading = workflowOnly
+    ? "NaviG8r shipments"
+    : options.operations
+      ? "Operations workspace"
+      : "Full dashboard";
+  const title = workflowOnly ? heading : `NaviG8r · ${heading}`;
+  const fullDashboardPath = options.operations ? "/ops/v1" : "/admin/v1";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
-<style>body{font:16px system-ui;max-width:960px;margin:32px auto;padding:16px;color:#17243b}button,input,select{padding:10px;margin:6px}article{border:1px solid #ccd3de;border-radius:8px;padding:16px;margin:12px 0}label{display:block}#error{color:#a11212}#notice{color:#16623a;font-weight:600}small{display:block;color:#526079}</style></head><body>
-<h1>${title}</h1><nav><a href="${workflowOnly ? "/admin" : "/workflow"}">${workflowOnly ? "Admin workspace" : "Shipment/POD workspace"}</a></nav><p id="error" role="alert"></p>
+<style>body{font:16px system-ui;max-width:960px;margin:32px auto;padding:16px;color:#17243b}button,input,select{padding:10px;margin:6px}article{border:1px solid #ccd3de;border-radius:8px;padding:16px;margin:12px 0}label{display:block}#error{color:#a11212}#notice{color:#16623a;font-weight:600}small{display:block;color:#526079}
+${workflowOnly ? "" : "body{max-width:none;margin:0;padding:0}.dashboard-header{box-sizing:border-box;background:#102d4e;color:white;padding:20px 32px;display:flex;gap:24px;align-items:center;justify-content:space-between;font:15px system-ui,-apple-system,sans-serif}.dashboard-header strong{font-size:23px;letter-spacing:-.6px}.dashboard-header small{color:#bdd0e4;font-size:smaller}.dashboard-header nav{display:flex;gap:20px;align-items:center}.dashboard-header a{color:#d5e9ff;outline-offset:4px}.compact-dashboard{box-sizing:border-box;max-width:992px;margin:32px auto;padding:16px}.compact-dashboard input,.compact-dashboard select{box-sizing:border-box;max-width:calc(100% - 12px)}@media(max-width:650px){.dashboard-header{padding:18px;align-items:start}.dashboard-header nav{flex-direction:column;gap:8px;align-items:end}.compact-dashboard{margin:0 auto;padding:20px 14px}}"}
+.compact-dashboard h1{font-size:30px;letter-spacing:-.7px;margin:0 0 6px;color:#182c45}@media(max-width:650px){.compact-dashboard h1{font-size:25px}}
+</style></head><body>
+${workflowOnly ? "" : `<header class="dashboard-header"><div><strong>NaviG8r</strong><small>Operations &amp; administration · V2</small></div><nav aria-label="Dashboard navigation"><a href="${fullDashboardPath}">Open full dashboard (V1)</a><a href="/workflow">Shipment / POD workspace</a></nav></header><main class="compact-dashboard">`}
+<h1>${heading}</h1>${workflowOnly ? '<nav><a href="/admin">Admin workspace</a></nav><p><a href="/admin/v1">Open full dashboard (V1)</a></p>' : ""}<p id="error" role="alert"></p>
 <section id="login"><label>Phone<input id="phone" autocomplete="tel"></label><button id="start">Send code</button><label>Verification code<input id="code" autocomplete="one-time-code"></label><button id="verify">Sign in</button></section>
 <section id="workspace" hidden><label>Acting organization<select id="organization"><option value="">Select an organization</option></select></label><button id="signout">Sign out</button><p id="roles"></p><p id="access"></p><div id="shipments"></div>
 <section id="roleManagement" hidden><h2>Membership roles</h2><label>User ID<input id="memberUser"></label><label>Organization ID<input id="memberOrg"></label><label>Roles (comma separated)<input id="memberRoles" placeholder="OPS,FINANCE"></label><button id="saveRoles">Save roles</button></section>
 <section id="compliance" hidden><h2>Carrier compliance review</h2><p id="notice" role="status"></p><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="reason"></label><h3>Not yet approved</h3><p id="kycEmpty" hidden>Every carrier is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Carrier organization ID<input id="carrierOrg"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
-<script>
+${workflowOnly ? "" : "</main>"}<script>
 const workflowOnly = ${workflowOnly};
 let challenge = '', principal, token = sessionStorage.getItem('navig8r_access') || '', org = sessionStorage.getItem('navig8r_org') || '';
 const $ = id => document.getElementById(id);
