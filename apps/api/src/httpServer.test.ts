@@ -2,6 +2,7 @@ import { httpFixture } from "../test/httpFixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
+import net from "node:net";
 import type http from "node:http";
 import { createApp } from "./httpServer.ts";
 
@@ -100,6 +101,35 @@ test("legacy demo mutations are retired in every environment", async (t) => {
     const res = await postJson(baseUrl, "/carriers", { name: "Carrier One" });
     assert.equal(res.status, 410);
     assert.deepEqual(await res.json(), { error: "legacy_route_retired" });
+  });
+});
+
+test("an unfinished request body does not stall health checks", async (t) => {
+  const prev = { DATA_FILE: process.env.DATA_FILE, NODE_ENV: process.env.NODE_ENV };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+    process.env.NODE_ENV = prev.NODE_ENV;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  process.env.NODE_ENV = "test";
+
+  await withApp(t, async (baseUrl) => {
+    const u = new URL(baseUrl);
+    const slow = await new Promise<net.Socket>((resolve, reject) => {
+      const socket = net.connect({ host: u.hostname, port: Number(u.port) }, () => resolve(socket));
+      socket.once("error", reject);
+    });
+    t.after(() => {
+      slow.destroy();
+    });
+    slow.write(
+      "POST /v1/auth/otp/start HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 80\r\n\r\n{",
+    );
+
+    const health = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(2000) });
+    assert.equal(health.status, 200);
+    assert.equal((await health.json()).ok, true);
   });
 });
 
