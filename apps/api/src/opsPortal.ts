@@ -23,7 +23,7 @@ ${workflowOnly ? "" : `<header class="dashboard-header"><div><strong>NaviG8r</st
 <section id="compliance" hidden><h2>Carrier compliance review</h2><p id="notice" role="status"></p><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="reason"></label><h3>Not yet approved</h3><p id="kycEmpty" hidden>Every carrier is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Carrier organization ID<input id="carrierOrg"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
 ${workflowOnly ? "" : "</main>"}<script>
 const workflowOnly = ${workflowOnly};
-let challenge = '', principal, token = sessionStorage.getItem('navig8r_access') || '', org = sessionStorage.getItem('navig8r_org') || '', otpCooldownUntil = 0, otpCooldownTimer;
+let challenge = '', principal, token = sessionStorage.getItem('navig8r_access') || '', org = sessionStorage.getItem('navig8r_org') || '', otpCooldownUntil = 0, otpCooldownTimer, otpPhoneRevision = 0;
 const $ = id => document.getElementById(id);
 async function request(path, method = 'GET', body, extra = {}) {
  const headers = { 'content-type': 'application/json', ...extra };
@@ -43,8 +43,8 @@ function startOtpCooldown(retryAfterMs) {
  otpCooldownUntil = Date.now() + Math.max(0, Number(retryAfterMs) || 0); renderOtpCooldown();
  if (otpCooldownUntil > Date.now()) otpCooldownTimer = setInterval(renderOtpCooldown, 250);
 }
-$('phone').oninput = () => { challenge = ''; $('code').value = ''; otpCooldownUntil = 0; renderOtpCooldown(); };
-$('start').onclick = perform(async () => { const button=$('start'), previousChallenge=challenge; button.disabled=true; try { const out = await request('/v1/auth/otp/start','POST',{phone:$('phone').value}); challenge = out.challengeId; if (out.debugCode !== undefined) $('code').value = out.debugCode; else if (challenge !== previousChallenge) $('code').value = ''; startOtpCooldown(out.retryAfterMs); } catch (e) { if (e.retryAfterMs) { startOtpCooldown(e.retryAfterMs); } throw e; } finally { if (!otpCooldownUntil || otpCooldownUntil <= Date.now()) renderOtpCooldown(); } });
+$('phone').oninput = () => { otpPhoneRevision++; challenge = ''; $('code').value = ''; otpCooldownUntil = 0; renderOtpCooldown(); };
+$('start').onclick = perform(async () => { const button=$('start'), previousChallenge=challenge, requestRevision=otpPhoneRevision, requestedPhone=$('phone').value; button.disabled=true; try { const out = await request('/v1/auth/otp/start','POST',{phone:requestedPhone}); if (requestRevision !== otpPhoneRevision || requestedPhone !== $('phone').value) return; challenge = out.challengeId; if (out.debugCode !== undefined) $('code').value = out.debugCode; else if (challenge !== previousChallenge) $('code').value = ''; startOtpCooldown(out.retryAfterMs); } catch (e) { if (requestRevision !== otpPhoneRevision || requestedPhone !== $('phone').value) return; if (e.retryAfterMs) { startOtpCooldown(e.retryAfterMs); } throw e; } finally { if (requestRevision === otpPhoneRevision && (!otpCooldownUntil || otpCooldownUntil <= Date.now())) renderOtpCooldown(); } });
 $('verify').onclick = perform(async () => { if(!challenge) throw Error('Start a new code before signing in.'); const out = await request('/v1/auth/otp/verify','POST',{phone:$('phone').value,challengeId:challenge,code:$('code').value}); token = out.accessToken; org=''; sessionStorage.setItem('navig8r_access',token); sessionStorage.removeItem('navig8r_org'); await loadOrganizations(); });
 $('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
 async function loadOrganizations() {

@@ -85,15 +85,20 @@ test("OTP start throttling preserves the current challenge and code and shows a 
 });
 
 test("changing the OTP phone resets the challenge and countdown", async ({ page }) => {
-  await page.route("**/v1/auth/otp/start", (route) =>
-    route.fulfill({ status: 429, json: { error: "otp_rate_limited", retryAfterMs: 30000 } }),
-  );
+  let releaseResponse!: () => void;
+  const responseGate = new Promise<void>((resolve) => { releaseResponse = resolve; });
+  await page.route("**/v1/auth/otp/start", async (route) => {
+    await responseGate;
+    await route.fulfill({ status: 429, json: { error: "otp_rate_limited", retryAfterMs: 30000 } });
+  });
   await page.goto("/ops");
   await page.locator("#phone").fill("9111009900");
   await page.locator("#start").click();
   await page.locator("#phone").fill("9111009901");
+  releaseResponse();
   await expect(page.locator("#start")).toHaveText("Send code");
   await expect(page.locator("#start")).toBeEnabled();
+  await expect(page.locator("#error")).toBeEmpty();
 });
 
 test("OTP verify sends the current leading-zero code and explains expired or incorrect responses", async ({
