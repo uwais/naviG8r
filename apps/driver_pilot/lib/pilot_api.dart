@@ -121,6 +121,11 @@ String formatApiError(Object e) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
     final code = body is Map ? body["error"] : null;
+    if (code == "otp_rate_limited") {
+      final retry = body["retryAfterMs"];
+      final seconds = retry is num ? (retry / 1000).ceil() : 30;
+      return "Too many code requests. Please wait ${seconds > 0 ? seconds : 1} seconds and try again.";
+    }
     const messages = {
       "carrier_compliance_required":
           "Carrier compliance must be approved before accepting shipments or starting trips.",
@@ -161,6 +166,13 @@ String formatApiError(Object e) {
     return "HTTP ${status ?? "?"}: ${body ?? e.message ?? e.toString()}";
   }
   return e.toString();
+}
+
+int? otpRetryAfterMs(Object e) {
+  if (e is! DioException) return null;
+  final body = e.response?.data;
+  final value = body is Map ? body["retryAfterMs"] : null;
+  return value is num && value > 0 ? value.ceil() : null;
 }
 
 String? lastRegisteredOrgId;

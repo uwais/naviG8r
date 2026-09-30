@@ -51,16 +51,49 @@ test("OTP start replaces stale code and accepts generated leading-zero debug cod
   await expect(page.locator("#code")).toHaveValue("");
 });
 
-test("OTP start failure clears stale challenge and code", async ({ page }) => {
+test("OTP start preserves a manually entered code when the challenge is unchanged", async ({ page }) => {
   await page.route("**/v1/auth/otp/start", (route) =>
-    route.fulfill({ status: 429, json: { error: "otp_rate_limited" } }),
+    route.fulfill({
+      json: { challengeId: "otp_same", expiresAtUtcMs: Date.now() + 600000, retryAfterMs: 0 },
+    }),
   );
   await page.goto("/ops");
   await page.locator("#phone").fill("9111009900");
-  await page.locator("#code").fill("012304");
   await page.locator("#start").click();
-  await expect(page.locator("#code")).toHaveValue("");
-  await expect(page.locator("#error")).toContainText("otp_rate_limited");
+  await expect(page.locator("#start")).toHaveText("Resend code");
+  await page.locator("#code").fill("654321");
+  await page.locator("#start").click();
+  await expect(page.locator("#code")).toHaveValue("654321");
+});
+
+test("OTP start throttling preserves the current challenge and code and shows a countdown", async ({ page }) => {
+  let starts = 0;
+  await page.route("**/v1/auth/otp/start", (route) =>
+    route.fulfill(starts++ === 0
+      ? { json: { challengeId: "otp_current", expiresAtUtcMs: Date.now() + 600000, debugCode: "012304" } }
+      : { status: 429, json: { error: "otp_rate_limited", retryAfterMs: 30000 } }),
+  );
+  await page.goto("/ops");
+  await page.locator("#phone").fill("9111009900");
+  await page.locator("#start").click();
+  await expect(page.locator("#start")).toHaveText("Resend code");
+  await page.locator("#start").click({ force: true });
+  await expect(page.locator("#code")).toHaveValue("012304");
+  await expect(page.locator("#error")).toContainText("30 seconds");
+  await expect(page.locator("#start")).toHaveText(/Resend code \(30s\)/);
+  await expect(page.locator("#start")).toBeDisabled();
+});
+
+test("changing the OTP phone resets the challenge and countdown", async ({ page }) => {
+  await page.route("**/v1/auth/otp/start", (route) =>
+    route.fulfill({ status: 429, json: { error: "otp_rate_limited", retryAfterMs: 30000 } }),
+  );
+  await page.goto("/ops");
+  await page.locator("#phone").fill("9111009900");
+  await page.locator("#start").click();
+  await page.locator("#phone").fill("9111009901");
+  await expect(page.locator("#start")).toHaveText("Send code");
+  await expect(page.locator("#start")).toBeEnabled();
 });
 
 test("OTP verify sends the current leading-zero code and explains expired or incorrect responses", async ({

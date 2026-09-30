@@ -49,7 +49,11 @@ function fixture(t: TestContext, debug = true) {
 
 test("OTP configuration defaults, explicit overrides, and invalid values", () => {
   const now = () => 1_800_000_000_000;
-  assert.equal(createOtpDependencies({ env: {}, now }).ttlMs, 600_000);
+  const defaults = createOtpDependencies({ env: {}, now });
+  assert.equal(defaults.ttlMs, 600_000);
+  assert.equal(defaults.resendCooldownMs, 30_000);
+  assert.equal(defaults.phoneStartLimit, 5);
+  assert.equal(defaults.ipStartLimit, 30);
   assert.equal(
     createOtpDependencies({ env: { OTP_TTL_MS: "5000" }, now }).ttlMs,
     5000,
@@ -78,6 +82,20 @@ test("OTP configuration defaults, explicit overrides, and invalid values", () =>
   env.OTP_TTL_MS = "0";
   assert.equal(otp.debug, true);
   assert.equal(otp.ttlMs, 5000);
+  const overridden = createOtpDependencies({ env: {
+    OTP_RESEND_COOLDOWN_MS: "45000", OTP_PHONE_START_LIMIT: "2",
+    OTP_PHONE_START_WINDOW_MS: "120000", OTP_IP_START_LIMIT: "8",
+    OTP_IP_START_WINDOW_MS: "90000", OTP_TRUST_PROXY: "1",
+  }, now });
+  assert.equal(overridden.resendCooldownMs, 45000);
+  assert.equal(overridden.phoneStartLimit, 2);
+  assert.equal(overridden.phoneStartWindowMs, 120000);
+  assert.equal(overridden.ipStartLimit, 8);
+  assert.equal(overridden.ipStartWindowMs, 90000);
+  assert.equal(overridden.trustProxy, true);
+  for (const [name, value] of [["OTP_RESEND_COOLDOWN_MS", "0"], ["OTP_PHONE_START_LIMIT", "NaN"], ["OTP_IP_START_WINDOW_MS", "-1"]]) {
+    assert.throws(() => createOtpDependencies({ env: { [name]: value }, now }), new RegExp(`${name}_invalid`));
+  }
 });
 
 test("debug only controls exposure; generated leading zeroes are verified", (t) => {
@@ -134,7 +152,7 @@ test("OTP accepts just before expiry and rejects at and after expiry", (t) => {
   }
 });
 
-test("resend supersedes only the normalized phone, even if random codes coincide", (t) => {
+test("cooldown reuses the current challenge; later resend supersedes only the normalized phone", (t) => {
   const f = fixture(t);
   const other = registerCustomerOrgAdmin(f.store, {
     fullName: "Other",
@@ -143,6 +161,11 @@ test("resend supersedes only the normalized phone, even if random codes coincide
   });
   const first = f.start(),
     unrelated = f.start(other.user.phone);
+  const reused = f.start("+91 8000000042");
+  assert.equal(reused.challengeId, first.challengeId);
+  assert.equal(reused.retryAfterMs, 30_000);
+  assert.equal(f.draws(), 2);
+  f.setNow(f.otp.now() + 30_000);
   const second = f.start("+91 8000000042");
   assert.equal(
     f.store.otpChallenges.get(first.challengeId)?.status,
@@ -160,11 +183,39 @@ test("resend supersedes only the normalized phone, even if random codes coincide
   assert.ok(f.verify(second.challengeId).accessToken);
 });
 
+test("phone issuance and IP request windows enforce configured limits", (t) => {
+  const previous = process.env.AUTH_SECRET;
+  process.env.AUTH_SECRET = "synthetic-otp-unit-signing-only";
+  t.after(() => previous === undefined ? delete process.env.AUTH_SECRET : process.env.AUTH_SECRET = previous);
+  const store = createStore();
+  const { user } = registerCustomerOrgAdmin(store, { fullName: "Rate limit", phone: "8000000044", orgDisplayName: "Rate limit" });
+  let now = 1_800_000_000_000;
+  const otp = createOtpDependencies({ env: { OTP_RESEND_COOLDOWN_MS: "1", OTP_PHONE_START_LIMIT: "2", OTP_PHONE_START_WINDOW_MS: "60000", OTP_IP_START_LIMIT: "2", OTP_IP_START_WINDOW_MS: "60000" }, now: () => now, generateCode: () => "000044" });
+  const first = pilotOtpStart(store, { phone: user.phone }, otp);
+  now += 2;
+  const second = pilotOtpStart(store, { phone: user.phone }, otp);
+  now += 2;
+  assert.throws(() => pilotOtpStart(store, { phone: user.phone }, otp), (error: unknown) => {
+    assert.equal((error as Error).message, "otp_rate_limited");
+    assert.ok((error as { retryAfterMs: number }).retryAfterMs > 0);
+    assert.ok((error as { retryAfterMs: number }).retryAfterMs <= 60_000);
+    return true;
+  });
+  assert.equal(store.otpChallenges.get(first.challengeId)?.status, "SUPERSEDED");
+  assert.equal(store.otpChallenges.get(second.challengeId)?.status, "PENDING");
+  otp.consumeIpStart("192.0.2.1");
+  otp.consumeIpStart("192.0.2.1");
+  assert.throws(() => otp.consumeIpStart("192.0.2.1"));
+  now += 60_001;
+  assert.doesNotThrow(() => otp.consumeIpStart("192.0.2.1"));
+});
+
 test("invalid starts and signing failures preserve a usable challenge", (t) => {
   const f = fixture(t),
     first = f.start();
   assert.throws(() => f.start("bad"), /invalid_phone/);
   assert.throws(() => f.start("8000000099"), /user_not_found/);
+  f.setNow(f.otp.now() + 30_000);
   assert.throws(
     () =>
       pilotOtpStart(

@@ -30,6 +30,63 @@ void main() {
         contains('Request a new code'));
     expect(formatApiError(error('otp_challenge_mismatch')),
         contains('Request a new code'));
+    final limited = DioException(
+      requestOptions: RequestOptions(path: '/v1/auth/otp/start'),
+      response: Response(
+        requestOptions: RequestOptions(path: '/v1/auth/otp/start'),
+        statusCode: 429,
+        data: {'error': 'otp_rate_limited', 'retryAfterMs': 45000},
+      ),
+    );
+    expect(formatApiError(limited), contains('45 seconds'));
+  });
+
+  testWidgets('customer resend cooldown disables button and counts down',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    var starts = 0;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') {
+        starts++;
+        return jsonResponse({
+          'challengeId': 'customer-cooldown',
+          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
+          'retryAfterMs': 1200,
+          'debugCode': '000042',
+        });
+      }
+      if (request.uri.path == '/v1/auth/me') return jsonResponse({}, 401);
+      return jsonResponse({});
+    });
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+          path: '/customer/login',
+          builder: (_, __) => const CustomerLoginScreen())
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '8000000001');
+    await tester.tap(find.text('Send code'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(starts, 1);
+    expect(find.text('Resend code (2s)'), findsOneWidget);
+    expect(
+        tester
+            .widget<OutlinedButton>(find.byType(OutlinedButton).last)
+            .onPressed,
+        isNull);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('Resend code'), findsOneWidget);
+    expect(
+        tester
+            .widget<OutlinedButton>(find.byType(OutlinedButton).last)
+            .onPressed,
+        isNotNull);
   });
 
   testWidgets('customer resend clears the previous code when debug is absent',
@@ -64,13 +121,48 @@ void main() {
     expect(
         tester.widget<TextField>(find.byType(TextField).last).controller!.text,
         '000042');
-    await tester.tap(find.text('Send code'));
+    await tester.tap(find.text('Resend code'));
     await tester.pumpAndSettle();
     expect(starts, 2);
     expect(find.text('Debug OTP: 000042'), findsNothing);
     expect(
         tester.widget<TextField>(find.byType(TextField).last).controller!.text,
         isEmpty);
+  });
+
+  testWidgets('customer same-challenge cooldown retry preserves entered OTP',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') {
+        return jsonResponse({
+          'challengeId': 'same-customer-challenge',
+          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
+          'retryAfterMs': 0,
+        });
+      }
+      if (request.uri.path == '/v1/auth/me') return jsonResponse({}, 401);
+      return jsonResponse({});
+    });
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+          path: '/customer/login',
+          builder: (_, __) => const CustomerLoginScreen()),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '8000000001');
+    await tester.tap(find.text('Send code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Resend code'));
+    await tester.pumpAndSettle();
+    expect(
+        tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+        '123456');
   });
 
   GoRouter testRouter() => GoRouter(routes: [
@@ -98,6 +190,73 @@ void main() {
     await tester.pumpAndSettle();
     expect(starts, 1);
     expect(find.text('fallback-1'), findsOneWidget);
+  });
+
+  testWidgets('driver resend countdown disables the resend action',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    api = Api('http://test');
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') {
+        return jsonResponse({
+          'challengeId': 'driver-cooldown',
+          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
+          'retryAfterMs': 1200,
+        });
+      }
+      return jsonResponse({});
+    });
+    final router = GoRouter(
+        initialLocation: '/driver/onboarding/otp?phone=9876543210',
+        routes: [
+          GoRoute(
+              path: '/driver/onboarding/otp',
+              builder: (_, __) => const DriverOtpScreen()),
+        ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(find.text('Resend code (2s)'), findsOneWidget);
+    expect(tester.widget<TextButton>(find.byType(TextButton).first).onPressed,
+        isNull);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('Resend code'), findsOneWidget);
+    expect(tester.widget<TextButton>(find.byType(TextButton).first).onPressed,
+        isNotNull);
+  });
+
+  testWidgets('driver same-challenge retry preserves entered OTP without debug',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    api = Api('http://test');
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') {
+        return jsonResponse({
+          'challengeId': 'same-driver-challenge',
+          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
+          'retryAfterMs': 0,
+        });
+      }
+      return jsonResponse({});
+    });
+    final router = GoRouter(
+        initialLocation: '/driver/onboarding/otp?phone=9876543210',
+        routes: [
+          GoRoute(
+              path: '/driver/onboarding/otp',
+              builder: (_, __) => const DriverOtpScreen()),
+        ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(1), '123456');
+    await tester.tap(find.text('Resend code'));
+    await tester.pumpAndSettle();
+    expect(
+        tester.widget<TextField>(find.byType(TextField).at(1)).controller!.text,
+        '123456');
   });
 
   testWidgets('resend replaces stale debug code and challenge state',

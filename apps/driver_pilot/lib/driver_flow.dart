@@ -335,6 +335,23 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   String _phone = "";
   int? _expiresAtUtcMs;
   bool _receivedChallenge = false;
+  Timer? _cooldownTimer;
+  int _cooldownSeconds = 0;
+
+  void _startCooldown(dynamic rawMs) {
+    _cooldownTimer?.cancel();
+    final ms = rawMs is num ? rawMs.toInt() : 0;
+    final seconds = ms > 0 ? (ms / 1000).ceil() : 0;
+    if (mounted) setState(() => _cooldownSeconds = seconds);
+    if (seconds > 0) {
+      _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) return timer.cancel();
+        setState(() => _cooldownSeconds =
+            (_cooldownSeconds - 1).clamp(0, 1 << 30).toInt());
+        if (_cooldownSeconds == 0) timer.cancel();
+      });
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -352,6 +369,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         _debugCode = dc;
         _code.text = dc;
       }
+      _startCooldown(extra["retryAfterMs"]);
       _receivedChallenge = true;
     } else if (p.isNotEmpty && p != _phone) {
       _phone = p;
@@ -360,12 +378,9 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   }
 
   Future<void> _resend() async {
-    _challengeId.clear();
-    _code.clear();
-    _debugCode = null;
-    _expiresAtUtcMs = null;
     setState(() => _starting = true);
     try {
+      final previousChallengeId = _challengeId.text.trim();
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": _phone});
       if (!mounted) return;
@@ -378,13 +393,18 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       if (dc is String && dc.isNotEmpty) {
         _debugCode = dc;
         _code.text = dc;
-      } else {
+      } else if (id != previousChallengeId) {
         _debugCode = null;
+        _code.clear();
       }
+      _startCooldown(r.data?["retryAfterMs"]);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
+        final retry = otpRetryAfterMs(e);
+        if (retry != null) _startCooldown(retry);
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+      }
     } finally {
       if (mounted) setState(() => _starting = false);
     }
@@ -427,6 +447,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
 
   @override
   void dispose() {
+    _cooldownTimer?.cancel();
     _challengeId.dispose();
     _code.dispose();
     super.dispose();
@@ -470,8 +491,10 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
                 : const Text("Verify"),
           ),
           TextButton(
-              onPressed: _starting ? null : _resend,
-              child: const Text("Resend code")),
+              onPressed: _starting || _cooldownSeconds > 0 ? null : _resend,
+              child: Text(_cooldownSeconds > 0
+                  ? "Resend code (${_cooldownSeconds}s)"
+                  : "Resend code")),
         ],
       ),
     );

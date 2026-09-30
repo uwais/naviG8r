@@ -7,7 +7,7 @@ async function sendOtp(page: Page, expectDebugCode = true) {
       response.url().endsWith("/v1/auth/otp/start") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Send code", exact: true }).click();
+  await page.locator("#send-otp, #start").first().click();
   const challenge = await (await started).json();
   expect(challenge.challengeId).toEqual(expect.any(String));
   if (expectDebugCode) expect(challenge.debugCode).toMatch(/^\d{6}$/);
@@ -503,4 +503,28 @@ test("V1 accepts generated OTP codes and clears stale delivery on resend", async
     challengeId: second.challengeId,
     code: "987654",
   });
+});
+
+test("V1 OTP cooldown disables resend and phone changes clear the challenge", async ({ page }) => {
+  let starts = 0;
+  await page.route("**/v1/auth/otp/start", async (route) => {
+    starts += 1;
+    await route.fulfill({ json: {
+      challengeId: `otp_cooldown_${starts}`,
+      expiresAtUtcMs: Date.now() + 600000,
+      retryAfterMs: 30000,
+      debugCode: "001234",
+    } });
+  });
+  await page.goto("/admin/v1");
+  await page.getByLabel("Phone number", { exact: true }).fill("8000000005");
+  await page.getByRole("button", { name: "Send code", exact: true }).click();
+  await expect(page.locator("#send-otp")).toHaveText("Resend code (30s)");
+  await expect(page.locator("#send-otp")).toBeDisabled();
+  await expect(page.locator("#code")).toHaveValue("001234");
+  await page.getByLabel("Phone number", { exact: true }).fill("8000000006");
+  await expect(page.locator("#send-otp")).toHaveText("Send code");
+  await expect(page.locator("#send-otp")).toBeEnabled();
+  await expect(page.locator("#code")).toHaveValue("");
+  expect(starts).toBe(1);
 });

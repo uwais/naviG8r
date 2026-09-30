@@ -139,7 +139,7 @@ test("FILE persistence rejects consumed, expired, and superseded OTP after reloa
         /otp_expired/,
       );
     if (status === "SUPERSEDED")
-      pilotOtpStart(original.store, { phone: original.user.phone }, deps());
+      pilotOtpStart(original.store, { phone: original.user.phone }, deps(NOW + 30_000));
     saveStoreToDisk(file, original.store);
     await assertReloadedChallengeRejects(
       async () => loadStoreFromDisk(file),
@@ -237,7 +237,7 @@ test(
           /otp_expired/,
         );
       if (status === "SUPERSEDED")
-        pilotOtpStart(first.store, { phone: first.user.phone }, deps());
+        pilotOtpStart(first.store, { phone: first.user.phone }, deps(NOW + 30_000));
       await saveStoreToDatabase(first.store);
       const reloaded = await loadStoreFromDatabase();
       assert.equal(

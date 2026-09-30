@@ -93,10 +93,26 @@ function randomOtp6(): string {
 
 export type OtpDependencies = {
   readonly ttlMs: number;
+  readonly resendCooldownMs: number;
+  readonly phoneStartLimit: number;
+  readonly phoneStartWindowMs: number;
+  readonly ipStartLimit: number;
+  readonly ipStartWindowMs: number;
+  readonly trustProxy: boolean;
   readonly debug: boolean;
   readonly now: () => number;
   readonly generateCode: () => string;
+  consumeIpStart: (ip: string) => number;
 };
+
+export class OtpRateLimitError extends Error {
+  readonly retryAfterMs: number;
+  constructor(retryAfterMs: number) {
+    super("otp_rate_limited");
+    this.name = "OtpRateLimitError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
 
 const MAX_DATE_MS = 8_640_000_000_000_000;
 
@@ -131,13 +147,49 @@ export function createOtpDependencies(
   ) {
     throw new Error("OTP_TTL_MS_invalid");
   }
+  const configNumber = (name: string, fallback: number): number => {
+    const value = env[name];
+    const parsed = value === undefined ? fallback : Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0 || (value !== undefined && value.trim() === "")) {
+      throw new Error(`${name}_invalid`);
+    }
+    return parsed;
+  };
+  const resendCooldownMs = configNumber("OTP_RESEND_COOLDOWN_MS", 30_000);
+  const phoneStartLimit = configNumber("OTP_PHONE_START_LIMIT", 5);
+  const phoneStartWindowMs = configNumber("OTP_PHONE_START_WINDOW_MS", 3_600_000);
+  const ipStartLimit = configNumber("OTP_IP_START_LIMIT", 30);
+  const ipStartWindowMs = configNumber("OTP_IP_START_WINDOW_MS", 600_000);
   const now = options.now ?? nowUtcMs;
   otpDeadline(now(), ttlMs);
+  const ipStarts = new Map<string, number[]>();
+  const consumeIpStart = (ip: string): number => {
+    const instant = now();
+    const prior = ipStarts.get(ip) ?? [];
+    const recent = prior.filter((at) => at > instant - ipStartWindowMs);
+    if (recent.length >= ipStartLimit) {
+      ipStarts.set(ip, recent);
+      throw new OtpRateLimitError(Math.max(1, recent[0]! + ipStartWindowMs - instant));
+    }
+    recent.push(instant);
+    ipStarts.delete(ip);
+    ipStarts.set(ip, recent);
+    // Keep attacker-controlled IP cardinality bounded. Oldest keys are evicted first.
+    while (ipStarts.size > 10_000) ipStarts.delete(ipStarts.keys().next().value!);
+    return Math.max(0, recent[0]! + ipStartWindowMs - instant);
+  };
   return Object.freeze({
     ttlMs,
+    resendCooldownMs,
+    phoneStartLimit,
+    phoneStartWindowMs,
+    ipStartLimit,
+    ipStartWindowMs,
+    trustProxy: env.OTP_TRUST_PROXY === "1",
     debug: env.OTP_DEBUG === "1",
     now,
     generateCode: options.generateCode ?? randomOtp6,
+    consumeIpStart,
   });
 }
 
@@ -149,6 +201,28 @@ function debugOtpDelivery(
   return enabled ? { debugCode: code } : {};
 }
 
+/** Returns an unexpired in-cooldown challenge without mutating OTP state. */
+export function pilotOtpCooldownReuse(
+  store: Store,
+  params: { phone: string },
+  otp = createOtpDependencies(),
+): { challengeId: string; expiresAtUtcMs: number; retryAfterMs: number; debugCode?: string } | null {
+  const user = findUserByPhone(store, params.phone);
+  if (!user) throw new Error("user_not_found");
+  if (!isActiveEntity(user)) throw new Error("account_inactive");
+  const now = otp.now();
+  const pending = [...store.otpChallenges.values()].find((challenge) =>
+    challenge.phone === user.phone && challenge.status === "PENDING" && challenge.expiresAtUtcMs > now,
+  );
+  if (!pending || pending.createdAtUtcMs + otp.resendCooldownMs <= now) return null;
+  return {
+    challengeId: pending.id,
+    expiresAtUtcMs: pending.expiresAtUtcMs,
+    retryAfterMs: pending.createdAtUtcMs + otp.resendCooldownMs - now,
+    ...debugOtpDelivery(pending.code, otp.debug),
+  };
+}
+
 export function pilotOtpStart(
   store: Store,
   params: { phone: string },
@@ -156,6 +230,7 @@ export function pilotOtpStart(
 ): {
   challengeId: string;
   expiresAtUtcMs: number;
+  retryAfterMs: number;
   /** Only returned when the server enables OTP_DEBUG=1. */
   debugCode?: string;
 } {
@@ -164,6 +239,14 @@ export function pilotOtpStart(
   if (!isActiveEntity(user)) throw new Error("account_inactive");
 
   const now = otp.now();
+  const reusable = pilotOtpCooldownReuse(store, params, otp);
+  if (reusable) return reusable;
+  const recent = [...store.otpChallenges.values()].filter((challenge) =>
+    challenge.phone === user.phone && challenge.createdAtUtcMs > now - otp.phoneStartWindowMs,
+  ).sort((a, b) => a.createdAtUtcMs - b.createdAtUtcMs);
+  if (recent.length >= otp.phoneStartLimit) {
+    throw new OtpRateLimitError(Math.max(1, recent[0]!.createdAtUtcMs + otp.phoneStartWindowMs - now));
+  }
   const expiresAtUtcMs = otpDeadline(now, otp.ttlMs);
   const code = otp.generateCode();
   if (!/^\d{6}$/.test(code)) throw new Error("otp_generator_invalid");
@@ -187,13 +270,23 @@ export function pilotOtpStart(
   }
   store.otpChallenges.set(ch.id, ch);
 
+  // Retain recent issuance history for the configured phone window and any live challenge.
+  for (const [challengeId, challenge] of store.otpChallenges) {
+    if (challenge.phone === user.phone && challenge.status !== "PENDING" &&
+        challenge.createdAtUtcMs <= now - otp.phoneStartWindowMs) {
+      store.otpChallenges.delete(challengeId);
+    }
+  }
+
   const out: {
     challengeId: string;
     expiresAtUtcMs: number;
+    retryAfterMs: number;
     debugCode?: string;
   } = {
     challengeId: ch.id,
     expiresAtUtcMs: ch.expiresAtUtcMs,
+    retryAfterMs: otp.resendCooldownMs,
     ...delivery,
   };
   return out;

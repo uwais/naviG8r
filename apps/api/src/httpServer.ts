@@ -6,7 +6,7 @@ import { guardRequest, requestContext } from "./rbacRoutes.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
 import { URL } from "node:url";
-import { createOtpDependencies, pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
+import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import {
   ApiError,
@@ -383,8 +383,14 @@ export async function createApp(): Promise<{
 
       // --- v1 auth (pilot OTP + bearer token) ---
       if (method === "POST" && url.pathname === "/v1/auth/otp/start") {
+        const forwardedFor = otp.trustProxy ? header(req, "x-forwarded-for")?.split(",")[0]?.trim() : undefined;
+        const clientIp = forwardedFor || req.socket.remoteAddress || "unknown";
+        otp.consumeIpStart(clientIp);
         const body = await readJson(req);
-        const out = await persistOtp(() => pilotOtpStart(store, { phone: String(body?.phone ?? "") }, otp));
+        const phone = String(body?.phone ?? "");
+        const reused = pilotOtpCooldownReuse(store, { phone }, otp);
+        if (reused) return json(res, 200, reused);
+        const out = await persistOtp(() => pilotOtpStart(store, { phone }, otp));
         return json(res, 200, out);
       }
 
@@ -1113,6 +1119,10 @@ export async function createApp(): Promise<{
 
       return json(res, 404, { error: "not_found" });
     } catch (e: any) {
+      if (e instanceof OtpRateLimitError) {
+        res.setHeader("retry-after", String(Math.max(1, Math.ceil(e.retryAfterMs / 1000))));
+        return json(res, 429, { error: "otp_rate_limited", retryAfterMs: e.retryAfterMs });
+      }
       if (e instanceof AuthorizationError) return json(res, e.status, { error: e.message });
       if (e instanceof ApiError) {
         const status = e.httpStatus ?? 400;

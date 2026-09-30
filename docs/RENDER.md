@@ -36,7 +36,13 @@ You must still expose **`packages/core`** to the process: either deploy from a l
 
 - `**AUTH_SECRET`**: required (min 16 chars). Generate locally:
   - `openssl rand -hex 32`
-- `**OTP_DEBUG`**: `0` for real pilots (only `1` for local dev convenience)
+- `OTP_DEBUG=0` for real pilots (only `1` for local dev convenience)
+- `OTP_RESEND_COOLDOWN_MS=30000` (default): minimum delay between newly issued codes for a phone.
+- `OTP_PHONE_START_LIMIT=5` and `OTP_PHONE_START_WINDOW_MS=3600000` (defaults): max newly issued challenges per phone in the rolling window.
+- `OTP_IP_START_LIMIT=30` and `OTP_IP_START_WINDOW_MS=600000` (defaults): max OTP start requests per client IP in the rolling window.
+- `OTP_TRUST_PROXY=1` when deployed behind Render so API rate limits use the client IP from `X-Forwarded-For`. Forwarded headers are ignored unless this explicit setting is enabled.
+
+These request counters live in the API process. The current Render API runs as a single instance; if it is scaled to multiple instances, move the IP counter to shared storage (for example Redis) before scaling so limits apply across instances.
 - `**DATA_FILE**` (recommended for persistence):
   - If you attach a **Render Disk**, mount it (example) at `/data` and set:
     - `DATA_FILE=/data/store.json`
@@ -139,4 +145,3 @@ Localhost origins are already allowed for dev. Redeploy the API after changing e
 - **Postgres**: set `PERSISTENCE=DB`, `DATABASE_URL`, and run migrations/schema (`npx prisma db push` once against that URL, or apply migrations in CI).
 - **Static site `flutter: command not found`**: do not call `flutter` directly — use `bash scripts/render-build-customer-web.sh` as the build command.
 - **Customer web tracking map grey/blank**: set `MAPS_API_KEY` on the static site (Maps JavaScript API, HTTP referrer restricted) and redeploy. For local Chrome, run `bash scripts/inject-maps-api-key.sh` after exporting the key. Check DevTools for `RefererNotAllowedMapError`.
-

@@ -23,18 +23,28 @@ ${workflowOnly ? "" : `<header class="dashboard-header"><div><strong>NaviG8r</st
 <section id="compliance" hidden><h2>Carrier compliance review</h2><p id="notice" role="status"></p><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="reason"></label><h3>Not yet approved</h3><p id="kycEmpty" hidden>Every carrier is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Carrier organization ID<input id="carrierOrg"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
 ${workflowOnly ? "" : "</main>"}<script>
 const workflowOnly = ${workflowOnly};
-let challenge = '', principal, token = sessionStorage.getItem('navig8r_access') || '', org = sessionStorage.getItem('navig8r_org') || '';
+let challenge = '', principal, token = sessionStorage.getItem('navig8r_access') || '', org = sessionStorage.getItem('navig8r_org') || '', otpCooldownUntil = 0, otpCooldownTimer;
 const $ = id => document.getElementById(id);
 async function request(path, method = 'GET', body, extra = {}) {
  const headers = { 'content-type': 'application/json', ...extra };
  if (token) headers.authorization = 'Bearer ' + token;
  if (org) headers['x-organization-id'] = org;
  const response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
- const out = await response.json(); if (!response.ok) throw Error(out.error || 'Request failed'); return out;
+ const out = await response.json(); if (!response.ok) { const error = Error(out.error || 'Request failed'); error.retryAfterMs = out.retryAfterMs; throw error; } return out;
 }
 const friendlyOtpError = message => ({otp_expired:'That code expired. Click Send code to request a new one.',otp_incorrect:'That code is incorrect. Check the latest message or click Send code to try again.',otp_challenge_not_found:'That code is no longer valid. Click Send code to request a new one.',otp_challenge_used:'That code was already used. Click Send code to request a new one.'}[message] || message);
-const perform = fn => async () => { $('error').textContent = ''; try { await fn(); } catch(e) { $('error').textContent = friendlyOtpError(e.message); } };
-$('start').onclick = perform(async () => { const button=$('start'); button.disabled=true; challenge = ''; $('code').value = ''; try { const out = await request('/v1/auth/otp/start','POST',{phone:$('phone').value}); challenge = out.challengeId; if(out.debugCode !== undefined) $('code').value = out.debugCode; } finally { button.disabled=false; } });
+const perform = fn => async () => { $('error').textContent = ''; try { await fn(); } catch(e) { $('error').textContent = e.retryAfterMs ? 'Please wait ' + Math.ceil(e.retryAfterMs / 1000) + ' seconds before requesting another code.' : friendlyOtpError(e.message); } };
+function renderOtpCooldown() {
+ const button = $('start'), remaining = Math.max(0, otpCooldownUntil - Date.now());
+ if (remaining) { button.disabled = true; button.textContent = 'Resend code (' + Math.ceil(remaining / 1000) + 's)'; }
+ else { button.disabled = false; button.textContent = challenge ? 'Resend code' : 'Send code'; if (otpCooldownTimer) { clearInterval(otpCooldownTimer); otpCooldownTimer = undefined; } }
+}
+function startOtpCooldown(retryAfterMs) {
+ otpCooldownUntil = Date.now() + Math.max(0, Number(retryAfterMs) || 0); renderOtpCooldown();
+ if (otpCooldownUntil > Date.now()) otpCooldownTimer = setInterval(renderOtpCooldown, 250);
+}
+$('phone').oninput = () => { challenge = ''; $('code').value = ''; otpCooldownUntil = 0; renderOtpCooldown(); };
+$('start').onclick = perform(async () => { const button=$('start'), previousChallenge=challenge; button.disabled=true; try { const out = await request('/v1/auth/otp/start','POST',{phone:$('phone').value}); challenge = out.challengeId; if (out.debugCode !== undefined) $('code').value = out.debugCode; else if (challenge !== previousChallenge) $('code').value = ''; startOtpCooldown(out.retryAfterMs); } catch (e) { if (e.retryAfterMs) { startOtpCooldown(e.retryAfterMs); } throw e; } finally { if (!otpCooldownUntil || otpCooldownUntil <= Date.now()) renderOtpCooldown(); } });
 $('verify').onclick = perform(async () => { if(!challenge) throw Error('Start a new code before signing in.'); const out = await request('/v1/auth/otp/verify','POST',{phone:$('phone').value,challengeId:challenge,code:$('code').value}); token = out.accessToken; org=''; sessionStorage.setItem('navig8r_access',token); sessionStorage.removeItem('navig8r_org'); await loadOrganizations(); });
 $('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
 async function loadOrganizations() {

@@ -377,7 +377,38 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   String? _challengePhone;
   bool _sending = false;
   bool _verifying = false;
+  Timer? _otpCooldownTimer;
+  int _otpCooldownSeconds = 0;
   String? _error;
+
+  void _startOtpCooldown(dynamic rawMs) {
+    _otpCooldownTimer?.cancel();
+    final ms = rawMs is num ? rawMs.toInt() : 0;
+    final seconds = ms > 0 ? (ms / 1000).ceil() : 0;
+    if (mounted) setState(() => _otpCooldownSeconds = seconds);
+    if (seconds > 0) {
+      _otpCooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) return timer.cancel();
+        setState(() => _otpCooldownSeconds =
+            (_otpCooldownSeconds - 1).clamp(0, 1 << 30).toInt());
+        if (_otpCooldownSeconds == 0) timer.cancel();
+      });
+    }
+  }
+
+  void _phoneChanged(String value) {
+    final phone = digitsOnly(value.trim());
+    if (_challengePhone == null || phone == _challengePhone) return;
+    setState(() {
+      _challengeId = null;
+      _challengePhone = null;
+      _debugCode = null;
+      _code.clear();
+      _otpCooldownSeconds = 0;
+      _otpCooldownTimer?.cancel();
+      _otpCooldownTimer = null;
+    });
+  }
 
   @override
   void initState() {
@@ -389,6 +420,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
 
   @override
   void dispose() {
+    _otpCooldownTimer?.cancel();
     _phone.dispose();
     _code.dispose();
     super.dispose();
@@ -400,10 +432,6 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
       _error = null;
     });
     final phone = digitsOnly(_phone.text.trim());
-    _challengeId = null;
-    _challengePhone = null;
-    _debugCode = null;
-    _code.clear();
     if (phone.length != 10) {
       setState(() {
         _error = "Enter a 10-digit mobile number.";
@@ -412,17 +440,24 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
       return;
     }
     try {
+      final previousChallengeId = _challengeId;
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": phone});
       if (!mounted) return;
       _challengeId = r.data?["challengeId"] as String?;
       _challengePhone = phone;
+      _startOtpCooldown(r.data?["retryAfterMs"]);
       final dc = r.data?["debugCode"];
       if (dc is String && dc.isNotEmpty) {
         _debugCode = dc;
         _code.text = dc;
+      } else if (_challengeId != previousChallengeId) {
+        _debugCode = null;
+        _code.clear();
       }
     } catch (e) {
+      final retry = otpRetryAfterMs(e);
+      if (retry != null) _startOtpCooldown(retry);
       if (mounted) setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -507,17 +542,22 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
             TextField(
               controller: _phone,
               keyboardType: TextInputType.phone,
+              onChanged: _phoneChanged,
               decoration: const InputDecoration(labelText: "Mobile number"),
             ),
             const SizedBox(height: 12),
             OutlinedButton(
-              onPressed: _sending ? null : _sendOtp,
+              onPressed: _sending || _otpCooldownSeconds > 0 ? null : _sendOtp,
               child: _sending
                   ? const SizedBox(
                       width: 22,
                       height: 22,
                       child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text("Send code"),
+                  : Text(_otpCooldownSeconds > 0
+                      ? "Resend code (${_otpCooldownSeconds}s)"
+                      : _challengeId == null
+                          ? "Send code"
+                          : "Resend code"),
             ),
             const SizedBox(height: 16),
             TextField(
