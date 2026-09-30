@@ -1,0 +1,63 @@
+name: Admin and Ops dashboards
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "packages/**"
+      - "scripts/rbac-manual.mjs"
+      - "scripts/test-dashboard-db.mjs"
+      - "playwright.config.ts"
+      - "tsconfig.json"
+      - "package*.json"
+      - ".github/workflows/dashboard.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: navig8r_dashboard_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit -p tsconfig.json
+      - run: npm test
+        env:
+          NODE_ENV: test
+          PAYMENT_PROVIDER: MOCK
+          PAYOUTS_MODE: BOOKKEEPING
+      - name: Initialize disposable PostgreSQL schema
+        run: npx prisma db push --schema apps/api/prisma/schema.prisma --skip-generate
+        env:
+          DATABASE_URL: postgresql://postgres@127.0.0.1:5432/navig8r_dashboard_test
+      - name: Test PostgreSQL persistence
+        run: node --experimental-strip-types scripts/test-dashboard-db.mjs
+        env:
+          DASHBOARD_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/navig8r_dashboard_test
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --config=playwright.config.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dashboard-browser-results
+          path: test-results/
+          retention-days: 14

@@ -43,6 +43,8 @@ const accounts = [
   ["user-dual", "8000000008", "shipper-a", "CUSTOMER_MEMBER"],
   ["user-driver", "8000000009", "carrier-a", "DRIVER"],
   ["user-member", "8000000010", "shipper-a", "CUSTOMER_MEMBER"],
+  ["user-all", "8000000011", "platform", "ADMIN"],
+  ["user-admin-finance", "8000000012", "platform", "ADMIN"],
 ];
 for (const [userId, phone, orgId, role] of accounts) {
   store.users.set(userId, { id: userId, phone, fullName: `Synthetic ${userId}`, createdAtUtcMs: now });
@@ -84,6 +86,8 @@ for (const [id, customerOrgId, carrierId, status, podAtUtcMs] of [
   });
 }
 migrateAuthorization(store);
+store.membershipRoles.set("user-all:platform", ["ADMIN", "OPS", "FINANCE"]);
+store.membershipRoles.set("user-admin-finance:platform", ["ADMIN", "FINANCE"]);
 saveStoreToDisk(process.env.DATA_FILE, store);
 const restored = loadStoreFromDisk(process.env.DATA_FILE);
 for (const [userId, , orgId] of accounts) resolvePrincipal(restored, userId, orgId);

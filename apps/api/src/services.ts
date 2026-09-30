@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { validatePayoutBankDetails } from "./bankAccountValidation.ts";
-import { authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible } from "./rbac.ts";
+import { assertAdminRemains, authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible } from "./rbac.ts";
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
 import {
   COMMISSION_BPS,
@@ -475,6 +475,7 @@ export function revokeOpsAdmin(
       detail: "At least one ops admin must remain.",
     });
   }
+  assertAdminRemains(store, user.id, org.id, []);
   store.membershipRoles.set(key, []);
   store.memberships.delete(key);
   recordAudit(store, "ROLE_REMOVED", "membership", key, "OPS", "REMOVED");
@@ -635,6 +636,7 @@ export function opsDeleteUser(
     }
   }
 
+  for (const membership of store.memberships.values()) if (membership.userId === userId) assertAdminRemains(store, userId, membership.orgId, []);
   const at = nowUtcMs();
   const reason = OPS_DEACTIVATE_REASON;
 
@@ -1264,7 +1266,7 @@ export function publishAnchorTripAsPilotDriver(store: Store, params: {
   if (org.kind !== "CARRIER_SOLO" && org.kind !== "CARRIER_FLEET" && org.kind !== "CARRIER_LEGACY") {
     throw new Error("org_not_carrier");
   }
-  return publishAnchorTrip(store, {
+  const published = publishAnchorTrip(store, {
     carrierId: params.orgId,
     originCity: params.originCity,
     destCity: params.destCity,
@@ -1275,6 +1277,8 @@ export function publishAnchorTripAsPilotDriver(store: Store, params: {
     vehicleClass: params.vehicleClass,
     capacityKg: params.capacityKg,
   });
+  auditAsUser(store, params.userId, "TRIP_PUBLISHED", "trip", published.id, "ABSENT", "OPEN");
+  return published;
 }
 
 export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
@@ -1534,6 +1538,11 @@ export function bookShipment(store: Store, params: {
   if (!params.customerOrg) throw new AuthorizationError("customer_organization_required", 400);
   if (actor) requirePermission(store, "load.create", { customerOrgId: params.customerOrg.id });
   else if (!params.integrationConnectionId) requirePermission(store, "load.create", { customerOrgId: params.customerOrg.id }, params.bookedByUserId);
+  if (actor?.roles.includes("OPS")) {
+    requireAssistance(store, actor, params.customerOrg.id);
+    const target = store.organizations.get(params.customerOrg.id);
+    if (target?.kind !== "CUSTOMER" || params.bookedByUserId !== authorizationContext.getStore()?.effectiveActorId) throw new AuthorizationError("invalid_assisted_booking", 400);
+  }
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip || !isActiveEntity(trip)) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");

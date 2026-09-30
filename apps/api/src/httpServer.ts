@@ -1,5 +1,7 @@
+import { dashboardList, onboardCarrier, setInternalAccess } from "./dashboard.ts";
+import { adminDashboardV1Html } from "./adminDashboardV1.ts";
 import { opsPortalHtml } from "./opsPortal.ts";
-import { authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
+import { assertAdminRemains, authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
 import { guardRequest, requestContext } from "./rbacRoutes.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
@@ -240,6 +242,16 @@ export async function createApp(): Promise<{
         return;
       }
 
+      if (method === "GET" && ["/admin/v1", "/ops/v1"].includes(url.pathname)) return html(res, 200, adminDashboardV1Html(url.pathname === "/ops/v1"));
+      if (method === "GET" && ["/admin/v2", "/ops/v2"].includes(url.pathname)) return html(res, 200, opsPortalHtml({ operations: url.pathname === "/ops/v2" }));
+      if (method === "GET" && /^\/v1\/ops\/dashboard\/[^/]+$/.test(url.pathname)) return json(res, 200, dashboardList(store, url.pathname.split("/")[4]!, url.searchParams));
+      if (method === "POST" && url.pathname === "/v1/ops/carrier-organizations") {
+        const out = onboardCarrier(store, await readJson(req)); await persist(); return json(res, out.created ? 201 : 200, out);
+      }
+      if (method === "POST" && url.pathname === "/v1/ops/dashboard-access") {
+        const out = setInternalAccess(store, await readJson(req)); await persist(); return json(res, 200, out);
+      }
+
       if (method === "GET" && url.pathname === "/health") {
         return json(res, 200, {
           ok: true,
@@ -315,6 +327,7 @@ export async function createApp(): Promise<{
         if (!Array.isArray(body.roles) || body.roles.some((r: string) => !ROLES.includes(r as never) || !compatibleRole(r, org))) throw new AuthorizationError("invalid_role", 400);
         const before = store.membershipRoles.get(key) ?? legacyRoles(m, org);
         const roles = [...new Set<string>(body.roles)] as import("./rbac.ts").Role[];
+        assertAdminRemains(store, m.userId, org.id, roles);
         store.membershipRoles.set(key, roles);
         for (const role of before.filter(r => !roles.includes(r))) recordAudit(store, "ROLE_REMOVED", "membership", key, role, "REMOVED");
         for (const role of roles.filter(r => !before.includes(r))) recordAudit(store, "ROLE_ASSIGNED", "membership", key, "ABSENT", role);
@@ -338,7 +351,7 @@ export async function createApp(): Promise<{
         const p = requirePermission(store, "audit.read");
         const financial = new Set(["PAYMENT_CAPTURED", "PAYMENT_REFUNDED", "SETTLEMENT_RELEASED"]);
         const events = [...store.auditEvents.values()].filter(e => p.internal ?
-          (p.roles.includes("ADMIN") ? ["ROLE_ASSIGNED", "ROLE_REMOVED", "USER_DEACTIVATED"].includes(e.action) : p.roles.includes("FINANCE") ? financial.has(e.action) : !financial.has(e.action) && !e.action.startsWith("ROLE_")) : e.actorOrganizationId === p.organizationId && e.actorUserId === p.userId);
+          ((p.roles.includes("ADMIN") && ["ROLE_ASSIGNED", "ROLE_REMOVED", "USER_DEACTIVATED"].includes(e.action)) || (p.roles.includes("FINANCE") && financial.has(e.action)) || (p.roles.includes("OPS") && !financial.has(e.action) && !e.action.startsWith("ROLE_"))) : e.actorOrganizationId === p.organizationId && e.actorUserId === p.userId);
         return json(res, 200, { events });
       }
 
@@ -911,11 +924,13 @@ export async function createApp(): Promise<{
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
         const principal = requirePermission(store, "load.create");
-        if (!principal.roles.includes("SHIPPER")) throw new AuthorizationError("assisted_booking_requires_target", 400);
-        const org = store.organizations.get(principal.organizationId)!;
+        const assisted = principal.roles.includes("OPS");
+        if (!principal.roles.includes("SHIPPER") && !assisted) throw new AuthorizationError("assisted_booking_requires_target", 400);
+        const org = store.organizations.get(assisted ? String(body?.customerOrgId ?? "") : principal.organizationId);
+        if (!org || org.kind !== "CUSTOMER" || org.inactiveAtUtcMs != null) throw new AuthorizationError("customer_organization_required", 400);
         const customerOrg = { id: org.id, displayName: org.displayName };
-        const bookedByUserId = principal.userId;
-        const phoneField = store.users.get(principal.userId)?.phone;
+        const bookedByUserId = assisted ? authorizationContext.getStore()?.effectiveActorId : principal.userId;
+        const phoneField = bookedByUserId ? store.users.get(bookedByUserId)?.phone : undefined;
         const shipment = bookShipment(store, {
           anchorTripId: String(body?.anchorTripId ?? ""),
           customerOrgName: String(body?.customerOrgName ?? ""),
@@ -938,6 +953,7 @@ export async function createApp(): Promise<{
           throw e;
         }
 
+        recordAudit(store, "SHIPMENT_BOOKED", "shipment", shipment.id, "ABSENT", shipment.status);
         await persist();
 
         const pay = store.payments.get(shipment.paymentId) ?? null;
@@ -1033,7 +1049,7 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname === "/ops") {
-        return html(res, 200, opsPortalHtml());
+        return html(res, 200, opsPortalHtml({ operations: true }));
       }
 
       if (method === "POST" && /^\/shipments\/[^/]+\/accept-pod$/.test(url.pathname)) {

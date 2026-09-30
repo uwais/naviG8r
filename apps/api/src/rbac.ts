@@ -9,9 +9,9 @@ export type Role = typeof ROLES[number];
 export const ROLE_PERMISSIONS = {
   SHIPPER: ["organization.profile.read", "organization.member.invite", "load.create", "load.read", "pod.accept", "payment.read", "payment.checkout", "kyc.status_read", "audit.read", "integration.manage"],
   CARRIER: ["organization.profile.read", "organization.member.invite", "load.read", "trip.publish", "load.status_update", "carrier.offer_accept", "pod.upload", "payment.read", "bank_account.create_token", "kyc.status_read", "audit.read"],
-  OPS: ["organization.profile.read", "load.create", "load.read", "trip.publish", "load.status_update", "pod.upload", "payment.read", "kyc.status_read", "kyc.verify", "audit.read"],
-  FINANCE: ["organization.profile.read", "load.read", "payment.read", "payment.capture", "payment.refund", "settlement.release", "kyc.status_read", "audit.read"],
-  ADMIN: ["organization.profile.read", "load.read", "payment.read", "user.role_manage", "kyc.status_read", "audit.read"],
+  OPS: ["directory.read", "fleet.read", "carrier.onboard", "organization.profile.read", "load.create", "load.read", "trip.publish", "load.status_update", "pod.upload", "payment.read", "kyc.status_read", "kyc.verify", "audit.read"],
+  FINANCE: ["directory.read", "organization.profile.read", "load.read", "payment.read", "payment.capture", "payment.refund", "settlement.release", "kyc.status_read", "audit.read"],
+  ADMIN: ["directory.read", "fleet.read", "organization.profile.read", "load.read", "payment.read", "user.role_manage", "kyc.status_read", "audit.read"],
 } as const;
 export type Permission = typeof ROLE_PERMISSIONS[Role][number];
 export const PERMISSIONS: readonly string[] = [...new Set(Object.values(ROLE_PERMISSIONS).flat())];
@@ -99,7 +99,10 @@ export function requireAssistance(store: Store, p: Principal, carrierId?: string
   const c = authorizationContext.getStore();
   if (!c?.reason || !/^[A-Z][A-Z0-9_]{2,63}$/.test(c.reason) || !c.effectiveActorId) throw new AuthorizationError("assistance_attribution_required", 400);
   const member = store.memberships.get(`${c.effectiveActorId}:${carrierId}`);
-  if (!member || !isActiveEntity(member) || !isActiveEntity(store.users.get(member.userId))) throw new AuthorizationError("invalid_effective_actor", 400);
+  const org = store.organizations.get(carrierId ?? "");
+  if (!member || !isActiveEntity(member) || !isActiveEntity(org) || !isActiveEntity(store.users.get(member.userId))) throw new AuthorizationError("invalid_effective_actor", 400);
+  const roles = store.membershipRoles.get(`${member.userId}:${member.orgId}`) ?? legacyRoles(member, org!);
+  if (!roles.includes(org!.kind === "CUSTOMER" ? "SHIPPER" : "CARRIER")) throw new AuthorizationError("invalid_effective_actor", 400);
 }
 export function recordAudit(store: Store, action: string, resourceType: string, resourceId: string, previousState?: string, newState?: string): void {
   const c = authorizationContext.getStore();
@@ -129,4 +132,31 @@ export function acceptPod(store: Store, shipmentId: string): Shipment {
   store.shipments.set(s.id, updated);
   recordAudit(store, "POD_ACCEPTED", "shipment", s.id, "PENDING", "ACCEPTED");
   return updated;
+}
+
+export function assertAdminRemains(
+  store: Store,
+  userId: string,
+  orgId: string,
+  roles: Role[],
+) {
+  const member = store.memberships.get(`${userId}:${orgId}`),
+    org = store.organizations.get(orgId);
+  if (!member || !org || org.kind !== "PLATFORM" || roles.includes("ADMIN"))
+    return;
+  const before =
+    store.membershipRoles.get(`${userId}:${orgId}`) ?? legacyRoles(member, org);
+  if (!before.includes("ADMIN")) return;
+  const another = [...store.memberships.values()].some(
+    (m) =>
+      m.orgId === orgId &&
+      m.userId !== userId &&
+      isActiveEntity(m) &&
+      isActiveEntity(store.users.get(m.userId)) &&
+      (
+        store.membershipRoles.get(`${m.userId}:${m.orgId}`) ??
+        legacyRoles(m, org)
+      ).includes("ADMIN"),
+  );
+  if (!another) throw new AuthorizationError("cannot_revoke_last_admin", 409);
 }

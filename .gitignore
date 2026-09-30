@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Browser test output (screenshots are uploaded by CI)
+/test-results/
+/playwright-report/
+
 # OS / editor
 .DS_Store
 .idea/

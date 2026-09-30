@@ -271,3 +271,7 @@ npx playwright test --config=playwright.mobile.config.ts
 ```
 
 The browser harness creates a fresh synthetic API on port 3140 and serves the compiled Flutter app on port 8087, leaving a manual server on port 3139 alone. It blocks external provider requests. The harness uses installed Chrome on macOS when available, otherwise Playwright Chromium; `RBAC_BROWSER_CHANNEL` can override this selection. Install the selected browser if it is unavailable. Results are written under `/private/tmp/navig8r-mobile-rbac-results`.
+
+## Full dashboard V1 and compact V2
+
+See [the dashboard test guide](admin-ops-dashboard-testing.md) for versioned routes, synthetic accounts, restored action workflows, role assignments, browser screenshots and database round-trip checks. Existing `/admin`, `/ops` and `/workflow` remain available.

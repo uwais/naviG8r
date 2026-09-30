@@ -138,7 +138,7 @@ test("GET /ops returns ops portal HTML", async (t) => {
     const res = await fetch(`${baseUrl}/ops`);
     assert.equal(res.status, 200);
     const html = await res.text();
-    assert.ok(html.includes("NaviG8r operations"));
+    assert.ok(html.includes("<h1>Operations workspace</h1>"));
     assert.ok(html.includes("pending-release"));
     assert.ok(html.includes("/ops/compliance/pending"));
   });
