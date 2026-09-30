@@ -64,7 +64,7 @@ header svg{height:32px;width:auto;display:block}
 .field.mono{font-family:var(--font-mono);font-size:13px}
 .field[aria-invalid=true]{border:2px solid var(--problem);padding:7px 11px}
 .field[readonly]{background:var(--sunken);border-color:transparent}
-select.field{width:auto;min-height:32px;padding:4px 8px;font-weight:600}
+header select.field{width:auto;min-height:32px;padding:4px 8px;font-weight:600}
 .reason{width:320px;max-width:100%}
 .tag{display:inline-flex;align-items:center;gap:6px;border-radius:var(--radius-sm);padding:2px 8px;font-size:13px;line-height:18px;font-weight:600}
 .tag svg{width:12px;height:12px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
@@ -165,8 +165,7 @@ const markup = `
         <fieldset><legend class="field-label">Decision</legend>
           <div><label class="choice"><input type="radio" name="decision" value="APPROVED">Approve</label><label class="choice"><input type="radio" name="decision" value="REJECTED">Reject</label></div>
           <span class="caption">Nothing is chosen for you. Pick one.</span></fieldset>
-        <label class="stack"><span class="field-label">Reason code</span><input id="byIdReason" class="field mono" autocomplete="off" spellcheck="false" aria-describedby="byIdHelp"></label>
-        <span id="byIdHelp" class="caption">3 to 64 capitals, numbers or underscores, starting with a letter.</span>
+        <label class="stack"><span id="byIdReasonLabel" class="field-label">Reason</span><select id="byIdReason" class="field" aria-labelledby="byIdReasonLabel" disabled></select></label>
         <div><button class="btn btn-primary" type="submit">Record review</button></div>
         <div id="byIdResult"></div>
       </form>
@@ -188,7 +187,7 @@ const markup = `
   <div id="releaseResult"></div>
   <div class="pair"><button id="releaseCancel" class="btn btn-secondary" type="button">Cancel</button><button id="releaseConfirm" class="btn btn-primary" type="button"></button></div>
 </dialog>
-<footer class="caption"><span>NaviG8r operations</span><span>All times IST, 24-hour</span><span>This is the beta page. The current page is still at <a href="/ops">/ops</a>.</span></footer>
+<footer class="caption"><span>NaviG8r operations</span><span>All times IST, 24-hour</span><span>This is the beta page. Today's pages are still at <a href="/ops">/ops</a> and <a href="/ops/v1">/ops/v1</a>.</span></footer>
 `;
 
 // Browser code. Every name or ID from the server goes in through textContent, never as HTML.
@@ -197,9 +196,16 @@ const byId = id => document.getElementById(id);
 let token = sessionStorage.getItem('navig8r_access') || '';
 let org = sessionStorage.getItem('navig8r_org') || '';
 let challenge = '', me = null, principal = null, releasing = null, releaseBusy = false;
-// Matches what the server keeps in the audit record; a code that fails this is silently dropped there.
-const reasonPattern = /^[A-Z][A-Z0-9_]{2,63}$/;
-const reasonRule = '3 to 64 capitals, numbers or underscores, starting with a letter, for example DOCUMENTS_REVIEWED';
+// Agreed with the team on 30 Sep. A code must stay capitals, digits and underscores, starting with a
+// letter: the server's audit record silently drops any other reason.
+const reasons = {
+  APPROVED: [['DOCUMENTS_REVIEWED', 'Documents reviewed'], ['BANK_DETAILS_VERIFIED', 'Bank details checked']],
+  REJECTED: [['DOCUMENTS_MISSING', 'Documents missing'], ['BANK_DETAILS_MISMATCH', "Bank account name doesn't match the carrier"],
+    ['DUPLICATE_ACCOUNT', 'Duplicate account'], ['NOT_A_CARRIER', 'Not a carrier business']],
+};
+// Only Review any carrier by ID reaches approved carriers, so only it offers taking an approval back.
+const approvalTakenBack = ['APPROVAL_REVOKED', 'Approval taken back'];
+const reasonWords = Object.fromEntries([...reasons.APPROVED, ...reasons.REJECTED, approvalTakenBack]);
 const pageSize = 20;
 const loadedAt = {};
 
@@ -239,6 +245,9 @@ const errorWords = {
   otp_challenge_invalid: "that code request isn't valid any more, so send a new code",
   otp_challenge_mismatch: "that code request isn't valid any more, so send a new code",
   otp_challenge_not_found: "that code request isn't valid any more, so send a new code",
+  otp_rate_limited: 'too many codes were asked for, so wait until Send code is ready again',
+  user_not_found: 'no account uses that phone number',
+  invalid_phone: "that phone number isn't valid",
   shipment_not_pending_release: 'this shipment is no longer waiting for release, so someone may have released it already',
   checkout_not_completed_for_pod: "the shipper hasn't finished paying for this shipment",
   payment_not_captured: "the shipper's payment hasn't been collected",
@@ -264,7 +273,7 @@ async function request(path, method = 'GET', body, headers = {}) {
   const out = await response.json().catch(() => ({}));
   const code = out.error || String(response.status);
   if (response.status === 401) byId('signin').hidden = false;
-  if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, unchanged: refusedBeforeChange.includes(code) });
+  if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, unchanged: refusedBeforeChange.includes(code), retryAfterMs: out.retryAfterMs });
   return out;
 }
 const nothingChanged = error => error.unchanged ? 'Nothing changed.' : "Couldn't confirm whether it was saved. Reload to see the current status before trying again.";
@@ -318,12 +327,25 @@ function pages(total, describe, addNext) {
   return more;
 }
 
-let carriers = [];
+let carriers = [], approvedSinceLoad = 0;
+function showWaitingCount() {
+  const waiting = carriers.length - approvedSinceLoad;
+  byId('carriersCount').textContent = plural(waiting, 'carrier');
+  byId('countCarriers').textContent = waiting;
+}
+function reasonChoices(select, list) {
+  select.replaceChildren(element('option', { value: '', text: 'Choose a reason' }), ...list.map(([code, words]) => element('option', { value: code, text: words })));
+}
+function resetByIdReason() {
+  byId('byIdReason').replaceChildren(element('option', { value: '', text: 'Choose Approve or Reject first' }));
+  byId('byIdReason').disabled = true;
+}
 async function loadCarriers() {
   const allowed = can('kyc.verify'), onlyOps = 'Only OPS can review carriers. You hold ' + inWords(principal.roles) + '.';
   byId('carriersReload').hidden = byId('jumpCarriers').hidden = !allowed;
   byId('byIdOff').replaceChildren(allowed ? '' : note(onlyOps));
   for (const control of byId('byIdForm').elements) control.disabled = !allowed;
+  if (!document.querySelector('input[name=decision]:checked')) resetByIdReason();
   if (!allowed) {
     byId('carriersCount').textContent = byId('carriersUpdated').textContent = '';
     byId('carriersBody').replaceChildren(element('div', { class: 'body' }, note(onlyOps)));
@@ -334,8 +356,8 @@ async function loadCarriers() {
   try { carriers = (await request('/ops/compliance/pending')).organizations; }
   catch (error) { byId('carriersCount').textContent = ''; sectionFailed('carriers', 'carriers waiting for approval', error, loadCarriers); return; }
   sectionLoaded('carriers');
-  byId('carriersCount').textContent = plural(carriers.length, 'carrier');
-  byId('countCarriers').textContent = carriers.length;
+  approvedSinceLoad = 0;
+  showWaitingCount();
   if (!carriers.length) {
     byId('carriersBody').replaceChildren(element('div', { class: 'body' }, element('p', { text: 'No carriers are waiting for approval.' }), element('p', { class: 'caption', text: 'Carriers appear here after they sign up.' })));
     return;
@@ -348,73 +370,95 @@ async function loadCarriers() {
   byId('carriersBody').replaceChildren(list, more);
 }
 
+// Choosing Approve or Reject first, then a reason from that action's list, is the order the team asked for.
 function carrierCard(carrier) {
-  const name = carrier.displayName, inputId = 'reason-' + carrier.id, helpId = inputId + '-help', ownId = inputId + '-own';
+  const name = carrier.displayName, cardId = 'carrier-' + carrier.id, ownId = cardId + '-own';
   const own = me.organizations.some(organization => organization.id === carrier.id);
   const status = element('span', {}, statusTag(carrierStatus(carrier.kycStatus)));
-  const input = element('input', { id: inputId, class: 'field mono', autocomplete: 'off', spellcheck: 'false', 'aria-describedby': helpId });
   const approve = element('button', { class: 'btn btn-primary', type: 'button', text: 'Approve' });
   const reject = element('button', { class: 'btn btn-danger', type: 'button', text: 'Reject' });
-  const result = element('div', { id: inputId + '-result' });
+  const actions = element('div', { class: 'row center' }, approve, element('div', { class: 'grow' }), reject);
+  const picker = element('div', { class: 'row', hidden: true });
+  const result = element('div', { id: cardId + '-result' });
   const meta = [kindWords[carrier.kind], 'joined ' + dateIST(carrier.createdAtUtcMs)].filter(Boolean).join(' · ');
   if (own) for (const button of [approve, reject]) { button.disabled = true; button.setAttribute('aria-describedby', ownId); }
-  const review = (decision, button) => recordReview({ carrier, decision, input, button, result, status, locks: [approve, reject] });
-  approve.onclick = () => review('APPROVED', approve);
-  reject.onclick = () => review('REJECTED', reject);
+  const choose = decision => {
+    const approving = decision === 'APPROVED';
+    const select = element('select', { class: 'field', 'aria-labelledby': cardId + '-reason' });
+    reasonChoices(select, reasons[decision]);
+    const confirm = element('button', { class: 'btn ' + (approving ? 'btn-primary' : 'btn-danger'), type: 'button', text: approving ? 'Confirm approval' : 'Confirm rejection' });
+    const back = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Cancel' });
+    picker.replaceChildren(
+      element('label', { class: 'stack reason' }, element('span', { id: cardId + '-reason', class: 'field-label' }, approving ? 'Reason for approving' : 'Reason for rejecting', element('span', { class: 'visually-hidden', text: ' ' + name + ' (' + carrier.id + ')' })), select),
+      confirm, back);
+    actions.hidden = true;
+    picker.hidden = false;
+    result.replaceChildren();
+    select.focus();
+    back.onclick = () => { picker.hidden = true; picker.replaceChildren(); actions.hidden = false; result.replaceChildren(); (approving ? approve : reject).focus(); };
+    confirm.onclick = () => recordReview({ carrier, decision, select, confirm, result, status, locks: [confirm, back] });
+  };
+  approve.onclick = () => choose('APPROVED');
+  reject.onclick = () => choose('REJECTED');
   return element('article', { 'aria-label': name + ' (' + carrier.id + ')' },
     element('div', { class: 'row top' },
       element('div', { class: 'stack grow' }, element('div', { class: 'row center' }, element('strong', { text: name }), element('span', { class: 'id', text: carrier.id })), element('span', { class: 'caption', text: meta })),
       status),
-    element('div', { class: 'row' },
-      element('label', { class: 'stack reason' }, element('span', { class: 'field-label' }, 'Reason code', element('span', { class: 'visually-hidden', text: ' for ' + name + ' (' + carrier.id + ')' })), input),
-      approve, element('div', { class: 'grow' }), reject),
-    element('span', { id: helpId, class: 'caption', text: '3 to 64 capitals, numbers or underscores, starting with a letter. Needed for both Approve and Reject.' }),
+    actions, picker,
     own ? element('span', { id: ownId, class: 'caption', text: "You can't review your own organization. Ask another teammate with OPS." }) : null,
     result);
 }
 
-async function recordReview({ carrier, decision, input, button, result, status, locks }) {
-  const approving = decision === 'APPROVED', code = input.value.trim();
+async function recordReview({ carrier, decision, select, confirm, result, status, locks }) {
+  const approving = decision === 'APPROVED', code = select.value;
   result.replaceChildren();
-  if (!reasonPattern.test(code)) {
-    input.setAttribute('aria-invalid', 'true');
-    result.append(message('err', (approving ? 'Not approved yet. ' : 'Not rejected yet. ') + 'Reason code must be ' + reasonRule + '. What you typed is kept above.'));
-    input.focus();
+  if (!code) {
+    select.setAttribute('aria-invalid', 'true');
+    result.append(message('err', (approving ? 'Not approved yet. ' : 'Not rejected yet. ') + 'Choose a reason from the list.'));
+    select.focus();
     return;
   }
-  input.removeAttribute('aria-invalid');
+  select.removeAttribute('aria-invalid');
   const unlocked = [...document.querySelectorAll('#carriers button, #byIdForm button')].filter(button => !button.disabled);
   unlocked.forEach(button => { button.disabled = true; });
-  busy(button, approving ? 'Approving…' : 'Rejecting…');
+  select.disabled = true;
+  busy(confirm, approving ? 'Approving…' : 'Rejecting…');
   try {
     const out = await request('/v1/organizations/' + encodeURIComponent(carrier.id) + '/kyc', 'POST', { status: decision }, { 'x-reason-code': code });
-    idle(button);
+    idle(confirm);
     unlocked.filter(button => !locks.includes(button)).forEach(button => { button.disabled = false; });
-    input.readOnly = true;
     locks.forEach(button => button.setAttribute('aria-describedby', result.id));
     status.replaceChildren(statusTag(carrierStatus(out.org.kycStatus)));
-    const by = ' by you at ' + timeIST(Date.now()) + ' with ' + code + '. ';
+    if (out.org.kycStatus === 'APPROVED') { approvedSinceLoad += 1; showWaitingCount(); }
+    const by = ' by you at ' + timeIST(Date.now()) + ': ' + reasonWords[code] + '. ';
     const change = ' To change this decision, use Review any carrier by ID.';
     result.append(message('ok', approving
       ? 'Approved' + by + out.org.displayName + ' can now accept shipments. It leaves this list on the next reload.' + change
       : 'Not approved' + by + out.org.displayName + " can't accept shipments until it is approved." + change));
   } catch (error) {
-    idle(button);
+    idle(confirm);
+    select.disabled = false;
     unlocked.forEach(button => { button.disabled = false; });
-    result.append(message('err', "Couldn't save the review: " + error.message + '. ' + nothingChanged(error) + ' Your reason code is kept.'));
+    result.append(message('err', "Couldn't save the review: " + error.message + '. ' + nothingChanged(error) + ' Your choice is kept.'));
   }
 }
 
+for (const decision of document.querySelectorAll('input[name=decision]')) {
+  decision.onchange = () => {
+    reasonChoices(byId('byIdReason'), decision.value === 'APPROVED' ? reasons.APPROVED : [...reasons.REJECTED, approvalTakenBack]);
+    byId('byIdReason').disabled = false;
+  };
+}
 byId('byIdForm').onsubmit = async event => {
   event.preventDefault();
-  const result = byId('byIdResult'), button = byId('byIdForm').querySelector('button'), idInput = byId('byIdCarrier'), reasonInput = byId('byIdReason');
-  const carrierId = idInput.value.trim(), code = reasonInput.value.trim(), picked = document.querySelector('input[name=decision]:checked');
+  const result = byId('byIdResult'), button = byId('byIdForm').querySelector('button'), idInput = byId('byIdCarrier'), reasonSelect = byId('byIdReason');
+  const carrierId = idInput.value.trim(), code = reasonSelect.value, picked = document.querySelector('input[name=decision]:checked');
   result.replaceChildren();
-  reasonInput.removeAttribute('aria-invalid');
+  reasonSelect.removeAttribute('aria-invalid');
   const problem = !carrierId ? ['Type the carrier ID.', idInput] : !picked ? ['Pick Approve or Reject.', document.querySelector('input[name=decision]')]
-    : !reasonPattern.test(code) ? ['Reason code must be ' + reasonRule + '.', reasonInput] : null;
+    : !code ? ['Choose a reason from the list.', reasonSelect] : null;
   if (problem) {
-    if (problem[1] === reasonInput) reasonInput.setAttribute('aria-invalid', 'true');
+    if (problem[1] === reasonSelect) reasonSelect.setAttribute('aria-invalid', 'true');
     result.append(message('err', 'Not recorded yet. ' + problem[0]));
     problem[1].focus();
     return;
@@ -424,9 +468,10 @@ byId('byIdForm').onsubmit = async event => {
   busy(button, 'Recording…');
   try {
     const out = await request('/v1/organizations/' + encodeURIComponent(carrierId) + '/kyc', 'POST', { status: picked.value }, { 'x-reason-code': code });
-    result.append(message('ok', 'Review recorded by you at ' + timeIST(Date.now()) + ' with ' + code + '. ' + out.org.displayName + ' (' + out.org.id + ') now shows: ' + carrierStatus(out.org.kycStatus)[0] + '.'));
-    idInput.value = reasonInput.value = '';
+    result.append(message('ok', 'Review recorded by you at ' + timeIST(Date.now()) + ': ' + reasonWords[code] + '. ' + out.org.displayName + ' (' + out.org.id + ') now shows: ' + carrierStatus(out.org.kycStatus)[0] + '.'));
+    idInput.value = '';
     picked.checked = false;
+    resetByIdReason();
     await loadCarriers();
   } catch (error) {
     result.append(message('err', "Couldn't record the review: " + error.message + '. ' + nothingChanged(error)));
@@ -451,14 +496,14 @@ async function loadPayments() {
     return;
   }
   const showAmounts = payments.some(shipment => Number.isFinite(shipment.netToCarrierPaise));
-  const headings = ['Shipment', 'Carrier', 'Status', 'Proof of delivery', ...(showAmounts ? ['Carrier receives'] : []), 'Action'];
+  const headings = ['Shipment', 'Carrier', 'Status', 'Proof of delivery', ...(showAmounts ? ['Ledger credit'] : []), 'Action'];
   const rows = element('tbody');
   const more = pages(payments.length, 'Oldest proof of delivery first.', () => {
     rows.append(...payments.slice(rows.children.length, rows.children.length + pageSize).map(shipment => paymentRow(shipment, showAmounts)));
     return rows.children.length;
   });
   byId('paymentsBody').replaceChildren(...[
-    element('div', { class: 'scroll' }, element('table', {}, element('thead', {}, element('tr', {}, headings.map(heading => element('th', { scope: 'col', class: heading === 'Carrier receives' ? 'num' : null, text: heading })))), rows)),
+    element('div', { class: 'scroll' }, element('table', {}, element('thead', {}, element('tr', {}, headings.map(heading => element('th', { scope: 'col', class: heading === 'Ledger credit' ? 'num' : null, text: heading })))), rows)),
     showAmounts ? null : element('p', { class: 'caption body', text: 'Amounts are shown to FINANCE only.' }),
     more].filter(Boolean));
 }
@@ -509,20 +554,21 @@ async function openRelease(row) {
     return;
   }
   if (!amounts.every(Number.isFinite)) {
-    row.result.append(message('err', "Release is off for this shipment: the server didn't send all three amounts (shipper paid, commission, carrier receives)."));
+    row.result.append(message('err', "Release is off for this shipment: the server didn't send all three amounts (shipper paid, commission, ledger credit)."));
     return;
   }
   const [gross, commission, net] = amounts, otherFees = gross - commission - net;
   byId('releaseTitle').textContent = 'Release payment for shipment ' + fresh.id + '?';
-  byId('releaseText').replaceChildren(detail.carrierOrgName + ' ', element('span', { class: 'id', text: fresh.carrierId }), ' is owed ' + rupees(net) + ". It goes out in a weekly payout batch to the bank account on file; if there is none yet, it waits until one is added. This can't be undone from the console.");
+  byId('releaseText').replaceChildren(rupees(net) + ' is credited to the ledger balance of ' + detail.carrierOrgName + ' ', element('span', { class: 'id', text: fresh.carrierId }),
+    ". It is paid out in a weekly payout batch to the bank account on file; if there is none yet, the payout waits until one is added. This can't be undone from the console.");
   byId('releaseMoney').replaceChildren(...[
     moneyLine('Shipper paid', rupees(gross)),
     moneyLine('NaviG8r commission', '− ' + rupees(commission)),
     otherFees ? moneyLine('Other fees and adjustments', (otherFees > 0 ? '− ' : '+ ') + rupees(Math.abs(otherFees))) : null,
-    moneyLine('Carrier receives', rupees(net), true)].filter(Boolean));
+    moneyLine('Credited to the ledger balance', rupees(net), true)].filter(Boolean));
   byId('releaseConfirm').textContent = 'Release ' + rupees(net);
   byId('releaseResult').replaceChildren();
-  releasing = row;
+  releasing = { ...row, credit: rupees(net) };
   byId('release').showModal();
   byId('releaseCancel').focus();
 }
@@ -551,7 +597,7 @@ byId('releaseConfirm').onclick = async () => {
   confirm.disabled = cancel.disabled = releaseBusy = true;
   try {
     await request('/ops/shipments/' + encodeURIComponent(row.shipment.id) + '/release', 'POST', {});
-    const done = message('ok', 'Payment released by you at ' + timeIST(Date.now()) + '. The carrier is paid in a weekly payout batch.');
+    const done = message('ok', 'Payment released by you at ' + timeIST(Date.now()) + '. ' + row.credit + " is credited to the carrier's ledger balance for the weekly payout batch.");
     done.tabIndex = -1;
     row.status.replaceChildren(statusTag(['Payment released', 'good']));
     row.action.replaceChildren(done);
@@ -655,17 +701,39 @@ async function loadWorkspace() {
   await Promise.all([loadCarriers(), loadPayments()]);
 }
 
-// A second click while waiting would send a second code, and only the last one would work.
+// A second click while a sign-in is still running would try the same code again and fail confusingly.
 async function whileWaiting(button, action) {
   button.disabled = true;
   try { await action(); } finally { button.disabled = false; }
 }
-byId('start').onclick = () => whileWaiting(byId('start'), () => run(async () => {
-  const out = await request('/v1/auth/otp/start', 'POST', { phone: byId('phone').value });
-  challenge = out.challengeId;
-  if (out.debugCode) byId('code').value = out.debugCode;
-  byId('code').focus();
-}, "Couldn't send the code", byId('signinResult')));
+// The server hands back the same code until its resend wait is over, so Send code stays off until then.
+let resendTimer = null;
+function waitToResend(ms) {
+  const button = byId('start'), until = Date.now() + ms;
+  clearInterval(resendTimer);
+  const tick = () => {
+    const seconds = Math.ceil((until - Date.now()) / 1000);
+    if (seconds <= 0) { clearInterval(resendTimer); button.disabled = false; button.textContent = 'Send code'; return; }
+    button.disabled = true;
+    button.textContent = 'Send again in ' + (seconds > 90 ? Math.ceil(seconds / 60) + ' min' : seconds + 's');
+  };
+  tick();
+  resendTimer = setInterval(tick, 1000);
+}
+byId('start').onclick = async () => {
+  byId('start').disabled = true;
+  byId('signinResult').replaceChildren();
+  try {
+    const out = await request('/v1/auth/otp/start', 'POST', { phone: byId('phone').value });
+    challenge = out.challengeId;
+    if (out.debugCode) byId('code').value = out.debugCode;
+    byId('code').focus();
+    waitToResend(out.retryAfterMs || 0);
+  } catch (error) {
+    byId('signinResult').replaceChildren(message('err', "Couldn't send the code: " + error.message + '.'));
+    waitToResend(error.retryAfterMs || 0);
+  }
+};
 byId('verify').onclick = () => whileWaiting(byId('verify'), () => run(async () => {
   const out = await request('/v1/auth/otp/verify', 'POST', { phone: byId('phone').value, challengeId: challenge, code: byId('code').value });
   token = out.accessToken;

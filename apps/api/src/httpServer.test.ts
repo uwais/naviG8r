@@ -166,7 +166,7 @@ test("GET /ops/beta serves the redesigned ops page beside the unchanged current 
     }
 
     const current = await (await fetch(`${baseUrl}/ops`)).text();
-    assert.ok(current.includes("<title>NaviG8r operations</title>"));
+    assert.ok(current.includes("<h1>Operations workspace</h1>"));
     assert.ok(!current.includes("/ops/beta"), "the current page does not link to or depend on the beta");
   });
 });
