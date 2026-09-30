@@ -32,9 +32,10 @@ async function request(path, method = 'GET', body, extra = {}) {
  const response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
  const out = await response.json(); if (!response.ok) throw Error(out.error || 'Request failed'); return out;
 }
-const perform = fn => async () => { $('error').textContent = ''; try { await fn(); } catch(e) { $('error').textContent = e.message; } };
-$('start').onclick = perform(async () => { const out = await request('/v1/auth/otp/start','POST',{phone:$('phone').value}); challenge = out.challengeId; if(out.debugCode) $('code').value = out.debugCode; });
-$('verify').onclick = perform(async () => { const out = await request('/v1/auth/otp/verify','POST',{phone:$('phone').value,challengeId:challenge,code:$('code').value}); token = out.accessToken; org=''; sessionStorage.setItem('navig8r_access',token); sessionStorage.removeItem('navig8r_org'); await loadOrganizations(); });
+const friendlyOtpError = message => ({otp_expired:'That code expired. Click Send code to request a new one.',otp_incorrect:'That code is incorrect. Check the latest message or click Send code to try again.',otp_challenge_not_found:'That code is no longer valid. Click Send code to request a new one.',otp_challenge_used:'That code was already used. Click Send code to request a new one.'}[message] || message);
+const perform = fn => async () => { $('error').textContent = ''; try { await fn(); } catch(e) { $('error').textContent = friendlyOtpError(e.message); } };
+$('start').onclick = perform(async () => { const button=$('start'); button.disabled=true; challenge = ''; $('code').value = ''; try { const out = await request('/v1/auth/otp/start','POST',{phone:$('phone').value}); challenge = out.challengeId; if(out.debugCode !== undefined) $('code').value = out.debugCode; } finally { button.disabled=false; } });
+$('verify').onclick = perform(async () => { if(!challenge) throw Error('Start a new code before signing in.'); const out = await request('/v1/auth/otp/verify','POST',{phone:$('phone').value,challengeId:challenge,code:$('code').value}); token = out.accessToken; org=''; sessionStorage.setItem('navig8r_access',token); sessionStorage.removeItem('navig8r_org'); await loadOrganizations(); });
 $('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
 async function loadOrganizations() {
  const me = await request('/v1/auth/me'); $('login').hidden = true; $('workspace').hidden = false;

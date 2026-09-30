@@ -59,6 +59,13 @@ function clearProtected() {
   $("roles").textContent = "";
   $("notice").textContent = "";
 }
+const otpErrors = {
+  otp_expired: "This code has expired. Request a new code and try again.",
+  otp_incorrect: "That code is incorrect. Check it and try again.",
+  otp_challenge_invalid: "This code request is no longer valid. Request a new code.",
+  otp_challenge_not_found: "This code request is no longer valid. Request a new code.",
+  otp_challenge_mismatch: "This code request is no longer valid. Request a new code.",
+};
 async function request(path, method = "GET", body, extra = {}) {
   const g = generation,
     response = await fetch(path, {
@@ -89,7 +96,7 @@ async function request(path, method = "GET", body, extra = {}) {
         $("workspace").hidden = true;
       }
     }
-    throw Error(out.error || "Request failed");
+    throw Error(otpErrors[out.error] || out.error || "Request failed");
   }
   return out;
 }
@@ -103,14 +110,21 @@ const perform = (fn) => async (e) => {
   }
 };
 $("send-code").onsubmit = perform(async () => {
+  challenge = "";
+  $("code").value = "";
+  $("notice").textContent = "";
   const out = await request("/v1/auth/otp/start", "POST", {
     phone: $("phone").value,
   });
-  challenge = out.challengeId;
-  if (out.debugCode) $("code").value = out.debugCode;
+  challenge = typeof out.challengeId === "string" ? out.challengeId : "";
+  if (!challenge) throw Error("OTP start returned no challenge. Request a new code.");
+  if (typeof out.debugCode === "string" && /^\d{6}$/.test(out.debugCode)) {
+    $("code").value = out.debugCode;
+  }
   $("notice").textContent = "Code sent. Enter it to sign in.";
 });
 $("verify-code").onsubmit = perform(async () => {
+  if (!challenge) throw Error("Request a code before signing in.");
   const out = await request("/v1/auth/otp/verify", "POST", {
     phone: $("phone").value,
     challengeId: challenge,

@@ -1,0 +1,80 @@
+name: OTP regression
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  otp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: navig8r_otp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d navig8r_otp_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npx prisma generate --schema apps/api/prisma/schema.prisma
+      - name: Type check
+        run: npx tsc --noEmit --allowImportingTsExtensions
+      - name: Run full test suite
+        run: npm test
+      - name: Prepare disposable Postgres schema
+        env:
+          DATABASE_URL: postgresql://postgres@127.0.0.1:5432/navig8r_otp_test
+        run: npx prisma db push --schema apps/api/prisma/schema.prisma
+      - name: Run OTP Postgres persistence tests
+        env:
+          OTP_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/navig8r_otp_test
+        run: node --experimental-strip-types --test apps/api/src/otpPersistence.test.ts
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Install Flutter 3.22.3 for mobile web coverage
+        run: |
+          git clone https://github.com/flutter/flutter.git -b 3.22.3 --depth 1 "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Run Flutter OTP flow tests
+        working-directory: apps/driver_pilot
+        run: |
+          flutter pub get
+          flutter test test/otp_flow_test.dart
+      - name: Build mobile web client
+        working-directory: apps/driver_pilot
+        run: |
+          flutter build web --release --no-web-resources-cdn --dart-define=API_BASE_URL=http://127.0.0.1:3140
+      - name: Run operations browser tests
+        run: npx playwright test --config=playwright.config.ts
+      - name: Run mobile OTP browser test
+        env:
+          PLAYWRIGHT_OUTPUT_DIR: test-results/mobile
+        run: npx playwright test --config=playwright.mobile.config.ts --grep "driver starts one generated challenge"
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: otp-playwright-artifacts
+          path: |
+            test-results
+            playwright-report
+            test-results/mobile
+          if-no-files-found: ignore

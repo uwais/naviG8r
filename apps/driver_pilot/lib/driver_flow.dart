@@ -267,10 +267,14 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
       return;
     }
     try {
-      await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
+      final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": phone});
       if (!mounted) return;
-      context.go("/driver/onboarding/otp?phone=$phone");
+      context.go("/driver/onboarding/otp?phone=$phone", extra: {
+        "challengeId": r.data?["challengeId"],
+        "expiresAtUtcMs": r.data?["expiresAtUtcMs"],
+        "debugCode": r.data?["debugCode"],
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -329,28 +333,53 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   bool _verifying = false;
   String? _debugCode;
   String _phone = "";
+  int? _expiresAtUtcMs;
+  bool _receivedChallenge = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final p = GoRouterState.of(context).uri.queryParameters["phone"] ?? "";
-    if (p.isNotEmpty && p != _phone) {
+    final extra = GoRouterState.of(context).extra;
+    if (extra is Map && !_receivedChallenge && extra["challengeId"] is String) {
+      _phone = p;
+      _challengeId.text = (extra["challengeId"] as String).trim();
+      _expiresAtUtcMs = extra["expiresAtUtcMs"] is num
+          ? (extra["expiresAtUtcMs"] as num).toInt()
+          : null;
+      final dc = extra["debugCode"];
+      if (dc is String && dc.isNotEmpty) {
+        _debugCode = dc;
+        _code.text = dc;
+      }
+      _receivedChallenge = true;
+    } else if (p.isNotEmpty && p != _phone) {
       _phone = p;
       _resend();
     }
   }
 
   Future<void> _resend() async {
+    _challengeId.clear();
+    _code.clear();
+    _debugCode = null;
+    _expiresAtUtcMs = null;
     setState(() => _starting = true);
     try {
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": _phone});
+      if (!mounted) return;
       final id = r.data?["challengeId"] as String?;
       if (id != null) _challengeId.text = id;
+      _expiresAtUtcMs = r.data?["expiresAtUtcMs"] is num
+          ? (r.data?["expiresAtUtcMs"] as num).toInt()
+          : null;
       final dc = r.data?["debugCode"];
       if (dc is String && dc.isNotEmpty) {
         _debugCode = dc;
         _code.text = dc;
+      } else {
+        _debugCode = null;
       }
     } catch (e) {
       if (mounted)
@@ -412,6 +441,12 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         children: [
           Text("Code sent to $_phone",
               style: const TextStyle(color: DriverTheme.muted)),
+          if (_expiresAtUtcMs != null)
+            Text(
+                "Expires at ${DateTime.fromMillisecondsSinceEpoch(_expiresAtUtcMs!).toLocal()}",
+                style: const TextStyle(color: DriverTheme.muted)),
+          const Text("If the code expires or is incorrect, request a new code.",
+              style: TextStyle(color: DriverTheme.muted)),
           if (_debugCode != null) ...[
             const SizedBox(height: 8),
             Text("Debug OTP: $_debugCode",

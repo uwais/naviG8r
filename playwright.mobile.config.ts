@@ -3,7 +3,9 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./apps/driver_pilot/playwright",
-  outputDir: "/private/tmp/navig8r-mobile-rbac-results",
+  outputDir:
+    process.env.PLAYWRIGHT_OUTPUT_DIR ??
+    "/private/tmp/navig8r-mobile-rbac-results",
   workers: 1,
   timeout: 60_000,
   use: {

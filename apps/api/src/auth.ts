@@ -21,7 +21,9 @@ function b64urlEncode(buf: Buffer): string {
 
 function b64urlDecode(s: string): Buffer {
   const pad = 4 - (s.length % 4 || 4);
-  const b64 = (s + "=".repeat(pad === 4 ? 0 : pad)).replaceAll("-", "+").replaceAll("_", "/");
+  const b64 = (s + "=".repeat(pad === 4 ? 0 : pad))
+    .replaceAll("-", "+")
+    .replaceAll("_", "/");
   return Buffer.from(b64, "base64");
 }
 
@@ -43,7 +45,10 @@ type TokenPayloadV1 = {
 function signPayload(payload: TokenPayloadV1): string {
   const payloadJson = JSON.stringify(payload);
   const payloadB64 = b64urlEncode(Buffer.from(payloadJson, "utf8"));
-  const mac = crypto.createHmac("sha256", getAuthSecret()).update(payloadB64).digest();
+  const mac = crypto
+    .createHmac("sha256", getAuthSecret())
+    .update(payloadB64)
+    .digest();
   const sigB64 = b64urlEncode(mac);
   return `${payloadB64}.${sigB64}`;
 }
@@ -52,13 +57,17 @@ function verifyToken(token: string): TokenPayloadV1 {
   const [payloadB64, sigB64] = String(token).split(".");
   if (!payloadB64 || !sigB64) throw new Error("invalid_token");
   const expected = b64urlEncode(
-    crypto.createHmac("sha256", getAuthSecret()).update(payloadB64).digest()
+    crypto.createHmac("sha256", getAuthSecret()).update(payloadB64).digest(),
   );
   const a = b64urlDecode(sigB64);
   const b = b64urlDecode(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) throw new Error("invalid_token");
-  const payload = JSON.parse(b64urlDecode(payloadB64).toString("utf8")) as TokenPayloadV1;
-  if (payload?.v !== 1 || !payload.sid || !payload.uid || !payload.exp) throw new Error("invalid_token");
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b))
+    throw new Error("invalid_token");
+  const payload = JSON.parse(
+    b64urlDecode(payloadB64).toString("utf8"),
+  ) as TokenPayloadV1;
+  if (payload?.v !== 1 || !payload.sid || !payload.uid || !payload.exp)
+    throw new Error("invalid_token");
   if (payload.exp <= nowUtcMs()) throw new Error("token_expired");
   return payload;
 }
@@ -82,42 +91,119 @@ function randomOtp6(): string {
   return String(n).padStart(6, "0");
 }
 
-export function pilotOtpStart(store: Store, params: { phone: string }): {
+export type OtpDependencies = {
+  readonly ttlMs: number;
+  readonly debug: boolean;
+  readonly now: () => number;
+  readonly generateCode: () => string;
+};
+
+const MAX_DATE_MS = 8_640_000_000_000_000;
+
+function otpDeadline(now: number, ttlMs: number): number {
+  const deadline = now + ttlMs;
+  if (
+    !Number.isSafeInteger(now) ||
+    !Number.isSafeInteger(deadline) ||
+    deadline <= now ||
+    Math.abs(deadline) > MAX_DATE_MS
+  ) {
+    throw new Error("OTP_TTL_MS_invalid");
+  }
+  return deadline;
+}
+
+/** One validated configuration per application; clock and generator are injectable in tests. */
+export function createOtpDependencies(
+  options: {
+    env?: NodeJS.ProcessEnv;
+    now?: () => number;
+    generateCode?: () => string;
+  } = {},
+): OtpDependencies {
+  const env = options.env ?? process.env;
+  const raw = env.OTP_TTL_MS;
+  const ttlMs = raw === undefined ? 600_000 : Number(raw);
+  if (
+    !Number.isSafeInteger(ttlMs) ||
+    ttlMs <= 0 ||
+    (raw !== undefined && raw.trim() === "")
+  ) {
+    throw new Error("OTP_TTL_MS_invalid");
+  }
+  const now = options.now ?? nowUtcMs;
+  otpDeadline(now(), ttlMs);
+  return Object.freeze({
+    ttlMs,
+    debug: env.OTP_DEBUG === "1",
+    now,
+    generateCode: options.generateCode ?? randomOtp6,
+  });
+}
+
+/** Debug response delivery only; an external delivery adapter can replace this later. */
+function debugOtpDelivery(
+  code: string,
+  enabled: boolean,
+): { debugCode?: string } {
+  return enabled ? { debugCode: code } : {};
+}
+
+export function pilotOtpStart(
+  store: Store,
+  params: { phone: string },
+  otp = createOtpDependencies(),
+): {
   challengeId: string;
   expiresAtUtcMs: number;
-  /** Only returned when OTP_DEBUG=1 (never in production pilots). */
+  /** Only returned when the server enables OTP_DEBUG=1. */
   debugCode?: string;
 } {
   const user = findUserByPhone(store, params.phone);
   if (!user) throw new Error("user_not_found");
   if (!isActiveEntity(user)) throw new Error("account_inactive");
 
-  const now = nowUtcMs();
-  const ttlMs = Number(process.env.OTP_TTL_MS ?? `${10 * 60 * 1000}`);
-  const code =
-    process.env.OTP_DEBUG === "1"
-      ? String(process.env.OTP_FIXED_CODE ?? "123456").padStart(6, "0").slice(-6)
-      : randomOtp6();
+  const now = otp.now();
+  const expiresAtUtcMs = otpDeadline(now, otp.ttlMs);
+  const code = otp.generateCode();
+  if (!/^\d{6}$/.test(code)) throw new Error("otp_generator_invalid");
+  const delivery = debugOtpDelivery(code, otp.debug);
 
   const ch: OtpChallenge = {
     id: id("otp"),
     phone: user.phone,
     code,
     status: "PENDING",
-    expiresAtUtcMs: now + ttlMs,
+    expiresAtUtcMs,
     createdAtUtcMs: now,
   };
+  for (const previous of store.otpChallenges.values()) {
+    if (previous.phone === user.phone && previous.status === "PENDING") {
+      store.otpChallenges.set(previous.id, {
+        ...previous,
+        status: "SUPERSEDED",
+      });
+    }
+  }
   store.otpChallenges.set(ch.id, ch);
 
-  const out: { challengeId: string; expiresAtUtcMs: number; debugCode?: string } = {
+  const out: {
+    challengeId: string;
+    expiresAtUtcMs: number;
+    debugCode?: string;
+  } = {
     challengeId: ch.id,
     expiresAtUtcMs: ch.expiresAtUtcMs,
+    ...delivery,
   };
-  if (process.env.OTP_DEBUG === "1") out.debugCode = code;
   return out;
 }
 
-export function pilotOtpVerify(store: Store, params: { phone: string; challengeId: string; code: string }): {
+export function pilotOtpVerify(
+  store: Store,
+  params: { phone: string; challengeId: string; code: string },
+  otp = createOtpDependencies(),
+): {
   user: User;
   accessToken: string;
   session: AuthSession;
@@ -130,16 +216,16 @@ export function pilotOtpVerify(store: Store, params: { phone: string; challengeI
   if (!ch) throw new Error("otp_challenge_not_found");
   if (ch.phone !== user.phone) throw new Error("otp_challenge_mismatch");
   if (ch.status !== "PENDING") throw new Error("otp_challenge_invalid");
-  const now = nowUtcMs();
+  const now = otp.now();
   if (ch.expiresAtUtcMs <= now) {
     store.otpChallenges.set(ch.id, { ...ch, status: "EXPIRED" });
     throw new Error("otp_expired");
   }
   if (String(params.code ?? "") !== ch.code) throw new Error("otp_incorrect");
 
-  store.otpChallenges.set(ch.id, { ...ch, status: "CONSUMED" });
-
-  const sessionTtlMs = Number(process.env.SESSION_TTL_MS ?? `${30 * 24 * 60 * 60 * 1000}`);
+  const sessionTtlMs = Number(
+    process.env.SESSION_TTL_MS ?? `${30 * 24 * 60 * 60 * 1000}`,
+  );
   const session: AuthSession = {
     id: id("ses"),
     userId: user.id,
@@ -147,13 +233,21 @@ export function pilotOtpVerify(store: Store, params: { phone: string; challengeI
     expiresAtUtcMs: now + sessionTtlMs,
     revokedAtUtcMs: null,
   };
+  const token = signPayload({
+    v: 1,
+    sid: session.id,
+    uid: user.id,
+    exp: session.expiresAtUtcMs,
+  });
+  store.otpChallenges.set(ch.id, { ...ch, status: "CONSUMED" });
   store.authSessions.set(session.id, session);
-
-  const token = signPayload({ v: 1, sid: session.id, uid: user.id, exp: session.expiresAtUtcMs });
   return { user, accessToken: token, session };
 }
 
-export function verifyBearer(store: Store, token: string | null): { userId: string; sessionId: string } {
+export function verifyBearer(
+  store: Store,
+  token: string | null,
+): { userId: string; sessionId: string } {
   if (!token) throw new Error("unauthorized");
   const payload = verifyToken(token);
   const s = store.authSessions.get(payload.sid);

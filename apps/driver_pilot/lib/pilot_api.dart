@@ -133,6 +133,14 @@ String formatApiError(Object e) {
           "You do not have permission for this action in the selected organization.",
       "not_found": "This record is unavailable in the selected organization.",
       "unauthorized": "Your session has expired. Please sign in again.",
+      "otp_expired": "This code has expired. Request a new code and try again.",
+      "otp_incorrect": "That code is incorrect. Check it and try again.",
+      "otp_challenge_invalid":
+          "This code request is no longer valid. Request a new code.",
+      "otp_challenge_not_found":
+          "This code request is no longer valid. Request a new code.",
+      "otp_challenge_mismatch":
+          "This code request is no longer valid. Request a new code.",
     };
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||

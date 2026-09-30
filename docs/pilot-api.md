@@ -13,7 +13,7 @@ This document defines the **first concrete API resources** for the Flutter pilot
 
 ### Server env vars (pilot)
 - **`AUTH_SECRET`**: required (min 16 chars). Used to sign access tokens.
-- **`OTP_DEBUG=1`**: returns `debugCode` from `otp/start` and defaults OTP to `OTP_FIXED_CODE` (default `123456`).
+- **`OTP_DEBUG=1`**: returns the generated six-digit `debugCode` from `otp/start` for local testing. Codes are random; this setting controls delivery only. **`OTP_TTL_MS`** defaults to `600000` (ten minutes); an explicit value must be a positive safe integer that produces a valid expiration timestamp, or startup fails.
 - **`ALLOW_X_USER_ID=1`**: allows the old header-based auth (not for real pilots).
 - **`ENABLE_LEGACY_DEMO_SURFACE=1`**: enables legacy unauthenticated admin/demo write routes in production. Leave unset for hosted pilots.
 - **`FREIGHT_PAISE_PER_KM_SMALL`**, **`FREIGHT_PAISE_PER_KM_MEDIUM`**, **`FREIGHT_PAISE_PER_KM_LARGE`**: paise per km defaults (see `apps/api/src/config.ts`).
@@ -53,11 +53,11 @@ Response:
 {
   "challengeId": "otp_...",
   "expiresAtUtcMs": 1234567890,
-  "debugCode": "123456"
+  "debugCode": "482019"
 }
 ```
 
-Note: `debugCode` is only present when `OTP_DEBUG=1`.
+Note: `debugCode` is only present when `OTP_DEBUG=1`. Each accepted start/resend generates a new random code (separate codes can coincide). No external delivery channel is implemented yet; pilot login requires debug delivery. A resend supersedes the previous pending challenge. Retry an incorrect code before its deadline; request a new code after expiration.
 
 #### `POST /v1/auth/otp/verify`
 Body:
@@ -65,7 +65,7 @@ Body:
 {
   "phone": "9876543210",
   "challengeId": "otp_...",
-  "code": "123456"
+  "code": "482019"
 }
 ```
 
@@ -545,5 +545,7 @@ Requires Ops Admin/Agent Bearer. **Soft-deletes** the user — rows are marked I
 Query: `force=1` to override active-work / sole-owner-of-shared-org guards.
 
 Admin UI: `/admin` → Ops Admins card → **Deactivate user**.
+
+After PR #136 lands, apply the same OTP behavior to `adminDashboardV1.ts`: retain the `challengeId` from `/v1/auth/otp/start`, use its optional generated `debugCode`, clear both values before resend and when start fails, and show retry guidance for expired, incorrect, or superseded challenges.
 
 If using `PERSISTENCE=DB`, run `npx prisma db push` after deploy so `inactiveAtUtcMs` / `inactiveReason` columns exist.

@@ -400,6 +400,10 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
       _error = null;
     });
     final phone = digitsOnly(_phone.text.trim());
+    _challengeId = null;
+    _challengePhone = null;
+    _debugCode = null;
+    _code.clear();
     if (phone.length != 10) {
       setState(() {
         _error = "Enter a 10-digit mobile number.";
@@ -410,6 +414,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
     try {
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": phone});
+      if (!mounted) return;
       _challengeId = r.data?["challengeId"] as String?;
       _challengePhone = phone;
       final dc = r.data?["debugCode"];

@@ -28,7 +28,6 @@ function testEnv(t: { after(fn: () => void): void }): void {
     NODE_ENV: process.env.NODE_ENV,
     AUTH_SECRET: process.env.AUTH_SECRET,
     OTP_DEBUG: process.env.OTP_DEBUG,
-    OTP_FIXED_CODE: process.env.OTP_FIXED_CODE,
     ALLOW_X_USER_ID: process.env.ALLOW_X_USER_ID,
   };
   t.after(() => {
@@ -36,7 +35,6 @@ function testEnv(t: { after(fn: () => void): void }): void {
     process.env.NODE_ENV = prev.NODE_ENV;
     process.env.AUTH_SECRET = prev.AUTH_SECRET;
     process.env.OTP_DEBUG = prev.OTP_DEBUG;
-    process.env.OTP_FIXED_CODE = prev.OTP_FIXED_CODE;
     process.env.ALLOW_X_USER_ID = prev.ALLOW_X_USER_ID;
   });
 
@@ -44,7 +42,6 @@ function testEnv(t: { after(fn: () => void): void }): void {
   process.env.NODE_ENV = "test";
   process.env.AUTH_SECRET = "test_secret_minimum_16_chars";
   process.env.OTP_DEBUG = "1";
-  process.env.OTP_FIXED_CODE = "123456";
   process.env.ALLOW_X_USER_ID = "1";
 }
 
@@ -86,7 +83,8 @@ async function customerBearer(baseUrl: string): Promise<{ token: string; orgId: 
 
   const start = await postJson(baseUrl, "/v1/auth/otp/start", { phone });
   assert.equal(start.status, 200);
-  const startBody = (await start.json()) as { challengeId: string; debugCode: string };
+  const startBody = (await start.json()) as { challengeId: string; debugCode?: string };
+  assert.match(startBody.debugCode ?? "", /^\d{6}$/);
 
   const verify = await postJson(baseUrl, "/v1/auth/otp/verify", {
     phone,
@@ -111,7 +109,8 @@ async function seedCarrierTrip(baseUrl: string): Promise<{ tripId: string }> {
   const onboard = (await reg.json()) as { user: { id: string }; org: { id: string } };
 
   const start = await postJson(baseUrl, "/v1/auth/otp/start", { phone: "9876548800" });
-  const challenge = await start.json();
+  const challenge = await start.json() as { challengeId: string; debugCode?: string };
+  assert.match(challenge.debugCode ?? "", /^\d{6}$/);
   const verification = await postJson(baseUrl, "/v1/auth/otp/verify", { phone: "9876548800", challengeId: challenge.challengeId, code: challenge.debugCode });
   const signedIn = await verification.json();
   const tripRes = await postJson(baseUrl, "/v1/pilot/anchor-trips", {
