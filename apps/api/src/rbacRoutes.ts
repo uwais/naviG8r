@@ -42,7 +42,7 @@ const rules: [string, RegExp, Permission][] = [
 export function guardRequest(req: http.IncomingMessage, store: Store, url: URL): void {
   const method = req.method ?? "GET", path = url.pathname;
   if (method === "OPTIONS") return;
-  if (method === "GET" && ["/health", "/ops", "/admin", "/admin/v1", "/ops/v1", "/admin/v2", "/ops/v2", "/workflow", "/v1/customer/eligible-anchor-trips"].includes(path)) return;
+  if (method === "GET" && ["/health", "/ops", "/admin", "/admin/v1", "/ops/v1", "/admin/v2", "/ops/v2", "/ops/beta", "/workflow", "/v1/customer/eligible-anchor-trips"].includes(path)) return;
   if (method === "GET" && /^\/anchor-trips(?:\/[^/]+)?$/.test(path)) return;
   if (method === "POST" && ["/shipments/quote", "/v1/auth/otp/start", "/v1/auth/otp/verify", "/v1/pilot/driver/register", "/v1/pilot/customer/register", "/v1/pilot/customer/users/register", "/v1/payments/razorpay/webhook"].includes(path)) return;
   if (path.startsWith("/v1/integrations/")) return; // separately authenticated service principal

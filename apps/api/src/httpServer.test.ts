@@ -144,6 +144,33 @@ test("GET /ops returns ops portal HTML", async (t) => {
   });
 });
 
+test("GET /ops/beta serves the redesigned ops page beside the unchanged current one", async (t) => {
+  const prev = { DATA_FILE: process.env.DATA_FILE };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+
+  await withApp(t, async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/ops/beta`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("x-frame-options"), "DENY");
+    assert.equal(res.headers.get("content-security-policy"), "frame-ancestors 'none'");
+    const html = await res.text();
+    assert.ok(html.includes("<title>NaviG8r operations (beta)</title>"));
+    assert.ok(html.includes("/ops/compliance/pending") && html.includes("/ops/shipments/pending-release"));
+    assert.ok(!html.includes("prefers-color-scheme"), "light mode only, never switched by the system setting");
+    for (const address of html.match(/https?:\/\/[^"' )]+/g) ?? []) {
+      assert.match(address, /^https:\/\/fonts\.(googleapis|gstatic)\.com|^http:\/\/www\.w3\.org\/2000\/svg$/, `unexpected outside address ${address}`);
+    }
+
+    const current = await (await fetch(`${baseUrl}/ops`)).text();
+    assert.ok(current.includes("<title>NaviG8r operations</title>"));
+    assert.ok(!current.includes("/ops/beta"), "the current page does not link to or depend on the beta");
+  });
+});
+
 test("GET /workflow returns the shipment/POD workspace shell", async (t) => {
   process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
 
