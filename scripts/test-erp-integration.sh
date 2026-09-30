@@ -11,7 +11,6 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:3000}"
 BASE_URL="${BASE_URL%/}"
 PHONE="${ERP_TEST_PHONE:-9111009900}"
 CARRIER_PHONE="${ERP_TEST_CARRIER_PHONE:-9876549900}"
-OTP_CODE="${OTP_FIXED_CODE:-123456}"
 USE_OTP_DEBUG="${OTP_DEBUG:-1}"
 
 echo "==> ERP integration smoke test"
@@ -71,10 +70,8 @@ echo "==> 2. OTP sign-in (OTP_DEBUG=$USE_OTP_DEBUG)"
 START=$(post_json "/v1/auth/otp/start" "{\"phone\":\"$PHONE\"}")
 CHALLENGE=$(echo "$START" | json_field '.challengeId // empty')
 DEBUG_CODE=$(echo "$START" | json_field '.debugCode // empty')
-CODE="$OTP_CODE"
-if [ -n "$DEBUG_CODE" ] && [ "$DEBUG_CODE" != "null" ]; then
-  CODE="$DEBUG_CODE"
-fi
+CODE="$DEBUG_CODE"
+if [ -z "$CODE" ] || [ "$CODE" = "null" ]; then echo "OTP start did not return debugCode; enable OTP_DEBUG=1 on the synthetic test server." >&2; exit 1; fi
 VERIFY=$(post_json "/v1/auth/otp/verify" "$(cat <<EOF
 {"phone":"$PHONE","challengeId":"$CHALLENGE","code":"$CODE"}
 EOF
@@ -104,10 +101,8 @@ EOF
 CARRIER_START=$(post_json "/v1/auth/otp/start" "{\"phone\":\"$CARRIER_PHONE\"}")
 CARRIER_CHALLENGE=$(echo "$CARRIER_START" | json_field '.challengeId // empty')
 CARRIER_DEBUG=$(echo "$CARRIER_START" | json_field '.debugCode // empty')
-CARRIER_CODE="$OTP_CODE"
-if [ -n "$CARRIER_DEBUG" ] && [ "$CARRIER_DEBUG" != "null" ]; then
-  CARRIER_CODE="$CARRIER_DEBUG"
-fi
+CARRIER_CODE="$CARRIER_DEBUG"
+if [ -z "$CARRIER_CODE" ] || [ "$CARRIER_CODE" = "null" ]; then echo "Carrier OTP start did not return debugCode; enable OTP_DEBUG=1 on the synthetic test server." >&2; exit 1; fi
 CARRIER_VERIFY=$(post_json "/v1/auth/otp/verify" "$(cat <<EOF
 {"phone":"$CARRIER_PHONE","challengeId":"$CARRIER_CHALLENGE","code":"$CARRIER_CODE"}
 EOF

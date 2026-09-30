@@ -1,11 +1,27 @@
 import { test, expect, type Page } from "@playwright/test";
 
 test.describe.configure({ mode: "serial" });
+async function sendOtp(page: Page, expectDebugCode = true) {
+  const started = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/v1/auth/otp/start") &&
+      response.request().method() === "POST",
+  );
+  await page.locator("#send-otp, #start").first().click();
+  const challenge = await (await started).json();
+  expect(challenge.challengeId).toEqual(expect.any(String));
+  if (expectDebugCode) expect(challenge.debugCode).toMatch(/^\d{6}$/);
+  if (challenge.debugCode === undefined) {
+    await expect(page.locator("#code")).toHaveValue("");
+  } else {
+    await expect(page.locator("#code")).toHaveValue(challenge.debugCode);
+  }
+  return challenge;
+}
 async function login(page: Page, phone: string, path = "/admin/v1") {
   await page.goto(path);
   await page.getByLabel("Phone number", { exact: true }).fill(phone);
-  await page.getByRole("button", { name: "Send code", exact: true }).click();
-  await expect(page.getByLabel("Verification code")).toHaveValue("123456");
+  await sendOtp(page);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.locator("#protected")).toBeVisible();
 }
@@ -79,8 +95,7 @@ for (const width of [1440, 390, 320]) {
     }
     await screenshot(page, "header-v2-login", false);
     await page.locator("#phone").fill("8000000011");
-    await page.getByRole("button", { name: "Send code", exact: true }).click();
-    await expect(page.locator("#code")).toHaveValue("123456");
+    await sendOtp(page);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page.locator("#workspace")).toBeVisible();
     await expect(page.locator("#roles")).toContainText("FINANCE");
@@ -222,8 +237,7 @@ test("single roles and cross-organization sessions expose only authorized tools"
   await page.evaluate(() => sessionStorage.clear());
   await page.goto("/admin/v1");
   await page.getByLabel("Phone number", { exact: true }).fill("8000000008");
-  await page.getByRole("button", { name: "Send code", exact: true }).click();
-  await expect(page.getByLabel("Verification code")).toHaveValue("123456");
+  await sendOtp(page);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByLabel("Acting organization").selectOption("platform");
   await expect(action(page, "Release payment")).toBeVisible();
@@ -344,8 +358,7 @@ test("V2 shipper POD acceptance and finance release still work after V1 submissi
 }) => {
   await page.goto("/workflow");
   await page.getByLabel("Phone", { exact: true }).fill("8000000001");
-  await page.getByRole("button", { name: "Send code", exact: true }).click();
-  await expect(page.getByLabel("Verification code")).toHaveValue("123456");
+  await sendOtp(page);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   const row = page.locator("article").filter({ hasText: "load-a-booked" });
   await row.getByRole("button", { name: "Accept POD" }).click();
@@ -354,8 +367,7 @@ test("V2 shipper POD acceptance and finance release still work after V1 submissi
   await page.evaluate(() => sessionStorage.clear());
   await page.goto("/ops/v2");
   await page.getByLabel("Phone", { exact: true }).fill("8000000006");
-  await page.getByRole("button", { name: "Send code", exact: true }).click();
-  await expect(page.getByLabel("Verification code")).toHaveValue("123456");
+  await sendOtp(page);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   const financeRow = page
     .locator("article")
@@ -454,4 +466,65 @@ test("revocation clears an open V1 session and blocks direct actions", async ({
   } finally {
     await adminContext.close();
   }
+});
+
+test("V1 accepts generated OTP codes and clears stale delivery on resend", async ({
+  page,
+}) => {
+  let starts = 0;
+  let verified: unknown;
+  await page.route("**/v1/auth/otp/start", async (route) => {
+    starts += 1;
+    await route.fulfill({
+      json: {
+        challengeId: `otp_v1_${starts}`,
+        expiresAtUtcMs: Date.now() + 600000,
+        ...(starts === 1 ? { debugCode: "000042" } : {}),
+      },
+    });
+  });
+  await page.route("**/v1/auth/otp/verify", async (route) => {
+    verified = JSON.parse(route.request().postData() || "{}");
+    await route.fulfill({ status: 400, json: { error: "otp_expired" } });
+  });
+  await page.goto("/admin/v1");
+  await page.getByLabel("Phone number", { exact: true }).fill("8000000005");
+  const first = await sendOtp(page);
+  expect(first.debugCode).toBe("000042");
+  await page.locator("#code").fill("111111");
+  const second = await sendOtp(page, false);
+  expect(second.challengeId).not.toBe(first.challengeId);
+  await expect(page.locator("#code")).toHaveValue("");
+  await page.locator("#code").fill("987654");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.locator("#error")).toContainText("expired");
+  expect(verified).toEqual({
+    phone: "8000000005",
+    challengeId: second.challengeId,
+    code: "987654",
+  });
+});
+
+test("V1 OTP cooldown disables resend and phone changes clear the challenge", async ({ page }) => {
+  let starts = 0;
+  await page.route("**/v1/auth/otp/start", async (route) => {
+    starts += 1;
+    await route.fulfill({ json: {
+      challengeId: `otp_cooldown_${starts}`,
+      expiresAtUtcMs: Date.now() + 600000,
+      retryAfterMs: 30000,
+      debugCode: "001234",
+    } });
+  });
+  await page.goto("/admin/v1");
+  await page.getByLabel("Phone number", { exact: true }).fill("8000000005");
+  await page.getByRole("button", { name: "Send code", exact: true }).click();
+  await expect(page.locator("#send-otp")).toHaveText("Resend code (30s)");
+  await expect(page.locator("#send-otp")).toBeDisabled();
+  await expect(page.locator("#code")).toHaveValue("001234");
+  await page.getByLabel("Phone number", { exact: true }).fill("8000000006");
+  await expect(page.locator("#send-otp")).toHaveText("Send code");
+  await expect(page.locator("#send-otp")).toBeEnabled();
+  await expect(page.locator("#code")).toHaveValue("");
+  expect(starts).toBe(1);
 });

@@ -214,7 +214,7 @@ Do not label restoration complete while any historical capability lacks a workin
 
 ## Local validation and manual acceptance plan
 
-Use only disposable synthetic storage, mock payments, and bookkeeping payouts. No production backup fixtures. Existing harness: `node --experimental-strip-types scripts/rbac-manual.mjs` at port 3139, with OTP `123456`; extend it with the additional combined-role and dashboard fixtures. Document the final fixture list in DASH-12.
+Use only disposable synthetic storage, mock payments, and bookkeeping payouts. No production backup fixtures. Existing harness: `node --experimental-strip-types scripts/rbac-manual.mjs` at port 3139, with randomly generated debug OTPs from each `/v1/auth/otp/start` response; add the additional combined-role and dashboard fixtures as required. Document the final fixture list in DASH-12.
 
 Manual sequence:
 

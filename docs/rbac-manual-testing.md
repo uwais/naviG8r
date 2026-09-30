@@ -27,7 +27,7 @@ Open:
 
 ## 2. Sign in with synthetic accounts
 
-Enter the phone, click **Send code**, enter **123456**, then click **Sign in**. No SMS is sent. Use **Sign out** before changing accounts. Separate browser profiles let you keep different users signed in at the same time.
+Enter the phone, click **Send code**, then enter the generated `debugCode` returned by the API before clicking **Sign in**. With `OTP_DEBUG=1`, each request gets a new random six-digit code and no SMS is sent. Use **Sign out** before changing accounts. Separate browser profiles let you keep different users signed in at the same time.
 
 | Account | Phone | User ID | Organization | Effective role |
 |---|---|---|---|---|
@@ -237,7 +237,7 @@ cd /Users/sundeepperchani/workspace/NaviG8r/naviG8r-rbac/apps/driver_pilot
 flutter run -d chrome --web-port=8080 --dart-define=API_BASE_URL=http://127.0.0.1:3139
 ```
 
-Open <http://localhost:8080/#/customer/login>. Enable Chrome's device toolbar and choose a 390-pixel-wide phone viewport. OTP is `123456` for every synthetic account.
+Open <http://localhost:8080/#/customer/login>. Enable Chrome's device toolbar and choose a 390-pixel-wide phone viewport. With `OTP_DEBUG=1`, use the generated `debugCode` from that account's latest OTP start response.
 
 1. Sign in as Shipper A (`8000000001`). The top selector displays Synthetic Shipper A. Open Shipments and a pending-release shipment. The screen shows the hold deadline; Accept delivery requires confirmation. Accepting changes the status to Delivery accepted and makes the shipment ready for Finance review, without releasing funds automatically. Booking and delivery acceptance never grant Finance permissions.
 2. Open <http://localhost:8080/#/customer/shipments/load-b-pending> while still Shipper A. The app must show an unavailable-record message and no other customer's shipment data.

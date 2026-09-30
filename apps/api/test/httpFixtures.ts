@@ -16,7 +16,6 @@ export async function httpFixture(t: TestContext) {
   process.env.PAYOUTS_MODE = "BOOKKEEPING";
   process.env.AUTH_SECRET = "synthetic-test-signing-value-only";
   process.env.OTP_DEBUG = "1";
-  process.env.OTP_FIXED_CODE = "123456";
   const app = await createApp();
   app.server.listen(0, "127.0.0.1"); await once(app.server, "listening");
   const address = app.server.address(); assert.ok(address && typeof address === "object");
@@ -35,6 +34,7 @@ export async function httpFixture(t: TestContext) {
   }
   async function login(phone: string) {
     const start = await request("/v1/auth/otp/start", "POST", { phone }); assert.equal(start.status, 200);
+    assert.match(start.body.debugCode, /^\d{6}$/);
     const verified = await request("/v1/auth/otp/verify", "POST", { phone, challengeId: start.body.challengeId, code: start.body.debugCode }); assert.equal(verified.status, 200);
     return verified.body.accessToken as string;
   }

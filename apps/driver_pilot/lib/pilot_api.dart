@@ -121,6 +121,11 @@ String formatApiError(Object e) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
     final code = body is Map ? body["error"] : null;
+    if (code == "otp_rate_limited") {
+      final retry = body["retryAfterMs"];
+      final seconds = retry is num ? (retry / 1000).ceil() : 30;
+      return "Too many code requests. Please wait ${seconds > 0 ? seconds : 1} seconds and try again.";
+    }
     const messages = {
       "carrier_compliance_required":
           "Carrier compliance must be approved before accepting shipments or starting trips.",
@@ -133,6 +138,14 @@ String formatApiError(Object e) {
           "You do not have permission for this action in the selected organization.",
       "not_found": "This record is unavailable in the selected organization.",
       "unauthorized": "Your session has expired. Please sign in again.",
+      "otp_expired": "This code has expired. Request a new code and try again.",
+      "otp_incorrect": "That code is incorrect. Check it and try again.",
+      "otp_challenge_invalid":
+          "This code request is no longer valid. Request a new code.",
+      "otp_challenge_not_found":
+          "This code request is no longer valid. Request a new code.",
+      "otp_challenge_mismatch":
+          "This code request is no longer valid. Request a new code.",
     };
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||
@@ -153,6 +166,13 @@ String formatApiError(Object e) {
     return "HTTP ${status ?? "?"}: ${body ?? e.message ?? e.toString()}";
   }
   return e.toString();
+}
+
+int? otpRetryAfterMs(Object e) {
+  if (e is! DioException) return null;
+  final body = e.response?.data;
+  final value = body is Map ? body["retryAfterMs"] : null;
+  return value is num && value > 0 ? value.ceil() : null;
 }
 
 String? lastRegisteredOrgId;

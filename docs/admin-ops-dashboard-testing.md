@@ -43,7 +43,7 @@ npm ci
 node --experimental-strip-types scripts/rbac-manual.mjs
 ```
 
-The script creates a fresh temporary FILE store, mock payments and bookkeeping payouts; it never loads a production store or an env file. It serves `http://127.0.0.1:3139`. Every account below uses OTP **123456**.
+The script creates a fresh temporary FILE store, mock payments and bookkeeping payouts; it never loads a production store or an env file. It serves `http://127.0.0.1:3139` and enables `OTP_DEBUG=1`. Every OTP is randomly generated; the web form fills the returned code automatically. Do not reuse a code from an earlier login or resend.
 
 | Phone      | Role / organization                                                                 |
 | ---------- | ----------------------------------------------------------------------------------- |

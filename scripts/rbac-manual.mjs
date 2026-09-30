@@ -10,7 +10,6 @@ Object.assign(process.env, {
   DATA_FILE: join(directory, "synthetic-store.json"),
   AUTH_SECRET: "synthetic-local-rbac-demo-not-for-deployment",
   OTP_DEBUG: "1",
-  OTP_FIXED_CODE: "123456",
   PAYMENT_PROVIDER: "MOCK",
   PAYOUTS_MODE: "BOOKKEEPING",
   ALLOW_X_USER_ID: "0",
@@ -92,7 +91,7 @@ saveStoreToDisk(process.env.DATA_FILE, store);
 const restored = loadStoreFromDisk(process.env.DATA_FILE);
 for (const [userId, , orgId] of accounts) resolvePrincipal(restored, userId, orgId);
 console.table(accounts.map(([userId, phone, orgId, role]) => ({ phone, userId, orgId, role })));
-console.log("All test accounts use OTP 123456. Dual user also has FINANCE in platform.");
+console.log("OTP_DEBUG=1 returns each generated six-digit code from otp/start. Dual user also has FINANCE in platform.");
 console.log(`Synthetic data: ${process.env.DATA_FILE}`);
 
 if (!process.argv.includes("--seed-only")) {

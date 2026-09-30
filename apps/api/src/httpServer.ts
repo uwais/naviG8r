@@ -6,7 +6,7 @@ import { guardRequest, requestContext } from "./rbacRoutes.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
 import { URL } from "node:url";
-import { pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
+import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import {
   ApiError,
@@ -206,6 +206,7 @@ export async function createApp(): Promise<{
   persist: () => Promise<void>;
   dataFilePath: string | null;
 }> {
+  const otp = createOtpDependencies();
   const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (process.env.DATA_FILE ?? "./data/store.json");
 
   let store: ReturnType<typeof loadStoreFromDisk>;
@@ -225,6 +226,31 @@ export async function createApp(): Promise<{
     persist = async () => {
       saveStoreToDisk(dataFilePath!, store);
     };
+  }
+
+  // Requests are serialized below, so failed persistence can safely restore OTP state.
+  async function persistOtp<T>(operation: () => T): Promise<T> {
+    const challenges = new Map(store.otpChallenges);
+    const sessions = new Map(store.authSessions);
+    let result: T;
+    let expiryError: unknown;
+    try {
+      result = operation();
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "otp_expired") throw error;
+      expiryError = error;
+    }
+    try {
+      await persist();
+    } catch (error) {
+      store.otpChallenges.clear();
+      for (const [key, value] of challenges) store.otpChallenges.set(key, value);
+      store.authSessions.clear();
+      for (const [key, value] of sessions) store.authSessions.set(key, value);
+      throw error;
+    }
+    if (expiryError) throw expiryError;
+    return result!;
   }
 
   let requests: Promise<unknown> = Promise.resolve();
@@ -357,20 +383,24 @@ export async function createApp(): Promise<{
 
       // --- v1 auth (pilot OTP + bearer token) ---
       if (method === "POST" && url.pathname === "/v1/auth/otp/start") {
+        const forwardedFor = otp.trustProxy ? header(req, "x-forwarded-for")?.split(",")[0]?.trim() : undefined;
+        const clientIp = forwardedFor || req.socket.remoteAddress || "unknown";
+        otp.consumeIpStart(clientIp);
         const body = await readJson(req);
-        const out = pilotOtpStart(store, { phone: String(body?.phone ?? "") });
-        await persist();
+        const phone = String(body?.phone ?? "");
+        const reused = pilotOtpCooldownReuse(store, { phone }, otp);
+        if (reused) return json(res, 200, reused);
+        const out = await persistOtp(() => pilotOtpStart(store, { phone }, otp));
         return json(res, 200, out);
       }
 
       if (method === "POST" && url.pathname === "/v1/auth/otp/verify") {
         const body = await readJson(req);
-        const out = pilotOtpVerify(store, {
+        const out = await persistOtp(() => pilotOtpVerify(store, {
           phone: String(body?.phone ?? ""),
           challengeId: String(body?.challengeId ?? ""),
           code: String(body?.code ?? ""),
-        });
-        await persist();
+        }, otp));
         return json(res, 200, { ...out, isOpsAdmin: isOpsAdmin(store, out.user.id) });
       }
 
@@ -1089,6 +1119,10 @@ export async function createApp(): Promise<{
 
       return json(res, 404, { error: "not_found" });
     } catch (e: any) {
+      if (e instanceof OtpRateLimitError) {
+        res.setHeader("retry-after", String(Math.max(1, Math.ceil(e.retryAfterMs / 1000))));
+        return json(res, 429, { error: "otp_rate_limited", retryAfterMs: e.retryAfterMs });
+      }
       if (e instanceof AuthorizationError) return json(res, e.status, { error: e.message });
       if (e instanceof ApiError) {
         const status = e.httpStatus ?? 400;

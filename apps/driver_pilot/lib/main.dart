@@ -554,7 +554,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _phone = TextEditingController(text: "9876543210");
   final _challengeId = TextEditingController();
-  final _code = TextEditingController(text: "123456");
+  final _code = TextEditingController();
   String _startOut = "";
   String _verifyOut = "";
   String? _debugCode;
@@ -584,7 +584,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _start() async {
-    setState(() => _starting = true);
+    setState(() {
+      _starting = true;
+      _debugCode = null;
+      _challengeId.clear();
+      _code.clear();
+      _startOut = "";
+    });
     final phone = digitsOnly(_phone.text.trim());
     if (phone.length != 10) {
       setState(() {
@@ -596,6 +602,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": phone});
+      if (!mounted) return;
       setState(() {
         _startOut = r.data?.toString() ?? "{}";
         final id = _extractChallengeId(r.data);
@@ -605,11 +612,12 @@ class _LoginScreenState extends State<LoginScreen> {
             ? debugCode.trim()
             : null;
         if (_debugCode != null) _code.text = _debugCode!;
+        if (_debugCode == null) _code.clear();
       });
     } catch (e) {
-      setState(() => _startOut = formatApiError(e));
+      if (mounted) setState(() => _startOut = formatApiError(e));
     } finally {
-      setState(() => _starting = false);
+      if (mounted) setState(() => _starting = false);
     }
   }
 
@@ -670,8 +678,7 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Text(
               _debugCode != null
                   ? "Using debug OTP from server response: $_debugCode"
-                  : "On hosted environments, OTP code 123456 only works if the server has OTP debug mode enabled. "
-                      "If /otp/start does not return debugCode, you likely need a real SMS flow or a server-side debug setting.",
+                  : "Enter the code sent to your phone. Debug code delivery is unavailable for this challenge.",
             ),
           ),
         ),
@@ -697,8 +704,7 @@ class _LoginScreenState extends State<LoginScreen> {
             decoration: const InputDecoration(labelText: "challengeId")),
         TextField(
             controller: _code,
-            decoration: const InputDecoration(
-                labelText: "code (use OTP_DEBUG=123456 locally)")),
+            decoration: const InputDecoration(labelText: "6-digit code")),
         FilledButton.icon(
           onPressed: _verifying ? null : _verify,
           icon: _verifying

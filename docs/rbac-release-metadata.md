@@ -84,7 +84,7 @@ protected data and actions without relying on a browser restart.
 
 ## Local and beta manual test procedure
 
-All local tests use synthetic data, OTP `123456`, mock payments, and bookkeeping
+All local tests use synthetic data, generated debug OTPs, mock payments, and bookkeeping
 payouts. Never use production credentials or production data.
 
 1. Start the synthetic API from the repository root:
@@ -102,7 +102,7 @@ payouts. Never use production credentials or production data.
    ```
 
 3. Open `http://localhost:8080/#/customer/login` using a 390px phone viewport.
-   Sign in with OTP `123456`.
+   Sign in with the generated code returned by `/v1/auth/otp/start` and autofilled in debug mode.
 
 4. Test Shipper A (`8000000001`): confirm the organization selector, own
    shipment visibility, payment-hold banner, POD confirmation dialog, and POD
