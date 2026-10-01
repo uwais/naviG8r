@@ -18,6 +18,19 @@ test("a signed-out visitor sees only sign-in, and today's page still loads", asy
   await expect(page.getByRole("heading", { level: 1, name: "Operations" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(page.locator("#workspace")).toBeHidden();
+
+  await page.getByLabel("Phone").fill("8000009999");
+  await page.getByRole("button", { name: "Send code" }).click();
+  await expect(page.locator("#signinResult")).toHaveText("Couldn't send the code: no account uses that phone number.");
+  await expect(page.getByRole("button", { name: "Send code" })).toBeEnabled();
+
+  await page.getByLabel("Phone").fill(phones.admin);
+  await page.getByRole("button", { name: "Send code" }).click();
+  await expect(page.getByLabel("Verification code")).toHaveValue(/^\d{6}$/);
+  await page.getByLabel("Phone").fill(phones.finance);
+  await expect(page.getByLabel("Verification code")).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Send code" })).toBeEnabled();
+
   await page.goto("/ops");
   await expect(page.getByRole("heading", { level: 1, name: "Operations workspace" })).toBeVisible();
 });
@@ -37,7 +50,7 @@ test("OPS: Approve or Reject first, then a reason from that action's list, recor
   await card.getByRole("button", { name: "Approve" }).click();
   const reason = card.getByLabel("Reason for approving Synthetic Carrier B (carrier-b)", { exact: true });
   await expect(reason).toBeFocused();
-  await expect(reason.locator("option")).toHaveText(["Choose a reason", "Documents reviewed", "Bank details checked"]);
+  await expect(reason.locator("option")).toHaveText(["Choose a reason", "Documents reviewed", "Bank details verified"]);
   await card.getByRole("button", { name: "Confirm approval" }).click();
   await expect(card.getByRole("alert")).toHaveText("Not approved yet. Choose a reason from the list.");
   await expect(reason).toHaveAttribute("aria-invalid", "true");
@@ -71,6 +84,16 @@ test("review by ID: nothing chosen, and the reason list follows the decision", a
   await expect(reason.locator("option")).toContainText(["Approval taken back"]);
   await form.getByRole("button", { name: "Record review" }).click();
   await expect(form.getByRole("alert")).toHaveText("Not recorded yet. Choose a reason from the list.");
+
+  await reason.selectOption({ label: "Approval taken back" });
+  await form.getByRole("button", { name: "Record review" }).click();
+  const recorded = form.getByRole("status");
+  await expect(recorded).toHaveText(/Review recorded by you at \d\d:\d\d IST: Approval taken back\. Synthetic Carrier B \(carrier-b\) now shows: Not approved\./);
+  await expect(recorded).toBeFocused();
+  await expect(form.getByRole("radio", { name: "Approve" })).not.toBeChecked();
+  await expect(form.getByRole("radio", { name: "Reject" })).not.toBeChecked();
+  await expect(reason).toBeDisabled();
+  await expect(form.getByRole("button", { name: "Record review" })).toBeEnabled();
 });
 
 test("FINANCE: carrier review is off; release shows the ledger credit, Cancel and Esc close it, Release records it in the row", async ({ page }) => {
@@ -92,7 +115,7 @@ test("FINANCE: carrier review is off; release shows the ledger credit, Cancel an
   await open.click();
   const dialog = page.getByRole("dialog", { name: "Release payment for shipment load-a-expired?" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("₹45 is credited to the ledger balance of Synthetic Carrier A carrier-a. It is paid out in a weekly payout batch");
+  await expect(dialog).toContainText("₹45 is credited to the ledger balance of Synthetic Carrier A carrier-a. It is paid out in the first weekly payout batch (Wednesdays, 18:00 IST) at least 7 days after proof of delivery");
   await expect(dialog).toContainText("Shipper paid₹50");
   await expect(dialog).toContainText("NaviG8r commission− ₹5");
   await expect(dialog).toContainText("Credited to the ledger balance₹45");
@@ -107,10 +130,29 @@ test("FINANCE: carrier review is off; release shows the ledger credit, Cancel an
   await expect(dialog).toBeHidden();
   await expect(open).toBeFocused();
 
+  // A release the server is still holding: Esc twice may close the dialog, but the outcome must still show.
+  let answerRelease = (): void => {};
+  const serverHoldsRelease = new Promise<void>(resolve => { answerRelease = resolve; });
+  await page.route("**/ops/shipments/load-a-expired/release", async route => {
+    await serverHoldsRelease;
+    await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "internal_error" }) });
+  });
+  await open.click();
+  await dialog.getByRole("button", { name: "Release ₹45" }).click();
+  await expect(dialog.getByText("Cancel is off until the server answers")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  answerRelease();
+  await expect(page.getByText("Couldn't release the payment: the server hit an error. It may or may not have gone through.")).toBeVisible();
+  await page.unroute("**/ops/shipments/load-a-expired/release");
+  if (await dialog.isVisible()) await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.locator("#countPayments")).toHaveText("2");
+
   await open.click();
   await dialog.getByRole("button", { name: "Release ₹45" }).click();
   await expect(dialog).toBeHidden();
-  await expect(ready.getByRole("status")).toContainText(/Payment released by you at \d\d:\d\d IST\. ₹45 is credited to the carrier's ledger balance/);
+  await expect(ready.getByRole("status")).toContainText(/Payment released by you at \d\d:\d\d IST\. ₹45 is credited to the carrier's ledger balance and paid out in a later weekly payout batch/);
+  await expect(page.locator("#countPayments")).toHaveText("1");
   await expect(ready.locator(".tag")).toHaveText("Payment released");
 });
 

@@ -1,7 +1,7 @@
 import { dashboardList, onboardCarrier, setInternalAccess } from "./dashboard.ts";
 import { adminDashboardV1Html } from "./adminDashboardV1.ts";
 import { opsPortalHtml } from "./opsPortal.ts";
-import { opsConsoleBetaHtml } from "./opsConsoleBeta.ts";
+import { opsConsoleBetaContentSecurityPolicy, opsConsoleBetaHtml } from "./opsConsoleBeta.ts";
 import { assertAdminRemains, authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
 import { guardRequest, requestContext } from "./rbacRoutes.ts";
 import { serializeResponse } from "./rbacResponses.ts";
@@ -1080,8 +1080,8 @@ export async function createApp(): Promise<{
       }
 
       if (method === "GET" && url.pathname === "/ops/beta") {
-        // This page can release payments and change roles, so no other site may frame it.
-        res.setHeader("content-security-policy", "frame-ancestors 'none'");
+        // This page can release payments and change roles: no other site may frame it, and only its own code runs.
+        res.setHeader("content-security-policy", opsConsoleBetaContentSecurityPolicy);
         res.setHeader("x-frame-options", "DENY");
         res.setHeader("x-content-type-options", "nosniff");
         res.setHeader("referrer-policy", "same-origin");

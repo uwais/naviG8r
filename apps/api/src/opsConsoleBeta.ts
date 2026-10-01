@@ -1,10 +1,13 @@
+import { createHash } from "node:crypto";
+import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
+
 /**
  * The redesigned operations page, served at /ops/beta beside the current /ops page until the team agrees
  * to switch. Like /ops it is a public shell: the API authorizes every request the page makes.
  * Built from the "NaviG8r ops console" design on the NaviG8r design system; token names match that system.
  *
- * Over 500 lines because it is one page: its styles, markup and script change together, and splitting
- * them would scatter one screen across files that are never read apart.
+ * Over 500 lines because markup and script are one screen: every element id the script reads is defined
+ * here, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
  */
 export function opsConsoleBetaHtml(): string {
   return page;
@@ -21,100 +24,6 @@ const logo = `<svg viewBox="0 0 1400 400" role="img" aria-label="NaviG8r" xmlns=
 <text x="360" y="248" font-family="Poppins" font-weight="700" font-size="132" fill="#131F35">Navi<tspan fill="#DC922C">G</tspan><tspan fill="#DC922C">8</tspan>r</text>
 <text x="364" y="300" font-family="TeX Gyre Heros Cn" font-size="26" letter-spacing="6" fill="#5B6B87">FREIGHT &amp; LOGISTICS MARKETPLACE</text>
 </svg>`;
-
-const styles = `
-:root{--navy:#16233d;--navy-ink:#131f35;--navy-deep:#0d1524;--slate:#5b6b87;--page:#f8f7f2;--card:#ffffff;--sunken:#f0eee6;
---line:#e4dfd3;--control-border:#8a8175;--ink:#2b2620;--on-navy:#ffffff;--focus:#16233d;--good:#1b6a35;--good-tint:#def0e2;
---attention:#845400;--attention-tint:#fcf0d4;--problem:#9b2c1f;--problem-tint:#f7e1dc;--info-tint:#e6e9ef;
---space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-6:24px;
---radius-sm:8px;--radius-button:12px;--radius-input:14px;--radius-card:16px;--radius-pill:20px;
---font-display:"Poppins","Manrope",system-ui,sans-serif;--font-body:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;
---font-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-/* Not in the design system yet: the dim layer behind the release confirmation (navy-deep at 45%). */
---scrim:rgba(13,21,36,0.45)}
-*{box-sizing:border-box}
-[hidden]{display:none!important}
-body{margin:0;background:var(--page);color:var(--ink);font:400 15px/22px var(--font-body);font-variant-numeric:tabular-nums}
-h1,h2{margin:0;font:600 18px/24px var(--font-display);color:var(--navy-ink)}
-p{margin:0}
-a{color:var(--navy);text-underline-offset:3px}
-:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.caption{font-size:13px;line-height:18px;color:var(--slate)}
-.field-label{font-size:13px;line-height:18px;font-weight:600;color:var(--ink)}
-.id{font-family:var(--font-mono);font-size:13px;line-height:18px;color:var(--slate)}
-.grow{flex-grow:1}
-.stack{display:flex;flex-direction:column;gap:var(--space-1)}
-.row{display:flex;align-items:flex-end;gap:var(--space-3);flex-wrap:wrap}
-.row.top{align-items:flex-start}.row.center{align-items:center;gap:var(--space-2)}
-header{background:var(--card);border-bottom:1px solid var(--line);padding:12px var(--space-4);display:flex;align-items:center;gap:var(--space-4);flex-wrap:wrap}
-header svg{height:32px;width:auto;display:block}
-.divider{width:1px;align-self:stretch;background:var(--line)}
-.account{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap}
-.account .stack{gap:0}
-.btn{font:600 15px/22px var(--font-body);border-radius:var(--radius-button);padding:8px 16px;min-height:40px;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);white-space:nowrap}
-.btn-sm{font-size:13px;line-height:18px;padding:6px 12px;min-height:32px}
-.btn-primary{background:var(--navy);color:var(--on-navy)}.btn-primary:hover{background:var(--navy-deep)}
-.btn-secondary{background:var(--card);color:var(--navy);border-color:var(--control-border)}.btn-secondary:hover{background:var(--sunken)}
-.btn-danger{background:var(--card);color:var(--problem);border-color:var(--problem)}.btn-danger:hover{background:var(--problem-tint)}
-.btn-quiet{background:transparent;color:var(--navy);padding-left:8px;padding-right:8px}.btn-quiet:hover{background:var(--sunken)}
-.btn[disabled]:not([aria-busy]){background:var(--sunken);color:var(--slate);border-color:transparent;cursor:not-allowed}
-.btn[aria-busy]{cursor:progress}
-.field{font:400 15px/22px var(--font-body);color:var(--ink);background:var(--card);border:1px solid var(--control-border);border-radius:var(--radius-input);padding:8px 12px;min-height:40px;width:100%}
-.field.mono{font-family:var(--font-mono);font-size:13px}
-.field[aria-invalid=true]{border:2px solid var(--problem);padding:7px 11px}
-.field[readonly]{background:var(--sunken);border-color:transparent}
-header select.field{width:auto;min-height:32px;padding:4px 8px;font-weight:600}
-.reason{width:320px;max-width:100%}
-.tag{display:inline-flex;align-items:center;gap:6px;border-radius:var(--radius-sm);padding:2px 8px;font-size:13px;line-height:18px;font-weight:600}
-.tag svg{width:12px;height:12px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
-.tag-good{background:var(--good-tint);color:var(--good)}.tag-attention{background:var(--attention-tint);color:var(--attention)}
-.tag-problem{background:var(--problem-tint);color:var(--problem)}.tag-info{background:var(--info-tint);color:var(--navy)}
-.role{display:inline-flex;border:1px solid var(--control-border);border-radius:var(--radius-sm);padding:1px 7px;font-size:13px;line-height:18px;font-weight:600;background:var(--card)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-card)}
-.msg{border-radius:var(--radius-sm);padding:8px 12px;font-size:13px;line-height:18px;display:flex;gap:var(--space-2);align-items:flex-start}
-.msg-err{background:var(--problem-tint);color:var(--problem)}.msg-ok{background:var(--good-tint);color:var(--good)}.msg-info{background:var(--info-tint);color:var(--navy)}
-.spin{width:14px;height:14px;flex-shrink:0;border-radius:7px;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.spin{animation:none}}
-.tools{padding:var(--space-4) var(--space-4) 0;display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
-.jump{display:inline-flex;align-items:center;gap:var(--space-2);padding:6px 12px;border-radius:var(--radius-pill);background:var(--card);border:1px solid var(--control-border);color:var(--navy);font-weight:600;font-size:13px;line-height:18px;text-decoration:none}
-.jump:hover{background:var(--sunken)}
-.count{min-width:20px;text-align:center;padding:0 6px;border-radius:10px;background:var(--navy);color:var(--on-navy);line-height:20px;font-weight:700}
-.legend{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
-.notice{margin:var(--space-6) var(--space-4) 0;padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-2)}
-main{padding:var(--space-6) var(--space-4) var(--space-4);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-6) var(--space-4);align-items:start}
-.span2{grid-column:span 2}.span3{grid-column:span 3}
-@media (max-width:1100px){main{grid-template-columns:minmax(0,1fr)}.span2,.span3{grid-column:auto}}
-section.card{display:flex;flex-direction:column;overflow:hidden}
-.head{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-4);border-bottom:1px solid var(--line)}
-.body{padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
-article{padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
-article+article{border-top:1px solid var(--line)}
-.scroll{overflow-x:auto}
-table{border-collapse:collapse;width:100%}
-th{background:var(--sunken);text-align:left;font-size:13px;line-height:18px;font-weight:600;padding:8px 16px}
-td{border-top:1px solid var(--line);padding:12px 16px;vertical-align:top}
-td .id{white-space:nowrap}
-td .id:first-child{font-weight:600;color:var(--ink)}
-.num{text-align:right;font-weight:600}
-fieldset{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-2)}
-legend{padding:0;margin-bottom:var(--space-2)}
-.choice{display:inline-flex;align-items:center;gap:var(--space-2);margin-right:var(--space-6)}
-.choice input{width:18px;height:18px;margin:0;accent-color:var(--navy)}
-dialog{border:0;border-radius:var(--radius-card);padding:var(--space-6);width:min(480px,calc(100vw - 32px));background:var(--card);color:var(--ink)}
-dialog[open]{display:flex;flex-direction:column;gap:var(--space-4)}
-dialog::backdrop{background:var(--scrim)}
-.money{background:var(--sunken);border-radius:var(--radius-button);padding:4px 16px}
-.money div{display:flex;justify-content:space-between;padding:8px 0}
-.money div+div{border-top:1px solid var(--line)}
-.money .total{font-weight:700}
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)}
-#signin{max-width:400px;margin:48px auto;padding:var(--space-6);display:flex;flex-direction:column;gap:var(--space-3)}
-#pageMessage:empty,#byIdOff:empty{display:none}
-#pageMessage{margin:var(--space-4) var(--space-4) 0}
-footer{padding:var(--space-4);border-top:1px solid var(--line);display:flex;gap:var(--space-4);flex-wrap:wrap}
-`;
 
 const markup = `
 <header>
@@ -158,7 +67,7 @@ const markup = `
     </section>
     <section id="byId" class="card" aria-labelledby="byIdTitle">
       <div class="head"><h2 id="byIdTitle">Review any carrier by ID</h2></div>
-      <form id="byIdForm" class="body" novalidate>
+      <form id="byIdForm" class="body" novalidate autocomplete="off">
         <p class="caption">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history.</p>
         <div id="byIdOff"></div>
         <label class="stack"><span class="field-label">Carrier ID</span><input id="byIdCarrier" class="field mono" autocomplete="off" spellcheck="false"></label>
@@ -196,10 +105,10 @@ const byId = id => document.getElementById(id);
 let token = sessionStorage.getItem('navig8r_access') || '';
 let org = sessionStorage.getItem('navig8r_org') || '';
 let challenge = '', me = null, principal = null, releasing = null, releaseBusy = false;
-// Agreed with the team on 30 Sep. A code must stay capitals, digits and underscores, starting with a
-// letter: the server's audit record silently drops any other reason.
+// Agreed with the team on 30 Sep. Each code must keep the reason format the audit record expects
+// (see recordAudit in rbac.ts). The words shown must claim no more than the code records.
 const reasons = {
-  APPROVED: [['DOCUMENTS_REVIEWED', 'Documents reviewed'], ['BANK_DETAILS_VERIFIED', 'Bank details checked']],
+  APPROVED: [['DOCUMENTS_REVIEWED', 'Documents reviewed'], ['BANK_DETAILS_VERIFIED', 'Bank details verified']],
   REJECTED: [['DOCUMENTS_MISSING', 'Documents missing'], ['BANK_DETAILS_MISMATCH', "Bank account name doesn't match the carrier"],
     ['DUPLICATE_ACCOUNT', 'Duplicate account'], ['NOT_A_CARRIER', 'Not a carrier business']],
 };
@@ -256,19 +165,25 @@ const errorWords = {
   payment_id_missing: 'this shipment has no payment record the server can use',
   invalid_organization: "the organization you're acting for isn't valid",
   account_inactive: 'this account is switched off',
+  membership_inactive: "your membership of that organization is switched off",
+  active_organization_required: "choose the organization you're acting for first",
+  cannot_revoke_last_admin: 'that would leave the organization with no one holding ADMIN',
   internal_error: 'the server hit an error',
-  bad_request: "the server couldn't read the request",
+  // The server also sends this for any failure it did not name, a payment provider error included.
+  bad_request: 'the server hit an error it did not name',
 };
 // The server refuses with these before it changes anything. Any other error may come after a change was
 // made and not saved, so the page must not say nothing happened.
 const refusedBeforeChange = ['unauthorized', 'forbidden', 'not_found', 'self_verification_forbidden', 'verification_status_and_reason_required',
-  'invalid_role', 'payment_hold_active', 'shipment_not_found', 'payment_not_found', 'payment_id_missing', 'checkout_not_completed_for_pod', 'shipment_not_pending_release'];
+  'invalid_role', 'payment_hold_active', 'shipment_not_found', 'payment_not_found', 'payment_id_missing', 'checkout_not_completed_for_pod', 'shipment_not_pending_release',
+  'membership_inactive', 'active_organization_required', 'cannot_revoke_last_admin'];
 async function request(path, method = 'GET', body, headers = {}) {
   const sent = { 'content-type': 'application/json', ...headers };
   if (token) sent.authorization = 'Bearer ' + token;
   if (org) sent['x-organization-id'] = org;
   let response;
-  try { response = await fetch(path, { method, headers: sent, body: body === undefined ? undefined : JSON.stringify(body) }); }
+  // A request that hangs would otherwise leave a busy button, or the release dialog, stuck until a reload.
+  try { response = await fetch(path, { method, headers: sent, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000) }); }
   catch { throw Object.assign(Error("the server didn't respond"), { answered: false, unchanged: false }); }
   const out = await response.json().catch(() => ({}));
   const code = out.error || String(response.status);
@@ -432,14 +347,18 @@ async function recordReview({ carrier, decision, select, confirm, result, status
     if (out.org.kycStatus === 'APPROVED') { approvedSinceLoad += 1; showWaitingCount(); }
     const by = ' by you at ' + timeIST(Date.now()) + ': ' + reasonWords[code] + '. ';
     const change = ' To change this decision, use Review any carrier by ID.';
-    result.append(message('ok', approving
+    const done = message('ok', approving
       ? 'Approved' + by + out.org.displayName + ' can now accept shipments. It leaves this list on the next reload.' + change
-      : 'Not approved' + by + out.org.displayName + " can't accept shipments until it is approved." + change));
+      : 'Not approved' + by + out.org.displayName + " can't accept shipments until it is approved." + change);
+    done.tabIndex = -1;
+    result.append(done);
+    done.focus();
   } catch (error) {
     idle(confirm);
     select.disabled = false;
     unlocked.forEach(button => { button.disabled = false; });
     result.append(message('err', "Couldn't save the review: " + error.message + '. ' + nothingChanged(error) + ' Your choice is kept.'));
+    confirm.focus();
   }
 }
 
@@ -463,25 +382,37 @@ byId('byIdForm').onsubmit = async event => {
     problem[1].focus();
     return;
   }
-  const unlocked = [...document.querySelectorAll('#carriers button, #byIdForm button')].filter(button => !button.disabled);
-  unlocked.forEach(button => { button.disabled = true; });
+  // Every control is locked while saving, so the decision and reason cannot change under the request.
+  const unlocked = [...document.querySelectorAll('#carriers button'), ...byId('byIdForm').elements].filter(control => !control.disabled);
+  unlocked.forEach(control => { control.disabled = true; });
   busy(button, 'Recording…');
+  let saved = false;
   try {
     const out = await request('/v1/organizations/' + encodeURIComponent(carrierId) + '/kyc', 'POST', { status: picked.value }, { 'x-reason-code': code });
-    result.append(message('ok', 'Review recorded by you at ' + timeIST(Date.now()) + ': ' + reasonWords[code] + '. ' + out.org.displayName + ' (' + out.org.id + ') now shows: ' + carrierStatus(out.org.kycStatus)[0] + '.'));
-    idInput.value = '';
-    picked.checked = false;
-    resetByIdReason();
-    await loadCarriers();
+    const done = message('ok', 'Review recorded by you at ' + timeIST(Date.now()) + ': ' + reasonWords[code] + '. ' + out.org.displayName + ' (' + out.org.id + ') now shows: ' + carrierStatus(out.org.kycStatus)[0] + '.');
+    done.tabIndex = -1;
+    result.append(done);
+    saved = true;
   } catch (error) {
     result.append(message('err', "Couldn't record the review: " + error.message + '. ' + nothingChanged(error)));
   } finally {
     idle(button);
-    unlocked.forEach(button => { if (button.isConnected) button.disabled = false; });
+    unlocked.forEach(control => { if (control.isConnected) control.disabled = false; });
   }
+  if (!saved) { button.focus(); return; }
+  idInput.value = '';
+  for (const decision of document.querySelectorAll('input[name=decision]')) decision.checked = false;
+  resetByIdReason();
+  result.lastChild.focus();
+  await loadCarriers();
 };
 
-let payments = [];
+let payments = [], releasedSinceLoad = 0;
+function showPaymentCount() {
+  const waiting = payments.length - releasedSinceLoad;
+  byId('paymentsCount').textContent = plural(waiting, 'shipment');
+  byId('countPayments').textContent = waiting;
+}
 async function loadPayments() {
   byId('countPayments').textContent = '–';
   sectionLoading('payments', 'payments waiting for release');
@@ -489,8 +420,8 @@ async function loadPayments() {
   catch (error) { byId('paymentsCount').textContent = ''; sectionFailed('payments', 'payments waiting for release', error, loadPayments); return; }
   sectionLoaded('payments');
   payments.sort((first, second) => (first.podAtUtcMs ?? Infinity) - (second.podAtUtcMs ?? Infinity));
-  byId('paymentsCount').textContent = plural(payments.length, 'shipment');
-  byId('countPayments').textContent = payments.length;
+  releasedSinceLoad = 0;
+  showPaymentCount();
   if (!payments.length) {
     byId('paymentsBody').replaceChildren(element('div', { class: 'body' }, element('p', { text: 'No payments are waiting for release.' }), element('p', { class: 'caption', text: 'Shipments appear here after the driver uploads proof of delivery.' })));
     return;
@@ -535,22 +466,23 @@ function paymentRow(shipment, showAmounts) {
 }
 
 const moneyLine = (label, amount, total) => element('div', { class: total ? 'total' : null }, element('span', { text: label }), element('span', { text: amount }));
-// One release opens at a time, so a slow reply can never swap another shipment into an open dialog.
+// One release opens at a time, and none while another is still saving, so a slow reply can never land in
+// another shipment's dialog.
 let openingRelease = false;
 async function openRelease(row) {
-  if (openingRelease || byId('release').open) return;
+  if (openingRelease || releaseBusy || byId('release').open) return;
   openingRelease = true;
   row.result.replaceChildren();
   busy(row.trigger, 'Opening…');
   row.trigger.disabled = true;
   let detail;
   try { detail = await request('/ops/shipments/' + encodeURIComponent(row.shipment.id)); }
-  catch (error) { row.result.append(message('err', "Couldn't open the release: " + error.message + '. Nothing was paid.')); return; }
+  catch (error) { row.result.append(message('err', "Couldn't open the release: " + error.message + '. Nothing was released.')); return; }
   finally { idle(row.trigger); row.trigger.disabled = false; openingRelease = false; }
   if (!row.trigger.isConnected) return;
   const fresh = detail.shipment, amounts = [fresh.grossPaise, fresh.commissionPaise, fresh.netToCarrierPaise];
   if (fresh.status !== 'PENDING_RELEASE' || !fresh.paymentReady) {
-    row.result.append(message('err', 'This shipment is no longer ready for release. Someone may have released it already. Reload the list to see where it stands. Nothing was paid.'));
+    row.result.append(message('err', 'This shipment is no longer ready for release; a teammate may have released it already. Reload the list to see where it stands. Nothing was released by you.'));
     return;
   }
   if (!amounts.every(Number.isFinite)) {
@@ -560,7 +492,7 @@ async function openRelease(row) {
   const [gross, commission, net] = amounts, otherFees = gross - commission - net;
   byId('releaseTitle').textContent = 'Release payment for shipment ' + fresh.id + '?';
   byId('releaseText').replaceChildren(rupees(net) + ' is credited to the ledger balance of ' + detail.carrierOrgName + ' ', element('span', { class: 'id', text: fresh.carrierId }),
-    ". It is paid out in a weekly payout batch to the bank account on file; if there is none yet, the payout waits until one is added. This can't be undone from the console.");
+    ". It is paid out in the first weekly payout batch (Wednesdays, 18:00 IST) at least 7 days after proof of delivery, to the bank account on file; if there is none yet, the payout waits until one is added. This can't be undone from the console.");
   byId('releaseMoney').replaceChildren(...[
     moneyLine('Shipper paid', rupees(gross)),
     moneyLine('NaviG8r commission', '− ' + rupees(commission)),
@@ -589,25 +521,31 @@ function onBackdrop(event) {
 let pressedOnBackdrop = false;
 byId('release').addEventListener('mousedown', event => { pressedOnBackdrop = onBackdrop(event); });
 byId('release').addEventListener('click', event => { if (pressedOnBackdrop && onBackdrop(event)) closeRelease(); pressedOnBackdrop = false; });
+// A browser may still close the dialog on a second Esc while the release is saving, so the outcome is also
+// written to the shipment's own row when the dialog is no longer open.
 byId('releaseConfirm').onclick = async () => {
   const row = releasing, confirm = byId('releaseConfirm'), cancel = byId('releaseCancel');
   if (!row) return;
-  byId('releaseResult').replaceChildren();
   busy(confirm, 'Releasing…');
   confirm.disabled = cancel.disabled = releaseBusy = true;
+  byId('releaseResult').replaceChildren(message('info', 'Releasing. Cancel is off until the server answers, which takes at most 30 seconds.'));
   try {
     await request('/ops/shipments/' + encodeURIComponent(row.shipment.id) + '/release', 'POST', {});
-    const done = message('ok', 'Payment released by you at ' + timeIST(Date.now()) + '. ' + row.credit + " is credited to the carrier's ledger balance for the weekly payout batch.");
+    const done = message('ok', 'Payment released by you at ' + timeIST(Date.now()) + '. ' + row.credit + " is credited to the carrier's ledger balance and paid out in a later weekly payout batch.");
     done.tabIndex = -1;
     row.status.replaceChildren(statusTag(['Payment released', 'good']));
     row.action.replaceChildren(done);
+    releasedSinceLoad += 1;
+    showPaymentCount();
     releaseBusy = false;
     releasing = null;
     byId('release').close();
     done.focus();
   } catch (error) {
     releaseBusy = false;
-    byId('releaseResult').replaceChildren(message('err', "Couldn't release the payment: " + error.message + '. ' + (error.unchanged ? 'Nothing was paid by this attempt.' : 'It may or may not have gone through. Cancel, reload the list and check before trying again.')));
+    const failed = message('err', "Couldn't release the payment: " + error.message + '. ' + (error.unchanged ? 'Nothing was released by this attempt.' : 'It may or may not have gone through. Reload the list and check before trying again.'));
+    if (byId('release').open) byId('releaseResult').replaceChildren(failed);
+    else { releasing = null; row.result.replaceChildren(failed); if (row.trigger.isConnected) row.trigger.focus(); }
   } finally {
     idle(confirm);
     confirm.disabled = cancel.disabled = false;
@@ -644,17 +582,21 @@ function roleForm() {
     if (problem) { result.append(message('err', 'Not saved yet. ' + problem[0])); problem[1].focus(); return; }
     busy(button, 'Saving…');
     button.disabled = true;
+    let out;
     try {
-      const out = await request('/v1/roles', 'POST', { userId: user.value.trim(), orgId: organization.value.trim(), roles });
-      const saved = message('ok', 'Saved by you at ' + timeIST(Date.now()) + '. ' + out.userId + ' now holds only ' + inWords(out.roles) + ' in ' + out.orgId + '.');
-      if (out.userId !== me.user.id) result.append(saved);
-      else { await loadWorkspace(); byId('pageMessage').replaceChildren(saved); }
+      out = await request('/v1/roles', 'POST', { userId: user.value.trim(), orgId: organization.value.trim(), roles });
     } catch (error) {
       result.append(message('err', "Couldn't save the roles: " + error.message + '. ' + nothingChanged(error)));
+      return;
     } finally {
       idle(button);
       button.disabled = false;
     }
+    const saved = 'Saved by you at ' + timeIST(Date.now()) + '. ' + out.userId + ' now holds only ' + inWords(out.roles) + ' in ' + out.orgId + '.';
+    if (out.userId !== me.user.id) return result.append(message('ok', saved));
+    // Your own roles changed, so the page has to reload what you can see.
+    try { await loadWorkspace(); byId('pageMessage').replaceChildren(message('ok', saved)); }
+    catch (error) { byId('pageMessage').replaceChildren(message('err', saved + " Couldn't refresh the page: " + error.message + '. Reload it to see your new roles.')); }
   };
   return form;
 }
@@ -702,9 +644,10 @@ async function loadWorkspace() {
 }
 
 // A second click while a sign-in is still running would try the same code again and fail confusingly.
-async function whileWaiting(button, action) {
+async function whileWaiting(button, words, action) {
   button.disabled = true;
-  try { await action(); } finally { button.disabled = false; }
+  busy(button, words);
+  try { await action(); } finally { idle(button); button.disabled = false; }
 }
 // The server hands back the same code until its resend wait is over, so Send code stays off until then.
 let resendTimer = null;
@@ -718,23 +661,34 @@ function waitToResend(ms) {
     button.textContent = 'Send again in ' + (seconds > 90 ? Math.ceil(seconds / 60) + ' min' : seconds + 's');
   };
   tick();
-  resendTimer = setInterval(tick, 1000);
+  if (until > Date.now()) resendTimer = setInterval(tick, 1000);
 }
+// A new phone number starts over: the old code, wait and any reply still on its way belong to the old number.
+byId('phone').oninput = () => {
+  challenge = '';
+  byId('code').value = '';
+  byId('signinResult').replaceChildren();
+  waitToResend(0);
+};
 byId('start').onclick = async () => {
+  const phone = byId('phone').value;
   byId('start').disabled = true;
+  byId('start').textContent = 'Sending…';
   byId('signinResult').replaceChildren();
   try {
-    const out = await request('/v1/auth/otp/start', 'POST', { phone: byId('phone').value });
+    const out = await request('/v1/auth/otp/start', 'POST', { phone });
+    if (byId('phone').value !== phone) return;
     challenge = out.challengeId;
     if (out.debugCode) byId('code').value = out.debugCode;
     byId('code').focus();
     waitToResend(out.retryAfterMs || 0);
   } catch (error) {
+    if (byId('phone').value !== phone) return;
     byId('signinResult').replaceChildren(message('err', "Couldn't send the code: " + error.message + '.'));
     waitToResend(error.retryAfterMs || 0);
   }
 };
-byId('verify').onclick = () => whileWaiting(byId('verify'), () => run(async () => {
+byId('verify').onclick = () => whileWaiting(byId('verify'), 'Signing in…', () => run(async () => {
   const out = await request('/v1/auth/otp/verify', 'POST', { phone: byId('phone').value, challengeId: challenge, code: byId('code').value });
   token = out.accessToken;
   org = '';
@@ -766,7 +720,20 @@ const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta n
 <title>NaviG8r operations (beta)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Poppins:wght@600;700&display=swap">
-<style>${styles}</style></head><body>
+<style>${opsConsoleBetaStyles}</style></head><body>
 ${markup}
 <script>${script}</script>
 </body></html>`;
+
+const sha256 = (text: string): string => "'sha256-" + createHash("sha256").update(text).digest("base64") + "'";
+/** Only this page's own script and stylesheet may run, fonts come only from Google, and data stays on this server. */
+export const opsConsoleBetaContentSecurityPolicy = [
+  "default-src 'self'",
+  "script-src " + sha256(script),
+  "style-src " + sha256(opsConsoleBetaStyles) + " https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");

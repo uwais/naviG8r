@@ -156,7 +156,9 @@ test("GET /ops/beta serves the redesigned ops page beside the unchanged current 
     const res = await fetch(`${baseUrl}/ops/beta`);
     assert.equal(res.status, 200);
     assert.equal(res.headers.get("x-frame-options"), "DENY");
-    assert.equal(res.headers.get("content-security-policy"), "frame-ancestors 'none'");
+    const policy = res.headers.get("content-security-policy") ?? "";
+    assert.match(policy, /script-src 'sha256-[A-Za-z0-9+\/=]+'/, "only the page's own script may run");
+    assert.match(policy, /frame-ancestors 'none'/);
     const html = await res.text();
     assert.ok(html.includes("<title>NaviG8r operations (beta)</title>"));
     assert.ok(html.includes("/ops/compliance/pending") && html.includes("/ops/shipments/pending-release"));

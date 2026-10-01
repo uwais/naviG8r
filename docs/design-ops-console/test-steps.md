@@ -4,7 +4,8 @@ Everything here is fake test data. Nothing touches alpha, beta or production.
 
 ## Start it (once)
 
-1. In Terminal, go to the repo folder with the ops page branch checked out, and paste (needs Node 24):
+1. In Terminal, go to the repo folder with the ops page branch checked out, and paste the line below. It
+   needs Node 24: if `node --version` shows v20, use `/opt/homebrew/opt/node@24/bin/node` in place of `node`.
    ```
    RBAC_MANUAL_PORT=3145 node --experimental-strip-types scripts/rbac-manual.mjs
    ```
