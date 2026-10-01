@@ -257,7 +257,7 @@ Re-screened 2026-09-27 after section 5 moved to the design system: PASS. Only co
 Re-screened 2026-09-30 after the team's review (reason codes picked from a list per action; release
   wording moved to "ledger balance"): PASS WITH ONE OPEN ITEM. 5 defaults: no reason is preselected.
   7 decline copy: Cancel stays neutral. 8 promise matches delivery: release credits the ledger now, and the
-  copy names the first Wednesday 18:00 IST batch at least 7 days after proof of delivery, which is what the
+  copy names the first Wednesday 18:00 IST batch on or after the 7th day after delivery, or minutes after a late release, as the
   payout code does when real payouts are on (alpha and beta only book them). 9 data: nothing new is asked.
   Open, from finding 8 of the first screen: the "someone acted first" message is not built, because the
   server overwrites a review without detecting a conflict. Needs server work, or Rishabh accepting it for

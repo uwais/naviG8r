@@ -24,12 +24,20 @@ test("a signed-out visitor sees only sign-in, and today's page still loads", asy
   await expect(page.locator("#signinResult")).toHaveText("Couldn't send the code: no account uses that phone number.");
   await expect(page.getByRole("button", { name: "Send code" })).toBeEnabled();
 
+  // Changing the number while a code reply is still on its way must drop that reply.
+  let answerStart = (): void => {};
+  const startHeld = new Promise<void>(resolve => { answerStart = resolve; });
+  await page.route("**/v1/auth/otp/start", async route => { await startHeld; await route.continue(); });
   await page.getByLabel("Phone").fill(phones.admin);
   await page.getByRole("button", { name: "Send code" }).click();
-  await expect(page.getByLabel("Verification code")).toHaveValue(/^\d{6}$/);
   await page.getByLabel("Phone").fill(phones.finance);
+  const staleReply = page.waitForResponse(response => response.url().includes("/v1/auth/otp/start"));
+  answerStart();
+  await staleReply;
+  await page.waitForTimeout(300);
   await expect(page.getByLabel("Verification code")).toHaveValue("");
   await expect(page.getByRole("button", { name: "Send code" })).toBeEnabled();
+  await page.unroute("**/v1/auth/otp/start");
 
   await page.goto("/ops");
   await expect(page.getByRole("heading", { level: 1, name: "Operations workspace" })).toBeVisible();
@@ -115,7 +123,7 @@ test("FINANCE: carrier review is off; release shows the ledger credit, Cancel an
   await open.click();
   const dialog = page.getByRole("dialog", { name: "Release payment for shipment load-a-expired?" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("₹45 is credited to the ledger balance of Synthetic Carrier A carrier-a. It is paid out in the first weekly payout batch (Wednesdays, 18:00 IST) at least 7 days after proof of delivery");
+  await expect(dialog).toContainText("₹45 is credited to the ledger balance of Synthetic Carrier A carrier-a. It is paid out with the first Wednesday 18:00 IST payout batch on or after the 7th day after proof of delivery, or within minutes if that batch has already passed");
   await expect(dialog).toContainText("Shipper paid₹50");
   await expect(dialog).toContainText("NaviG8r commission− ₹5");
   await expect(dialog).toContainText("Credited to the ledger balance₹45");
@@ -142,16 +150,22 @@ test("FINANCE: carrier review is off; release shows the ledger credit, Cancel an
   await expect(dialog.getByText("Cancel is off until the server answers")).toBeVisible();
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
+  // Whatever this browser did with the second Esc, test the closed-dialog path the page must handle.
+  await page.evaluate(() => (document.getElementById("release") as HTMLDialogElement).close());
+  await expect(dialog).toBeHidden();
+  await open.click();
+  await expect(ready).toContainText("Another release is still saving. Try again when it finishes.");
+  await page.locator("#paymentsReload").focus();
   answerRelease();
-  await expect(page.getByText("Couldn't release the payment: the server hit an error. It may or may not have gone through.")).toBeVisible();
+  await expect(ready.getByRole("alert")).toContainText("Couldn't release the payment: the server hit an error. It may or may not have gone through.");
+  await expect(page.locator("#paymentsReload")).toBeFocused();
   await page.unroute("**/ops/shipments/load-a-expired/release");
-  if (await dialog.isVisible()) await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(page.locator("#countPayments")).toHaveText("2");
 
   await open.click();
   await dialog.getByRole("button", { name: "Release ₹45" }).click();
   await expect(dialog).toBeHidden();
-  await expect(ready.getByRole("status")).toContainText(/Payment released by you at \d\d:\d\d IST\. ₹45 is credited to the carrier's ledger balance and paid out in a later weekly payout batch/);
+  await expect(ready.getByRole("status")).toContainText(/Payment released by you at \d\d:\d\d IST\. ₹45 is credited to the carrier's ledger balance for payout\./);
   await expect(page.locator("#countPayments")).toHaveText("1");
   await expect(ready.locator(".tag")).toHaveText("Payment released");
 });

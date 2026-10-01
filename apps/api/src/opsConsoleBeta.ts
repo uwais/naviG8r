@@ -183,9 +183,16 @@ async function request(path, method = 'GET', body, headers = {}) {
   if (org) sent['x-organization-id'] = org;
   let response;
   // A request that hangs would otherwise leave a busy button, or the release dialog, stuck until a reload.
-  try { response = await fetch(path, { method, headers: sent, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000) }); }
+  const signal = AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined;
+  try { response = await fetch(path, { method, headers: sent, body: body === undefined ? undefined : JSON.stringify(body), signal }); }
   catch { throw Object.assign(Error("the server didn't respond"), { answered: false, unchanged: false }); }
-  const out = await response.json().catch(() => ({}));
+  let out;
+  try { out = await response.json(); }
+  catch {
+    // A success whose answer was cut off (the time limit can land mid-answer) must not pass for a success.
+    if (response.ok) throw Object.assign(Error("the server's answer was cut off"), { answered: false, unchanged: false });
+    out = {};
+  }
   const code = out.error || String(response.status);
   if (response.status === 401) byId('signin').hidden = false;
   if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, unchanged: refusedBeforeChange.includes(code), retryAfterMs: out.retryAfterMs });
@@ -470,7 +477,8 @@ const moneyLine = (label, amount, total) => element('div', { class: total ? 'tot
 // another shipment's dialog.
 let openingRelease = false;
 async function openRelease(row) {
-  if (openingRelease || releaseBusy || byId('release').open) return;
+  if (releaseBusy) return row.result.replaceChildren(note('Another release is still saving. Try again when it finishes.'));
+  if (openingRelease || byId('release').open) return;
   openingRelease = true;
   row.result.replaceChildren();
   busy(row.trigger, 'Opening…');
@@ -482,7 +490,7 @@ async function openRelease(row) {
   if (!row.trigger.isConnected) return;
   const fresh = detail.shipment, amounts = [fresh.grossPaise, fresh.commissionPaise, fresh.netToCarrierPaise];
   if (fresh.status !== 'PENDING_RELEASE' || !fresh.paymentReady) {
-    row.result.append(message('err', 'This shipment is no longer ready for release; a teammate may have released it already. Reload the list to see where it stands. Nothing was released by you.'));
+    row.result.append(message('err', 'This shipment is no longer ready for release; it may have been released already, by a teammate or by an earlier attempt. Reload the list to see where it stands. Opening this did not release anything.'));
     return;
   }
   if (!amounts.every(Number.isFinite)) {
@@ -492,7 +500,7 @@ async function openRelease(row) {
   const [gross, commission, net] = amounts, otherFees = gross - commission - net;
   byId('releaseTitle').textContent = 'Release payment for shipment ' + fresh.id + '?';
   byId('releaseText').replaceChildren(rupees(net) + ' is credited to the ledger balance of ' + detail.carrierOrgName + ' ', element('span', { class: 'id', text: fresh.carrierId }),
-    ". It is paid out in the first weekly payout batch (Wednesdays, 18:00 IST) at least 7 days after proof of delivery, to the bank account on file; if there is none yet, the payout waits until one is added. This can't be undone from the console.");
+    ". It is paid out with the first Wednesday 18:00 IST payout batch on or after the 7th day after proof of delivery, or within minutes if that batch has already passed, to the bank account on file; if there is none yet, the payout waits until one is added. This can't be undone from the console.");
   byId('releaseMoney').replaceChildren(...[
     moneyLine('Shipper paid', rupees(gross)),
     moneyLine('NaviG8r commission', '− ' + rupees(commission)),
@@ -521,35 +529,41 @@ function onBackdrop(event) {
 let pressedOnBackdrop = false;
 byId('release').addEventListener('mousedown', event => { pressedOnBackdrop = onBackdrop(event); });
 byId('release').addEventListener('click', event => { if (pressedOnBackdrop && onBackdrop(event)) closeRelease(); pressedOnBackdrop = false; });
-// A browser may still close the dialog on a second Esc while the release is saving, so the outcome is also
-// written to the shipment's own row when the dialog is no longer open.
+// A browser may still close the dialog on a second Esc while the release is saving. The outcome then goes to
+// the shipment's row, or to the top of the page if a reload has replaced that row, and focus is left alone.
 byId('releaseConfirm').onclick = async () => {
   const row = releasing, confirm = byId('releaseConfirm'), cancel = byId('releaseCancel');
   if (!row) return;
   busy(confirm, 'Releasing…');
   confirm.disabled = cancel.disabled = releaseBusy = true;
   byId('releaseResult').replaceChildren(message('info', 'Releasing. Cancel is off until the server answers, which takes at most 30 seconds.'));
+  let outcome;
   try {
     await request('/ops/shipments/' + encodeURIComponent(row.shipment.id) + '/release', 'POST', {});
-    const done = message('ok', 'Payment released by you at ' + timeIST(Date.now()) + '. ' + row.credit + " is credited to the carrier's ledger balance and paid out in a later weekly payout batch.");
-    done.tabIndex = -1;
-    row.status.replaceChildren(statusTag(['Payment released', 'good']));
-    row.action.replaceChildren(done);
-    releasedSinceLoad += 1;
-    showPaymentCount();
-    releaseBusy = false;
-    releasing = null;
-    byId('release').close();
-    done.focus();
+    outcome = message('ok', 'Payment released by you at ' + timeIST(Date.now()) + '. ' + row.credit + " is credited to the carrier's ledger balance for payout.");
   } catch (error) {
-    releaseBusy = false;
-    const failed = message('err', "Couldn't release the payment: " + error.message + '. ' + (error.unchanged ? 'Nothing was released by this attempt.' : 'It may or may not have gone through. Reload the list and check before trying again.'));
-    if (byId('release').open) byId('releaseResult').replaceChildren(failed);
-    else { releasing = null; row.result.replaceChildren(failed); if (row.trigger.isConnected) row.trigger.focus(); }
+    outcome = message('err', "Couldn't release the payment: " + error.message + '. ' + (error.unchanged ? 'Nothing was released by this attempt.' : 'It may or may not have gone through. Reload the list and check before trying again.'));
   } finally {
+    releaseBusy = false;
     idle(confirm);
     confirm.disabled = cancel.disabled = false;
   }
+  const released = outcome.classList.contains('msg-ok'), dialogWasOpen = byId('release').open, rowOnPage = row.action.isConnected;
+  if (dialogWasOpen && !released) return byId('releaseResult').replaceChildren(outcome);
+  releasing = null;
+  if (dialogWasOpen) byId('release').close();
+  if (!rowOnPage) {
+    // The list was reloaded meanwhile and already shows the shipment as it now stands, so the counts stay.
+    outcome.firstChild.textContent = 'Shipment ' + row.shipment.id + ': ' + outcome.firstChild.textContent;
+    return byId('pageMessage').replaceChildren(outcome);
+  }
+  if (released) {
+    row.status.replaceChildren(statusTag(['Payment released', 'good']));
+    row.action.replaceChildren(outcome);
+    releasedSinceLoad += 1;
+    showPaymentCount();
+  } else row.result.replaceChildren(outcome);
+  if (dialogWasOpen) { outcome.tabIndex = -1; outcome.focus(); }
 };
 
 function renderTeam() {
@@ -656,12 +670,12 @@ function waitToResend(ms) {
   clearInterval(resendTimer);
   const tick = () => {
     const seconds = Math.ceil((until - Date.now()) / 1000);
-    if (seconds <= 0) { clearInterval(resendTimer); button.disabled = false; button.textContent = 'Send code'; return; }
+    if (seconds <= 0) { clearInterval(resendTimer); button.disabled = false; button.textContent = 'Send code'; return false; }
     button.disabled = true;
     button.textContent = 'Send again in ' + (seconds > 90 ? Math.ceil(seconds / 60) + ' min' : seconds + 's');
+    return true;
   };
-  tick();
-  if (until > Date.now()) resendTimer = setInterval(tick, 1000);
+  if (tick()) resendTimer = setInterval(tick, 1000);
 }
 // A new phone number starts over: the old code, wait and any reply still on its way belong to the old number.
 byId('phone').oninput = () => {
@@ -732,6 +746,7 @@ export const opsConsoleBetaContentSecurityPolicy = [
   "script-src " + sha256(script),
   "style-src " + sha256(opsConsoleBetaStyles) + " https://fonts.googleapis.com",
   "font-src https://fonts.gstatic.com",
+  "frame-src 'none'",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",
