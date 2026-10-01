@@ -2,6 +2,7 @@ import { httpFixture } from "../test/httpFixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
+import { createHash } from "node:crypto";
 import type http from "node:http";
 import { createApp } from "./httpServer.ts";
 
@@ -141,6 +142,39 @@ test("GET /ops returns ops portal HTML", async (t) => {
     assert.ok(html.includes("<h1>Operations workspace</h1>"));
     assert.ok(html.includes("pending-release"));
     assert.ok(html.includes("/ops/compliance/pending"));
+  });
+});
+
+test("GET /ops/beta serves the redesigned ops page beside the unchanged current one", async (t) => {
+  const prev = { DATA_FILE: process.env.DATA_FILE };
+  t.after(() => {
+    process.env.DATA_FILE = prev.DATA_FILE;
+  });
+
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+
+  await withApp(t, async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/ops/beta`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("x-frame-options"), "DENY");
+    const policy = res.headers.get("content-security-policy") ?? "";
+    assert.match(policy, /frame-ancestors 'none'/);
+    const html = await res.text();
+    // The policy must carry the fingerprints of the exact script and stylesheet served, or the page stops working.
+    const sha256 = (text: string) => `'sha256-${createHash("sha256").update(text).digest("base64")}'`;
+    const inline = (tag: string) => html.split(`<${tag}>`)[1]?.split(`</${tag}>`)[0] ?? "";
+    assert.ok(policy.includes(`script-src ${sha256(inline("script"))}`), "the policy allows the page's own script");
+    assert.ok(policy.includes(`style-src ${sha256(inline("style"))}`), "the policy allows the page's own stylesheet");
+    assert.ok(html.includes("<title>NaviG8r operations (beta)</title>"));
+    assert.ok(html.includes("/ops/compliance/pending") && html.includes("/ops/shipments/pending-release"));
+    assert.ok(!html.includes("prefers-color-scheme"), "light mode only, never switched by the system setting");
+    for (const address of html.match(/https?:\/\/[^"' )]+/g) ?? []) {
+      assert.match(address, /^https:\/\/fonts\.(googleapis|gstatic)\.com|^http:\/\/www\.w3\.org\/2000\/svg$/, `unexpected outside address ${address}`);
+    }
+
+    const current = await (await fetch(`${baseUrl}/ops`)).text();
+    assert.ok(current.includes("<h1>Operations workspace</h1>"));
+    assert.ok(!current.includes("/ops/beta"), "the current page does not link to or depend on the beta");
   });
 });
 
