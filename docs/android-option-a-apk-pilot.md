@@ -8,8 +8,11 @@ This repo includes a minimal Flutter app at `apps/driver_pilot/` that talks to t
 - API running and reachable from the device/emulator
 
 ### API URLs
-- **Android emulator → API on your PC**: `http://10.0.2.2:3000` (already default in `lib/main.dart`)
-- **Physical Android → API on your PC (same Wi‑Fi)**: `http://<PC_LAN_IP>:3000` (change constant in `lib/main.dart`)
+On Android the default base URL is the deployed API, `https://navig8r.onrender.com`
+(`apps/driver_pilot/lib/pilot_api.dart:11`). Override it at run or build time with
+`--dart-define=API_BASE_URL=...` — there is no constant to edit in `lib/main.dart`.
+- **Android emulator → API on your PC**: `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000`
+- **Physical Android → API on your PC (same Wi‑Fi)**: `flutter run --dart-define=API_BASE_URL=http://<PC_LAN_IP>:3000`
 
 ### Start the API (required)
 From repo root:
@@ -95,7 +98,7 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 ### Current scope
 - **Driver pilot app**: `apps/driver_pilot/` (Android APK).
 - **API**: `apps/api/` (Node) + `docs/pilot-api.md` for contracts.
-- There is **no customer UI** in this repo yet (customer endpoints exist server-side; see `docs/pilot-api.md` and marketplace routes in `apps/api/src/httpServer.ts`).
+- The customer UI ships as a mode inside the same Flutter app (`apps/driver_pilot/lib/customer_flow.dart`), including the Integrations page at `/customer/integrations`, and is what the customer-web container serves. Server-side contracts remain in `docs/pilot-api.md` and `apps/api/src/httpServer.ts`.
 
 ### What’s done (Android)
 - [x] **Build + run on emulator/device** (Gradle / Java / NDK alignment).

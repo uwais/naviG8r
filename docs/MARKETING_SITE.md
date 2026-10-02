@@ -2,15 +2,15 @@
 
 ## Status: **APPROVED FOR PROD** (2026-08-16)
 
-Owner sign-off received. Ship by merging this work to `main`, deploying Render service `navig8r-www`, then attaching DNS at OpenSRS.
+Owner sign-off received. Since 2026-09-04 (commit `22c6765`) the repository's release path for this site is the image pipeline rather than a hand-created static site: merging to `main` runs `.github/workflows/release.yml`, which builds `Dockerfile.www`, pushes `ghcr.io/uwais/navig8r-www`, and passes the same image digest to a Render deploy hook for alpha, then beta, then production, through the `alpha`, `beta` and `production` GitHub environments. `render.yaml` declares the www services as `navig8r-www-alpha`, `navig8r-www-beta` and `navig8r-www-image`, and attaches `navig8r.org` and `www.navig8r.org` to `navig8r-www-image`. Which Render service each deploy hook actually points at is a dashboard secret this repository cannot see, and the header comment of `render.yaml` says the pre-existing production static www service cannot be converted in place and that the migration-named services should be cut over only after they have been validated — so no file here records that the live `navig8r.org` is already served by the image. DNS stays at OpenSRS.
 
 | Item | Value |
 |------|--------|
 | App | `apps/www` (Vite static) |
-| Render service | `navig8r-www` |
+| Render service | `render.yaml` declares three, all `runtime: image`: `navig8r-www-alpha` (`:101`), `navig8r-www-beta` (`:180`) and `navig8r-www-image` (`:268`), with `navig8r.org` and `www.navig8r.org` attached to `-image` (`:278-280`). No service in `render.yaml` is named `navig8r-www`; per its header (`:20-23`) a pre-existing production static www service lives outside the blueprint and has not been cut over, so the names below may still refer to it. |
 | Deploy branch | `main` (after merge) |
 | Contact | In-page form → FormSubmit hash → `hello@navig8r.org` (FormSubmit reCAPTCHA until Turnstile) |
-| Explore CTA | Human check gate → `https://navig8r-customer.onrender.com/` |
+| Explore CTA | Human check gate → `PORTAL_URL` (set per environment in `render.yaml`, injected at container start); falls back to `https://navig8r-customer.onrender.com/` when unset |
 | Registrar | OpenSRS |
 | Logo / brand | Typographic wordmark in layout; official files in `apps/www/public/brand/` for selective manual use |
 | Claims | Soft / professional; do not overstate unshipped features |
