@@ -254,6 +254,9 @@ export type PayoutTransfer = {
 
 export type PayoutBatch = {
   id: string;
+  /** Earliest week due across all carriers when the run started (the run time when nothing was due). Each
+   *  carrier is paid for its own earliest week, so a carrier's week is on its ledger lines (the carrier
+   *  payout history shows that one). */
   cutoffUtcMs: number;
   createdAtUtcMs: number;
   totalNetToCarrierPaise: number;
