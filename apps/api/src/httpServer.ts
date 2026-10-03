@@ -234,12 +234,14 @@ export async function createApp(): Promise<{
     const challenges = new Map(store.otpChallenges);
     const sessions = new Map(store.authSessions);
     let result: T;
-    let expiryError: unknown;
+    // Both errors end the challenge, and that change must be saved before the error goes back.
+    let challengeEndedError: unknown;
     try {
       result = operation();
     } catch (error) {
-      if (!(error instanceof Error) || error.message !== "otp_expired") throw error;
-      expiryError = error;
+      const endsChallenge = error instanceof Error && (error.message === "otp_expired" || error.message === "otp_attempts_exceeded");
+      if (!endsChallenge) throw error;
+      challengeEndedError = error;
     }
     try {
       await persist();
@@ -250,7 +252,7 @@ export async function createApp(): Promise<{
       for (const [key, value] of sessions) store.authSessions.set(key, value);
       throw error;
     }
-    if (expiryError) throw expiryError;
+    if (challengeEndedError) throw challengeEndedError;
     return result!;
   }
 

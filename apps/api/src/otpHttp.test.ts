@@ -125,6 +125,26 @@ test("HTTP expiration is persisted even though verification returns an error", a
   );
 });
 
+test("HTTP lockout after too many wrong codes is persisted, and the right code then fails", async (t) => {
+  const f = await httpFixture(t),
+    phone = f.shipperA.user.phone;
+  const result = await f.request(START, "POST", { phone });
+  const challengeId = result.body.challengeId;
+  const wrong = result.body.debugCode === "000000" ? "111111" : "000000";
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const refused = await f.request(VERIFY, "POST", { phone, challengeId, code: wrong });
+    assert.equal(refused.body.error, "otp_incorrect");
+  }
+  const locked = await f.request(VERIFY, "POST", { phone, challengeId, code: wrong });
+  assert.equal(locked.body.error, "otp_attempts_exceeded");
+  assert.equal(
+    loadStoreFromDisk(f.dataFilePath!).otpChallenges.get(challengeId)?.status,
+    "EXPIRED",
+  );
+  const right = await f.request(VERIFY, "POST", { phone, challengeId, code: result.body.debugCode });
+  assert.equal(right.body.error, "otp_challenge_invalid");
+});
+
 test("failed persistence returns no code/session and restores previous OTP state", async (t) => {
   const oldCooldown = process.env.OTP_RESEND_COOLDOWN_MS;
   process.env.OTP_RESEND_COOLDOWN_MS = "1";

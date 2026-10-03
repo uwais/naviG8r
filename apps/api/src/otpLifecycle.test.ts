@@ -6,7 +6,7 @@ import {
   pilotOtpVerify,
 } from "./auth.ts";
 import { createStore } from "./store.ts";
-import { registerCustomerOrgAdmin } from "./services.ts";
+import { registerCustomerOrgAdmin, registerSoloOwnerOperatorDriver } from "./services.ts";
 
 function fixture(t: TestContext, debug = true) {
   const previous = process.env.AUTH_SECRET;
@@ -237,4 +237,50 @@ test("invalid starts and signing failures preserve a usable challenge", (t) => {
   assert.equal(f.store.otpChallenges.get(first.challengeId)?.status, "PENDING");
   assert.equal(f.store.authSessions.size, 0);
   assert.ok(f.verify(first.challengeId).accessToken);
+});
+
+test("wrong-code limit defaults to 5 and can be configured", () => {
+  const now = () => 1_800_000_000_000;
+  assert.equal(createOtpDependencies({ env: {}, now }).wrongCodeLimit, 5);
+  assert.equal(createOtpDependencies({ env: { OTP_WRONG_CODE_LIMIT: "3" }, now }).wrongCodeLimit, 3);
+  assert.throws(() => createOtpDependencies({ env: { OTP_WRONG_CODE_LIMIT: "0" }, now }), /OTP_WRONG_CODE_LIMIT_invalid/);
+});
+
+test("five wrong codes end the challenge, and a new code works after the cooldown", (t) => {
+  const f = fixture(t);
+  const first = f.start();
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    assert.throws(() => f.verify(first.challengeId, "999999"), /otp_incorrect/);
+  }
+  assert.throws(() => f.verify(first.challengeId, "999999"), /otp_attempts_exceeded/);
+  assert.equal(f.store.otpChallenges.get(first.challengeId)?.status, "EXPIRED");
+  // The right code no longer works on the ended challenge.
+  assert.throws(() => f.verify(first.challengeId), /otp_challenge_invalid/);
+  assert.equal(f.store.authSessions.size, 0);
+
+  f.setNow(f.otp.now() + 31_000);
+  const second = f.start();
+  assert.notEqual(second.challengeId, first.challengeId);
+  assert.equal(f.verify(second.challengeId).user.id, f.user.id);
+});
+
+test("new accounts need a mobile number starting 6-9; existing accounts can still sign in", (t) => {
+  const f = fixture(t);
+  assert.throws(
+    () => registerCustomerOrgAdmin(f.store, { fullName: "Landline", phone: "2212345678", orgDisplayName: "Landline Co" }),
+    /invalid_phone/,
+  );
+  assert.throws(
+    () => registerSoloOwnerOperatorDriver(f.store, {
+      fullName: "Carrier", phone: "5123456789", orgDisplayName: "Carrier Co",
+      vehicleRegistrationNumber: "MH12AB1234", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000,
+    }),
+    /invalid_phone/,
+  );
+  const mobile = registerCustomerOrgAdmin(f.store, { fullName: "Mobile", phone: "+91 98765 43210", orgDisplayName: "Mobile Co" });
+  assert.equal(mobile.user.phone, "9876543210");
+
+  // An account created before this rule, with a number outside 6-9, can still request a code.
+  f.store.users.set("usr_legacy", { ...f.user, id: "usr_legacy", phone: "1234567890" });
+  assert.ok(f.start("1234567890").challengeId);
 });

@@ -160,6 +160,16 @@ function normalizeInPhone(phone: string): string {
   throw new Error("invalid_phone");
 }
 
+/**
+ * For numbers entering the system (sign-up, invites): every Indian mobile number starts with 6, 7, 8 or 9,
+ * and a sign-in code can only reach a mobile. Lookups keep normalizeInPhone, so no existing account is locked out.
+ */
+function normalizeNewMobileNumber(phone: string): string {
+  const p = normalizeInPhone(phone);
+  if (!/^[6-9]/.test(p)) throw new Error("invalid_phone");
+  return p;
+}
+
 function assertVehicleClass(v: any): asserts v is VehicleClass {
   if (v !== "SMALL" && v !== "MEDIUM" && v !== "LARGE") throw new Error("invalid_vehicleClass");
 }
@@ -256,7 +266,7 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   assertVehicleClass(params.vehicleClass);
   if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
 
-  const phone = normalizeInPhone(params.phone);
+  const phone = normalizeNewMobileNumber(params.phone);
   const dup = [...store.users.values()].find((u) => u.phone === phone);
   if (dup) throw new Error("phone_already_registered");
 
@@ -774,7 +784,7 @@ export function registerCustomerOrgAdmin(store: Store, params: {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
 
-  const phone = normalizeInPhone(params.phone);
+  const phone = normalizeNewMobileNumber(params.phone);
   const dup = [...store.users.values()].find((u) => u.phone === phone);
   if (dup) throw new Error("phone_already_registered");
 
@@ -810,7 +820,7 @@ export function registerCustomerUser(store: Store, params: {
 }): { user: User } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
 
-  const phone = normalizeInPhone(params.phone);
+  const phone = normalizeNewMobileNumber(params.phone);
   const dup = [...store.users.values()].find((u) => u.phone === phone);
   if (dup) throw new Error("phone_already_registered");
 
@@ -837,7 +847,7 @@ export function inviteCustomerMember(
   const org = getOrgOrThrow(store, params.orgId);
   if (org.kind !== "CUSTOMER") throw new Error("org_not_customer");
 
-  const phone = normalizeInPhone(params.phone);
+  const phone = normalizeNewMobileNumber(params.phone);
   const user = [...store.users.values()].find((u) => u.phone === phone);
   if (!user) {
     throw new ApiError("user_not_found", {
@@ -1881,7 +1891,7 @@ export function inviteCarrierDriver(
   if (org.kind !== "CARRIER_SOLO" && org.kind !== "CARRIER_FLEET" && org.kind !== "CARRIER_LEGACY") {
     throw new Error("org_not_carrier");
   }
-  const phone = normalizeInPhone(params.phone);
+  const phone = normalizeNewMobileNumber(params.phone);
   const user = [...store.users.values()].find((u) => u.phone === phone);
   if (!user) {
     throw new ApiError("user_not_found", {
