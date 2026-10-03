@@ -2246,11 +2246,13 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
         referenceId: createHash("sha256").update(`${carrierId}:${lines[0]!.payoutBatchCutoffUtcMs}:${[...lineIds].sort().join(",")}:${fundAccountId}`).digest("hex").slice(0, 36),
         narration: "naviG8r payout",
       });
+      // RazorpayX's documented in-progress states. Anything else that is not processed (rejected,
+      // cancelled, reversed, failed, or a status we don't know) counts as FAILED so its lines stay unpaid.
       const settledStatuses = new Set(["processed", "completed"]);
-      const failedStatuses = new Set(["rejected", "cancelled", "reversed"]);
-      let transferStatus: PayoutTransfer["status"] = "PROCESSING";
+      const inProgressStatuses = new Set(["pending", "queued", "scheduled", "processing"]);
+      let transferStatus: PayoutTransfer["status"] = "FAILED";
       if (settledStatuses.has(result.status)) transferStatus = "PAID";
-      else if (failedStatuses.has(result.status)) transferStatus = "FAILED";
+      else if (inProgressStatuses.has(result.status)) transferStatus = "PROCESSING";
 
       if (transferStatus === "FAILED") {
         transfers.push({

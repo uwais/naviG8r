@@ -34,7 +34,7 @@ async function main(): Promise<void> {
           await persist();
           // eslint-disable-next-line no-console
           console.log(
-            `Payout batch ${batch.id}: paid ${batch.lineIds.length} lines (cutoffUtcMs=${batch.cutoffUtcMs})`,
+            `Payout batch ${batch.id}: paid ${batch.lineIds.length} lines (earliestDueCutoffUtcMs=${batch.cutoffUtcMs})`,
           );
         }
       } catch (e) {

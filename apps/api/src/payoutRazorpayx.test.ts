@@ -192,6 +192,7 @@ test("RAZORPAYX: every payout carries an idempotency key, and a retry reuses it"
   const firstKey = calls[0]!.headers["X-Payout-Idempotency"];
   assert.match(firstKey ?? "", /^[A-Za-z0-9_-]{4,36}$/); // RazorpayX's documented key format
   assert.equal(calls[1]!.headers["X-Payout-Idempotency"], firstKey);
+  assert.deepEqual(calls[1]!.body, calls[0]!.body); // RazorpayX only honours a reused key for the same request
   assert.equal(store.ledgerLines.get("ll_a1")!.status, "PAID");
 });
 
@@ -256,4 +257,47 @@ test("RAZORPAYX: a carrier's payout history shows the week it was paid for", asy
   const history = pilotListCarrierPayoutBatches(store, carrier.user.id, carrier.org.id);
   assert.equal(history.length, 1);
   assert.equal(history[0]!.cutoffUtcMs, CUTOFF + WEEK_MS);
+});
+
+test("RAZORPAYX: a carrier owed two weeks is paid one week per run, oldest first", async (t) => {
+  const store = createStore();
+  const carrier = registerCompliantCarrier(store, {
+    fullName: "Two Weeks Owner", phone: "9000000078", orgDisplayName: "Two Weeks Carrier",
+    vehicleRegistrationNumber: "MH12AB0078", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000,
+  });
+  store.organizations.set(carrier.org.id, { ...store.organizations.get(carrier.org.id)!, payoutFundAccountId: "fa_two" });
+  addLine(store, "ll_w1", carrier.org.id, 30000, CUTOFF);
+  addLine(store, "ll_w2", carrier.org.id, 45000, CUTOFF + WEEK_MS);
+
+  const { calls, restore } = mockFetch(() => ({ status: 200, json: { id: "pout_two", status: "processed" } }));
+  t.after(restore);
+
+  await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + WEEK_MS });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.body.amount, 30000);
+  assert.equal(store.ledgerLines.get("ll_w2")!.status, "ACCRUED");
+
+  await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + WEEK_MS + 60_000 });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1]!.body.amount, 45000);
+  assert.notEqual(calls[1]!.headers["X-Payout-Idempotency"], calls[0]!.headers["X-Payout-Idempotency"]);
+
+  const weeks = pilotListCarrierPayoutBatches(store, carrier.user.id, carrier.org.id).map((b) => b.cutoffUtcMs).sort();
+  assert.deepEqual(weeks, [CUTOFF, CUTOFF + WEEK_MS]);
+});
+
+test("RAZORPAYX: a payout RazorpayX reports as failed, or with an unknown status, leaves the lines unpaid", async (t) => {
+  for (const status of ["failed", "something_new"]) {
+    const store = createStore();
+    addOrg(store, "org_a", "fa_aaa");
+    addLine(store, "ll_a1", "org_a", 50000);
+
+    const { restore } = mockFetch(() => ({ status: 200, json: { id: "pout_f", status } }));
+    t.after(restore);
+    const batch = await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
+    restore();
+
+    assert.equal(batch.transfers[0]!.status, "FAILED", status);
+    assert.equal(store.ledgerLines.get("ll_a1")!.status, "ACCRUED", status);
+  }
 });
