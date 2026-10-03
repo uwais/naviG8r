@@ -44,6 +44,7 @@ import {
   createRazorpayPayout,
   payoutsMode,
   razorpayPayoutsEnabled,
+  RazorpayxHttpError,
 } from "./razorpayPayouts.ts";
 import { emitIntegrationEvent } from "./integrationWebhooks.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
@@ -2170,7 +2171,8 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
  * the next run start a new request. `saveBeforePayout` (the app's persist) runs before every request.
  */
 const payoutRuns = new WeakMap<Store, Promise<PayoutBatch>>();
-type PayoutRunParams = { nowUtcMs?: number; saveBeforePayout?: () => Promise<void> };
+// saveBeforePayout is required so no caller can send a payout whose record exists only in memory.
+type PayoutRunParams = { nowUtcMs?: number; saveBeforePayout: () => Promise<void> };
 
 /** The ledger line without its unresolved payout request record. */
 function withoutPayoutAttempt(line: LedgerLine): LedgerLine {
@@ -2250,36 +2252,39 @@ async function runPayoutBatchAuthorized(store: Store, params: PayoutRunParams): 
     let payoutKey: string;
     let fundAccountId: string;
     let payLines: LedgerLine[];
-    if (unresolvedLines.length > 0) {
+    const isNewRequest = unresolvedLines.length === 0;
+    if (!isNewRequest) {
       payoutKey = unresolvedLines[0]!.payoutAttemptKey!;
       payLines = unresolvedLines.filter((l) => l.payoutAttemptKey === payoutKey);
       fundAccountId = payLines[0]!.payoutAttemptFundAccountId ?? "";
     } else {
-      const currentFundAccountId = store.organizations.get(carrierId)?.payoutFundAccountId;
+      // Fresh reads: while an earlier carrier's request was in flight, a request may have deactivated these.
+      const freshLines = lines.map((l) => store.ledgerLines.get(l.id)!).filter((l) => isActiveEntity(l) && l.status === "ACCRUED");
+      const org = store.organizations.get(carrierId);
+      if (freshLines.length === 0 || (org && !isActiveEntity(org))) continue;
+      const currentFundAccountId = org?.payoutFundAccountId;
       if (!currentFundAccountId) {
         transfers.push({ carrierId, netToCarrierPaise, lineIds, status: "SKIPPED_NO_FUND_ACCOUNT" });
         continue; // leave lines ACCRUED so they retry once payout setup completes
       }
       payoutKey = randomUUID(); // also the X-Payout-Idempotency key
       fundAccountId = currentFundAccountId;
-      payLines = lines.map((l) => ({ ...l, payoutAttemptKey: payoutKey, payoutAttemptFundAccountId: fundAccountId }));
+      payLines = freshLines.map((l) => ({ ...l, payoutAttemptKey: payoutKey, payoutAttemptFundAccountId: fundAccountId }));
       for (const l of payLines) store.ledgerLines.set(l.id, l);
     }
     const payPaise = payLines.reduce((sum, l) => sum + l.netToCarrierPaise, 0);
     const payLineIds = payLines.map((l) => l.id);
 
-    if (params.saveBeforePayout) {
-      try {
-        await params.saveBeforePayout();
-      } catch {
-        // Not sent. The record stays in memory, so the next run sends this same request.
-        transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: "FAILED", error: "save_failed_before_payout" });
-        continue;
-      }
+    try {
+      await params.saveBeforePayout();
+    } catch {
+      // Not sent. The record stays in memory, so the next run sends this same request.
+      transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: "FAILED", error: "save_failed_before_payout" });
+      continue;
     }
     try {
       const result = await createRazorpayPayout({ amountPaise: payPaise, fundAccountId, referenceId: payoutKey, narration: "naviG8r payout" });
-      // RazorpayX's documented payout states.
+      // RazorpayX's documented payout states, plus "completed", which this code already accepted.
       const settledStatuses = new Set(["processed", "completed"]);
       const inProgressStatuses = new Set(["pending", "queued", "scheduled", "processing"]);
       const failedStatuses = new Set(["failed", "rejected", "cancelled", "reversed"]);
@@ -2298,8 +2303,16 @@ async function runPayoutBatchAuthorized(store: Store, params: PayoutRunParams): 
         for (const l of currentLines) store.ledgerLines.set(l.id, withoutPayoutAttempt(l));
       }
       transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: "FAILED", providerPayoutId: result.id, error: `payout_status_${result.status}` });
-    } catch {
-      // No clear answer (an error reply, a timeout or a lost connection): the record stays for the next run.
+    } catch (err) {
+      // RazorpayX refusing a request it has never seen means nothing was created, so the record goes and the
+      // next run starts fresh (a carrier can then fix their bank details). Every other error is no clear
+      // answer, including a refusal of a resend: the record stays for the next run.
+      const refusedNewRequest = isNewRequest && err instanceof RazorpayxHttpError && err.status >= 400 && err.status < 500 && ![408, 409, 429].includes(err.status);
+      if (refusedNewRequest) {
+        for (const lineId of payLineIds) store.ledgerLines.set(lineId, withoutPayoutAttempt(store.ledgerLines.get(lineId)!));
+      }
+      // eslint-disable-next-line no-console
+      console.error("payout_request_failed", { carrierId, payoutKey, recordKept: !refusedNewRequest, reason: String((err as Error)?.message ?? err).slice(0, 300) });
       transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: "FAILED", error: "payout_provider_failed" });
     }
   }

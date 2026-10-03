@@ -48,4 +48,7 @@ export async function deliverTestShipment(store: Store, params: { shipmentId: st
   asUser(store, shipper.userId, () => acceptPod(store, shipment.id), shipper.orgId);
   return asFinance(store, () => releasePaymentAndDeliver(store, { shipmentId: shipment.id }));
 }
-export function runTestPayoutBatch(store: Store, params: Parameters<typeof runPayoutBatch>[1]) { return asFinance(store, () => runPayoutBatch(store, params)); }
+/** Tests that don't exercise saving pass no saveBeforePayout; the default does nothing. */
+export function runTestPayoutBatch(store: Store, params: { nowUtcMs?: number; saveBeforePayout?: () => Promise<void> }) {
+  return asFinance(store, () => runPayoutBatch(store, { saveBeforePayout: async () => {}, ...params }));
+}

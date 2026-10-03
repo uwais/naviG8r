@@ -34,6 +34,16 @@ function basicAuthHeader(): string {
   return "Basic " + Buffer.from(`${key_id}:${key_secret}`).toString("base64");
 }
 
+/** RazorpayX answered with an error status, so callers can tell a refusal from a lost reply. */
+export class RazorpayxHttpError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "RazorpayxHttpError";
+    this.status = status;
+  }
+}
+
 async function razorpayxFetch(path: string, body: unknown, extraHeaders: Record<string, string> = {}): Promise<any> {
   const res = await fetch(`https://api.razorpay.com/v1${path}`, {
     method: "POST",
@@ -43,6 +53,8 @@ async function razorpayxFetch(path: string, body: unknown, extraHeaders: Record<
       ...extraHeaders,
     },
     body: JSON.stringify(body),
+    // A hung call would hold up the whole payout run (and the API, when the run is started from the ops page).
+    signal: AbortSignal.timeout(30_000),
   });
   const text = await res.text();
   let parsed: any = {};
@@ -53,7 +65,7 @@ async function razorpayxFetch(path: string, body: unknown, extraHeaders: Record<
   }
   if (!res.ok) {
     const detail = parsed?.error?.description ?? parsed?.error ?? text ?? `http_${res.status}`;
-    throw new Error(`razorpayx_error_${res.status}: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
+    throw new RazorpayxHttpError(res.status, `razorpayx_error_${res.status}: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
   }
   return parsed;
 }
