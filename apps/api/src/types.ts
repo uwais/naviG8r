@@ -232,6 +232,16 @@ export type LedgerLine = {
   status: LedgerLineStatus;
   createdAtUtcMs: number;
   paidAtUtcMs: number | null;
+  /** Set while a RazorpayX payout request for this line has no clear answer. The next run resends exactly that
+   *  request (this key and fund account), so RazorpayX recognises it instead of paying twice. */
+  payoutAttemptKey?: string;
+  payoutAttemptFundAccountId?: string;
+  /** Earlier payout requests for this line that definitely failed. Part of the next request's key, so a new
+   *  attempt gets a new key, while a restored store whose week has the same lines, bank account and count
+   *  rebuilds the key it already sent. To pay a line again by hand after a recorded payout failed later (say,
+   *  reversed), stop the API, set it back to ACCRUED, delete the two fields above and add 1 here (empty counts
+   *  as 0); otherwise RazorpayX returns its old answer and no money moves. */
+  payoutFailedAttempts?: number;
 } & SoftDeleteFields;
 
 export type PayoutTransferStatus =
@@ -254,6 +264,9 @@ export type PayoutTransfer = {
 
 export type PayoutBatch = {
   id: string;
+  /** Earliest week due across all carriers when the run started (the run time when nothing was due). Each
+   *  carrier is paid for its own earliest week, so a carrier's week is on its ledger lines (the carrier
+   *  payout history shows that one). */
   cutoffUtcMs: number;
   createdAtUtcMs: number;
   totalNetToCarrierPaise: number;

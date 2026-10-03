@@ -1114,7 +1114,7 @@ export async function createApp(): Promise<{
         const userId = requireUserId(req, store);
         if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
         const body = await readJson(req);
-        const batch = await runPayoutBatch(store, {});
+        const batch = await runPayoutBatch(store, { saveBeforePayout: persist });
         await persist();
         return json(res, 200, { batch });
       }
