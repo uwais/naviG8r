@@ -1104,7 +1104,10 @@ export function pilotListCarrierPayoutBatches(store: Store, userId: string, carr
   );
   const batches = [...store.payoutBatches.values()].filter((b) => b.lineIds.some((id) => lineIds.has(id))).map(b => {
     const transfers = b.transfers.filter(t => t.carrierId === carrierOrgId);
-    return { ...b, lineIds: b.lineIds.filter(id => lineIds.has(id)), transfers, totalNetToCarrierPaise: transfers.filter(t => ["BOOKKEEPING_PAID", "PAID", "PROCESSING"].includes(t.status)).reduce((n,t) => n + t.netToCarrierPaise, 0) };
+    const carrierLineIds = b.lineIds.filter(id => lineIds.has(id));
+    // One run can pay different carriers for different weeks, so show the week this carrier was paid for.
+    const cutoffUtcMs = store.ledgerLines.get(carrierLineIds[0]!)?.payoutBatchCutoffUtcMs ?? b.cutoffUtcMs;
+    return { ...b, cutoffUtcMs, lineIds: carrierLineIds, transfers, totalNetToCarrierPaise: transfers.filter(t => ["BOOKKEEPING_PAID", "PAID", "PROCESSING"].includes(t.status)).reduce((n,t) => n + t.netToCarrierPaise, 0) };
   });
   batches.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
   return batches;
@@ -2237,8 +2240,9 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
       const result = await createRazorpayPayout({
         amountPaise: netToCarrierPaise,
         fundAccountId,
-        // Also the idempotency key, so it must change whenever the request would: a carrier who changes
-        // bank account gets a new key instead of a refused retry.
+        // Also the idempotency key. It covers the carrier, week, lines and fund account, so a carrier who
+        // changes bank account gets a new key instead of a refused retry. Changing the payout mode or source
+        // account settings is not covered.
         referenceId: createHash("sha256").update(`${carrierId}:${lines[0]!.payoutBatchCutoffUtcMs}:${[...lineIds].sort().join(",")}:${fundAccountId}`).digest("hex").slice(0, 36),
         narration: "naviG8r payout",
       });
@@ -2257,7 +2261,9 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
           providerPayoutId: result.id,
           error: `payout_status_${result.status}`,
         });
-        continue; // lines stay ACCRUED to retry
+        // Lines stay ACCRUED, but while RazorpayX remembers this key it answers a retry with this same
+        // failed payout; a new attempt only happens once the carrier's due lines or bank account change.
+        continue;
       }
       // PROCESSING or PAID: mark lines PAID (queued/processing payouts are in-flight, not reversible here).
       for (const l of lines) store.ledgerLines.set(l.id, { ...l, status: "PAID", paidAtUtcMs: now });

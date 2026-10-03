@@ -1,9 +1,9 @@
-import { runTestPayoutBatch } from "../test/fixtures.ts";
+import { registerCompliantCarrier, runTestPayoutBatch } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
 import type { Store } from "./store.ts";
-import { } from "./services.ts";
+import { pilotListCarrierPayoutBatches } from "./services.ts";
 import type { LedgerLine, Organization } from "./types.ts";
 
 // This file runs in its own test process, so setting RAZORPAYX env here does not
@@ -210,4 +210,50 @@ test("RAZORPAYX: a carrier who changes bank account gets a new idempotency key",
   // RazorpayX refuses a reused key with a different request, so the key must change with the account.
   assert.equal(calls.length, 2);
   assert.notEqual(calls[1]!.headers["X-Payout-Idempotency"], calls[0]!.headers["X-Payout-Idempotency"]);
+});
+
+test("RAZORPAYX: a carrier's idempotency key does not depend on other carriers", async (t) => {
+  const store = createStore();
+  addOrg(store, "org_a", "fa_aaa");
+  addOrg(store, "org_b", "fa_bbb");
+  addLine(store, "ll_a1", "org_a", 40000, CUTOFF);
+  addLine(store, "ll_b2", "org_b", 60000, CUTOFF + WEEK_MS);
+
+  let bAttempts = 0;
+  const { calls, restore } = mockFetch((_url, body) => {
+    if (body.fund_account_id === "fa_bbb" && ++bAttempts === 1) {
+      return { status: 503, json: { error: { description: "upstream timeout" } } };
+    }
+    return { status: 200, json: { id: `pout_${body.fund_account_id}`, status: "processed" } };
+  });
+  t.after(restore);
+
+  // First run: org_a is paid for week 1, org_b's week-2 attempt gets no answer. Second run: only org_b is due.
+  await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + WEEK_MS });
+  await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + WEEK_MS + 60_000 });
+
+  const bKeys = calls.filter((c) => c.body.fund_account_id === "fa_bbb").map((c) => c.headers["X-Payout-Idempotency"]);
+  assert.equal(bKeys.length, 2);
+  assert.equal(bKeys[1], bKeys[0]);
+  assert.equal(store.ledgerLines.get("ll_b2")!.status, "PAID");
+});
+
+test("RAZORPAYX: a carrier's payout history shows the week it was paid for", async (t) => {
+  const store = createStore();
+  const carrier = registerCompliantCarrier(store, {
+    fullName: "History Owner", phone: "9000000077", orgDisplayName: "History Carrier",
+    vehicleRegistrationNumber: "MH12AB0077", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000,
+  });
+  store.organizations.set(carrier.org.id, { ...store.organizations.get(carrier.org.id)!, payoutFundAccountId: "fa_hist" });
+  addOrg(store, "org_stuck"); // owed an earlier week and has no fund account
+  addLine(store, "ll_stuck1", "org_stuck", 40000, CUTOFF);
+  addLine(store, "ll_h2", carrier.org.id, 60000, CUTOFF + WEEK_MS);
+
+  const { restore } = mockFetch(() => ({ status: 200, json: { id: "pout_h2", status: "processed" } }));
+  t.after(restore);
+  await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + WEEK_MS });
+
+  const history = pilotListCarrierPayoutBatches(store, carrier.user.id, carrier.org.id);
+  assert.equal(history.length, 1);
+  assert.equal(history[0]!.cutoffUtcMs, CUTOFF + WEEK_MS);
 });

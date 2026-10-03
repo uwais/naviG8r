@@ -66,8 +66,8 @@ export type RazorpayPayoutResult = {
 /**
  * Create a single RazorpayX payout to a carrier's fund account.
  * `referenceId` doubles as the X-Payout-Idempotency key, which RazorpayX has required on every payout
- * since 15 March 2025: 4-36 letters, digits, hyphens or underscores, and a retry with the same key must
- * send the same body, so the same key must always mean the same carrier, lines and fund account.
+ * since 15 March 2025: 4-36 letters, digits, hyphens or underscores. A retry with the same key must send the
+ * same body, so callers must change the key whenever anything in the request changes.
  */
 export async function createRazorpayPayout(params: {
   amountPaise: number;
