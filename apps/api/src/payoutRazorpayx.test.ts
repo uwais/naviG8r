@@ -500,7 +500,7 @@ test("RAZORPAYX: if that save fails, nothing is sent, and the next run treats th
   assert.equal(store.ledgerLines.get("ll_a1")!.payoutFailedAttempts, 1);
 });
 
-test("RAZORPAYX: a brand-new request that times out or loses its connection is kept, and resent unchanged", async (t) => {
+test("RAZORPAYX: a request that times out or loses its connection, first time or on a resend, is kept and resent unchanged", async (t) => {
   const lostReplies = [
     { name: "timeout", error: () => new DOMException("The operation was aborted due to timeout", "TimeoutError"), cause: undefined },
     { name: "connection reset", error: () => new TypeError("fetch failed", { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) }), cause: "ECONNRESET" },
@@ -511,21 +511,23 @@ test("RAZORPAYX: a brand-new request that times out or loses its connection is k
     addLine(store, "ll_a1", "org_a", 50000);
 
     const { calls, restore } = mockFetch(() => {
-      if (calls.length === 1) throw lost.error();
+      if (calls.length <= 2) throw lost.error(); // the first send, then its resend
       return { status: 200, json: { id: "pout_t", status: "processed" } };
     });
     t.after(restore);
     const logged = t.mock.method(console, "error", () => {});
 
-    await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
-    assert.ok(store.ledgerLines.get("ll_a1")!.payoutAttemptKey, lost.name); // RazorpayX may have created it
-    await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + 60_000 });
+    for (let run = 0; run < 2; run++) {
+      await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + run * 60_000 });
+      assert.ok(store.ledgerLines.get("ll_a1")!.payoutAttemptKey, `${lost.name}, run ${run}`); // RazorpayX may have created it
+    }
+    await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + 120_000 });
     const loggedCause = (logged.mock.calls[0]!.arguments[1] as { cause?: string }).cause;
     logged.mock.restore();
     restore();
 
-    assert.equal(calls[1]!.headers["X-Payout-Idempotency"], calls[0]!.headers["X-Payout-Idempotency"], lost.name);
-    assert.deepEqual(calls[1]!.body, calls[0]!.body, lost.name);
+    assert.equal(new Set(calls.map((c) => c.headers["X-Payout-Idempotency"])).size, 1, lost.name);
+    assert.deepEqual(calls[2]!.body, calls[0]!.body, lost.name);
     assert.equal(store.ledgerLines.get("ll_a1")!.status, "PAID", lost.name);
     assert.equal(loggedCause, lost.cause, lost.name);
   }
@@ -542,8 +544,9 @@ test("RAZORPAYX: a resend whose save fails keeps its record, so a bank change me
   t.after(restore);
 
   await runTestPayoutBatch(store, { nowUtcMs: CUTOFF }); // no clear answer, so the record is kept
-  await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + 60_000, saveBeforePayout: async () => { throw new Error("disk full"); } });
-  assert.equal(calls.length, 1); // the resend was not sent
+  const failedSave = await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + 60_000, saveBeforePayout: async () => { throw new Error("disk full"); } });
+  assert.equal(failedSave.transfers[0]!.error, "save_failed_before_payout"); // the run reached the resend's save
+  assert.equal(calls.length, 1); // and did not send it
   store.organizations.set(org.id, { ...org, payoutFundAccountId: "fa_new" });
   await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + 120_000 });
 

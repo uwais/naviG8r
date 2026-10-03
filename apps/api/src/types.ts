@@ -239,8 +239,8 @@ export type LedgerLine = {
   /** Earlier payout requests for this line that definitely failed. Part of the next request's key, so a new
    *  attempt gets a new key, while a restored store whose week has the same lines, bank account and count
    *  rebuilds the key it already sent. To pay a line again by hand after a recorded payout failed later (say,
-   *  reversed), stop the API, set it back to ACCRUED and add 1 here; otherwise RazorpayX returns its old answer
-   *  and no money moves. */
+   *  reversed), stop the API, set it back to ACCRUED, delete the two fields above and add 1 here (empty counts
+   *  as 0); otherwise RazorpayX returns its old answer and no money moves. */
   payoutFailedAttempts?: number;
 } & SoftDeleteFields;
 
