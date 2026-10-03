@@ -73,6 +73,8 @@ test("Razorpay authorization can recover an order after an earlier failed attemp
       },
     },
   });
+  // A failed notice still marks an unpaid booking as failed.
+  assert.equal(store.payments.get("payin_1")?.status, "FAILED");
   applyRazorpayWebhookPayload(store, {
     event: "payment.authorized",
     payload: {
@@ -89,4 +91,30 @@ test("Razorpay authorization can recover an order after an earlier failed attemp
   const pay = store.payments.get("payin_1");
   assert.equal(pay?.status, "AUTHORIZED");
   assert.equal(pay?.razorpayPaymentId, "pay_success");
+});
+
+test("Razorpay failed notice changes only a payment that is not yet paid", () => {
+  for (const status of ["CREATED", "FAILED", "AUTHORIZED", "CAPTURED", "REFUNDED"] as const) {
+    const store = createStore();
+    store.payments.set("payin_1", {
+      id: "payin_1",
+      shipmentId: "shp_1",
+      amountPaise: 123_00,
+      status,
+      provider: "RAZORPAY",
+      providerRef: "order_1",
+      razorpayOrderId: "order_1",
+      razorpayPaymentId: "pay_earlier",
+      createdAtUtcMs: 1,
+      updatedAtUtcMs: 1,
+    });
+
+    applyRazorpayWebhookPayload(store, {
+      event: "payment.failed",
+      payload: { payment: { entity: { id: "pay_failed_attempt", order_id: "order_1", status: "failed" } } },
+    });
+
+    const expected = status === "CREATED" || status === "FAILED" ? "FAILED" : status;
+    assert.equal(store.payments.get("payin_1")?.status, expected, `starting from ${status}`);
+  }
 });
