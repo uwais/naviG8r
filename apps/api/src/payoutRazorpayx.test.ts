@@ -527,6 +527,7 @@ test("RAZORPAYX: a request that times out or loses its connection, first time or
     restore();
 
     assert.equal(new Set(calls.map((c) => c.headers["X-Payout-Idempotency"])).size, 1, lost.name);
+    assert.deepEqual(calls[1]!.body, calls[0]!.body, lost.name);
     assert.deepEqual(calls[2]!.body, calls[0]!.body, lost.name);
     assert.equal(store.ledgerLines.get("ll_a1")!.status, "PAID", lost.name);
     assert.equal(loggedCause, lost.cause, lost.name);
