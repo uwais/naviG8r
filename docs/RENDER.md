@@ -40,6 +40,7 @@ You must still expose **`packages/core`** to the process: either deploy from a l
 - `OTP_RESEND_COOLDOWN_MS=30000` (default): minimum delay between newly issued codes for a phone.
 - `OTP_PHONE_START_LIMIT=5` and `OTP_PHONE_START_WINDOW_MS=3600000` (defaults): max newly issued challenges per phone in the rolling window.
 - `OTP_IP_START_LIMIT=30` and `OTP_IP_START_WINDOW_MS=600000` (defaults): max OTP start requests per client IP in the rolling window.
+- `OTP_WRONG_CODE_LIMIT=5` (default): wrong codes allowed per challenge before it ends.
 - `OTP_TRUST_PROXY=1` when deployed behind Render so API rate limits use the client IP from `X-Forwarded-For`. Forwarded headers are ignored unless this explicit setting is enabled.
 
 These request counters live in the API process. The current Render API runs as a single instance; if it is scaled to multiple instances, move the IP counter to shared storage (for example Redis) before scaling so limits apply across instances.

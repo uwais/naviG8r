@@ -6,7 +6,7 @@ import {
   pilotOtpVerify,
 } from "./auth.ts";
 import { createStore } from "./store.ts";
-import { registerCustomerOrgAdmin, registerSoloOwnerOperatorDriver } from "./services.ts";
+import { inviteCustomerMember, registerCustomerOrgAdmin, registerCustomerUser, registerSoloOwnerOperatorDriver } from "./services.ts";
 
 function fixture(t: TestContext, debug = true) {
   const previous = process.env.AUTH_SECRET;
@@ -261,7 +261,35 @@ test("five wrong codes end the challenge, and a new code works after the cooldow
   f.setNow(f.otp.now() + 31_000);
   const second = f.start();
   assert.notEqual(second.challengeId, first.challengeId);
+  // Each new code gets its own tries: one wrong code here is just incorrect.
+  assert.throws(() => f.verify(second.challengeId, "999999"), /otp_incorrect/);
   assert.equal(f.verify(second.challengeId).user.id, f.user.id);
+});
+
+test("malformed codes don't use up tries, and spaces around the right code are ignored", (t) => {
+  const f = fixture(t);
+  const challenge = f.start();
+  for (const code of ["", "   ", "42", "12 34 56", "abcdef", "0000420"]) {
+    assert.throws(() => f.verify(challenge.challengeId, code), /otp_incorrect/);
+  }
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    assert.throws(() => f.verify(challenge.challengeId, "999999"), /otp_incorrect/);
+  }
+  assert.equal(f.verify(challenge.challengeId, " 000042 ").user.id, f.user.id);
+});
+
+test("a configured wrong-code limit ends the challenge at that many tries", (t) => {
+  const f = fixture(t);
+  const otp = createOtpDependencies({
+    env: { OTP_DEBUG: "1", OTP_WRONG_CODE_LIMIT: "3" },
+    now: () => f.otp.now(),
+    generateCode: () => "000042",
+  });
+  const { challengeId } = pilotOtpStart(f.store, { phone: f.user.phone }, otp);
+  const wrong = () => pilotOtpVerify(f.store, { phone: f.user.phone, challengeId, code: "999999" }, otp);
+  assert.throws(wrong, /otp_incorrect/);
+  assert.throws(wrong, /otp_incorrect/);
+  assert.throws(wrong, /otp_attempts_exceeded/);
 });
 
 test("new accounts need a mobile number starting 6-9; existing accounts can still sign in", (t) => {
@@ -277,10 +305,13 @@ test("new accounts need a mobile number starting 6-9; existing accounts can stil
     }),
     /invalid_phone/,
   );
+  assert.throws(() => registerCustomerUser(f.store, { fullName: "Member", phone: "5123456789" }), /invalid_phone/);
   const mobile = registerCustomerOrgAdmin(f.store, { fullName: "Mobile", phone: "+91 98765 43210", orgDisplayName: "Mobile Co" });
   assert.equal(mobile.user.phone, "9876543210");
 
-  // An account created before this rule, with a number outside 6-9, can still request a code.
+  // An account created before this rule, with a number outside 6-9, can still request a code and be invited.
   f.store.users.set("usr_legacy", { ...f.user, id: "usr_legacy", phone: "1234567890" });
   assert.ok(f.start("1234567890").challengeId);
+  const invited = inviteCustomerMember(f.store, mobile.user.id, { orgId: mobile.org.id, phone: "1234567890" });
+  assert.equal(invited.user.id, "usr_legacy");
 });

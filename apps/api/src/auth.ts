@@ -182,8 +182,7 @@ export function createOtpDependencies(
     while (ipStarts.size > 10_000) ipStarts.delete(ipStarts.keys().next().value!);
     return Math.max(0, recent[0]! + ipStartWindowMs - instant);
   };
-  // Kept in memory, like the per-address limit above: a restart resets the counts, but a challenge
-  // also expires after ttlMs, so a restart buys a guesser at most wrongCodeLimit more tries.
+  // Kept in memory, like the per-address limit above; counts reset when the process restarts.
   const wrongCodes = new Map<string, number>();
   const recordWrongCode = (challengeId: string): number => {
     const total = (wrongCodes.get(challengeId) ?? 0) + 1;
@@ -310,7 +309,8 @@ export function pilotOtpStart(
 export function pilotOtpVerify(
   store: Store,
   params: { phone: string; challengeId: string; code: string },
-  otp = createOtpDependencies(),
+  // Required, not defaulted: the wrong-code count lives here, so a fresh one per call would never reach the limit.
+  otp: OtpDependencies,
 ): {
   user: User;
   accessToken: string;
@@ -329,9 +329,11 @@ export function pilotOtpVerify(
     store.otpChallenges.set(ch.id, { ...ch, status: "EXPIRED" });
     throw new Error("otp_expired");
   }
-  if (String(params.code ?? "") !== ch.code) {
+  const submittedCode = String(params.code ?? "").trim();
+  if (submittedCode !== ch.code) {
+    // Only a six-digit code counts as a try, so a stray paste or an empty box doesn't use one up.
     // Ending the challenge means further guesses need new codes, and new codes are rate-limited.
-    if (otp.recordWrongCode(ch.id) >= otp.wrongCodeLimit) {
+    if (/^\d{6}$/.test(submittedCode) && otp.recordWrongCode(ch.id) >= otp.wrongCodeLimit) {
       store.otpChallenges.set(ch.id, { ...ch, status: "EXPIRED" });
       throw new Error("otp_attempts_exceeded");
     }
