@@ -500,29 +500,56 @@ test("RAZORPAYX: if that save fails, nothing is sent, and the next run treats th
   assert.equal(store.ledgerLines.get("ll_a1")!.payoutFailedAttempts, 1);
 });
 
-test("RAZORPAYX: a request that times out or loses its connection is kept, and resent unchanged until answered", async (t) => {
+test("RAZORPAYX: a brand-new request that times out or loses its connection is kept, and resent unchanged", async (t) => {
+  const lostReplies = [
+    { name: "timeout", error: () => new DOMException("The operation was aborted due to timeout", "TimeoutError"), cause: undefined },
+    { name: "connection reset", error: () => new TypeError("fetch failed", { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) }), cause: "ECONNRESET" },
+  ];
+  for (const lost of lostReplies) {
+    const store = createStore();
+    addOrg(store, "org_a", "fa_aaa");
+    addLine(store, "ll_a1", "org_a", 50000);
+
+    const { calls, restore } = mockFetch(() => {
+      if (calls.length === 1) throw lost.error();
+      return { status: 200, json: { id: "pout_t", status: "processed" } };
+    });
+    t.after(restore);
+    const logged = t.mock.method(console, "error", () => {});
+
+    await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
+    assert.ok(store.ledgerLines.get("ll_a1")!.payoutAttemptKey, lost.name); // RazorpayX may have created it
+    await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + 60_000 });
+    const loggedCause = (logged.mock.calls[0]!.arguments[1] as { cause?: string }).cause;
+    logged.mock.restore();
+    restore();
+
+    assert.equal(calls[1]!.headers["X-Payout-Idempotency"], calls[0]!.headers["X-Payout-Idempotency"], lost.name);
+    assert.deepEqual(calls[1]!.body, calls[0]!.body, lost.name);
+    assert.equal(store.ledgerLines.get("ll_a1")!.status, "PAID", lost.name);
+    assert.equal(loggedCause, lost.cause, lost.name);
+  }
+});
+
+test("RAZORPAYX: a resend whose save fails keeps its record, so a bank change meanwhile still resends the same request", async (t) => {
   const store = createStore();
-  addOrg(store, "org_a", "fa_aaa");
+  const org = addOrg(store, "org_a", "fa_old");
   addLine(store, "ll_a1", "org_a", 50000);
 
-  const { calls, restore } = mockFetch(() => {
-    if (calls.length === 1) throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
-    if (calls.length === 2) throw new TypeError("fetch failed", { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) });
-    return { status: 200, json: { id: "pout_t", status: "processed" } };
-  });
+  const { calls, restore } = mockFetch(() => (calls.length === 1
+    ? { status: 503, json: { error: { description: "upstream timeout" } } }
+    : { status: 200, json: { id: "pout_k", status: "processed" } }));
   t.after(restore);
-  const logged = t.mock.method(console, "error", () => {});
 
-  for (let run = 0; run < 2; run++) {
-    await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + run * 60_000 });
-    assert.ok(store.ledgerLines.get("ll_a1")!.payoutAttemptKey, `run ${run}`); // RazorpayX may have created it
-  }
+  await runTestPayoutBatch(store, { nowUtcMs: CUTOFF }); // no clear answer, so the record is kept
+  await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + 60_000, saveBeforePayout: async () => { throw new Error("disk full"); } });
+  assert.equal(calls.length, 1); // the resend was not sent
+  store.organizations.set(org.id, { ...org, payoutFundAccountId: "fa_new" });
   await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + 120_000 });
 
-  assert.equal(new Set(calls.map((c) => c.headers["X-Payout-Idempotency"])).size, 1);
-  assert.deepEqual(calls[2]!.body, calls[0]!.body);
+  assert.equal(calls[1]!.headers["X-Payout-Idempotency"], calls[0]!.headers["X-Payout-Idempotency"]);
+  assert.equal(calls[1]!.body.fund_account_id, "fa_old");
   assert.equal(store.ledgerLines.get("ll_a1")!.status, "PAID");
-  assert.equal((logged.mock.calls[1]!.arguments[1] as { cause?: string }).cause, "ECONNRESET");
 });
 
 test("RAZORPAYX: after a restart, an unanswered request is resent with the same key", async (t) => {

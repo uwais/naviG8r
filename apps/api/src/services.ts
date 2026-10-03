@@ -2268,9 +2268,9 @@ async function runPayoutBatchAuthorized(store: Store, params: PayoutRunParams): 
         continue; // leave lines ACCRUED so they retry once payout setup completes
       }
       fundAccountId = currentFundAccountId;
-      // Also the X-Payout-Idempotency key. Built from what the request contains rather than at random, so a store
-      // restored from a backup with the same lines and bank account rebuilds the key it already sent; failed
-      // attempts move it on.
+      // Also the X-Payout-Idempotency key. Built from what the request contains rather than at random, so a restored
+      // store whose week has the same lines, bank account and failure count rebuilds the key it already sent;
+      // failed attempts move it on.
       const failedAttempts = Math.max(...freshLines.map((l) => l.payoutFailedAttempts ?? 0));
       const sortedLineIds = freshLines.map((l) => l.id).sort().join(",");
       payoutKey = createHash("sha256").update(`${carrierId}:${freshLines[0]!.payoutBatchCutoffUtcMs}:${sortedLineIds}:${fundAccountId}:${failedAttempts}`).digest("hex").slice(0, 36);
