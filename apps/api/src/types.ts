@@ -232,6 +232,10 @@ export type LedgerLine = {
   status: LedgerLineStatus;
   createdAtUtcMs: number;
   paidAtUtcMs: number | null;
+  /** Set while a RazorpayX payout request for this line has no clear answer. The next run resends exactly that
+   *  request (this key and fund account), so RazorpayX recognises it instead of paying twice. */
+  payoutAttemptKey?: string;
+  payoutAttemptFundAccountId?: string;
 } & SoftDeleteFields;
 
 export type PayoutTransferStatus =

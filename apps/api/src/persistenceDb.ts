@@ -302,6 +302,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       status: l.status as LedgerLine["status"],
       createdAtUtcMs: Number(l.createdAtUtcMs),
       paidAtUtcMs: l.paidAtUtcMs != null ? Number(l.paidAtUtcMs) : null,
+      ...(l.payoutAttemptKey ? { payoutAttemptKey: l.payoutAttemptKey, payoutAttemptFundAccountId: l.payoutAttemptFundAccountId ?? "" } : {}),
       ...softFromDb(l),
     };
     store.ledgerLines.set(line.id, line);
@@ -552,6 +553,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           status: l.status,
           createdAtUtcMs: BigInt(l.createdAtUtcMs),
           paidAtUtcMs: l.paidAtUtcMs != null ? BigInt(l.paidAtUtcMs) : null,
+          payoutAttemptKey: l.payoutAttemptKey ?? null,
+          payoutAttemptFundAccountId: l.payoutAttemptFundAccountId ?? null,
           ...softToDb(l),
         },
       });

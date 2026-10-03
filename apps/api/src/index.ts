@@ -29,9 +29,10 @@ async function main(): Promise<void> {
   setInterval(() => {
     void (async () => {
       try {
-        const batch = await authorizationContext.run({ system: true, requestId: randomUUID() }, () => runPayoutBatch(store, { nowUtcMs: Date.now() }));
+        const batch = await authorizationContext.run({ system: true, requestId: randomUUID() }, () => runPayoutBatch(store, { nowUtcMs: Date.now(), saveBeforePayout: persist }));
+        // Save whenever a payout was attempted, not only when lines were paid: unresolved requests are recorded too.
+        if (batch.transfers.some((t) => t.status !== "SKIPPED_NO_FUND_ACCOUNT")) await persist();
         if (batch.lineIds.length > 0) {
-          await persist();
           // eslint-disable-next-line no-console
           console.log(
             `Payout batch ${batch.id}: paid ${batch.lineIds.length} lines (earliestDueCutoffUtcMs=${batch.cutoffUtcMs})`,

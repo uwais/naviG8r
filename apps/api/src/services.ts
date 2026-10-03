@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { validatePayoutBankDetails } from "./bankAccountValidation.ts";
 import { assertAdminRemains, authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible } from "./rbac.ts";
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
@@ -2166,9 +2166,21 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
  *     Carriers missing a fund account are skipped (lines stay ACCRUED to retry next run);
  *     transfers that error are marked FAILED and their lines stay ACCRUED.
  * Each run pays every carrier for its own earliest due week, so one stuck carrier delays only itself.
+ * A RazorpayX request with no clear answer is resent unchanged on the next run; a definite failure lets
+ * the next run start a new request. `saveBeforePayout` (the app's persist) runs before every request.
  */
 const payoutRuns = new WeakMap<Store, Promise<PayoutBatch>>();
-export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }): Promise<PayoutBatch> {
+type PayoutRunParams = { nowUtcMs?: number; saveBeforePayout?: () => Promise<void> };
+
+/** The ledger line without its unresolved payout request record. */
+function withoutPayoutAttempt(line: LedgerLine): LedgerLine {
+  const rest = { ...line };
+  delete rest.payoutAttemptKey;
+  delete rest.payoutAttemptFundAccountId;
+  return rest;
+}
+
+export async function runPayoutBatch(store: Store, params: PayoutRunParams): Promise<PayoutBatch> {
   if (!authorizationContext.getStore()?.system) requirePermission(store, "settlement.release");
   const running = payoutRuns.get(store);
   if (running) return running;
@@ -2176,7 +2188,7 @@ export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }
   payoutRuns.set(store, run);
   try { return await run; } finally { payoutRuns.delete(store); }
 }
-async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: number }): Promise<PayoutBatch> {
+async function runPayoutBatchAuthorized(store: Store, params: PayoutRunParams): Promise<PayoutBatch> {
   const now = params.nowUtcMs ?? Date.now();
   const provider = payoutsMode();
   const eligibleLines = [...store.ledgerLines.values()].filter(
@@ -2229,63 +2241,66 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
       continue;
     }
 
-    // RAZORPAYX mode: needs a fund account on the carrier org.
-    const org = store.organizations.get(carrierId);
-    const fundAccountId = org?.payoutFundAccountId;
-    if (!fundAccountId) {
-      transfers.push({ carrierId, netToCarrierPaise, lineIds, status: "SKIPPED_NO_FUND_ACCOUNT" });
-      continue; // leave lines ACCRUED so they retry once payout setup completes
+    // RAZORPAYX mode. A request that got no clear answer is resent exactly as it was (same lines, key and
+    // fund account) until RazorpayX answers, so RazorpayX recognises it instead of paying twice. Lines that
+    // became due meanwhile wait for that answer.
+    const unresolvedLines = [...store.ledgerLines.values()]
+      .filter((l) => l.carrierId === carrierId && l.status === "ACCRUED" && l.payoutAttemptKey)
+      .sort((a, b) => a.payoutBatchCutoffUtcMs - b.payoutBatchCutoffUtcMs);
+    let payoutKey: string;
+    let fundAccountId: string;
+    let payLines: LedgerLine[];
+    if (unresolvedLines.length > 0) {
+      payoutKey = unresolvedLines[0]!.payoutAttemptKey!;
+      payLines = unresolvedLines.filter((l) => l.payoutAttemptKey === payoutKey);
+      fundAccountId = payLines[0]!.payoutAttemptFundAccountId ?? "";
+    } else {
+      const currentFundAccountId = store.organizations.get(carrierId)?.payoutFundAccountId;
+      if (!currentFundAccountId) {
+        transfers.push({ carrierId, netToCarrierPaise, lineIds, status: "SKIPPED_NO_FUND_ACCOUNT" });
+        continue; // leave lines ACCRUED so they retry once payout setup completes
+      }
+      payoutKey = randomUUID(); // also the X-Payout-Idempotency key
+      fundAccountId = currentFundAccountId;
+      payLines = lines.map((l) => ({ ...l, payoutAttemptKey: payoutKey, payoutAttemptFundAccountId: fundAccountId }));
+      for (const l of payLines) store.ledgerLines.set(l.id, l);
     }
-    try {
-      const result = await createRazorpayPayout({
-        amountPaise: netToCarrierPaise,
-        fundAccountId,
-        // Also the idempotency key. It covers the carrier, week, lines and fund account, so a carrier who
-        // changes bank account gets a new key instead of a refused retry. Changing the payout mode or source
-        // account settings is not covered.
-        referenceId: createHash("sha256").update(`${carrierId}:${lines[0]!.payoutBatchCutoffUtcMs}:${[...lineIds].sort().join(",")}:${fundAccountId}`).digest("hex").slice(0, 36),
-        narration: "naviG8r payout",
-      });
-      // RazorpayX's documented in-progress states. Anything else that is not processed (rejected,
-      // cancelled, reversed, failed, or a status we don't know) counts as FAILED so its lines stay unpaid.
-      const settledStatuses = new Set(["processed", "completed"]);
-      const inProgressStatuses = new Set(["pending", "queued", "scheduled", "processing"]);
-      let transferStatus: PayoutTransfer["status"] = "FAILED";
-      if (settledStatuses.has(result.status)) transferStatus = "PAID";
-      else if (inProgressStatuses.has(result.status)) transferStatus = "PROCESSING";
+    const payPaise = payLines.reduce((sum, l) => sum + l.netToCarrierPaise, 0);
+    const payLineIds = payLines.map((l) => l.id);
 
-      if (transferStatus === "FAILED") {
-        transfers.push({
-          carrierId,
-          netToCarrierPaise,
-          lineIds,
-          status: "FAILED",
-          providerPayoutId: result.id,
-          error: `payout_status_${result.status}`,
-        });
-        // Lines stay ACCRUED, but while RazorpayX remembers this key it answers a retry with this same
-        // failed payout; a new attempt only happens once the carrier's due lines or bank account change.
+    if (params.saveBeforePayout) {
+      try {
+        await params.saveBeforePayout();
+      } catch {
+        // Not sent. The record stays in memory, so the next run sends this same request.
+        transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: "FAILED", error: "save_failed_before_payout" });
         continue;
       }
-      // PROCESSING or PAID: mark lines PAID (queued/processing payouts are in-flight, not reversible here).
-      for (const l of lines) store.ledgerLines.set(l.id, { ...l, status: "PAID", paidAtUtcMs: now });
-      settledLineIds.push(...lineIds);
-      transfers.push({
-        carrierId,
-        netToCarrierPaise,
-        lineIds,
-        status: transferStatus,
-        providerPayoutId: result.id,
-      });
-    } catch (err) {
-      transfers.push({
-        carrierId,
-        netToCarrierPaise,
-        lineIds,
-        status: "FAILED",
-        error: "payout_provider_failed",
-      });
-      // lines stay ACCRUED to retry on the next run
+    }
+    try {
+      const result = await createRazorpayPayout({ amountPaise: payPaise, fundAccountId, referenceId: payoutKey, narration: "naviG8r payout" });
+      // RazorpayX's documented payout states.
+      const settledStatuses = new Set(["processed", "completed"]);
+      const inProgressStatuses = new Set(["pending", "queued", "scheduled", "processing"]);
+      const failedStatuses = new Set(["failed", "rejected", "cancelled", "reversed"]);
+      // Re-read after the await, so a stale copy cannot undo a change made meanwhile.
+      const currentLines = payLineIds.map((lineId) => store.ledgerLines.get(lineId)!);
+      if (settledStatuses.has(result.status) || inProgressStatuses.has(result.status)) {
+        // In-progress payouts are marked PAID too: they are in flight and not reversible here.
+        for (const l of currentLines) store.ledgerLines.set(l.id, { ...withoutPayoutAttempt(l), status: "PAID", paidAtUtcMs: now });
+        settledLineIds.push(...payLineIds);
+        transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: settledStatuses.has(result.status) ? "PAID" : "PROCESSING", providerPayoutId: result.id });
+        continue;
+      }
+      // A definite failure clears the record, so the next run starts a new request with a new key. Any
+      // other status is not a clear answer: the record stays and the next run sends the same request.
+      if (failedStatuses.has(result.status)) {
+        for (const l of currentLines) store.ledgerLines.set(l.id, withoutPayoutAttempt(l));
+      }
+      transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: "FAILED", providerPayoutId: result.id, error: `payout_status_${result.status}` });
+    } catch {
+      // No clear answer (an error reply, a timeout or a lost connection): the record stays for the next run.
+      transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: "FAILED", error: "payout_provider_failed" });
     }
   }
 
