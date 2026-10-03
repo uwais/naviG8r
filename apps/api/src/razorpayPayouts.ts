@@ -34,12 +34,13 @@ function basicAuthHeader(): string {
   return "Basic " + Buffer.from(`${key_id}:${key_secret}`).toString("base64");
 }
 
-async function razorpayxFetch(path: string, body: unknown): Promise<any> {
+async function razorpayxFetch(path: string, body: unknown, extraHeaders: Record<string, string> = {}): Promise<any> {
   const res = await fetch(`https://api.razorpay.com/v1${path}`, {
     method: "POST",
     headers: {
       authorization: basicAuthHeader(),
       "content-type": "application/json",
+      ...extraHeaders,
     },
     body: JSON.stringify(body),
   });
@@ -64,7 +65,9 @@ export type RazorpayPayoutResult = {
 
 /**
  * Create a single RazorpayX payout to a carrier's fund account.
- * `referenceId` must be unique per payout (we use the batch+carrier key) for idempotency.
+ * `referenceId` doubles as the X-Payout-Idempotency key, which RazorpayX has required on every payout
+ * since 15 March 2025: 4-36 letters, digits, hyphens or underscores, and a retry with the same key must
+ * send the same body, so the same key must always mean the same carrier, lines and fund account.
  */
 export async function createRazorpayPayout(params: {
   amountPaise: number;
@@ -86,7 +89,7 @@ export async function createRazorpayPayout(params: {
     queue_if_low_balance: true,
     reference_id: params.referenceId.slice(0, 40),
     narration: (params.narration ?? "naviG8r carrier payout").slice(0, 30),
-  });
+  }, { "X-Payout-Idempotency": params.referenceId });
   const id = typeof out?.id === "string" ? out.id : "";
   const status = typeof out?.status === "string" ? out.status : "unknown";
   if (!id) throw new Error("razorpayx_payout_missing_id");

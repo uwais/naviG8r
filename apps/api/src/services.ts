@@ -2162,6 +2162,7 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
  *   - RAZORPAYX: a real RazorpayX payout is created per carrier (test keys in dev).
  *     Carriers missing a fund account are skipped (lines stay ACCRUED to retry next run);
  *     transfers that error are marked FAILED and their lines stay ACCRUED.
+ * Each run pays every carrier for its own earliest due week, so one stuck carrier delays only itself.
  */
 const payoutRuns = new WeakMap<Store, Promise<PayoutBatch>>();
 export async function runPayoutBatch(store: Store, params: { nowUtcMs?: number }): Promise<PayoutBatch> {
@@ -2193,18 +2194,22 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
     return empty;
   }
 
-  // Group by cutoff timestamp; for MVP we run one cutoff at a time: the earliest due.
   const earliestCutoff = Math.min(...eligibleLines.map((l) => l.payoutBatchCutoffUtcMs));
-  const linesForBatch = eligibleLines.filter((l) => l.payoutBatchCutoffUtcMs === earliestCutoff);
-
   const batchId = id("pay");
 
-  // One transfer per carrier (money goes to different carriers separately).
-  const linesByCarrier = new Map<string, LedgerLine[]>();
-  for (const l of linesForBatch) {
-    const arr = linesByCarrier.get(l.carrierId) ?? [];
+  // One transfer per carrier, for that carrier's earliest due week. Choosing the week per carrier,
+  // not one week for everyone, stops a carrier whose payout is skipped or refused from holding up
+  // every other carrier's later weeks.
+  const dueLinesByCarrier = new Map<string, LedgerLine[]>();
+  for (const l of eligibleLines) {
+    const arr = dueLinesByCarrier.get(l.carrierId) ?? [];
     arr.push(l);
-    linesByCarrier.set(l.carrierId, arr);
+    dueLinesByCarrier.set(l.carrierId, arr);
+  }
+  const linesByCarrier = new Map<string, LedgerLine[]>();
+  for (const [carrierId, lines] of dueLinesByCarrier) {
+    const carrierCutoff = Math.min(...lines.map((l) => l.payoutBatchCutoffUtcMs));
+    linesByCarrier.set(carrierId, lines.filter((l) => l.payoutBatchCutoffUtcMs === carrierCutoff));
   }
 
   const transfers: PayoutTransfer[] = [];
@@ -2232,7 +2237,9 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
       const result = await createRazorpayPayout({
         amountPaise: netToCarrierPaise,
         fundAccountId,
-        referenceId: createHash("sha256").update(`${carrierId}:${earliestCutoff}:${[...lineIds].sort().join(",")}`).digest("hex").slice(0, 36),
+        // Also the idempotency key, so it must change whenever the request would: a carrier who changes
+        // bank account gets a new key instead of a refused retry.
+        referenceId: createHash("sha256").update(`${carrierId}:${lines[0]!.payoutBatchCutoffUtcMs}:${[...lineIds].sort().join(",")}:${fundAccountId}`).digest("hex").slice(0, 36),
         narration: "naviG8r payout",
       });
       const settledStatuses = new Set(["processed", "completed"]);
