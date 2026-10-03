@@ -236,6 +236,9 @@ export type LedgerLine = {
    *  request (this key and fund account), so RazorpayX recognises it instead of paying twice. */
   payoutAttemptKey?: string;
   payoutAttemptFundAccountId?: string;
+  /** Earlier payout requests for this line that definitely failed. Part of the next request's key, so a new
+   *  attempt gets a new key while a store restored from a backup still rebuilds the key it already sent. */
+  payoutFailedAttempts?: number;
 } & SoftDeleteFields;
 
 export type PayoutTransferStatus =

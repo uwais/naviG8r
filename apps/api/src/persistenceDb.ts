@@ -303,6 +303,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       createdAtUtcMs: Number(l.createdAtUtcMs),
       paidAtUtcMs: l.paidAtUtcMs != null ? Number(l.paidAtUtcMs) : null,
       ...(l.payoutAttemptKey ? { payoutAttemptKey: l.payoutAttemptKey, payoutAttemptFundAccountId: l.payoutAttemptFundAccountId ?? "" } : {}),
+      ...(l.payoutFailedAttempts != null ? { payoutFailedAttempts: l.payoutFailedAttempts } : {}),
       ...softFromDb(l),
     };
     store.ledgerLines.set(line.id, line);
@@ -555,6 +556,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           paidAtUtcMs: l.paidAtUtcMs != null ? BigInt(l.paidAtUtcMs) : null,
           payoutAttemptKey: l.payoutAttemptKey ?? null,
           payoutAttemptFundAccountId: l.payoutAttemptFundAccountId ?? null,
+          payoutFailedAttempts: l.payoutFailedAttempts ?? null,
           ...softToDb(l),
         },
       });

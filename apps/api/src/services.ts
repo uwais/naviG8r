@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { validatePayoutBankDetails } from "./bankAccountValidation.ts";
 import { assertAdminRemains, authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible } from "./rbac.ts";
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
@@ -2174,11 +2174,12 @@ const payoutRuns = new WeakMap<Store, Promise<PayoutBatch>>();
 // saveBeforePayout is required so no caller can send a payout whose record exists only in memory.
 type PayoutRunParams = { nowUtcMs?: number; saveBeforePayout: () => Promise<void> };
 
-/** The ledger line without its unresolved payout request record. */
-function withoutPayoutAttempt(line: LedgerLine): LedgerLine {
+/** The ledger line without its unresolved payout request record; a definitely failed request also counts. */
+function withoutPayoutAttempt(line: LedgerLine, requestFailed = false): LedgerLine {
   const rest = { ...line };
   delete rest.payoutAttemptKey;
   delete rest.payoutAttemptFundAccountId;
+  if (requestFailed) rest.payoutFailedAttempts = (line.payoutFailedAttempts ?? 0) + 1;
   return rest;
 }
 
@@ -2243,9 +2244,8 @@ async function runPayoutBatchAuthorized(store: Store, params: PayoutRunParams): 
       continue;
     }
 
-    // RAZORPAYX mode. A request that got no clear answer is resent exactly as it was (same lines, key and
-    // fund account) until RazorpayX answers, so RazorpayX recognises it instead of paying twice. Lines that
-    // became due meanwhile wait for that answer.
+    // RAZORPAYX mode. A request that got no answer is resent exactly as it was (same lines, key and fund
+    // account), so RazorpayX recognises it instead of paying twice. Lines that became due meanwhile wait.
     const unresolvedLines = [...store.ledgerLines.values()]
       .filter((l) => l.carrierId === carrierId && l.status === "ACCRUED" && l.payoutAttemptKey)
       .sort((a, b) => a.payoutBatchCutoffUtcMs - b.payoutBatchCutoffUtcMs);
@@ -2267,8 +2267,12 @@ async function runPayoutBatchAuthorized(store: Store, params: PayoutRunParams): 
         transfers.push({ carrierId, netToCarrierPaise, lineIds, status: "SKIPPED_NO_FUND_ACCOUNT" });
         continue; // leave lines ACCRUED so they retry once payout setup completes
       }
-      payoutKey = randomUUID(); // also the X-Payout-Idempotency key
       fundAccountId = currentFundAccountId;
+      // Also the X-Payout-Idempotency key. Built from what the request contains rather than at random, so a
+      // store restored from a backup rebuilds the key it already sent; failed attempts move it on.
+      const failedAttempts = Math.max(...freshLines.map((l) => l.payoutFailedAttempts ?? 0));
+      const sortedLineIds = freshLines.map((l) => l.id).sort().join(",");
+      payoutKey = createHash("sha256").update(`${carrierId}:${freshLines[0]!.payoutBatchCutoffUtcMs}:${sortedLineIds}:${fundAccountId}:${failedAttempts}`).digest("hex").slice(0, 36);
       payLines = freshLines.map((l) => ({ ...l, payoutAttemptKey: payoutKey, payoutAttemptFundAccountId: fundAccountId }));
       for (const l of payLines) store.ledgerLines.set(l.id, l);
     }
@@ -2284,32 +2288,30 @@ async function runPayoutBatchAuthorized(store: Store, params: PayoutRunParams): 
     }
     try {
       const result = await createRazorpayPayout({ amountPaise: payPaise, fundAccountId, referenceId: payoutKey, narration: "naviG8r payout" });
-      // RazorpayX's documented payout states, plus "completed", which this code already accepted.
+      // RazorpayX's documented final failure states. Any other answer means the payout exists: processed (or
+      // "completed", which this code already accepted) is PAID; anything else, including a status RazorpayX
+      // may add later, is treated as in progress. A resend would only replay this saved answer.
       const settledStatuses = new Set(["processed", "completed"]);
-      const inProgressStatuses = new Set(["pending", "queued", "scheduled", "processing"]);
       const failedStatuses = new Set(["failed", "rejected", "cancelled", "reversed"]);
       // Re-read after the await, so a stale copy cannot undo a change made meanwhile.
       const currentLines = payLineIds.map((lineId) => store.ledgerLines.get(lineId)!);
-      if (settledStatuses.has(result.status) || inProgressStatuses.has(result.status)) {
-        // In-progress payouts are marked PAID too: they are in flight and not reversible here.
-        for (const l of currentLines) store.ledgerLines.set(l.id, { ...withoutPayoutAttempt(l), status: "PAID", paidAtUtcMs: now });
-        settledLineIds.push(...payLineIds);
-        transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: settledStatuses.has(result.status) ? "PAID" : "PROCESSING", providerPayoutId: result.id });
+      if (failedStatuses.has(result.status)) {
+        // A definite failure clears the record, and its count gives the next request a new key.
+        for (const l of currentLines) store.ledgerLines.set(l.id, withoutPayoutAttempt(l, true));
+        transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: "FAILED", providerPayoutId: result.id, error: `payout_status_${result.status}` });
         continue;
       }
-      // A definite failure clears the record, so the next run starts a new request with a new key. Any
-      // other status is not a clear answer: the record stays and the next run sends the same request.
-      if (failedStatuses.has(result.status)) {
-        for (const l of currentLines) store.ledgerLines.set(l.id, withoutPayoutAttempt(l));
-      }
-      transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: "FAILED", providerPayoutId: result.id, error: `payout_status_${result.status}` });
+      // In-progress payouts are marked PAID too: they are in flight and not reversible here.
+      for (const l of currentLines) store.ledgerLines.set(l.id, { ...withoutPayoutAttempt(l), status: "PAID", paidAtUtcMs: now });
+      settledLineIds.push(...payLineIds);
+      transfers.push({ carrierId, netToCarrierPaise: payPaise, lineIds: payLineIds, status: settledStatuses.has(result.status) ? "PAID" : "PROCESSING", providerPayoutId: result.id });
     } catch (err) {
       // RazorpayX refusing a request it has never seen means nothing was created, so the record goes and the
       // next run starts fresh (a carrier can then fix their bank details). Every other error is no clear
       // answer, including a refusal of a resend: the record stays for the next run.
       const refusedNewRequest = isNewRequest && err instanceof RazorpayxHttpError && err.status >= 400 && err.status < 500 && ![408, 409, 429].includes(err.status);
       if (refusedNewRequest) {
-        for (const lineId of payLineIds) store.ledgerLines.set(lineId, withoutPayoutAttempt(store.ledgerLines.get(lineId)!));
+        for (const lineId of payLineIds) store.ledgerLines.set(lineId, withoutPayoutAttempt(store.ledgerLines.get(lineId)!, true));
       }
       // eslint-disable-next-line no-console
       console.error("payout_request_failed", { carrierId, payoutKey, recordKept: !refusedNewRequest, reason: String((err as Error)?.message ?? err).slice(0, 300) });

@@ -368,40 +368,76 @@ test("RAZORPAYX: a carrier owed two weeks is paid one week per run, oldest first
   assert.deepEqual(weeks, [CUTOFF, CUTOFF + WEEK_MS]);
 });
 
-test("RAZORPAYX: a payout RazorpayX reports as failed, or with an unknown status, leaves the lines unpaid", async (t) => {
-  for (const status of ["failed", "something_new"]) {
-    const store = createStore();
-    addOrg(store, "org_a", "fa_aaa");
-    addLine(store, "ll_a1", "org_a", 50000);
-
-    const { restore } = mockFetch(() => ({ status: 200, json: { id: "pout_f", status } }));
-    t.after(restore);
-    const batch = await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
-    restore();
-
-    assert.equal(batch.transfers[0]!.status, "FAILED", status);
-    assert.equal(store.ledgerLines.get("ll_a1")!.status, "ACCRUED", status);
-    // A final failure clears the record; an unknown status keeps it so the same request is sent again.
-    assert.equal(Boolean(store.ledgerLines.get("ll_a1")!.payoutAttemptKey), status === "something_new", status);
-  }
-});
-
-test("RAZORPAYX: an unknown status is not a clear answer, so the next run sends the same request", async (t) => {
+test("RAZORPAYX: a payout RazorpayX reports as failed leaves the lines unpaid and clears the record", async (t) => {
   const store = createStore();
   addOrg(store, "org_a", "fa_aaa");
   addLine(store, "ll_a1", "org_a", 50000);
 
-  let attempts = 0;
-  const { calls, restore } = mockFetch(() => ({ status: 200, json: { id: "pout_u", status: ++attempts === 1 ? "something_new" : "processed" } }));
+  const { restore } = mockFetch(() => ({ status: 200, json: { id: "pout_f", status: "failed" } }));
+  t.after(restore);
+  const batch = await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
+
+  assert.equal(batch.transfers[0]!.status, "FAILED");
+  assert.equal(store.ledgerLines.get("ll_a1")!.status, "ACCRUED");
+  assert.equal(store.ledgerLines.get("ll_a1")!.payoutAttemptKey, undefined);
+});
+
+test("RAZORPAYX: an unknown status counts as in progress, because a resend would only replay the saved answer", async (t) => {
+  const store = createStore();
+  addOrg(store, "org_a", "fa_aaa");
+  addLine(store, "ll_a1", "org_a", 50000);
+
+  const { calls, restore } = mockFetch(() => ({ status: 200, json: { id: "pout_u", status: "something_new" } }));
   t.after(restore);
 
-  await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
-  assert.ok(store.ledgerLines.get("ll_a1")!.payoutAttemptKey);
+  const batch = await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
   await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + 60_000 });
 
-  assert.equal(calls[1]!.headers["X-Payout-Idempotency"], calls[0]!.headers["X-Payout-Idempotency"]);
+  assert.equal(batch.transfers[0]!.status, "PROCESSING");
   assert.equal(store.ledgerLines.get("ll_a1")!.status, "PAID");
   assert.equal(store.ledgerLines.get("ll_a1")!.payoutAttemptKey, undefined);
+  assert.equal(calls.length, 1); // nothing is sent again
+});
+
+test("RAZORPAYX: a store restored from before a payout rebuilds the same key, so RazorpayX recognises it", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "payout-restore-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const backup = path.join(dir, "backup.json");
+
+  const live = createStore();
+  addOrg(live, "org_a", "fa_aaa");
+  addLine(live, "ll_a1", "org_a", 50000);
+  saveStoreToDisk(backup, live); // a backup taken before the payout
+
+  const { calls, restore } = mockFetch(() => ({ status: 200, json: { id: "pout_once", status: "processed" } }));
+  t.after(restore);
+  await runTestPayoutBatch(live, { nowUtcMs: CUTOFF });
+
+  const restored = loadStoreFromDisk(backup); // the payout is missing from the restored data
+  await runTestPayoutBatch(restored, { nowUtcMs: CUTOFF + 60_000 });
+
+  assert.equal(calls[1]!.headers["X-Payout-Idempotency"], calls[0]!.headers["X-Payout-Idempotency"]);
+});
+
+test("RAZORPAYX: after a failure on the same bank account, the next request still gets a new key", async (t) => {
+  for (const firstReply of [
+    { status: 200, json: { id: "pout_x", status: "reversed" } },
+    { status: 400, json: { error: { description: "refused" } } },
+  ]) {
+    const store = createStore();
+    addOrg(store, "org_a", "fa_aaa");
+    addLine(store, "ll_a1", "org_a", 50000);
+
+    let attempts = 0;
+    const { calls, restore } = mockFetch(() => (++attempts === 1 ? firstReply : { status: 200, json: { id: "pout_ok", status: "processed" } }));
+    t.after(restore);
+    await runTestPayoutBatch(store, { nowUtcMs: CUTOFF });
+    await runTestPayoutBatch(store, { nowUtcMs: CUTOFF + 60_000 });
+    restore();
+
+    assert.notEqual(calls[1]!.headers["X-Payout-Idempotency"], calls[0]!.headers["X-Payout-Idempotency"], String(firstReply.status));
+    assert.equal(store.ledgerLines.get("ll_a1")!.status, "PAID");
+  }
 });
 
 test("RAZORPAYX: the request is recorded and saved before it is sent", async (t) => {
