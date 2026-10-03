@@ -98,11 +98,14 @@ export type OtpDependencies = {
   readonly phoneStartWindowMs: number;
   readonly ipStartLimit: number;
   readonly ipStartWindowMs: number;
+  readonly wrongCodeLimit: number;
   readonly trustProxy: boolean;
   readonly debug: boolean;
   readonly now: () => number;
   readonly generateCode: () => string;
   consumeIpStart: (ip: string) => number;
+  /** Counts one more wrong code against a challenge and returns the total so far. */
+  recordWrongCode: (challengeId: string) => number;
 };
 
 export class OtpRateLimitError extends Error {
@@ -160,6 +163,7 @@ export function createOtpDependencies(
   const phoneStartWindowMs = configNumber("OTP_PHONE_START_WINDOW_MS", 3_600_000);
   const ipStartLimit = configNumber("OTP_IP_START_LIMIT", 30);
   const ipStartWindowMs = configNumber("OTP_IP_START_WINDOW_MS", 600_000);
+  const wrongCodeLimit = configNumber("OTP_WRONG_CODE_LIMIT", 5);
   const now = options.now ?? nowUtcMs;
   otpDeadline(now(), ttlMs);
   const ipStarts = new Map<string, number[]>();
@@ -178,6 +182,14 @@ export function createOtpDependencies(
     while (ipStarts.size > 10_000) ipStarts.delete(ipStarts.keys().next().value!);
     return Math.max(0, recent[0]! + ipStartWindowMs - instant);
   };
+  // Kept in memory, like the per-address limit above; counts reset when the process restarts.
+  const wrongCodes = new Map<string, number>();
+  const recordWrongCode = (challengeId: string): number => {
+    const total = (wrongCodes.get(challengeId) ?? 0) + 1;
+    wrongCodes.set(challengeId, total);
+    while (wrongCodes.size > 10_000) wrongCodes.delete(wrongCodes.keys().next().value!);
+    return total;
+  };
   return Object.freeze({
     ttlMs,
     resendCooldownMs,
@@ -185,11 +197,13 @@ export function createOtpDependencies(
     phoneStartWindowMs,
     ipStartLimit,
     ipStartWindowMs,
+    wrongCodeLimit,
     trustProxy: env.OTP_TRUST_PROXY === "1",
     debug: env.OTP_DEBUG === "1",
     now,
     generateCode: options.generateCode ?? randomOtp6,
     consumeIpStart,
+    recordWrongCode,
   });
 }
 
@@ -295,7 +309,8 @@ export function pilotOtpStart(
 export function pilotOtpVerify(
   store: Store,
   params: { phone: string; challengeId: string; code: string },
-  otp = createOtpDependencies(),
+  // Required, not defaulted: the wrong-code count lives here, so a fresh one per call would never reach the limit.
+  otp: OtpDependencies,
 ): {
   user: User;
   accessToken: string;
@@ -314,7 +329,16 @@ export function pilotOtpVerify(
     store.otpChallenges.set(ch.id, { ...ch, status: "EXPIRED" });
     throw new Error("otp_expired");
   }
-  if (String(params.code ?? "") !== ch.code) throw new Error("otp_incorrect");
+  const submittedCode = String(params.code ?? "").trim();
+  if (submittedCode !== ch.code) {
+    // Only a six-digit code counts as a try, so a stray paste or an empty box doesn't use one up.
+    // Ending the challenge means further guesses need new codes, and new codes are rate-limited.
+    if (/^\d{6}$/.test(submittedCode) && otp.recordWrongCode(ch.id) >= otp.wrongCodeLimit) {
+      store.otpChallenges.set(ch.id, { ...ch, status: "EXPIRED" });
+      throw new Error("otp_attempts_exceeded");
+    }
+    throw new Error("otp_incorrect");
+  }
 
   const sessionTtlMs = Number(
     process.env.SESSION_TTL_MS ?? `${30 * 24 * 60 * 60 * 1000}`,

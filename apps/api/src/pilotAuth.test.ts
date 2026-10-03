@@ -1,7 +1,7 @@
 import { registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
+import { createOtpDependencies, pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
 import { createStore } from "./store.ts";
 import { publishAnchorTripAsPilotDriver } from "./services.ts";
 
@@ -29,7 +29,8 @@ test("OTP + bearer auth: verify issues token usable for protected pilot routes",
     vehicleCapacityKg: 5000,
   });
 
-  const start = pilotOtpStart(store, { phone: onboard.user.phone });
+  const otp = createOtpDependencies();
+  const start = pilotOtpStart(store, { phone: onboard.user.phone }, otp);
   assert.ok(start.challengeId);
   assert.match(start.debugCode!, /^\d{6}$/);
 
@@ -37,7 +38,7 @@ test("OTP + bearer auth: verify issues token usable for protected pilot routes",
     phone: onboard.user.phone,
     challengeId: start.challengeId,
     code: start.debugCode!,
-  });
+  }, otp);
   assert.ok(verified.accessToken);
 
   const authed = verifyBearer(store, verified.accessToken);

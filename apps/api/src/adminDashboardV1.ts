@@ -64,6 +64,7 @@ function clearProtected() {
 const otpErrors = {
   otp_expired: "This code has expired. Request a new code and try again.",
   otp_incorrect: "That code is incorrect. Check it and try again.",
+  otp_attempts_exceeded: "That code was entered wrong too many times. Request a new code.",
   otp_challenge_invalid: "This code request is no longer valid. Request a new code.",
   otp_challenge_not_found: "This code request is no longer valid. Request a new code.",
   otp_challenge_mismatch: "This code request is no longer valid. Request a new code.",

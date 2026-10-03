@@ -24,6 +24,9 @@ void main() {
         );
     expect(formatApiError(error('otp_expired')), contains('expired'));
     expect(formatApiError(error('otp_incorrect')), contains('incorrect'));
+    expect(formatApiError(error('otp_attempts_exceeded')),
+        contains('Request a new code'));
+    expect(formatApiError(error('invalid_phone')), contains('6, 7, 8 or 9'));
     expect(formatApiError(error('otp_challenge_invalid')),
         contains('Request a new code'));
     expect(formatApiError(error('otp_challenge_not_found')),

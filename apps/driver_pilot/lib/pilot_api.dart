@@ -140,6 +140,10 @@ String formatApiError(Object e) {
       "unauthorized": "Your session has expired. Please sign in again.",
       "otp_expired": "This code has expired. Request a new code and try again.",
       "otp_incorrect": "That code is incorrect. Check it and try again.",
+      "otp_attempts_exceeded":
+          "That code was entered wrong too many times. Request a new code.",
+      "invalid_phone":
+          "Enter a 10-digit mobile number starting with 6, 7, 8 or 9.",
       "otp_challenge_invalid":
           "This code request is no longer valid. Request a new code.",
       "otp_challenge_not_found":
