@@ -246,3 +246,76 @@ model IntegrationState {
   key String @id
   data Json
 }
+
+// Communication records intentionally use scalar references rather than
+// cascading relations to snapshot-rewritten shipment and identity tables.
+model ConversationRow {
+  id                 String @id
+  shipmentId         String @unique
+  createdAtUtcMs     BigInt
+  updatedAtUtcMs     BigInt
+  terminalAtUtcMs    BigInt?
+  replyUntilUtcMs    BigInt?
+  replyPolicyVersion String?
+}
+
+model ConversationMessageRow {
+  id              String @id
+  conversationId  String
+  sequence        BigInt
+  senderUserId    String
+  senderOrgId     String
+  body            String
+  clientRequestId String
+  createdAtUtcMs  BigInt
+  @@unique([conversationId, senderUserId, senderOrgId, clientRequestId])
+  @@unique([conversationId, sequence])
+  @@index([conversationId, sequence])
+  @@index([conversationId, createdAtUtcMs, id])
+}
+
+model NotificationRow {
+  id                String  @id
+  recipientSequence BigInt  @unique @default(autoincrement())
+  eventId           String
+  eventKey          String
+  recipientUserId   String
+  recipientOrgId    String
+  shipmentId        String
+  conversationId    String?
+  messageId          String?
+  createdAtUtcMs     BigInt
+  readAtUtcMs        BigInt?
+  data               Json?
+
+  @@unique([eventId, recipientUserId, recipientOrgId])
+  @@index([recipientUserId, recipientOrgId, createdAtUtcMs])
+  @@index([conversationId, recipientUserId, recipientOrgId, createdAtUtcMs, id])
+  @@index([recipientUserId, recipientOrgId, shipmentId, createdAtUtcMs, id])
+  @@index([recipientUserId, recipientOrgId, shipmentId, recipientSequence])
+}
+
+model ConversationReadStateRow {
+  conversationId   String
+  userId           String
+  orgId            String
+  lastReadSequence BigInt
+  updatedAtUtcMs   BigInt
+  @@id([conversationId, userId, orgId])
+}
+
+model ConversationEscalationGrantRow {
+  id              String @id
+  conversationId  String
+  requesterUserId String
+  approverUserId  String?
+  granteeUserId   String
+  reason          String
+  canRead         Boolean
+  canSend         Boolean
+  createdAtUtcMs  BigInt
+  expiresAtUtcMs  BigInt
+  approvedAtUtcMs BigInt?
+  revokedAtUtcMs  BigInt?
+  @@index([conversationId, granteeUserId, expiresAtUtcMs])
+}

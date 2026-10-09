@@ -35,6 +35,22 @@ test("owner/admin subroles retain only their intended extra rights", () => {
   for (const subrole of ["DRIVER", "DISPATCHER"]) assert.equal(effectivePermissions(["CARRIER"], subrole).includes("bank_account.create_token"), false);
   assert.equal(effectivePermissions(["CARRIER"], "DISPATCHER").includes("organization.member.invite"), true);
 });
+test("communication permissions stay separate by role, with OPS access grant-gated", () => {
+  for (const role of ["SHIPPER", "CARRIER"] as Role[]) {
+    const permissions = effectivePermissions([role], role === "SHIPPER" ? "CUSTOMER_ADMIN" : "OWNER");
+    assert.ok(permissions.includes("notification.read"));
+    assert.ok(permissions.includes("conversation.read"));
+    assert.ok(permissions.includes("conversation.send"));
+    assert.ok(permissions.includes("conversation.escalation_request"));
+  }
+  assert.equal(effectivePermissions(["OPS"], "OPS").includes("conversation.read"), false);
+  assert.equal(effectivePermissions(["OPS"], "OPS").includes("conversation.support_read"), true);
+  assert.equal(effectivePermissions(["ADMIN"], "ADMIN").includes("conversation.escalation_approve"), true);
+  for (const role of ["FINANCE", "ADMIN"] as Role[]) {
+    assert.equal(effectivePermissions([role], role).includes("conversation.read"), false);
+    assert.equal(effectivePermissions([role], role).includes("conversation.send"), false);
+  }
+});
 test("48-hour hold boundary and invalid dates", () => {
   const s = { status: "PENDING_RELEASE", podAtUtcMs: 1000 };
   const end = 1000 + 48 * 3600000;

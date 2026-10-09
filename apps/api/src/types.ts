@@ -24,6 +24,66 @@ export type ShipmentStatus =
   | "DELIVERED"
   | "FAILED_CARRIER_REFUNDED";
 
+export type Conversation = {
+  id: string;
+  shipmentId: string;
+  createdAtUtcMs: number;
+  updatedAtUtcMs: number;
+  terminalAtUtcMs?: number;
+  replyUntilUtcMs?: number;
+  replyPolicyVersion?: string;
+};
+
+export type ConversationMessage = {
+  id: string;
+  conversationId: string;
+  sequence: number;
+  senderUserId: string;
+  senderOrgId: string;
+  body: string;
+  clientRequestId: string;
+  createdAtUtcMs: number;
+};
+
+export type Notification = {
+  id: string;
+  /** Global, monotonic single-writer inbox watermark used for stable snapshots/read acknowledgements. */
+  recipientSequence: number;
+  eventId: string;
+  eventKey: string;
+  recipientUserId: string;
+  recipientOrgId: string;
+  shipmentId: string;
+  conversationId?: string;
+  messageId?: string;
+  createdAtUtcMs: number;
+  readAtUtcMs?: number;
+  data?: Record<string, string | number | boolean | null>;
+};
+
+export type ConversationReadState = {
+  conversationId: string;
+  userId: string;
+  orgId: string;
+  lastReadSequence: number;
+  updatedAtUtcMs: number;
+};
+
+export type ConversationEscalationGrant = {
+  id: string;
+  conversationId: string;
+  requesterUserId: string;
+  approverUserId?: string;
+  granteeUserId: string;
+  reason: string;
+  canRead: boolean;
+  canSend: boolean;
+  createdAtUtcMs: number;
+  expiresAtUtcMs: number;
+  approvedAtUtcMs?: number;
+  revokedAtUtcMs?: number;
+};
+
 export type LedgerLineStatus = "ACCRUED" | "PAID";
 
 export type PaymentStatus = "CREATED" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "REFUNDED";
@@ -343,4 +403,3 @@ export type IntegrationWebhookDelivery = {
   createdAtUtcMs: number;
   updatedAtUtcMs: number;
 };
-

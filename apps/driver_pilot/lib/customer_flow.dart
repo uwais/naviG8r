@@ -14,6 +14,7 @@ import "customer_session.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
 import "pilot_api.dart";
+import "notification_center.dart";
 
 String? lastBookedShipmentId;
 
@@ -137,6 +138,9 @@ class CustomerScaffold extends StatelessWidget {
                 ],
               ),
               actions: [
+                if (CustomerSession.isSignedIn &&
+                    AuthorizationSession.can("notification.read"))
+                  const NotificationBell(),
                 if (CustomerSession.isSignedIn)
                   IconButton(
                     tooltip: "Sign out",
@@ -2407,6 +2411,14 @@ class _CustomerShipmentDetailScreenState
                     ShipmentPaymentStatus(
                         shipment: shipment, onAccepted: () => _load()),
                     _ShipmentTimeline(steps: steps),
+                    const SizedBox(height: 12),
+                    if (AuthorizationSession.can("conversation.read"))
+                      FilledButton.icon(
+                        onPressed: () => openShipmentConversation(
+                            context, widget.shipmentId),
+                        icon: const Icon(Icons.chat_bubble_outline),
+                        label: const Text("Shipment conversation"),
+                      ),
                     const SizedBox(height: 12),
                     if (_canTrack)
                       Row(

@@ -5,6 +5,10 @@ import { createStore, type Store } from "./store.ts";
 import type {
   AnchorTrip,
   AuthSession,
+  Conversation,
+  ConversationEscalationGrant,
+  ConversationMessage,
+  ConversationReadState,
   Carrier,
   DriverProfile,
   IntegrationApiKey,
@@ -14,6 +18,7 @@ import type {
   IntegrationWebhookDelivery,
   LedgerLine,
   Membership,
+  Notification,
   Organization,
   OtpChallenge,
   PayoutBatch,
@@ -83,10 +88,25 @@ type StoreJsonV4 = Omit<StoreJsonV3, "version"> & {
 };
 
 type StoreJsonV5 = Omit<StoreJsonV4, "version"> & { version: 5; membershipRoles: [string, Role[]][]; auditEvents: AuditEvent[] };
+type LegacyNotification = Omit<Notification, "recipientSequence"> & { recipientSequence?: number };
+type StoreJsonV6 = Omit<StoreJsonV5, "version"> & {
+  version: 6;
+  conversations: Conversation[];
+  conversationMessages: ConversationMessage[];
+  conversationReadStates: ConversationReadState[];
+  notifications: LegacyNotification[];
+  conversationEscalationGrants: ConversationEscalationGrant[];
+};
+type StoreJsonV7 = Omit<StoreJsonV6, "version" | "notifications"> & {
+  version: 7;
+  notificationSequence: number;
+  notifications: Notification[];
+};
 
-export function dumpStore(store: Store): StoreJsonV5 {
+export function dumpStore(store: Store): StoreJsonV7 {
   return {
-    version: 5,
+    version: 7,
+    notificationSequence: store.notificationSequence,
     membershipRoles: [...store.membershipRoles],
     auditEvents: [...store.auditEvents.values()],
     carriers: [...store.carriers.values()],
@@ -107,6 +127,11 @@ export function dumpStore(store: Store): StoreJsonV5 {
     integrationIdempotency: [...store.integrationIdempotency.values()],
     integrationEvents: [...store.integrationEvents.values()],
     integrationWebhookDeliveries: [...store.integrationWebhookDeliveries.values()],
+    conversations: [...store.conversations.values()],
+    conversationMessages: [...store.conversationMessages.values()],
+    conversationReadStates: [...store.conversationReadStates.values()],
+    notifications: [...store.notifications.values()],
+    conversationEscalationGrants: [...store.conversationEscalationGrants.values()],
   };
 }
 
@@ -224,10 +249,35 @@ function hydrateStoreV5(json: StoreJsonV5): Store {
   return store;
 }
 
+function hydrateStoreV6(json: StoreJsonV6): Store {
+  const store = hydrateStoreV5({ ...json, version: 5 });
+  for (const row of json.conversations ?? []) store.conversations.set(row.id, row);
+  for (const row of json.conversationMessages ?? []) store.conversationMessages.set(row.id, row);
+  for (const row of json.conversationReadStates ?? []) store.conversationReadStates.set(`${row.conversationId}:${row.userId}:${row.orgId}`, row);
+  const rows = [...(json.notifications ?? [])].sort((a, b) => a.createdAtUtcMs - b.createdAtUtcMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  for (const row of rows) {
+    const recipientSequence = Number.isSafeInteger(row.recipientSequence) && row.recipientSequence! > 0
+      ? row.recipientSequence!
+      : ++store.notificationSequence;
+    store.notificationSequence = Math.max(store.notificationSequence, recipientSequence);
+    store.notifications.set(row.id, { ...row, recipientSequence });
+  }
+  for (const row of json.conversationEscalationGrants ?? []) store.conversationEscalationGrants.set(row.id, row);
+  return store;
+}
+
+function hydrateStoreV7(json: StoreJsonV7): Store {
+  const store = hydrateStoreV6({ ...json, version: 6 });
+  store.notificationSequence = Math.max(Number(json.notificationSequence) || 0, store.notificationSequence);
+  return store;
+}
+
 export function loadStoreFromDisk(dataFilePath: string): Store {
   try {
     const raw = fs.readFileSync(dataFilePath, "utf8");
-    const parsed = JSON.parse(raw) as StoreJsonV1 | StoreJsonV2 | StoreJsonV3 | StoreJsonV4 | StoreJsonV5;
+    const parsed = JSON.parse(raw) as StoreJsonV1 | StoreJsonV2 | StoreJsonV3 | StoreJsonV4 | StoreJsonV5 | StoreJsonV6 | StoreJsonV7;
+    if (parsed?.version === 7) return hydrateStoreV7(parsed);
+    if (parsed?.version === 6) return hydrateStoreV6(parsed);
     if (parsed?.version === 1) return migrateV1ToStore(parsed);
     if (parsed?.version === 2) return migrateV2JsonToStore(parsed);
     if (parsed?.version === 3) return hydrateStoreV3(parsed);
