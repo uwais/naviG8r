@@ -149,7 +149,10 @@ void main() {
             kycStatus: 'REJECTED', owner: owner, rejectionReasonCode: code);
         await showBanner(tester);
         final which = '$code, owner: $owner';
-        expect(bannerMessage(tester), contains('Reason: $words'),
+        expect(
+            bannerMessage(tester),
+            startsWith(
+                'NaviG8r operations did not approve this carrier. $words '),
             reason: which);
         expect(bannerMessage(tester), isNot(contains('again')), reason: which);
         expect(find.widgetWithText(FilledButton, 'Submit bank details'),
@@ -194,7 +197,11 @@ void main() {
     for (final code in <Object>['SOMETHING_NEW', 42]) {
       signInCarrier(kycStatus: 'REJECTED', owner: true, rejectionReasonCode: code);
       await showBanner(tester);
-      expect(bannerMessage(tester), isNot(contains('Reason:')), reason: '$code');
+      expect(
+          bannerMessage(tester),
+          "NaviG8r operations did not approve this carrier. You can submit your bank details for another review. "
+          "While this carrier is not approved, you can't accept shipments or start trips.",
+          reason: '$code');
       expect(find.widgetWithText(FilledButton, 'Submit bank details'),
           findsOneWidget,
           reason: '$code');

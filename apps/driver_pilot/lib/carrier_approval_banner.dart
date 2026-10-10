@@ -51,7 +51,7 @@ String? rejectionReasonInWords(String? code) => switch (code) {
       DriverSession.approvalTakenBack
           ? "NaviG8r operations took back this carrier's approval."
           : "NaviG8r operations did not approve this carrier.",
-      if (reason != null) "Reason: $reason",
+      if (reason != null) reason,
       nextStep,
       "While this carrier is not approved, you can't accept shipments or start trips.",
     ].join(" "),
