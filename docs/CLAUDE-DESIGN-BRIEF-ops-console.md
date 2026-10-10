@@ -262,6 +262,10 @@ Re-screened 2026-09-30 after the team's review (reason codes picked from a list 
   Open, from finding 8 of the first screen: the "someone acted first" message is not built, because the
   server overwrites a review without detecting a conflict. Needs server work, or Rishabh accepting it for
   the beta; not accepted here.
+Re-screened 2026-10-10 when rejection reasons began reaching carriers: PASS WITH CHANGES. 9 data: the four
+  rejection reasons are now also shown, in plain words, to the rejected carrier's owner, dispatchers and
+  drivers; this page says so under each reject list and in the review-by-ID caption. Codes outside the
+  four never reach carriers.
 Accepted risks: none
 ```
 

@@ -68,7 +68,7 @@ const markup = `
     <section id="byId" class="card" aria-labelledby="byIdTitle">
       <div class="head"><h2 id="byIdTitle">Review any carrier by ID</h2></div>
       <form id="byIdForm" class="body" novalidate autocomplete="off">
-        <p class="caption">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history.</p>
+        <p class="caption">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history. If you reject, the carrier's owner, dispatchers and drivers see your reason in their app, in plain words.</p>
         <div id="byIdOff"></div>
         <label class="stack"><span class="field-label">Carrier ID</span><input id="byIdCarrier" class="field mono" autocomplete="off" spellcheck="false"></label>
         <fieldset><legend class="field-label">Decision</legend>
@@ -306,12 +306,13 @@ function carrierCard(carrier) {
   if (own) for (const button of [approve, reject]) { button.disabled = true; button.setAttribute('aria-describedby', ownId); }
   const choose = decision => {
     const approving = decision === 'APPROVED';
-    const select = element('select', { class: 'field', 'aria-labelledby': cardId + '-reason' });
+    const select = element('select', { class: 'field', 'aria-labelledby': cardId + '-reason', 'aria-describedby': approving ? undefined : cardId + '-reason-note' });
     reasonChoices(select, reasons[decision]);
     const confirm = element('button', { class: 'btn ' + (approving ? 'btn-primary' : 'btn-danger'), type: 'button', text: approving ? 'Confirm approval' : 'Confirm rejection' });
     const back = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Cancel' });
     picker.replaceChildren(
-      element('label', { class: 'stack reason' }, element('span', { id: cardId + '-reason', class: 'field-label' }, approving ? 'Reason for approving' : 'Reason for rejecting', element('span', { class: 'visually-hidden', text: ' ' + name + ' (' + carrier.id + ')' })), select),
+      element('label', { class: 'stack reason' }, element('span', { id: cardId + '-reason', class: 'field-label' }, approving ? 'Reason for approving' : 'Reason for rejecting', element('span', { class: 'visually-hidden', text: ' ' + name + ' (' + carrier.id + ')' })), select,
+        !approving && element('span', { id: cardId + '-reason-note', class: 'caption', text: "The carrier's owner, dispatchers and drivers see this reason in their app, in plain words." })),
       confirm, back);
     actions.hidden = true;
     picker.hidden = false;
