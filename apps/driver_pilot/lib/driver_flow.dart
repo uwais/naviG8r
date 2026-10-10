@@ -2411,7 +2411,7 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            "Collect once before your first transfer. KYC may be required by your payment provider.",
+            "Delivery payments go to this account. Check the details before saving.",
             style: TextStyle(color: DriverTheme.muted),
           ),
           const SizedBox(height: 16),
@@ -2439,7 +2439,7 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text("Save and verify"),
+                : const Text("Save bank details"),
           ),
         ],
       ),

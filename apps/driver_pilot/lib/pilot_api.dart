@@ -126,6 +126,11 @@ String formatApiError(Object e) {
       final seconds = retry is num ? (retry / 1000).ceil() : 30;
       return "Too many code requests. Please wait ${seconds > 0 ? seconds : 1} seconds and try again.";
     }
+    // The server writes this error's detail for the carrier (which bank field is wrong, and how).
+    final detail = body is Map ? body["detail"] : null;
+    if (code == "invalid_payout_profile" && detail is String && detail.isNotEmpty) {
+      return detail;
+    }
     const messages = {
       "carrier_compliance_required":
           "Carrier compliance must be approved before accepting shipments or starting trips.",

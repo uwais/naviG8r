@@ -1050,7 +1050,7 @@ export async function pilotSubmitPayoutSetup(
   if (razorpayPayoutsEnabled()) {
     if (!accountNumber) {
       throw new ApiError("invalid_payout_profile", {
-        detail: "accountNumber is required to register a bank account for real payouts.",
+        detail: "Bank account number is required.",
       });
     }
     try {
@@ -1070,8 +1070,8 @@ export async function pilotSubmitPayoutSetup(
       auditAsUser(store, userId, "BANK_ACCOUNT_CHANGED", "organization", org.id);
       return {
         org: updated,
-        message:
-          "Bank account registered for payouts. Transfers run after POD, cooling-off, and batch settlement — not at signup.",
+        // "Paid weekly for completed deliveries." joins this once real payouts can go out (PR #139).
+        message: "Bank account added.",
       };
     } catch (err) {
       throw new ApiError("payout_setup_provider_error", {
@@ -1085,8 +1085,8 @@ export async function pilotSubmitPayoutSetup(
       auditAsUser(store, userId, "BANK_ACCOUNT_CHANGED", "organization", org.id);
   return {
     org: updated,
-    message:
-      "Payout details received for verification. Transfers run after POD, cooling-off, and batch settlement — not at signup.",
+    // Without real payouts the bank details are not kept and nothing is paid, so this promises neither.
+    message: "Bank details received.",
   };
 }
 
