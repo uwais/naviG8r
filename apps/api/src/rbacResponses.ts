@@ -17,7 +17,7 @@ export function serializeResponse(value: unknown): unknown {
   } else if ("providerRef" in v && "amountPaise" in v) {
     out = pick(v, ["id", "shipmentId", "status", "provider", "createdAtUtcMs", "updatedAtUtcMs", ...(p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r)) ? ["amountPaise", "razorpayOrderId"] : [])]);
   } else if ("kind" in v && "kycStatus" in v) {
-    out = pick(v, ["id", "kind", "displayName", "kycStatus", "createdAtUtcMs", "inactiveAtUtcMs"]);
+    out = pick(v, ["id", "kind", "displayName", "kycStatus", "createdAtUtcMs", "inactiveAtUtcMs", "rejectionReasonCode", "approvalTakenBack"]);
   } else if ("originCity" in v && "reservedKg" in v) {
     out = pick(v, ["id", "carrierId", "carrierDisplayName", "originCity", "destCity", "origin", "destination", "windowStart", "windowEnd", "vehicleClass", "capacityKg", "reservedKg", "status", "createdAtUtcMs", "startedAtUtcMs", "completedAtUtcMs"]);
   } else if ("netToCarrierPaise" in v && "shipmentId" in v) {
