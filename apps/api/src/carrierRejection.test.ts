@@ -8,8 +8,8 @@ import { createStore } from "./store.ts";
 async function rejectionFixture(t: TestContext) {
   const f = await httpFixture(t);
   const carrier = f.carrierA.org.id;
-  // The fixture approves both carriers; start this one where a new carrier waits, so a rejection takes back nothing.
-  f.store.organizations.set(carrier, { ...f.store.organizations.get(carrier)!, kycStatus: "SUBMITTED" });
+  // The fixture approves both carriers; start this one as a new carrier with no bank details, so a rejection takes back nothing.
+  f.store.organizations.set(carrier, { ...f.store.organizations.get(carrier)!, kycStatus: "NOT_STARTED" });
   async function reject(code: string, org = carrier) {
     const out = await f.request(`/v1/organizations/${org}/kyc`, "POST", { status: "REJECTED" }, f.tokens.ops, { "x-reason-code": code });
     assert.equal(out.status, 200);
@@ -58,6 +58,15 @@ test("the bank reason reaches only a carrier that saved bank details before the 
   assert.equal((await seenBy(f.tokens.carrierA)).rejectionReasonCode, "BANK_DETAILS_MISMATCH");
 });
 
+test("a carrier waiting for review counts as having saved bank details, even from before saves were logged", async t => {
+  const { f, carrier, reject, seenBy } = await rejectionFixture(t);
+  // Saves before 16 Sep set SUBMITTED but wrote no BANK_ACCOUNT_CHANGED event.
+  f.store.organizations.set(carrier, { ...f.store.organizations.get(carrier)!, kycStatus: "SUBMITTED" });
+  await reject("DOCUMENTS_MISSING");
+  await reject("BANK_DETAILS_MISMATCH");
+  assert.equal((await seenBy(f.tokens.carrierA)).rejectionReasonCode, "BANK_DETAILS_MISMATCH");
+});
+
 test("the reason goes once the carrier is waiting for review again, or approved", async t => {
   const { f, carrier, reject, saveBankDetails, seenBy } = await rejectionFixture(t);
   await reject("DOCUMENTS_MISSING");
@@ -77,6 +86,16 @@ test("taking back an approval says so, and 'Approval taken back' is not shown as
   const org = await seenBy(f.tokens.carrierB, approvedCarrier);
   assert.equal(org.approvalTakenBack, true);
   assert.equal(org.rejectionReasonCode, undefined);
+});
+
+test("a taken-back approval stays called that when ops reject the carrier again with a reason", async t => {
+  const { f, reject, seenBy } = await rejectionFixture(t);
+  const approvedCarrier = f.carrierB.org.id;
+  await reject("APPROVAL_REVOKED", approvedCarrier);
+  await reject("DUPLICATE_ACCOUNT", approvedCarrier);
+  const org = await seenBy(f.tokens.carrierB, approvedCarrier);
+  assert.equal(org.approvalTakenBack, true);
+  assert.equal(org.rejectionReasonCode, "DUPLICATE_ACCOUNT");
 });
 
 test("a rejected shipper organization gets no carrier reason", async t => {

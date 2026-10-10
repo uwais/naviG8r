@@ -264,8 +264,9 @@ Re-screened 2026-09-30 after the team's review (reason codes picked from a list 
   the beta; not accepted here.
 Re-screened 2026-10-10 when rejection reasons began reaching carriers: PASS WITH CHANGES. 9 data: the four
   rejection reasons are now also shown, in plain words, to the rejected carrier's owner, dispatchers and
-  drivers; this page says so under each reject list and in the review-by-ID caption. Codes outside the
-  four never reach carriers.
+  drivers; every ops page says so where the reason is chosen. The bank-name reason reaches only a carrier
+  that has saved bank details, and codes outside the four never reach carriers. Rishabh's decision, not a
+  screen fix: drivers and dispatchers see the bank reason too (the screen suggested hiding it from them).
 Accepted risks: none
 ```
 

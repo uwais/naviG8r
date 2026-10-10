@@ -68,7 +68,7 @@ const markup = `
     <section id="byId" class="card" aria-labelledby="byIdTitle">
       <div class="head"><h2 id="byIdTitle">Review any carrier by ID</h2></div>
       <form id="byIdForm" class="body" novalidate autocomplete="off">
-        <p class="caption">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history. If you reject, the carrier's owner, dispatchers and drivers see your reason in their app, in plain words.</p>
+        <p class="caption">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history. If you reject, the carrier's owner, dispatchers and drivers see your reason in their app, in plain words; the bank-name reason only if the carrier has saved bank details.</p>
         <div id="byIdOff"></div>
         <label class="stack"><span class="field-label">Carrier ID</span><input id="byIdCarrier" class="field mono" autocomplete="off" spellcheck="false"></label>
         <fieldset><legend class="field-label">Decision</legend>
@@ -312,7 +312,7 @@ function carrierCard(carrier) {
     const back = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Cancel' });
     picker.replaceChildren(
       element('label', { class: 'stack reason' }, element('span', { id: cardId + '-reason', class: 'field-label' }, approving ? 'Reason for approving' : 'Reason for rejecting', element('span', { class: 'visually-hidden', text: ' ' + name + ' (' + carrier.id + ')' })), select,
-        !approving && element('span', { id: cardId + '-reason-note', class: 'caption', text: "The carrier's owner, dispatchers and drivers see this reason in their app, in plain words." })),
+        !approving && element('span', { id: cardId + '-reason-note', class: 'caption', text: "The carrier's owner, dispatchers and drivers see this reason in their app, in plain words; the bank-name reason only if the carrier has saved bank details." })),
       confirm, back);
     actions.hidden = true;
     picker.hidden = false;
