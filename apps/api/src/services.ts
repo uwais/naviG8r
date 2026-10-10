@@ -1085,7 +1085,7 @@ export async function pilotSubmitPayoutSetup(
       auditAsUser(store, userId, "BANK_ACCOUNT_CHANGED", "organization", org.id);
   return {
     org: updated,
-    // Without real payouts the bank details are not kept and nothing is paid, so this promises neither.
+    // Without real payouts this call keeps no bank details and moves no money, so the reply promises neither.
     message: "Bank details received.",
   };
 }

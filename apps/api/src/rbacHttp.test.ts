@@ -98,3 +98,11 @@ test("HTTP ops review queue lists unapproved carriers only, to ops only", async 
   f.store.organizations.get(f.carrierA.org.id)!.inactiveAtUtcMs = 1;
   assert.deepEqual(await ids(), []);
 });
+
+test("HTTP a bank details format error carries the sentence the app shows", async t => {
+  const f = await httpFixture(t);
+  const bad = await f.request("/v1/pilot/carrier/payout-setup", "POST", { orgId: f.carrierA.org.id, accountHolderName: "Ravi Kumar", ifsc: "HDFC1001234" }, f.tokens.carrierA);
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.error, "invalid_payout_profile");
+  assert.match(bad.body.detail, /^IFSC must be 11 characters/);
+});

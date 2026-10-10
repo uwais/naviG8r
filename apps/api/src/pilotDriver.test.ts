@@ -268,7 +268,7 @@ test("carrier pilot can list org shipments, mark POD visibility, and submit payo
     ifsc: "HDFC0001234",
   });
   assert.equal(setup.org.kycStatus, "SUBMITTED");
-  assert.equal(setup.message, "Bank details received."); // keeps nothing, pays nothing, so promises neither
+  assert.equal(setup.message, "Bank details received."); // this call keeps no bank details and moves no money
 
   const summary = pilotCarrierEarningsSummary(store, onboard.user.id, onboard.org.id);
   assert.equal(summary.bookedCount, 1);
