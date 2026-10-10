@@ -6,6 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  DioException payoutSetupRefusal(Map<String, dynamic> body) {
+    final options = RequestOptions(path: '/v1/pilot/carrier/payout-setup');
+    return DioException(
+      requestOptions: options,
+      response: Response(requestOptions: options, statusCode: 400, data: body),
+    );
+  }
+
   setUp(() {
     api = Api('http://test');
     AuthorizationSession.clear();
@@ -17,7 +25,7 @@ void main() {
   });
 
   testWidgets(
-      'the bank details screen shows the approved button and line, and no word of a check',
+      'the bank details screen has the agreed button and line, and no verify, KYC or "real" wording',
       (tester) async {
     await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: DriverPayoutSetupScreen())));
@@ -29,48 +37,30 @@ void main() {
         findsOneWidget);
     expect(find.textContaining(RegExp('verif|kyc', caseSensitive: false)),
         findsNothing);
-    // Production always needs the number, and "real" exposed the test servers.
-    expect(find.text('Required to receive real transfers'), findsNothing);
+    // Production always needs the account number, and "real" exposed the test servers.
+    expect(find.textContaining(RegExp(r'\breal\b', caseSensitive: false)),
+        findsNothing);
   });
 
   test('a bank details format error shows the server sentence unchanged', () {
     const sentence =
         'IFSC must be 11 characters: four letters for the bank, then 0, then six letters or digits for the branch. Example: HDFC0000123.';
-    final options =
-        RequestOptions(path: '/v1/pilot/carrier/payout-setup');
-    final error = DioException(
-      requestOptions: options,
-      response: Response(
-        requestOptions: options,
-        statusCode: 400,
-        data: {
-          'error': 'invalid_payout_profile',
-          'detail': sentence,
-          'field': 'ifsc'
-        },
-      ),
-    );
+    final error = payoutSetupRefusal(
+        {'error': 'invalid_payout_profile', 'detail': sentence, 'field': 'ifsc'});
 
     expect(formatApiError(error), sentence);
   });
 
-  test('only a bank details error with a sentence shows the server sentence',
+  test(
+      'a bank details error without a sentence falls back to the raw reply, and the app keeps its own sentences',
       () {
-    DioException error(Map<String, dynamic> data) {
-      final options =
-          RequestOptions(path: '/v1/pilot/carrier/payout-setup');
-      return DioException(
-        requestOptions: options,
-        response:
-            Response(requestOptions: options, statusCode: 400, data: data),
-      );
-    }
-
-    // No sentence from the server: the general wording still applies.
-    expect(formatApiError(error({'error': 'invalid_payout_profile'})),
+    // No sentence from the server: the raw reply shows, as before this change.
+    expect(
+        formatApiError(payoutSetupRefusal({'error': 'invalid_payout_profile'})),
         startsWith('HTTP 400'));
-    // Other errors keep the app's own sentence, whatever detail they carry.
-    expect(formatApiError(error({'error': 'forbidden', 'detail': 'x'})),
-        contains('do not have permission'));
+    // Errors on the app's own list keep its sentence, whatever detail they carry.
+    expect(
+        formatApiError(payoutSetupRefusal({'error': 'forbidden', 'detail': 'x'})),
+        'You do not have permission for this action in the selected organization.');
   });
 }
