@@ -80,7 +80,7 @@ export function validatePayoutBankDetails(input: {
       ok: false,
       field: "accountHolderName",
       detail:
-        "Account holder name must be 3 to 50 characters and use only letters, numbers, spaces and ' - _ / ( ) , . &",
+        "Account holder name must be 3 to 50 characters, using English letters (A to Z), numbers, spaces and ' - _ / ( ) , . &",
     };
   }
   if (!CONTAINS_A_LETTER.test(accountHolderName)) {
@@ -105,7 +105,7 @@ export function validatePayoutBankDetails(input: {
     return {
       ok: false,
       field: "accountNumber",
-      detail: "Account number must be 5 to 35 letters or digits, with no spaces or punctuation.",
+      detail: "Bank account number must be 5 to 35 letters or digits, with no spaces or punctuation.",
     };
   }
 

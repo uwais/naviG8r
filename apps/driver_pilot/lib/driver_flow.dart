@@ -2426,10 +2426,8 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
           TextField(
             controller: _accountNumber,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: "Bank account number",
-              helperText: "Required to receive real transfers",
-            ),
+            decoration:
+                const InputDecoration(labelText: "Bank account number"),
           ),
           const Spacer(),
           FilledButton(

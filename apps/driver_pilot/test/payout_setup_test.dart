@@ -29,6 +29,8 @@ void main() {
         findsOneWidget);
     expect(find.textContaining(RegExp('verif|kyc', caseSensitive: false)),
         findsNothing);
+    // Production always needs the number, and "real" exposed the test servers.
+    expect(find.text('Required to receive real transfers'), findsNothing);
   });
 
   test('a bank details format error shows the server sentence unchanged', () {
