@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -46,6 +47,7 @@ abstract final class AuthorizationSession {
   }
 
   static void clear() {
+    unawaited(clearCommunicationDrafts());
     _generation++;
     _refreshing = null;
     user = null;

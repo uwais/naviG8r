@@ -69,6 +69,14 @@ import { verifyRazorpayWebhookSignature, razorpayPaymentsEnabled, publicRazorpay
 import { payoutsMode } from "./razorpayPayouts.ts";
 import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
 import { handleIntegrationPortalRoutes, handleIntegrationRoutes } from "./integrationHttp.ts";
+import { captureTerminalConversationWindows, captureWorkflowNotifications, CommunicationError, decideConversationEscalation, listConversationMessages, listConversationTimeline, listGroupedNotifications, listNotifications, markConversationRead, markNotificationRead, requestConversationEscalation, revokeConversationEscalation, sendConversationMessage, workflowSnapshot, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
+
+class CommunicationPersistenceError extends Error {}
+
+function restoreMap<K, V>(target: Map<K, V>, saved: ReadonlyMap<K, V>): void {
+  target.clear();
+  for (const [key, value] of saved) target.set(key, value);
+}
 
 async function readRawBody(req: http.IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
@@ -201,7 +209,10 @@ function requireBearerUserId(
   }
 }
 
-export async function createApp(): Promise<{
+export async function createApp(options: {
+  /** Test hook for simulating a failed communication persistence operation. */
+  beforeCommunicationPersist?: () => Promise<void> | void;
+} = {}): Promise<{
   server: http.Server;
   store: ReturnType<typeof loadStoreFromDisk>;
   persist: () => Promise<void>;
@@ -212,6 +223,9 @@ export async function createApp(): Promise<{
 
   let store: ReturnType<typeof loadStoreFromDisk>;
   let persist: () => Promise<void>;
+  let timelinePageReader: TimelinePageReader | undefined;
+  let groupedInboxPageReader: GroupedInboxPageReader | undefined;
+  let eventSnapshot: ReturnType<typeof workflowSnapshot>;
 
   if (process.env.PERSISTENCE === "DB") {
     if (!process.env.DATABASE_URL?.trim()) {
@@ -219,15 +233,22 @@ export async function createApp(): Promise<{
     }
     const db = await import("./persistenceDb.ts");
     store = await db.loadStoreFromDatabase();
+    timelinePageReader = db.readTimelinePageFromDatabase;
+    groupedInboxPageReader = db.readGroupedInboxPageFromDatabase;
     persist = async () => {
+      captureTerminalConversationWindows(store);
+      captureWorkflowNotifications(store, eventSnapshot);
       await db.saveStoreToDatabase(store);
     };
   } else {
     store = loadStoreFromDisk(dataFilePath!);
     persist = async () => {
+      captureTerminalConversationWindows(store);
+      captureWorkflowNotifications(store, eventSnapshot);
       saveStoreToDisk(dataFilePath!, store);
     };
   }
+  eventSnapshot = workflowSnapshot(store);
 
   // Requests are serialized below, so failed persistence can safely restore OTP state.
   async function persistOtp<T>(operation: () => T): Promise<T> {
@@ -252,6 +273,48 @@ export async function createApp(): Promise<{
     }
     if (expiryError) throw expiryError;
     return result!;
+  }
+
+  async function persistCommunication<T>(operation: () => T | Promise<T>): Promise<T> {
+    const conversations = new Map(store.conversations);
+    const conversationMessages = new Map(store.conversationMessages);
+    const conversationReadStates = new Map(store.conversationReadStates);
+    const conversationEscalationGrants = new Map(store.conversationEscalationGrants);
+    const notifications = new Map(store.notifications);
+    const auditEvents = new Map(store.auditEvents);
+    const notificationSequence = store.notificationSequence;
+    const previousEventSnapshot = {
+      shipments: new Map(eventSnapshot.shipments),
+      trips: new Map(eventSnapshot.trips),
+      payments: new Map(eventSnapshot.payments),
+    };
+
+    let result: T;
+    try {
+      result = await operation();
+    } catch (error) {
+      restoreCommunicationState();
+      throw error;
+    }
+    try {
+      await options.beforeCommunicationPersist?.();
+      await persist();
+      return result;
+    } catch (error) {
+      restoreCommunicationState();
+      throw new CommunicationPersistenceError(error instanceof Error ? error.message : "communication_persistence_failed");
+    }
+
+    function restoreCommunicationState(): void {
+      restoreMap(store.conversations, conversations);
+      restoreMap(store.conversationMessages, conversationMessages);
+      restoreMap(store.conversationReadStates, conversationReadStates);
+      restoreMap(store.conversationEscalationGrants, conversationEscalationGrants);
+      restoreMap(store.notifications, notifications);
+      restoreMap(store.auditEvents, auditEvents);
+      store.notificationSequence = notificationSequence;
+      Object.assign(eventSnapshot, previousEventSnapshot);
+    }
   }
 
   let requests: Promise<unknown> = Promise.resolve();
@@ -286,6 +349,60 @@ export async function createApp(): Promise<{
           paymentProvider: razorpayPaymentsEnabled() ? "razorpay" : "mock",
           release: process.env.RELEASE_SHA ?? "unknown",
         });
+      }
+
+      if (method === "GET" && url.pathname === "/v1/notifications") {
+        const page = listNotifications(store, Number(url.searchParams.get("limit") ?? 30), url.searchParams.get("before") ?? undefined);
+        return json(res, 200, page);
+      }
+      if (method === "GET" && url.pathname === "/v1/notifications/shipments") {
+        const page = await listGroupedNotifications(store, Number(url.searchParams.get("limit") ?? 30), url.searchParams.get("before") ?? undefined, groupedInboxPageReader);
+        return json(res, 200, page);
+      }
+      if (method === "PATCH" && /^\/v1\/notifications\/[^/]+\/read$/.test(url.pathname)) {
+        const notificationId = url.pathname.split("/")[3] ?? "";
+        const notification = await persistCommunication(() => markNotificationRead(store, notificationId));
+        return json(res, 200, { notification });
+      }
+      const conversationRoute = /^\/v1\/shipments\/([^/]+)\/conversation\/messages$/.exec(url.pathname);
+      const timelineRoute = /^\/v1\/shipments\/([^/]+)\/conversation\/timeline$/.exec(url.pathname);
+      if (timelineRoute && method === "GET") {
+        const timeline = await persistCommunication(() => listConversationTimeline(store, timelineRoute[1]!, Number(url.searchParams.get("limit") ?? 50), url.searchParams.get("before") ?? undefined, timelinePageReader));
+        return json(res, 200, timeline);
+      }
+      const conversationReadRoute = /^\/v1\/shipments\/([^/]+)\/conversation\/read$/.exec(url.pathname);
+      if (conversationReadRoute && method === "POST") {
+        const body = await readJson(req);
+        const result = await persistCommunication(() => markConversationRead(store, conversationReadRoute[1]!, body?.readWatermark));
+        return json(res, 200, result);
+      }
+      if (conversationRoute && method === "GET") {
+        const messages = await persistCommunication(() => listConversationMessages(store, conversationRoute[1]!, Number(url.searchParams.get("limit") ?? 50), url.searchParams.has("beforeSequence") ? Number(url.searchParams.get("beforeSequence")) : undefined));
+        return json(res, 200, messages);
+      }
+      if (conversationRoute && method === "POST") {
+        const body = await readJson(req);
+        const result = await persistCommunication(() => sendConversationMessage(store, conversationRoute[1]!, { body: String(body?.body ?? ""), clientRequestId: String(body?.clientRequestId ?? "") }));
+        return json(res, result.created ? 201 : 200, result);
+      }
+      const escalationRoute = /^\/v1\/shipments\/([^/]+)\/conversation\/escalations$/.exec(url.pathname);
+      if (escalationRoute && method === "POST") {
+        const body = await readJson(req);
+        const grant = await persistCommunication(() => requestConversationEscalation(store, escalationRoute[1]!, {
+          granteeUserId: String(body?.granteeUserId ?? ""), reason: String(body?.reason ?? ""),
+          canRead: body?.canRead === true, canSend: body?.canSend === true, expiresAtUtcMs: Number(body?.expiresAtUtcMs),
+        }));
+        return json(res, 201, { grant });
+      }
+      const grantDecision = /^\/v1\/conversation-escalations\/([^/]+)\/(approve|deny)$/.exec(url.pathname);
+      if (grantDecision && method === "POST") {
+        const grant = await persistCommunication(() => decideConversationEscalation(store, grantDecision[1]!, grantDecision[2] === "approve"));
+        return json(res, 200, { grant });
+      }
+      const grantRevocation = /^\/v1\/conversation-escalations\/([^/]+)\/revoke$/.exec(url.pathname);
+      if (grantRevocation && method === "POST") {
+        const grant = await persistCommunication(() => revokeConversationEscalation(store, grantRevocation[1]!));
+        return json(res, 200, { grant });
       }
 
       if (method === "POST" && url.pathname === "/v1/payments/razorpay/webhook") {
@@ -1133,6 +1250,11 @@ export async function createApp(): Promise<{
         return json(res, 429, { error: "otp_rate_limited", retryAfterMs: e.retryAfterMs });
       }
       if (e instanceof AuthorizationError) return json(res, e.status, { error: e.message });
+      if (e instanceof CommunicationError) {
+        if (e.retryAfterMs != null) res.setHeader("retry-after", String(Math.max(1, Math.ceil(e.retryAfterMs / 1000))));
+        return json(res, e.status, { error: e.message, ...(e.retryAfterMs != null ? { retryAfterMs: e.retryAfterMs } : {}) });
+      }
+      if (e instanceof CommunicationPersistenceError) return json(res, 500, { error: "persistence_failed" });
       if (e instanceof ApiError) {
         const status = e.httpStatus ?? 400;
         return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);

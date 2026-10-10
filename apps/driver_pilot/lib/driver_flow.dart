@@ -15,6 +15,7 @@ import "google_geocoding.dart";
 import "location_editor.dart";
 import "maps_config.dart";
 import "pilot_api.dart";
+import "notification_center.dart";
 
 /// Nested navigator for the driver shell (tabs + pushed detail routes).
 final GlobalKey<NavigatorState> driverShellNavigatorKey =
@@ -125,6 +126,9 @@ class DriverShell extends StatelessWidget {
                   const TextStyle(fontWeight: FontWeight.w700, fontSize: 26)),
           actions: [
             if (actions != null) ...actions!,
+            if (AuthorizationSession.signedIn &&
+                AuthorizationSession.can("notification.read"))
+              const NotificationBell(),
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child:
@@ -1093,6 +1097,15 @@ class _DriverShipmentDetailScreenState
                   context.push("/driver/shipment/${widget.shipmentId}/pod"),
               child: const Text("Confirm delivery"),
             ),
+          if (AuthorizationSession.can("conversation.read")) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () =>
+                  openShipmentConversation(context, widget.shipmentId),
+              icon: const Icon(Icons.chat_bubble_outline),
+              label: const Text("Shipment conversation"),
+            ),
+          ],
           ShipmentPaymentStatus(shipment: s),
         ],
       ),

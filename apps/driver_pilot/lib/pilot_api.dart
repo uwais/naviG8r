@@ -23,6 +23,20 @@ String resolveApiBaseUrl() {
 
 const _storage = FlutterSecureStorage();
 
+Future<void> clearCommunicationDrafts() async {
+  try {
+    final values = await _storage.readAll();
+    for (final key
+        in values.keys.where((key) => key.startsWith('conversation_draft_'))) {
+      await _storage.delete(key: key);
+    }
+  } catch (_) {
+    // Cleanup is best effort: drafts are scoped to the user and active
+    // organization, so an unavailable secure-storage channel cannot expose
+    // one account's draft to another account.
+  }
+}
+
 class Api {
   Api(this.baseUrl)
       : dio = Dio(
@@ -407,7 +421,7 @@ List<ShipmentTimelineStep> shipmentTimelineSteps({
   final pendingRelease = shipmentStatus == "PENDING_RELEASE";
 
   return [
-    ShipmentTimelineStep(
+    const ShipmentTimelineStep(
       label: "Booking placed",
       subtitle: "Your request was submitted",
       complete: true,

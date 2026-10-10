@@ -14,6 +14,8 @@ This document defines the **first concrete API resources** for the Flutter pilot
 ### Server env vars (pilot)
 - **`AUTH_SECRET`**: required (min 16 chars). Used to sign access tokens.
 - **`OTP_DEBUG=1`**: returns the generated six-digit `debugCode` from `otp/start` for local testing. Codes are random; this setting controls delivery only. **`OTP_TTL_MS`** defaults to `600000` (ten minutes); an explicit value must be a positive safe integer that produces a valid expiration timestamp, or startup fails. **`OTP_RESEND_COOLDOWN_MS`** defaults to `30000` (30 seconds). **`OTP_PHONE_START_LIMIT` / `OTP_PHONE_START_WINDOW_MS`** default to 5 newly issued challenges per phone per hour. **`OTP_IP_START_LIMIT` / `OTP_IP_START_WINDOW_MS`** default to 30 start requests per IP per 10 minutes.
+- **`CONVERSATION_REPLY_WINDOW_DAYS`**: optional nonnegative number of days to allow replies after a shipment first enters `DELIVERED` or `FAILED_CARRIER_REFUNDED` (default **14**). Existing terminal shipments without reliable transition timestamps are read-only.
+- **`CONVERSATION_SENDS_PER_MINUTE`**: optional per-user, per-conversation send limit (default **20**, maximum **120**).
 - **`ALLOW_X_USER_ID=1`**: allows the old header-based auth (not for real pilots).
 - **`ENABLE_LEGACY_DEMO_SURFACE=1`**: enables legacy unauthenticated admin/demo write routes in production. Leave unset for hosted pilots.
 - **`FREIGHT_PAISE_PER_KM_SMALL`**, **`FREIGHT_PAISE_PER_KM_MEDIUM`**, **`FREIGHT_PAISE_PER_KM_LARGE`**: paise per km defaults (see `apps/api/src/config.ts`).
@@ -28,7 +30,7 @@ This document defines the **first concrete API resources** for the Flutter pilot
 
 ### Data model (persistence)
 
-The API keeps an in-memory **`Store`** and persists it either to **`DATA_FILE`** (JSON) or to Postgres (**`PERSISTENCE=DB`**) after mutating routes. Entities match the MVP:
+The API keeps an in-memory **`Store`** and persists it either to **`DATA_FILE`** (JSON) or to Postgres (**`PERSISTENCE=DB`**) after mutating routes. DB mode still uses a full-store snapshot for most existing entities; communication rows are upserted without being deleted/recreated on unrelated writes. Run `cd apps/api && npx prisma db push` to apply schema changes. Operate a single API writer until the broader snapshot path has concurrency control. Entities match the MVP:
 
 - `Organization` (`CARRIER_SOLO` | `CARRIER_FLEET` | `CUSTOMER` | `CARRIER_LEGACY`)
 - `User` (phone + fullName)
@@ -39,6 +41,21 @@ The API keeps an in-memory **`Store`** and persists it either to **`DATA_FILE`**
 - Anchor trip lifecycle: `OPEN` / `FULL` → carrier **start** → `IN_PROGRESS` (enables live GPS to customers)
 - `OtpChallenge` / `AuthSession` (pilot login)
 - `Payment`: `provider` **`MOCK` | `RAZORPAY`**, **`status`** `CREATED` → `AUTHORIZED` → `CAPTURED` (or `FAILED` / `REFUNDED`), **`razorpayOrderId`** / **`razorpayPaymentId`** when applicable
+
+### Notifications and shipment conversations
+
+All endpoints below require the OTP bearer token and selected active organization. SHIPPER and CARRIER access is limited to active members of the shipment's customer/carrier organization; FINANCE, ADMIN, and OPS receive no default conversation access. All active eligible shipper and carrier members receive in-app alerts for booking, carrier acceptance, trip start/completion, POD submission/acceptance, payment-state changes, and new messages. Alerts use role-specific English copy and do not include payment amounts or user-authored message text.
+
+- `GET /v1/notifications?limit=30&before=<createdAtUtcMs:id>` returns `{ notifications, nextCursor, unreadCount }`; `limit` is clamped to 1–100.
+- `GET /v1/notifications/shipments?limit=30&before=<opaque-cursor>` returns one row per active shipment with `{ shipments: [{ shipmentId, shipmentReference, latestAtUtcMs, unreadCount }], nextBefore, unreadCount, notificationSequence }`. `shipmentReference` uses the external load ID when present, otherwise a short shipment ID. The inbox heading and preview are generic; it does not return message text or payment values. Reuse `nextBefore` unchanged while paging a snapshot; refresh to include newer activity.
+- `PATCH /v1/notifications/:notificationId/read` marks the current user's notification read.
+- `GET /v1/shipments/:shipmentId/conversation/messages?limit=50&beforeSequence=<n>` returns `{ conversation, messages, nextBeforeSequence, canSend }`. Message history is ordered by sequence; `canSend` is server-authoritative.
+- `GET /v1/shipments/:shipmentId/conversation/timeline?limit=50&before=<opaque-cursor>` returns `{ conversation, items, nextBefore, readWatermark, canSend }`. `items` contains chronological `message` and recipient-specific workflow `event` items; a message sorts before an event at the same stored millisecond. The cursor is recipient/org/shipment/page-size scoped and retains the original read snapshot.
+- `POST /v1/shipments/:shipmentId/conversation/read` accepts `{ "readWatermark": { "notificationSequence": n, "messageSequence": n } }`. It acknowledges only this user's events and messages through that timeline snapshot, so later arrivals stay unread. Repeating the request is safe.
+- `POST /v1/shipments/:shipmentId/conversation/messages` accepts `{ "body": "...", "clientRequestId": "..." }`. Text is limited to 4,000 characters. Repeating the same key and body returns the original message; reusing a key with changed text returns HTTP 409 `idempotency_conflict`. New sends after the reply deadline return HTTP 409 `conversation_read_only`; previously accepted sends remain retryable after closure. Throttling returns HTTP 429 `conversation_rate_limited` with `retryAfterMs` and `Retry-After`.
+- `POST /v1/shipments/:shipmentId/conversation/escalations` requests time-limited OPS access with `{ "granteeUserId", "reason", "canRead", "canSend", "expiresAtUtcMs" }`. A designated approver approves or denies using `POST /v1/conversation-escalations/:grantId/approve` or `/deny`; grant holders' access is scoped, expires, and is audited. `POST /v1/conversation-escalations/:grantId/revoke` revokes an approved grant. OPS access does not override the terminal reply deadline.
+
+The API stores messages and notifications in the configured persistence backend. It does not provide push delivery or WhatsApp delivery in this phase. Local drafts are encrypted by Flutter secure storage and scoped to the signed-in user, organization, and shipment. See [the notification and two-way communication design](notification-and-two-way-communication-design.md) and [phase implementation plan](notification-communication-implementation-plan.md).
 
 ### Endpoints
 
