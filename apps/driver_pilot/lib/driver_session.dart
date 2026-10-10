@@ -19,6 +19,17 @@ abstract final class DriverSession {
   static String? get kycStatus => hasCarrierOrg
       ? (AuthorizationSession.organization?["kycStatus"] as String?)
       : null;
+  static String? get rejectionReasonCode {
+    // Read with a type check, not a cast: a malformed value shows no reason instead of breaking the banner.
+    final code = hasCarrierOrg
+        ? (AuthorizationSession.organization?["rejectionReasonCode"])
+        : null;
+    return code is String ? code : null;
+  }
+
+  static bool get approvalTakenBack =>
+      hasCarrierOrg &&
+      AuthorizationSession.organization?["approvalTakenBack"] == true;
   static String? vehicleId;
   static String? vehicleRegistrationNumber;
   static String? vehicleClass;

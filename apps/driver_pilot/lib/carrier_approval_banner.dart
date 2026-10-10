@@ -12,6 +12,53 @@ String approvalStatusInWords(String? kycStatus) => switch (kycStatus) {
       _ => "Bank details not added yet",
     };
 
+/// What a rejected carrier reads for each reason ops may share; null for any other code.
+String? rejectionReasonInWords(String? code) => switch (code) {
+      "DOCUMENTS_MISSING" => "NaviG8r needs documents from this carrier.",
+      "BANK_DETAILS_MISMATCH" =>
+        "The name entered as the bank account holder doesn't match the carrier's name.",
+      "DUPLICATE_ACCOUNT" => "NaviG8r already has an account for this carrier.",
+      "NOT_A_CARRIER" => "NaviG8r decided this is not a carrier business.",
+      _ => null,
+    };
+
+/// The rejected banner: what ops decided, why when the server says, and only a next step that can work.
+(String, String?) _rejectedMessage({required bool owner}) {
+  final code = DriverSession.rejectionReasonCode;
+  final reason = rejectionReasonInWords(code);
+  final (nextStep, action) = switch (code) {
+    "DOCUMENTS_MISSING" || "NOT_A_CARRIER" => (
+        "You can't send documents or contact NaviG8r from the app.",
+        null
+      ),
+    "DUPLICATE_ACCOUNT" => (
+        "If you belong to that account, choose it in the organization menu at the top of the screen. If not, ask whoever runs it to invite your phone number.",
+        null
+      ),
+    // The bank reason, or none the app knows: new bank details are the one step that can help.
+    _ => owner
+        ? (
+            "You can submit your bank details for another review.",
+            "Submit bank details"
+          )
+        : (
+            "Ask the carrier owner to submit bank details for another review.",
+            null
+          ),
+  };
+  return (
+    [
+      DriverSession.approvalTakenBack
+          ? "NaviG8r operations took back this carrier's approval."
+          : "NaviG8r operations did not approve this carrier.",
+      if (reason != null) "Reason: $reason",
+      nextStep,
+      "While this carrier is not approved, you can't accept shipments or start trips.",
+    ].join(" "),
+    action,
+  );
+}
+
 /// Tells an unapproved carrier why loads are blocked and what to do next.
 /// Redraws when the session refreshes, so a status change shows without leaving the screen.
 class CarrierApprovalBanner extends StatelessWidget {
@@ -36,15 +83,7 @@ class CarrierApprovalBanner extends StatelessWidget {
           "This carrier is waiting for NaviG8r operations to review it. Until it is approved, you can't accept shipments or start trips.",
           null
         ),
-      "REJECTED" => owner
-          ? (
-              "NaviG8r operations did not approve this carrier. You can submit your bank details again for another review. Until this carrier is approved, you can't accept shipments or start trips.",
-              "Submit bank details again"
-            )
-          : (
-              "NaviG8r operations did not approve this carrier. Ask the carrier owner to submit bank details again for another review. Until this carrier is approved, you can't accept shipments or start trips.",
-              null
-            ),
+      "REJECTED" => _rejectedMessage(owner: owner),
       _ => owner
           ? (
               "Add your bank details so NaviG8r operations can review this carrier. Until it is approved, you can't accept shipments or start trips.",
