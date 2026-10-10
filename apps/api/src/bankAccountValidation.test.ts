@@ -20,6 +20,20 @@ const VALID = {
   accountNumber: "50100123456789",
 };
 
+// The app shows these sentences to carriers as they are, so pin their wording.
+test("the account holder name and bank account number errors use the screen's field names", () => {
+  const holderNameResult = validatePayoutBankDetails({ ...VALID, accountHolderName: "रवि कुमार" });
+  assert.equal(
+    holderNameResult.ok ? "" : holderNameResult.detail,
+    "Account holder name must be 3 to 50 characters, using English letters (A to Z), numbers, spaces and ' - _ / ( ) , . &",
+  );
+  const accountNumberResult = validatePayoutBankDetails({ ...VALID, accountNumber: "5010 0123" });
+  assert.equal(
+    accountNumberResult.ok ? "" : accountNumberResult.detail,
+    "Bank account number must be 5 to 35 letters or digits, with no spaces or punctuation.",
+  );
+});
+
 test("accepts a well-formed payout profile", () => {
   const v = ok(VALID);
   assert.equal(v.ifsc, "HDFC0000123");

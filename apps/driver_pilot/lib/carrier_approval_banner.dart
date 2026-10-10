@@ -33,7 +33,7 @@ class CarrierApprovalBanner extends StatelessWidget {
     final owner = DriverSession.canSetUpPayouts;
     final (message, action) = switch (DriverSession.kycStatus) {
       "SUBMITTED" => (
-          "Bank details received. This carrier is waiting for NaviG8r operations to review it. Until it is approved, you can't accept shipments or start trips.",
+          "This carrier is waiting for NaviG8r operations to review it. Until it is approved, you can't accept shipments or start trips.",
           null
         ),
       "REJECTED" => owner

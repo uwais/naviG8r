@@ -80,12 +80,16 @@ void main() {
     expect(find.byType(FilledButton), findsNothing);
   });
 
-  testWidgets('submitted carrier is told it is waiting for review, no button',
+  testWidgets(
+      'submitted carrier is told it is waiting for review, with no claim about bank details and no button',
       (tester) async {
     signInCarrier(kycStatus: 'SUBMITTED', owner: true);
     await showBanner(tester);
     expect(find.textContaining('waiting for NaviG8r operations to review'),
         findsOneWidget);
+    // Test data can start a carrier waiting for review with no bank details saved.
+    expect(find.textContaining(RegExp('bank', caseSensitive: false)),
+        findsNothing);
     expect(find.byType(FilledButton), findsNothing);
   });
 

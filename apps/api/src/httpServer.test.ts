@@ -127,6 +127,14 @@ test("POST /v1/pilot/carrier/shipments/:id/accept accepts pending booking with O
   assert.equal(accepted.status, 200); assert.equal(accepted.body.shipment.status, "BOOKED");
 });
 
+test("POST /v1/pilot/carrier/payout-setup replies 400 with the IFSC sentence the app shows", async t => {
+  const f = await httpFixture(t);
+  const refusal = await f.request("/v1/pilot/carrier/payout-setup", "POST", { orgId: f.carrierA.org.id, accountHolderName: "Ravi Kumar", ifsc: "HDFC1001234" }, f.tokens.carrierA);
+  assert.equal(refusal.status, 400);
+  assert.equal(refusal.body.error, "invalid_payout_profile");
+  assert.equal(refusal.body.detail, "IFSC must be 11 characters: four letters for the bank, then 0, then six letters or digits for the branch. Example: HDFC0000123.");
+});
+
 test("GET /ops returns ops portal HTML", async (t) => {
   const prev = { DATA_FILE: process.env.DATA_FILE };
   t.after(() => {
