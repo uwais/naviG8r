@@ -122,7 +122,7 @@ void main() {
   });
 
   testWidgets(
-      'rejected driver with no reason on record is told to ask the owner, no button',
+      'rejected driver with no reason, as when the bank reason is kept for the owner, is told to ask the owner, no button',
       (tester) async {
     signInCarrier(kycStatus: 'REJECTED', owner: false);
     await showBanner(tester);
@@ -134,7 +134,7 @@ void main() {
   });
 
   testWidgets(
-      'each shared reason reads the same to owner and driver, and only the bank reason offers the bank form',
+      'each reason reads the same to everyone it is sent to, and only the bank reason offers the bank form',
       (tester) async {
     const reasons = {
       'DOCUMENTS_MISSING': 'NaviG8r needs documents from this carrier.',
@@ -144,7 +144,8 @@ void main() {
       'NOT_A_CARRIER': 'NaviG8r decided this is not a carrier business.',
     };
     for (final MapEntry(key: code, value: words) in reasons.entries) {
-      for (final owner in [true, false]) {
+      // The server sends the bank reason only to those who can save bank details.
+      for (final owner in code == 'BANK_DETAILS_MISMATCH' ? [true] : [true, false]) {
         signInCarrier(
             kycStatus: 'REJECTED', owner: owner, rejectionReasonCode: code);
         await showBanner(tester);

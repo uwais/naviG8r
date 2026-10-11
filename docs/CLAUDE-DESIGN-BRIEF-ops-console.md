@@ -264,10 +264,16 @@ Re-screened 2026-09-30 after the team's review (reason codes picked from a list 
   the beta; not accepted here.
 Re-screened 2026-10-10 when rejection reasons began reaching carriers: PASS WITH CHANGES. 9 data: the four
   rejection reasons are now also shown, in plain words, to the rejected carrier's owner, dispatchers and
-  drivers; every ops page says so where the reason is chosen. The bank reason reaches only a carrier that
-  has saved bank details, and codes outside the four never reach carriers. Rishabh chose on 10 Oct that
-  drivers and dispatchers see the reason too; the screen's later suggestion to hide the bank reason from
-  them is open for his call.
+  drivers; every ops page says so where the reason is chosen. The bank reason reaches only the owner, and
+  only of a carrier that has saved bank details; codes outside the four never reach carriers. Rishabh chose
+  on 10 Oct that drivers and dispatchers see the reason too, then took the screen's later suggestion to keep
+  the bank reason for the owner, the only one who can act on it; the others are told to ask the owner.
+Re-screened 2026-10-10 when the bank reason was kept for the owner: PASS. 1 actionability: drivers and
+  dispatchers get a step they can take, asking the owner, who has the bank form. 5 defaults: withholding is
+  the privacy-respecting choice. 8 promise: a save does put the carrier back in review. 9 data: less now
+  reaches their phones. 11 reversal: "the owner's bank problem goes to the owner, and everyone else is told
+  to ask the owner" is comfortable to say. 2, 3, 4, 6, 7 and 10: not applicable (no comparison, cost,
+  urgency, exit, decline button or money involved).
 Accepted risks: none
 ```
 
