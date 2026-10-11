@@ -24,7 +24,7 @@ This document defines the **first concrete API resources** for the Flutter pilot
 - **`RAZORPAY_WEBHOOK_SECRET`**: Razorpay dashboard webhook secret; required for **`POST /v1/payments/razorpay/webhook`**.
 - **`PAYOUTS_MODE`**: omit or **`BOOKKEEPING`** (default) — `POST /payout-batches/run` only marks ledger lines **`PAID`** (no money moves; MVP bookkeeping). **`RAZORPAYX`** — creates a real **RazorpayX payout per carrier** (reuses `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`, test keys in dev). Carriers without a fund account are skipped (lines stay `ACCRUED` to retry); errored transfers are marked `FAILED` and retried next run. `POST /payout-batches/run`, `GET /payout-batches`, and `GET /carriers/:id/ledger` require an **Ops Admin/Agent** bearer token.
 - **`RAZORPAYX_ACCOUNT_NUMBER`**: source account number from the RazorpayX dashboard; required when `PAYOUTS_MODE=RAZORPAYX`.
-- **`RAZORPAYX_PAYOUT_MODE`**: optional transfer rail — `IMPS` (default) | `NEFT` | `RTGS` | `UPI`. To register a carrier for payouts, call `POST /v1/pilot/carrier/payout-setup` with `accountHolderName`, `ifsc`, and (in RAZORPAYX mode) `accountNumber`; the server creates a RazorpayX contact + fund account and stores the ids on the org.
+- **`RAZORPAYX_PAYOUT_MODE`**: optional transfer rail — `IMPS` (default) | `NEFT` | `RTGS` | `UPI`. To register a carrier for payouts, call `POST /v1/pilot/carrier/payout-setup` with `accountHolderName`, `ifsc` and `accountNumber`, all required in every payout mode (a blank one is refused with 400 `invalid_payout_profile`); in RAZORPAYX mode the server then creates a RazorpayX contact + fund account and stores the ids on the org.
 
 ### Data model (persistence)
 

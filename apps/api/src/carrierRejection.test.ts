@@ -15,7 +15,7 @@ async function rejectionFixture(t: TestContext) {
     assert.equal(out.status, 200);
   }
   async function saveBankDetails() {
-    const out = await f.request("/v1/pilot/carrier/payout-setup", "POST", { orgId: carrier, accountHolderName: "Ravi Kumar", ifsc: "HDFC0001234" }, f.tokens.carrierA);
+    const out = await f.request("/v1/pilot/carrier/payout-setup", "POST", { orgId: carrier, accountHolderName: "Ravi Kumar", ifsc: "HDFC0001234", accountNumber: "1234567890" }, f.tokens.carrierA);
     assert.equal(out.status, 200);
   }
   async function seenBy(token: string, org = carrier) {

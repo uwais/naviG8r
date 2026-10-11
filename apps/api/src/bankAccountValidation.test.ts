@@ -118,11 +118,17 @@ test("rejects account numbers outside the provider's length limits", () => {
   rejects({ ...VALID, accountNumber: "1".repeat(36) }, "accountNumber");
 });
 
-// The account number is only required once real payouts are switched on, so an
-// empty one is a valid state rather than an error.
-test("allows an absent account number, because it is not always collected yet", () => {
-  const v = ok({ accountHolderName: "Ravi Kumar", ifsc: "HDFC0000123" });
-  assert.equal(v.accountNumber, "");
+// Every server refuses a blank account number with this one sentence, so a test
+// server cannot accept a save that production refuses.
+test("refuses a missing, empty or space-only account number with one sentence", () => {
+  for (const accountNumber of [undefined, "", "   "]) {
+    const r = validatePayoutBankDetails({ accountHolderName: "Ravi Kumar", ifsc: "HDFC0000123", accountNumber });
+    assert.equal(r.ok, false, `expected ${JSON.stringify(accountNumber)} to be refused`);
+    if (!r.ok) {
+      assert.equal(r.field, "accountNumber");
+      assert.equal(r.detail, "Bank account number is required.");
+    }
+  }
 });
 
 test("rejects a missing or too-short account holder name", () => {
@@ -141,4 +147,7 @@ test("reports the first bad field rather than a generic failure", () => {
     assert.equal(r.field, "accountHolderName");
     assert.match(r.detail, /required/i);
   }
+  // The screen runs name, IFSC, account number; a wrong IFSC is reported before a blank number.
+  const wrongIfscBlankNumber = validatePayoutBankDetails({ accountHolderName: "Ravi Kumar", ifsc: "nope" });
+  assert.equal(wrongIfscBlankNumber.ok ? "" : wrongIfscBlankNumber.field, "ifsc");
 });
