@@ -21,9 +21,11 @@ export function carrierRejection(store: Store, org: Organization): { rejectionRe
     if (first.previousState !== "REJECTED") break;
     first = earlier;
   }
-  // Only saving bank details moves a carrier to SUBMITTED; the save itself is logged only since 16 Sep.
+  // Proof of a bank-details save: its log entry (only since 16 Sep), any review of a carrier waiting for review
+  // (only a save sets SUBMITTED), or a RazorpayX fund account (older saves on production went straight to APPROVED).
   const rejectedAt = newest.timestamp;
-  const bankDetailsSaved = first.previousState === "SUBMITTED" || events.some(e => e.action === "BANK_ACCOUNT_CHANGED" && e.timestamp <= rejectedAt);
+  const bankDetailsSaved = Boolean(org.payoutFundAccountId) || events.some(e => e.timestamp <= rejectedAt &&
+    (e.action === "BANK_ACCOUNT_CHANGED" || (e.action === "COMPLIANCE_STATUS_CHANGED" && e.previousState === "SUBMITTED")));
   const code = newest.reasonCode;
   const out: { rejectionReasonCode?: string; approvalTakenBack?: boolean } = {};
   if (code && reasonsCarriersMayRead.has(code) && (code !== "BANK_DETAILS_MISMATCH" || bankDetailsSaved)) out.rejectionReasonCode = code;

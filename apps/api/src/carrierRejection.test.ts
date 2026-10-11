@@ -107,6 +107,37 @@ test("a rejected shipper organization gets no carrier reason", async t => {
   assert.equal(org.rejectionReasonCode, undefined);
 });
 
+test("taking back an approval for the bank reason shows that reason when bank details were saved first", async t => {
+  const { f, carrier, reject, saveBankDetails, seenBy } = await rejectionFixture(t);
+  await saveBankDetails();
+  const approve = await f.request(`/v1/organizations/${carrier}/kyc`, "POST", { status: "APPROVED" }, f.tokens.ops, { "x-reason-code": "BANK_DETAILS_VERIFIED" });
+  assert.equal(approve.status, 200);
+  await reject("BANK_DETAILS_MISMATCH");
+  const org = await seenBy(f.tokens.carrierA);
+  assert.equal(org.rejectionReasonCode, "BANK_DETAILS_MISMATCH");
+  assert.equal(org.approvalTakenBack, true);
+});
+
+test("each kind of proof of a bank save is enough on its own for the bank reason", () => {
+  const org = { id: "carrier-x", kind: "CARRIER_FLEET" as const, displayName: "Carrier X", kycStatus: "REJECTED" as const, createdAtUtcMs: 0 };
+  const event = (id: string, timestamp: number, action: string, previousState?: string, newState?: string, reasonCode?: string) => ({
+    id, actorUserId: "someone", actorOrganizationId: "some-org", action, resourceType: "organization", resourceId: org.id,
+    previousState, newState, reasonCode, requestId: id, timestamp, source: "USER" as const,
+  });
+  // The rejection replaced an approval, so it says nothing itself about bank details.
+  const bankRejection = event("rejection", 3000, "COMPLIANCE_STATUS_CHANGED", "APPROVED", "REJECTED", "BANK_DETAILS_MISMATCH");
+  const withProof = (proof?: ReturnType<typeof event>, fundAccount?: string) => {
+    const store = createStore();
+    store.auditEvents.set(bankRejection.id, bankRejection);
+    if (proof) store.auditEvents.set(proof.id, proof);
+    return carrierRejection(store, { ...org, ...(fundAccount ? { payoutFundAccountId: fundAccount } : {}) }).rejectionReasonCode;
+  };
+  assert.equal(withProof(), undefined, "no proof, no bank reason");
+  assert.equal(withProof(event("save", 1000, "BANK_ACCOUNT_CHANGED")), "BANK_DETAILS_MISMATCH", "the save's own log entry");
+  assert.equal(withProof(event("approval", 2000, "COMPLIANCE_STATUS_CHANGED", "SUBMITTED", "APPROVED")), "BANK_DETAILS_MISMATCH", "a review of a carrier waiting for review");
+  assert.equal(withProof(undefined, "fa_older_save"), "BANK_DETAILS_MISMATCH", "a RazorpayX fund account");
+});
+
 test("the newest rejection is found by time, even when audit rows load newest first", () => {
   const store = createStore();
   const org = { id: "carrier-x", kind: "CARRIER_FLEET" as const, displayName: "Carrier X", kycStatus: "REJECTED" as const, createdAtUtcMs: 0 };
