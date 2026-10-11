@@ -60,16 +60,16 @@ test("the bank reason reaches only a carrier that saved bank details before the 
 
 test("the bank reason reaches only members who can save bank details; drivers and dispatchers get no reason", async t => {
   const { f, carrier, reject, saveBankDetails, seenBy } = await rejectionFixture(t);
-  const others: string[] = [];
+  const driverAndDispatcherTokens: string[] = [];
   for (const [phone, role] of [["8000000021", "DRIVER"], ["8000000022", "DISPATCHER"]] as const) {
     registerCustomerUser(f.store, { fullName: `Synthetic ${role}`, phone });
     inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: carrier, phone, role, vehicleRegistrationNumber: `TEST-${role}`, vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
-    others.push(await f.login(phone));
+    driverAndDispatcherTokens.push(await f.login(phone));
   }
   await saveBankDetails();
   await reject("BANK_DETAILS_MISMATCH");
   assert.equal((await seenBy(f.tokens.carrierA)).rejectionReasonCode, "BANK_DETAILS_MISMATCH");
-  for (const token of others) {
+  for (const token of driverAndDispatcherTokens) {
     const org = await seenBy(token);
     assert.equal(org.kycStatus, "REJECTED");
     assert.equal(org.rejectionReasonCode, undefined);
@@ -182,4 +182,22 @@ test("the bank reason follows who can save bank details, including a role an adm
   assert.equal(carrierRejection(store, org, owner).rejectionReasonCode, "BANK_DETAILS_MISMATCH");
   store.membershipRoles.set("owner-x:carrier-x", []);
   assert.equal(carrierRejection(store, org, owner).rejectionReasonCode, undefined, "without the carrier role the save route refuses this owner");
+});
+
+test("the reject captions on /ops, /ops/v1 and /ops/beta say exactly who sees each reason", async t => {
+  const f = await httpFixture(t);
+  const typedCodesCaption = "<p>If you reject with DOCUMENTS_MISSING, DUPLICATE_ACCOUNT or NOT_A_CARRIER, the carrier's owner, dispatchers and drivers see that reason in their app, in plain words. BANK_DETAILS_MISMATCH shows only to the owner, and only if the carrier has saved bank details; dispatchers and drivers are told to ask the owner.</p>";
+  const captionsByPage = {
+    "/ops": [typedCodesCaption],
+    "/ops/v1": [typedCodesCaption],
+    "/ops/beta": [
+      "<p class=\"caption\">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history. If you reject, the bank reason shows only to the owner, and only if the carrier has saved bank details; dispatchers and drivers are told to ask the owner. Documents missing, Duplicate account and Not a carrier business show to the owner, dispatchers and drivers alike, in their app, in plain words. Taking back an approval shows to them all as just that.</p>",
+      // Matched with the code that builds it, so the note must stay in the reject picker.
+      "!approving && element('span', { id: cardId + '-reason-note', class: 'caption', text: \"The bank reason shows only to the owner, and only if the carrier has saved bank details; dispatchers and drivers are told to ask the owner. Any other reason shows in their app, in plain words, to the owner, dispatchers and drivers alike.\" })",
+    ],
+  };
+  for (const [path, captions] of Object.entries(captionsByPage)) {
+    const html = await (await fetch(f.base + path)).text();
+    for (const caption of captions) assert.ok(html.includes(caption), `${path}: ${caption.slice(0, 60)}`);
+  }
 });

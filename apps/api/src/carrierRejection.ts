@@ -2,7 +2,8 @@ import { compatibleRole, effectivePermissions, legacyRoles } from "./rbac.ts";
 import type { Store } from "./store.ts";
 import type { Membership, Organization } from "./types.ts";
 
-/** The reasons /ops/beta offers for rejecting a carrier (opsConsoleBeta.ts). No other code reaches the carrier. */
+/** The reasons /ops/beta offers for rejecting a carrier (opsConsoleBeta.ts), except "Approval taken back". No other
+ *  code reaches the carrier; approvalTakenBack comes from the state a rejection replaced, whatever the reason. */
 const reasonsCarriersMayRead = new Set(["DOCUMENTS_MISSING", "BANK_DETAILS_MISMATCH", "DUPLICATE_ACCOUNT", "NOT_A_CARRIER"]);
 const carrierKinds = new Set(["CARRIER_SOLO", "CARRIER_FLEET", "CARRIER_LEGACY"]);
 
@@ -27,13 +28,13 @@ export function carrierRejection(store: Store, org: Organization, member: Member
   const rejectedAt = newest.timestamp;
   const bankDetailsSaved = Boolean(org.payoutFundAccountId) || events.some(e => e.timestamp <= rejectedAt &&
     (e.action === "BANK_ACCOUNT_CHANGED" || (e.action === "COMPLIANCE_STATUS_CHANGED" && e.previousState === "SUBMITTED")));
-  // The bank reason is about the owner's account and only those who can save bank details can act on it, so it
-  // goes to the same members the save route lets in; the app tells everyone else to ask the owner.
+  // Only members who can save bank details can act on the bank reason, so only they get it. Roles are worked out as
+  // resolvePrincipal does (rbac.ts), so this matches the save route. Every ops page's reject caption states this rule.
   const roles = (store.membershipRoles.get(`${member.userId}:${member.orgId}`) ?? legacyRoles(member, org)).filter(r => compatibleRole(r, org));
-  const canSaveBankDetails = effectivePermissions(roles, member.role).includes("bank_account.create_token");
+  const memberCanSaveBankDetails = effectivePermissions(roles, member.role).includes("bank_account.create_token");
   const code = newest.reasonCode;
   const out: { rejectionReasonCode?: string; approvalTakenBack?: boolean } = {};
-  if (code && reasonsCarriersMayRead.has(code) && (code !== "BANK_DETAILS_MISMATCH" || (bankDetailsSaved && canSaveBankDetails))) out.rejectionReasonCode = code;
+  if (code && reasonsCarriersMayRead.has(code) && (code !== "BANK_DETAILS_MISMATCH" || (bankDetailsSaved && memberCanSaveBankDetails))) out.rejectionReasonCode = code;
   if (first.previousState === "APPROVED") out.approvalTakenBack = true;
   return out;
 }
