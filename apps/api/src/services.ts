@@ -1046,13 +1046,8 @@ export async function pilotSubmitPayoutSetup(
   const { accountHolderName, ifsc, accountNumber } = checked.value;
 
   // With real payouts enabled, provision a RazorpayX contact + fund account so this
-  // carrier can actually receive transfers. Requires a bank account number.
+  // carrier can actually receive transfers.
   if (razorpayPayoutsEnabled()) {
-    if (!accountNumber) {
-      throw new ApiError("invalid_payout_profile", {
-        detail: "Bank account number is required.",
-      });
-    }
     try {
       const { contactId, fundAccountId } = await createRazorpayBankFundAccount({
         name: accountHolderName,

@@ -2361,6 +2361,8 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
   final _ifsc = TextEditingController();
   final _accountNumber = TextEditingController();
   bool _busy = false;
+  String? _refusedField;
+  int _edits = 0;
 
   @override
   void dispose() {
@@ -2370,9 +2372,28 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
     super.dispose();
   }
 
+  // The refused field gets a red box in the theme's own shape; the sentence stays in the snackbar.
+  InputDecoration _decoration(String label, String field) {
+    if (_refusedField != field) return InputDecoration(labelText: label);
+    final theme = Theme.of(context);
+    final box =
+        (theme.inputDecorationTheme.border ?? const OutlineInputBorder())
+            .copyWith(
+                borderSide: BorderSide(color: theme.colorScheme.error, width: 2));
+    return InputDecoration(
+        labelText: label, enabledBorder: box, focusedBorder: box);
+  }
+
+  // Counts every edit, so a refusal for text typed over while the save was in flight boxes nothing.
+  void _edited(String field) {
+    _edits++;
+    if (_refusedField == field) setState(() => _refusedField = null);
+  }
+
   Future<void> _save() async {
     if (!DriverSession.canSetUpPayouts) return;
     setState(() => _busy = true);
+    final editsWhenSent = _edits;
     try {
       final orgId = DriverSession.carrierOrgId ?? "";
       final acct = _accountNumber.text.trim();
@@ -2391,9 +2412,12 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       context.push("/driver/payout-history");
     } catch (e) {
-      if (mounted)
+      if (mounted) {
+        setState(() => _refusedField =
+            _edits == editsWhenSent ? refusedBankDetailsField(e) : null);
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -2417,17 +2441,18 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
           const SizedBox(height: 16),
           TextField(
               controller: _name,
+              onChanged: (_) => _edited("accountHolderName"),
               decoration:
-                  const InputDecoration(labelText: "Account holder name")),
+                  _decoration("Account holder name", "accountHolderName")),
           TextField(
               controller: _ifsc,
-              decoration:
-                  const InputDecoration(labelText: "IFSC / bank identifier")),
+              onChanged: (_) => _edited("ifsc"),
+              decoration: _decoration("IFSC / bank identifier", "ifsc")),
           TextField(
             controller: _accountNumber,
             keyboardType: TextInputType.number,
-            decoration:
-                const InputDecoration(labelText: "Bank account number"),
+            onChanged: (_) => _edited("accountNumber"),
+            decoration: _decoration("Bank account number", "accountNumber"),
           ),
           const Spacer(),
           FilledButton(

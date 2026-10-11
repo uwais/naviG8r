@@ -266,6 +266,7 @@ test("carrier pilot can list org shipments, mark POD visibility, and submit payo
     orgId: onboard.org.id,
     accountHolderName: "Ravi Kumar",
     ifsc: "HDFC0001234",
+    accountNumber: "1234567890",
   });
   assert.equal(setup.org.kycStatus, "SUBMITTED");
   assert.equal(setup.message, "Bank details received."); // this call keeps no bank details and moves no money
@@ -297,7 +298,10 @@ test("pilotSubmitPayoutSetup refuses a malformed IFSC before it reaches the payo
         // Fifth character must be zero. This is the single most common typo and
         // the provider only reports it on payout day.
         ifsc: "HDFC1001234",
+        // A valid number, so the IFSC is the only fault: a blank one is refused too
+        // and would keep this green with the IFSC check deleted.
+        accountNumber: "1234567890",
       }),
-    /invalid_payout_profile/,
+    (err: unknown) => err instanceof ApiError && err.message === "invalid_payout_profile" && err.extra.field === "ifsc",
   );
 });

@@ -129,10 +129,22 @@ test("POST /v1/pilot/carrier/shipments/:id/accept accepts pending booking with O
 
 test("POST /v1/pilot/carrier/payout-setup replies 400 with the IFSC sentence the app shows", async t => {
   const f = await httpFixture(t);
-  const refusal = await f.request("/v1/pilot/carrier/payout-setup", "POST", { orgId: f.carrierA.org.id, accountHolderName: "Ravi Kumar", ifsc: "HDFC1001234" }, f.tokens.carrierA);
+  const refusal = await f.request("/v1/pilot/carrier/payout-setup", "POST", { orgId: f.carrierA.org.id, accountHolderName: "Ravi Kumar", ifsc: "HDFC1001234", accountNumber: "1234567890" }, f.tokens.carrierA);
   assert.equal(refusal.status, 400);
   assert.equal(refusal.body.error, "invalid_payout_profile");
   assert.equal(refusal.body.detail, "IFSC must be 11 characters: four letters for the bank, then 0, then six letters or digits for the branch. Example: HDFC0000123.");
+});
+
+// httpFixture runs in BOOKKEEPING mode, as alpha and beta do; production gives this same sentence in RAZORPAYX mode.
+test("POST /v1/pilot/carrier/payout-setup refuses a blank account number on a test server with the sentence production gives", async t => {
+  const f = await httpFixture(t);
+  for (const accountNumber of [undefined, "", "   "]) {
+    const refusal = await f.request("/v1/pilot/carrier/payout-setup", "POST", { orgId: f.carrierA.org.id, accountHolderName: "Ravi Kumar", ifsc: "HDFC0001234", accountNumber }, f.tokens.carrierA);
+    assert.equal(refusal.status, 400, `expected ${JSON.stringify(accountNumber)} to be refused`);
+    assert.equal(refusal.body.error, "invalid_payout_profile");
+    assert.equal(refusal.body.detail, "Bank account number is required.");
+    assert.equal(refusal.body.field, "accountNumber");
+  }
 });
 
 test("GET /ops returns ops portal HTML", async (t) => {
