@@ -4,6 +4,7 @@ import { opsPortalHtml } from "./opsPortal.ts";
 import { opsConsoleBetaContentSecurityPolicy, opsConsoleBetaHtml } from "./opsConsoleBeta.ts";
 import { assertAdminRemains, authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
 import { guardRequest, requestContext } from "./rbacRoutes.ts";
+import { carrierRejection } from "./carrierRejection.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
 import { URL } from "node:url";
@@ -411,7 +412,10 @@ export async function createApp(): Promise<{
         const user = store.users.get(userId);
         if (!user) return json(res, 404, { error: "user_not_found" });
         const memberships = [...store.memberships.values()].filter(m => m.userId === userId && m.inactiveAtUtcMs == null && store.organizations.get(m.orgId)?.inactiveAtUtcMs == null);
-        const organizations = memberships.map(m => store.organizations.get(m.orgId)).filter(Boolean);
+        const organizations = memberships.flatMap(m => {
+          const org = store.organizations.get(m.orgId);
+          return org ? [{ ...org, ...carrierRejection(store, org, m) }] : [];
+        });
         let principal;
         try { principal = resolvePrincipal(store, userId, header(req, "x-organization-id")); } catch (error) { if (header(req, "x-organization-id")) throw error; }
         return json(res, 200, { user, memberships, organizations, principal, isOpsAdmin: principal?.roles.includes("ADMIN") ?? false });
