@@ -2,6 +2,10 @@ import type { AuditEvent, Role } from "./rbac.ts";
 import type {
   AnchorTrip,
   AuthSession,
+  Conversation,
+  ConversationEscalationGrant,
+  ConversationMessage,
+  ConversationReadState,
   Carrier,
   DriverProfile,
   IntegrationApiKey,
@@ -11,6 +15,7 @@ import type {
   IntegrationWebhookDelivery,
   LedgerLine,
   Membership,
+  Notification,
   Organization,
   OtpChallenge,
   PayoutBatch,
@@ -21,7 +26,8 @@ import type {
 } from "./types.ts";
 
 export type Store = {
-  version: 5;
+  version: 7;
+  notificationSequence: number;
   membershipRoles: Map<string, Role[]>;
   auditEvents: Map<string, AuditEvent>;
   carriers: Map<string, Carrier>;
@@ -42,11 +48,17 @@ export type Store = {
   integrationIdempotency: Map<string, IntegrationIdempotencyRecord>;
   integrationEvents: Map<string, IntegrationEvent>;
   integrationWebhookDeliveries: Map<string, IntegrationWebhookDelivery>;
+  conversations: Map<string, Conversation>;
+  conversationMessages: Map<string, ConversationMessage>;
+  conversationReadStates: Map<string, ConversationReadState>;
+  notifications: Map<string, Notification>;
+  conversationEscalationGrants: Map<string, ConversationEscalationGrant>;
 };
 
 export function createStore(): Store {
   return {
-    version: 5,
+    version: 7,
+    notificationSequence: 0,
     membershipRoles: new Map(),
     auditEvents: new Map(),
     carriers: new Map(),
@@ -67,5 +79,10 @@ export function createStore(): Store {
     integrationIdempotency: new Map(),
     integrationEvents: new Map(),
     integrationWebhookDeliveries: new Map(),
+    conversations: new Map(),
+    conversationMessages: new Map(),
+    conversationReadStates: new Map(),
+    notifications: new Map(),
+    conversationEscalationGrants: new Map(),
   };
 }

@@ -5,6 +5,15 @@ import { verifyBearer } from "./auth.ts";
 import { authorizationContext, AuthorizationError, resolvePrincipal, requirePermission, visible, type Permission } from "./rbac.ts";
 
 const rules: [string, RegExp, Permission][] = [
+  ["GET", /^\/v1\/notifications$/, "notification.read"],
+  ["GET", /^\/v1\/notifications\/shipments$/, "notification.read"],
+  ["PATCH", /^\/v1\/notifications\/[^/]+\/read$/, "notification.read"],
+  ["GET", /^\/v1\/shipments\/[^/]+\/conversation\/messages$/, "conversation.read"],
+  ["GET", /^\/v1\/shipments\/[^/]+\/conversation\/timeline$/, "conversation.read"],
+  ["POST", /^\/v1\/shipments\/[^/]+\/conversation\/read$/, "conversation.read"],
+  ["POST", /^\/v1\/shipments\/[^/]+\/conversation\/messages$/, "conversation.send"],
+  ["POST", /^\/v1\/shipments\/[^/]+\/conversation\/escalations$/, "conversation.escalation_request"],
+  ["POST", /^\/v1\/conversation-escalations\/[^/]+\/(?:approve|deny|revoke)$/, "conversation.escalation_approve"],
   ["GET", /^\/v1\/ops\/dashboard\/[^/]+$/, "organization.profile.read"],
   ["POST", /^\/v1\/ops\/carrier-organizations$/, "carrier.onboard"],
   ["POST", /^\/v1\/ops\/dashboard-access$/, "user.role_manage"],
@@ -55,6 +64,15 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   const organizationId = req.headers["x-organization-id"];
   if (organizationId !== undefined && typeof organizationId !== "string") throw new AuthorizationError("invalid_organization", 400);
   const p = resolvePrincipal(store, userId, organizationId);
+  let requiredPermission: Permission = rule[2];
+  if (path.startsWith("/v1/shipments/") && /\/conversation\/(?:messages|timeline|read)$/.test(path)) {
+    const supportPermission = method === "POST" && path.endsWith("/conversation/messages") ? "conversation.support_send" : "conversation.support_read";
+    if (p.roles.includes("OPS")) requiredPermission = supportPermission as Permission;
+  }
+  if (path.startsWith("/v1/conversation-escalations/") && path.endsWith("/revoke")) {
+    if (p.roles.includes("OPS")) requiredPermission = "conversation.support_read";
+    else if (p.roles.includes("SHIPPER") || p.roles.includes("CARRIER")) requiredPermission = "conversation.escalation_request";
+  }
   const context = authorizationContext.getStore()!;
   context.principal = p;
   context.reason = typeof req.headers["x-reason-code"] === "string" ? req.headers["x-reason-code"] : undefined;
@@ -62,15 +80,15 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   const orgId = url.searchParams.get("orgId");
   if (orgId && orgId !== p.organizationId) throw new AuthorizationError("not_found", 404);
   let resource;
-  const shipmentId = /^\/(?:ops\/)?shipments\/([^/]+)/.exec(path)?.[1] ?? /^\/v1\/pilot\/carrier\/shipments\/([^/]+)/.exec(path)?.[1];
+  const shipmentId = /^\/(?:ops\/)?shipments\/([^/]+)/.exec(path)?.[1] ?? /^\/v1\/(?:pilot\/carrier\/)?shipments\/([^/]+)/.exec(path)?.[1];
   if (shipmentId && !["book", "pending-release", "delivered"].includes(shipmentId)) resource = store.shipments.get(shipmentId);
   const tripId = /^\/v1\/pilot\/anchor-trips\/([^/]+)/.exec(path)?.[1];
   if (tripId) resource = store.anchorTrips.get(tripId);
   if ((tripId || (shipmentId && !["book", "pending-release", "delivered"].includes(shipmentId))) && !resource) throw new AuthorizationError("not_found", 404);
   if (resource && !visible(p, resource)) throw new AuthorizationError("not_found", 404);
-  if (!p.permissions.includes(rule[2])) throw new AuthorizationError("forbidden");
+  if (!p.permissions.includes(requiredPermission)) throw new AuthorizationError("forbidden");
   if ((path.startsWith("/v1/ops/") || path.startsWith("/ops/") || path === "/payout-batches" || path.startsWith("/carriers/")) && !p.internal) throw new AuthorizationError("forbidden");
   if ((path === "/payout-batches" || path.startsWith("/carriers/")) && !p.roles.includes("FINANCE")) throw new AuthorizationError("forbidden");
-  if (resource) requirePermission(store, rule[2], resource);
+  if (resource) requirePermission(store, requiredPermission, resource);
 }
 export function requestContext() { return { requestId: randomUUID() }; }

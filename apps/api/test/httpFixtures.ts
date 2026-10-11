@@ -8,7 +8,7 @@ import { createApp } from "../src/httpServer.ts";
 import { registerCustomerOrgAdmin, registerSoloOwnerOperatorDriver, publishAnchorTrip } from "../src/services.ts";
 import { internalUser } from "./fixtures.ts";
 
-export async function httpFixture(t: TestContext) {
+export async function httpFixture(t: TestContext, createAppOptions: Parameters<typeof createApp>[0] = {}) {
   const dir = await mkdtemp(join(tmpdir(), "rbac-http-"));
   process.env.DATA_FILE = join(dir, "synthetic.json");
   process.env.PERSISTENCE = "FILE";
@@ -16,7 +16,7 @@ export async function httpFixture(t: TestContext) {
   process.env.PAYOUTS_MODE = "BOOKKEEPING";
   process.env.AUTH_SECRET = "synthetic-test-signing-value-only";
   process.env.OTP_DEBUG = "1";
-  const app = await createApp();
+  const app = await createApp(createAppOptions);
   app.server.listen(0, "127.0.0.1"); await once(app.server, "listening");
   const address = app.server.address(); assert.ok(address && typeof address === "object");
   const base = `http://127.0.0.1:${address.port}`;

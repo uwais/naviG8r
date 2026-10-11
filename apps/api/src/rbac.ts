@@ -7,11 +7,11 @@ import { isActiveEntity } from "./softDelete.ts";
 export const ROLES = ["SHIPPER", "CARRIER", "OPS", "FINANCE", "ADMIN"] as const;
 export type Role = typeof ROLES[number];
 export const ROLE_PERMISSIONS = {
-  SHIPPER: ["organization.profile.read", "organization.member.invite", "load.create", "load.read", "pod.accept", "payment.read", "payment.checkout", "kyc.status_read", "audit.read", "integration.manage"],
-  CARRIER: ["organization.profile.read", "organization.member.invite", "load.read", "trip.publish", "load.status_update", "carrier.offer_accept", "pod.upload", "payment.read", "bank_account.create_token", "kyc.status_read", "audit.read"],
-  OPS: ["directory.read", "fleet.read", "carrier.onboard", "organization.profile.read", "load.create", "load.read", "trip.publish", "load.status_update", "pod.upload", "payment.read", "kyc.status_read", "kyc.verify", "audit.read"],
+  SHIPPER: ["organization.profile.read", "organization.member.invite", "load.create", "load.read", "pod.accept", "payment.read", "payment.checkout", "kyc.status_read", "audit.read", "integration.manage", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request"],
+  CARRIER: ["organization.profile.read", "organization.member.invite", "load.read", "trip.publish", "load.status_update", "carrier.offer_accept", "pod.upload", "payment.read", "bank_account.create_token", "kyc.status_read", "audit.read", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request"],
+  OPS: ["directory.read", "fleet.read", "carrier.onboard", "organization.profile.read", "load.create", "load.read", "trip.publish", "load.status_update", "pod.upload", "payment.read", "kyc.status_read", "kyc.verify", "audit.read", "conversation.support_read", "conversation.support_send"],
   FINANCE: ["directory.read", "organization.profile.read", "load.read", "payment.read", "payment.capture", "payment.refund", "settlement.release", "kyc.status_read", "audit.read"],
-  ADMIN: ["directory.read", "fleet.read", "organization.profile.read", "load.read", "payment.read", "user.role_manage", "kyc.status_read", "audit.read"],
+  ADMIN: ["directory.read", "fleet.read", "organization.profile.read", "load.read", "payment.read", "user.role_manage", "kyc.status_read", "audit.read", "conversation.escalation_approve"],
 } as const;
 export type Permission = typeof ROLE_PERMISSIONS[Role][number];
 export const PERMISSIONS: readonly string[] = [...new Set(Object.values(ROLE_PERMISSIONS).flat())];
