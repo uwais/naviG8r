@@ -2362,6 +2362,7 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
   final _accountNumber = TextEditingController();
   bool _busy = false;
   String? _refusedField;
+  int _edits = 0;
 
   @override
   void dispose() {
@@ -2383,13 +2384,16 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
         labelText: label, enabledBorder: box, focusedBorder: box);
   }
 
-  void _clearRefused(String field) {
+  // Counts every edit, so a refusal for text typed over while the save was in flight boxes nothing.
+  void _edited(String field) {
+    _edits++;
     if (_refusedField == field) setState(() => _refusedField = null);
   }
 
   Future<void> _save() async {
     if (!DriverSession.canSetUpPayouts) return;
     setState(() => _busy = true);
+    final editsWhenSent = _edits;
     try {
       final orgId = DriverSession.carrierOrgId ?? "";
       final acct = _accountNumber.text.trim();
@@ -2409,7 +2413,8 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
       context.push("/driver/payout-history");
     } catch (e) {
       if (mounted) {
-        setState(() => _refusedField = refusedBankDetailsField(e));
+        setState(() => _refusedField =
+            _edits == editsWhenSent ? refusedBankDetailsField(e) : null);
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(formatApiError(e))));
       }
@@ -2436,17 +2441,17 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
           const SizedBox(height: 16),
           TextField(
               controller: _name,
-              onChanged: (_) => _clearRefused("accountHolderName"),
+              onChanged: (_) => _edited("accountHolderName"),
               decoration:
                   _decoration("Account holder name", "accountHolderName")),
           TextField(
               controller: _ifsc,
-              onChanged: (_) => _clearRefused("ifsc"),
+              onChanged: (_) => _edited("ifsc"),
               decoration: _decoration("IFSC / bank identifier", "ifsc")),
           TextField(
             controller: _accountNumber,
             keyboardType: TextInputType.number,
-            onChanged: (_) => _clearRefused("accountNumber"),
+            onChanged: (_) => _edited("accountNumber"),
             decoration: _decoration("Bank account number", "accountNumber"),
           ),
           const Spacer(),

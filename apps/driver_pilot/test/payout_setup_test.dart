@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/driver_flow.dart';
@@ -74,7 +76,8 @@ void main() {
         refusedBankDetailsField(payoutSetupRefusal(
             {'error': 'invalid_payout_profile', 'detail': 'x', 'field': 'ifsc'})),
         'ifsc');
-    // No field, another error, or no reply from the server: nothing to box.
+    // Nothing to box when the reply names no field or is another error, when the
+    // request got no reply at all (offline, timed out), or when the error is not from the network.
     expect(
         refusedBankDetailsField(
             payoutSetupRefusal({'error': 'invalid_payout_profile'})),
@@ -83,7 +86,13 @@ void main() {
         refusedBankDetailsField(
             payoutSetupRefusal({'error': 'forbidden', 'field': 'ifsc'})),
         isNull);
-    expect(refusedBankDetailsField(Exception('offline')), isNull);
+    expect(
+        refusedBankDetailsField(DioException(
+            requestOptions:
+                RequestOptions(path: '/v1/pilot/carrier/payout-setup'),
+            type: DioExceptionType.connectionError)),
+        isNull);
+    expect(refusedBankDetailsField(Exception('not from the network')), isNull);
   });
 
   const fieldLabels = {
@@ -93,14 +102,11 @@ void main() {
   };
 
   // The box is the field's own border, at rest and with the cursor in it, so read both from the TextField the screen builds.
-  List<BorderSide?> boxOf(WidgetTester tester, String field) {
+  List<InputBorder?> boxOf(WidgetTester tester, String field) {
     final decoration = tester
         .widget<TextField>(find.widgetWithText(TextField, fieldLabels[field]!))
         .decoration!;
-    return [
-      decoration.enabledBorder?.borderSide,
-      decoration.focusedBorder?.borderSide
-    ];
+    return [decoration.enabledBorder, decoration.focusedBorder];
   }
 
   Future<void> openScreen(WidgetTester tester) => tester.pumpWidget(MaterialApp(
@@ -116,10 +122,20 @@ void main() {
       {'error': 'invalid_payout_profile', 'detail': 'Sentence.', 'field': field},
       400);
 
-  final redSide =
-      BorderSide(color: DriverTheme.theme().colorScheme.error, width: 2);
-  final redBox = [redSide, redSide];
-  const noBox = <BorderSide?>[null, null];
+  // The box is the theme's own field shape, drawn 2 pixels wide in the error red.
+  final themedBox = DriverTheme.theme().inputDecorationTheme.border!.copyWith(
+      borderSide:
+          BorderSide(color: DriverTheme.theme().colorScheme.error, width: 2));
+  final redBox = [themedBox, themedBox];
+  const noBox = <InputBorder?>[null, null];
+  final sentenceInMessage = find.descendant(
+      of: find.byType(SnackBar), matching: find.text('Sentence.'));
+
+  // The refusal message covers the Save button for a few seconds; wait for it to go.
+  Future<void> waitForMessageToGo(WidgetTester tester) async {
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+  }
 
   fieldLabels.forEach((field, label) {
     testWidgets(
@@ -127,8 +143,14 @@ void main() {
         (tester) async {
       api.dio.httpClientAdapter = MockApiAdapter((_) => refusal(field));
       await openScreen(tester);
+      // Typing before the save does not stop the box; only typing after it is sent does.
+      await tester.enterText(
+          find.widgetWithText(TextField, fieldLabels['accountHolderName']!),
+          'Test Owner');
       await save(tester);
 
+      // The sentence still shows in the message; the box only points at the field.
+      expect(sentenceInMessage, findsOneWidget);
       for (final name in fieldLabels.keys) {
         expect(boxOf(tester, name), name == field ? redBox : noBox,
             reason: name);
@@ -144,20 +166,48 @@ void main() {
     });
   });
 
-  testWidgets('the box moves to the field the server refuses next',
+  testWidgets(
+      'the box moves to the field the server refuses next, and goes when a reply names no field',
       (tester) async {
-    var refused = 'accountNumber';
-    api.dio.httpClientAdapter = MockApiAdapter((_) => refusal(refused));
+    var next = () => refusal('accountNumber');
+    api.dio.httpClientAdapter = MockApiAdapter((_) => next());
     await openScreen(tester);
     await save(tester);
     expect(boxOf(tester, 'accountNumber'), redBox);
-    // The refusal message covers the Save button for a few seconds; wait for it to go.
-    await tester.pump(const Duration(seconds: 5));
-    await tester.pumpAndSettle();
+    await waitForMessageToGo(tester);
 
-    refused = 'ifsc';
+    next = () => refusal('ifsc');
     await save(tester);
     expect(boxOf(tester, 'ifsc'), redBox);
     expect(boxOf(tester, 'accountNumber'), noBox);
+    await waitForMessageToGo(tester);
+
+    next = () => jsonResponse({'error': 'forbidden'}, 403);
+    await save(tester);
+    for (final name in fieldLabels.keys) {
+      expect(boxOf(tester, name), noBox, reason: name);
+    }
+  });
+
+  testWidgets(
+      'a refusal that arrives after the owner typed over a field boxes nothing, and the message still shows',
+      (tester) async {
+    final reply = Completer<ResponseBody>();
+    api.dio.httpClientAdapter = MockApiAdapter((_) => reply.future);
+    await openScreen(tester);
+    await tester.tap(find.text('Save bank details'));
+    await tester.pump();
+
+    // The owner types in the account number while the save is in flight.
+    await tester.enterText(
+        find.widgetWithText(TextField, fieldLabels['accountNumber']!),
+        '123456789');
+    reply.complete(refusal('accountNumber'));
+    await tester.pumpAndSettle();
+
+    for (final name in fieldLabels.keys) {
+      expect(boxOf(tester, name), noBox, reason: name);
+    }
+    expect(sentenceInMessage, findsOneWidget);
   });
 }
