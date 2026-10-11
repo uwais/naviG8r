@@ -23,14 +23,20 @@ String? rejectionReasonInWords(String? code) => switch (code) {
     };
 
 /// The rejected banner: what ops decided and, for the owner, why and only a next step that can work.
-/// Everyone else is sent to the owner, since the reason is about the carrier's business.
+/// Everyone else is told to ask the owner, since the reason is about the carrier's business.
 (String, String?) _rejectedMessage({required bool owner}) {
-  final decided = DriverSession.approvalTakenBack
+  final opsDecisionSentence = DriverSession.approvalTakenBack
       ? "NaviG8r operations took back this carrier's approval."
       : "NaviG8r operations did not approve this carrier.";
-  const blocked =
+  const blockedSentence =
       "While this carrier is not approved, you can't accept shipments or start trips.";
-  if (!owner) return ("$decided Ask the carrier owner for details. $blocked", null);
+  if (!owner) {
+    return (
+      [opsDecisionSentence, "Ask the carrier owner for details.", blockedSentence]
+          .join(" "),
+      null,
+    );
+  }
   final code = DriverSession.rejectionReasonCode;
   final reason = rejectionReasonInWords(code);
   final (nextStep, action) = switch (code) {
@@ -49,7 +55,8 @@ String? rejectionReasonInWords(String? code) => switch (code) {
       ),
   };
   return (
-    [decided, if (reason != null) reason, nextStep, blocked].join(" "),
+    [opsDecisionSentence, if (reason != null) reason, nextStep, blockedSentence]
+        .join(" "),
     action,
   );
 }

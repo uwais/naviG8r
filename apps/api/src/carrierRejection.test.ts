@@ -33,6 +33,17 @@ test("only the owner reads the reason; drivers and dispatchers learn only that t
     inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: carrier, phone, role, vehicleRegistrationNumber: `TEST-${role}`, vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
     driverAndDispatcherTokens.push(await f.login(phone));
   }
+  // Never approved: the owner reads the reason, and nobody is told an approval was taken back.
+  await reject("DOCUMENTS_MISSING");
+  const ownerBefore = await seenBy(f.tokens.carrierA);
+  assert.equal(ownerBefore.rejectionReasonCode, "DOCUMENTS_MISSING");
+  assert.equal(ownerBefore.approvalTakenBack, undefined);
+  for (const token of driverAndDispatcherTokens) {
+    const org = await seenBy(token);
+    assert.equal(org.kycStatus, "REJECTED");
+    assert.equal(org.rejectionReasonCode, undefined);
+    assert.equal(org.approvalTakenBack, undefined);
+  }
   // Saved bank details let the bank reason through to the owner; the approval makes each rejection below a taken-back one.
   await saveBankDetails();
   const approve = await f.request(`/v1/organizations/${carrier}/kyc`, "POST", { status: "APPROVED" }, f.tokens.ops, { "x-reason-code": "BANK_DETAILS_VERIFIED" });
@@ -169,7 +180,7 @@ test("the newest rejection is found by time, even when audit rows load newest fi
   assert.deepEqual(carrierRejection(store, org, owner), { rejectionReasonCode: "DUPLICATE_ACCOUNT" });
 });
 
-test("the owner is judged as the bank-details save judges them, so an owner whose role an admin removed gets no reason", () => {
+test("owners are judged as the bank-details save judges them, so a member whose carrier role an admin removed gets no reason", () => {
   const store = createStore();
   const org = { id: "carrier-x", kind: "CARRIER_FLEET" as const, displayName: "Carrier X", kycStatus: "REJECTED" as const, createdAtUtcMs: 0 };
   store.auditEvents.set("rejection", {
