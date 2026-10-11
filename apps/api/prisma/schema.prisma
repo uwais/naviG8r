@@ -182,6 +182,9 @@ model LedgerLineRow {
   status                      String
   createdAtUtcMs              BigInt
   paidAtUtcMs                 BigInt?
+  payoutAttemptKey            String?
+  payoutAttemptFundAccountId  String?
+  payoutFailedAttempts        Int?
   inactiveAtUtcMs             BigInt?
   inactiveReason              String?
 }
