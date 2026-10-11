@@ -2361,6 +2361,7 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
   final _ifsc = TextEditingController();
   final _accountNumber = TextEditingController();
   bool _busy = false;
+  String? _refusedField;
 
   @override
   void dispose() {
@@ -2368,6 +2369,22 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
     _ifsc.dispose();
     _accountNumber.dispose();
     super.dispose();
+  }
+
+  // The refused field gets a red box in the theme's own shape; the sentence stays in the snackbar.
+  InputDecoration _decoration(String label, String field) {
+    if (_refusedField != field) return InputDecoration(labelText: label);
+    final theme = Theme.of(context);
+    final box =
+        (theme.inputDecorationTheme.border ?? const OutlineInputBorder())
+            .copyWith(
+                borderSide: BorderSide(color: theme.colorScheme.error, width: 2));
+    return InputDecoration(
+        labelText: label, enabledBorder: box, focusedBorder: box);
+  }
+
+  void _clearRefused(String field) {
+    if (_refusedField == field) setState(() => _refusedField = null);
   }
 
   Future<void> _save() async {
@@ -2391,9 +2408,11 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       context.push("/driver/payout-history");
     } catch (e) {
-      if (mounted)
+      if (mounted) {
+        setState(() => _refusedField = refusedBankDetailsField(e));
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -2417,17 +2436,18 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
           const SizedBox(height: 16),
           TextField(
               controller: _name,
+              onChanged: (_) => _clearRefused("accountHolderName"),
               decoration:
-                  const InputDecoration(labelText: "Account holder name")),
+                  _decoration("Account holder name", "accountHolderName")),
           TextField(
               controller: _ifsc,
-              decoration:
-                  const InputDecoration(labelText: "IFSC / bank identifier")),
+              onChanged: (_) => _clearRefused("ifsc"),
+              decoration: _decoration("IFSC / bank identifier", "ifsc")),
           TextField(
             controller: _accountNumber,
             keyboardType: TextInputType.number,
-            decoration:
-                const InputDecoration(labelText: "Bank account number"),
+            onChanged: (_) => _clearRefused("accountNumber"),
+            decoration: _decoration("Bank account number", "accountNumber"),
           ),
           const Spacer(),
           FilledButton(

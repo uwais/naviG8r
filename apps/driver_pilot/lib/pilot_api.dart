@@ -173,6 +173,15 @@ String formatApiError(Object e) {
   return e.toString();
 }
 
+/// The bank details field the server refused (accountHolderName, ifsc or accountNumber), so the form can box it.
+String? refusedBankDetailsField(Object e) {
+  if (e is! DioException) return null;
+  final body = e.response?.data;
+  if (body is! Map || body["error"] != "invalid_payout_profile") return null;
+  final field = body["field"];
+  return field is String ? field : null;
+}
+
 int? otpRetryAfterMs(Object e) {
   if (e is! DioException) return null;
   final body = e.response?.data;
