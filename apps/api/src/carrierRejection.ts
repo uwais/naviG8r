@@ -28,13 +28,13 @@ export function carrierRejection(store: Store, org: Organization, member: Member
   const rejectedAt = newest.timestamp;
   const bankDetailsSaved = Boolean(org.payoutFundAccountId) || events.some(e => e.timestamp <= rejectedAt &&
     (e.action === "BANK_ACCOUNT_CHANGED" || (e.action === "COMPLIANCE_STATUS_CHANGED" && e.previousState === "SUBMITTED")));
-  // Only members who can save bank details can act on the bank reason, so only they get it. Roles are worked out as
-  // resolvePrincipal does (rbac.ts), so this matches the save route. Every ops page's reject caption states this rule.
+  // Only owners read the reason: it is about the carrier's business, and only they can act on it. Owners are the
+  // members who can save bank details, worked out as resolvePrincipal does (rbac.ts); every ops reject caption says so.
   const roles = (store.membershipRoles.get(`${member.userId}:${member.orgId}`) ?? legacyRoles(member, org)).filter(r => compatibleRole(r, org));
-  const memberCanSaveBankDetails = effectivePermissions(roles, member.role).includes("bank_account.create_token");
+  const memberIsOwner = effectivePermissions(roles, member.role).includes("bank_account.create_token");
   const code = newest.reasonCode;
   const out: { rejectionReasonCode?: string; approvalTakenBack?: boolean } = {};
-  if (code && reasonsCarriersMayRead.has(code) && (code !== "BANK_DETAILS_MISMATCH" || (bankDetailsSaved && memberCanSaveBankDetails))) out.rejectionReasonCode = code;
+  if (code && memberIsOwner && reasonsCarriersMayRead.has(code) && (code !== "BANK_DETAILS_MISMATCH" || bankDetailsSaved)) out.rejectionReasonCode = code;
   if (first.previousState === "APPROVED") out.approvalTakenBack = true;
   return out;
 }

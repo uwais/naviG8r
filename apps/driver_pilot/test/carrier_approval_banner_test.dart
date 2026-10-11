@@ -122,19 +122,29 @@ void main() {
   });
 
   testWidgets(
-      'rejected driver with no reason, as when the bank reason is kept for the owner, is told to ask the owner, no button',
+      'a rejected driver sees no reason, only to ask the owner for details, even if a reason arrives',
       (tester) async {
-    signInCarrier(kycStatus: 'REJECTED', owner: false);
-    await showBanner(tester);
-    expect(
-        bannerMessage(tester),
-        "NaviG8r operations did not approve this carrier. Ask the carrier owner to submit bank details for another review. "
-        "While this carrier is not approved, you can't accept shipments or start trips.");
-    expect(find.byType(FilledButton), findsNothing);
+    for (final code in <String?>[
+      null,
+      'DOCUMENTS_MISSING',
+      'BANK_DETAILS_MISMATCH',
+      'DUPLICATE_ACCOUNT',
+      'NOT_A_CARRIER'
+    ]) {
+      signInCarrier(
+          kycStatus: 'REJECTED', owner: false, rejectionReasonCode: code);
+      await showBanner(tester);
+      expect(
+          bannerMessage(tester),
+          "NaviG8r operations did not approve this carrier. Ask the carrier owner for details. "
+          "While this carrier is not approved, you can't accept shipments or start trips.",
+          reason: '$code');
+      expect(find.byType(FilledButton), findsNothing, reason: '$code');
+    }
   });
 
   testWidgets(
-      'each reason reads the same to everyone it is sent to, and only the bank reason offers the bank form',
+      'the owner reads each reason in plain words, and only the bank reason offers the bank form',
       (tester) async {
     const reasons = {
       'DOCUMENTS_MISSING': 'NaviG8r needs documents from this carrier.',
@@ -144,22 +154,15 @@ void main() {
       'NOT_A_CARRIER': 'NaviG8r decided this is not a carrier business.',
     };
     for (final MapEntry(key: code, value: words) in reasons.entries) {
-      // The server sends the bank reason only to those who can save bank details.
-      for (final owner in code == 'BANK_DETAILS_MISMATCH' ? [true] : [true, false]) {
-        signInCarrier(
-            kycStatus: 'REJECTED', owner: owner, rejectionReasonCode: code);
-        await showBanner(tester);
-        final which = '$code, owner: $owner';
-        expect(
-            bannerMessage(tester),
-            startsWith(
-                'NaviG8r operations did not approve this carrier. $words '),
-            reason: which);
-        expect(bannerMessage(tester), isNot(contains('again')), reason: which);
-        expect(find.widgetWithText(FilledButton, 'Submit bank details'),
-            code == 'BANK_DETAILS_MISMATCH' && owner ? findsOneWidget : findsNothing,
-            reason: which);
-      }
+      signInCarrier(kycStatus: 'REJECTED', owner: true, rejectionReasonCode: code);
+      await showBanner(tester);
+      expect(bannerMessage(tester),
+          startsWith('NaviG8r operations did not approve this carrier. $words '),
+          reason: code);
+      expect(bannerMessage(tester), isNot(contains('again')), reason: code);
+      expect(find.widgetWithText(FilledButton, 'Submit bank details'),
+          code == 'BANK_DETAILS_MISMATCH' ? findsOneWidget : findsNothing,
+          reason: code);
     }
   });
 
@@ -183,13 +186,19 @@ void main() {
   });
 
   testWidgets(
-      'a carrier whose approval was taken back is told so, not that it was never approved',
+      'owner and driver whose approval was taken back are told so, not that it was never approved',
       (tester) async {
     signInCarrier(kycStatus: 'REJECTED', owner: true, approvalTakenBack: true);
     await showBanner(tester);
     expect(bannerMessage(tester),
         startsWith("NaviG8r operations took back this carrier's approval."));
     expect(bannerMessage(tester), isNot(contains('did not approve')));
+    signInCarrier(kycStatus: 'REJECTED', owner: false, approvalTakenBack: true);
+    await showBanner(tester);
+    expect(
+        bannerMessage(tester),
+        "NaviG8r operations took back this carrier's approval. Ask the carrier owner for details. "
+        "While this carrier is not approved, you can't accept shipments or start trips.");
   });
 
   testWidgets(

@@ -12,7 +12,7 @@ String approvalStatusInWords(String? kycStatus) => switch (kycStatus) {
       _ => "Bank details not added yet",
     };
 
-/// What a rejected carrier reads for each reason ops may share; null for any other code.
+/// What a rejected carrier's owner reads for each reason ops may share; null for any other code.
 String? rejectionReasonInWords(String? code) => switch (code) {
       "DOCUMENTS_MISSING" => "NaviG8r needs documents from this carrier.",
       "BANK_DETAILS_MISMATCH" =>
@@ -22,8 +22,15 @@ String? rejectionReasonInWords(String? code) => switch (code) {
       _ => null,
     };
 
-/// The rejected banner: what ops decided, why when the server says, and only a next step that can work.
+/// The rejected banner: what ops decided and, for the owner, why and only a next step that can work.
+/// Everyone else is sent to the owner, since the reason is about the carrier's business.
 (String, String?) _rejectedMessage({required bool owner}) {
+  final decided = DriverSession.approvalTakenBack
+      ? "NaviG8r operations took back this carrier's approval."
+      : "NaviG8r operations did not approve this carrier.";
+  const blocked =
+      "While this carrier is not approved, you can't accept shipments or start trips.";
+  if (!owner) return ("$decided Ask the carrier owner for details. $blocked", null);
   final code = DriverSession.rejectionReasonCode;
   final reason = rejectionReasonInWords(code);
   final (nextStep, action) = switch (code) {
@@ -36,25 +43,13 @@ String? rejectionReasonInWords(String? code) => switch (code) {
         null
       ),
     // The bank reason, or none the app knows: new bank details are the one step that can help.
-    _ => owner
-        ? (
-            "You can submit your bank details for another review.",
-            "Submit bank details"
-          )
-        : (
-            "Ask the carrier owner to submit bank details for another review.",
-            null
-          ),
+    _ => (
+        "You can submit your bank details for another review.",
+        "Submit bank details"
+      ),
   };
   return (
-    [
-      DriverSession.approvalTakenBack
-          ? "NaviG8r operations took back this carrier's approval."
-          : "NaviG8r operations did not approve this carrier.",
-      if (reason != null) reason,
-      nextStep,
-      "While this carrier is not approved, you can't accept shipments or start trips.",
-    ].join(" "),
+    [decided, if (reason != null) reason, nextStep, blocked].join(" "),
     action,
   );
 }

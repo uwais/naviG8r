@@ -68,7 +68,7 @@ const markup = `
     <section id="byId" class="card" aria-labelledby="byIdTitle">
       <div class="head"><h2 id="byIdTitle">Review any carrier by ID</h2></div>
       <form id="byIdForm" class="body" novalidate autocomplete="off">
-        <p class="caption">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history. If you reject, the bank reason shows only to the owner, and only if the carrier has saved bank details; dispatchers and drivers are told to ask the owner. Documents missing, Duplicate account and Not a carrier business show to the owner, dispatchers and drivers alike, in their app, in plain words. Taking back an approval shows to them all as just that.</p>
+        <p class="caption">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history. If you reject with Documents missing, Duplicate account, Not a carrier business or the bank reason, only the owner sees it in their app, in plain words; the bank reason only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details. If you take back an approval, everyone at the carrier reads that it was taken back.</p>
         <div id="byIdOff"></div>
         <label class="stack"><span class="field-label">Carrier ID</span><input id="byIdCarrier" class="field mono" autocomplete="off" spellcheck="false"></label>
         <fieldset><legend class="field-label">Decision</legend>
@@ -312,7 +312,7 @@ function carrierCard(carrier) {
     const back = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Cancel' });
     picker.replaceChildren(
       element('label', { class: 'stack reason' }, element('span', { id: cardId + '-reason', class: 'field-label' }, approving ? 'Reason for approving' : 'Reason for rejecting', element('span', { class: 'visually-hidden', text: ' ' + name + ' (' + carrier.id + ')' })), select,
-        !approving && element('span', { id: cardId + '-reason-note', class: 'caption', text: "The bank reason shows only to the owner, and only if the carrier has saved bank details; dispatchers and drivers are told to ask the owner. Any other reason shows in their app, in plain words, to the owner, dispatchers and drivers alike." })),
+        !approving && element('span', { id: cardId + '-reason-note', class: 'caption', text: "Only the owner sees the reason you pick, in their app, in plain words; the bank reason only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details." })),
       confirm, back);
     actions.hidden = true;
     picker.hidden = false;

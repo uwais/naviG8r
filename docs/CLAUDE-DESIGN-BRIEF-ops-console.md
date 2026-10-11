@@ -275,6 +275,15 @@ Re-screened 2026-10-10 after Rishabh hid the bank reason from drivers and dispat
   match what the server does. 9 data: less now reaches their phones. 11 reversal: "the owner's bank problem
   goes to the owner, and everyone else is told to ask the owner" is comfortable to say. 2, 3, 4, 6, 7 and
   10: not applicable (no comparison, cost, urgency, exit, decline button or money involved).
+Re-screened 2026-10-11 after Rishabh decided drivers and dispatchers see no rejection reason at all, only that the
+  carrier is not approved (or its approval was taken back) and to ask the owner for details: PASS. 1 actionability:
+  their one step, asking the owner, is open to them, and the owner sees the reason and the step that can help.
+  5 defaults: withholding is the privacy-respecting choice. 8 promise: the message claims nothing about the reason,
+  and every ops caption matches what the server sends. 9 data: no reason reaches their phones. 11 reversal: "the
+  reason is about the carrier's business, so it goes to the owner, and everyone else is told to ask the owner" is
+  comfortable to say. Gap, not a fail: a driver whose owner will not answer has no one at NaviG8r to ask until the
+  app has a way to contact NaviG8r (on the 12 Oct agenda). 2, 3, 4, 6, 7 and 10: not applicable (no comparison,
+  cost, urgency, exit, decline button or money involved).
 Accepted risks: none
 ```
 
