@@ -2405,23 +2405,42 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
 
   Future<void> _save() async {
     if (!DriverSession.canSetUpPayouts) return;
+    // A message about the last save is out of date once a new save starts.
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() => _busy = true);
     final editsWhenSent = _edits;
     try {
       final orgId = DriverSession.carrierOrgId ?? "";
+      final name = _name.text.trim();
+      final ifsc = _ifsc.text.trim();
       final acct = _accountNumber.text.trim();
       final r = await api.post<Map<String, dynamic>>(
         "/v1/pilot/carrier/payout-setup",
         data: {
           "orgId": orgId,
-          "accountHolderName": _name.text.trim(),
-          "ifsc": _ifsc.text.trim(),
+          "accountHolderName": name,
+          "ifsc": ifsc,
           if (acct.isNotEmpty) "accountNumber": acct,
         },
       );
       final msg = r.data?["message"]?.toString() ?? "Saved.";
       await DriverSession.refresh();
       if (!mounted) return;
+      // The server upper-cases the IFSC, so retyping it in the other case sends it nothing new.
+      final fieldsMatchWhatWasSent = _name.text.trim() == name &&
+          _ifsc.text.trim().toUpperCase() == ifsc.toUpperCase() &&
+          _accountNumber.text.trim() == acct;
+      if (!fieldsMatchWhatWasSent) {
+        // The server got the text from the tap, not what the fields show now: stay here and say so.
+        // Ten seconds because it is too long to read in four; Close because it covers the Save button.
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(label: "Close", onPressed: () {}),
+            content: Text("$msg\n"
+                "You changed a field after tapping Save. The details sent are the ones from when you tapped. "
+                "Tap Save again to send the change.")));
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       context.push("/driver/payout-history");
     } catch (e) {
