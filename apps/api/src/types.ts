@@ -402,4 +402,53 @@ export type IntegrationWebhookDelivery = {
   deliveredAtUtcMs: number | null;
   createdAtUtcMs: number;
   updatedAtUtcMs: number;
+  leaseId?: string | null;
+  leaseUntilUtcMs?: number | null;
+};
+
+export type PushDevice = {
+  id: string;
+  installationId: string;
+  userId: string;
+  platform: "ANDROID";
+  tokenCiphertext: string;
+  tokenHash: string;
+  environment: "DEVELOPMENT" | "PRODUCTION";
+  consentedAtUtcMs: number;
+  permissionGrantedHint: boolean;
+  channelEnabledHint: boolean;
+  ownershipGeneration: number;
+  createdAtUtcMs: number;
+  updatedAtUtcMs: number;
+  lastSeenAtUtcMs: number;
+  revokedAtUtcMs: number | null;
+};
+
+export type PushIntent = {
+  id: string;
+  notificationId: string;
+  recipientUserId: string;
+  recipientOrgId: string;
+  shipmentId: string;
+  presentationKey: string;
+  createdAtUtcMs: number;
+  expiresAtUtcMs: number;
+};
+
+export type PushDeliveryStatus = "PENDING" | "ACCEPTED" | "SUPPRESSED" | "INVALID_TOKEN" | "PERMANENT_FAILURE" | "EXPIRED";
+
+export type PushDelivery = {
+  id: string;
+  intentId: string;
+  deviceId: string;
+  ownershipGeneration: number;
+  status: PushDeliveryStatus;
+  attempts: number;
+  nextAttemptAtUtcMs: number;
+  leaseId: string | null;
+  leaseUntilUtcMs: number | null;
+  providerAcceptedAtUtcMs: number | null;
+  lastErrorCode: string | null;
+  createdAtUtcMs: number;
+  updatedAtUtcMs: number;
 };

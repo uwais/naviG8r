@@ -397,7 +397,16 @@ export async function loadStoreFromDatabase(): Promise<Store> {
   return store;
 }
 
-const integrationMaps = ["integrationConnections", "integrationApiKeys", "integrationIdempotency", "integrationEvents", "integrationWebhookDeliveries"] as const;
+const integrationMaps = [
+  "integrationConnections",
+  "integrationApiKeys",
+  "integrationIdempotency",
+  "integrationEvents",
+  "integrationWebhookDeliveries",
+  "pushDevices",
+  "pushIntents",
+  "pushDeliveries",
+] as const;
 export async function closeDatabase(): Promise<void> { await prisma.$disconnect(); }
 
 /** Read only the bounded candidate rows needed to build one conversation page. */

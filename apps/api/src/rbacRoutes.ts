@@ -51,6 +51,12 @@ const rules: [string, RegExp, Permission][] = [
 export function guardRequest(req: http.IncomingMessage, store: Store, url: URL): void {
   const method = req.method ?? "GET", path = url.pathname;
   if (method === "OPTIONS") return;
+  if ((method === "PUT" && path === "/v1/me/push-devices") ||
+      (method === "DELETE" && /^\/v1\/me\/push-devices\/[^/]+$/.test(path)) ||
+      (method === "POST" && /^\/v1\/notifications\/[^/]+\/open$/.test(path))) {
+    verifyBearer(store, /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization ?? ""))?.[1] ?? null);
+    return; // Bearer-only user scope; selected organization is resolved by the endpoint against the canonical notification/device.
+  }
   if (method === "GET" && ["/health", "/ops", "/admin", "/admin/v1", "/ops/v1", "/admin/v2", "/ops/v2", "/ops/beta", "/workflow", "/v1/customer/eligible-anchor-trips"].includes(path)) return;
   if (method === "GET" && /^\/anchor-trips(?:\/[^/]+)?$/.test(path)) return;
   if (method === "POST" && ["/shipments/quote", "/v1/auth/otp/start", "/v1/auth/otp/verify", "/v1/pilot/driver/register", "/v1/pilot/customer/register", "/v1/pilot/customer/users/register", "/v1/payments/razorpay/webhook"].includes(path)) return;
@@ -63,7 +69,7 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   const { userId } = verifyBearer(store, token);
   const organizationId = req.headers["x-organization-id"];
   if (organizationId !== undefined && typeof organizationId !== "string") throw new AuthorizationError("invalid_organization", 400);
-  const p = resolvePrincipal(store, userId, organizationId);
+  const p = resolvePrincipal(store, userId, typeof organizationId === "string" ? organizationId : undefined);
   let requiredPermission: Permission = rule[2];
   if (path.startsWith("/v1/shipments/") && /\/conversation\/(?:messages|timeline|read)$/.test(path)) {
     const supportPermission = method === "POST" && path.endsWith("/conversation/messages") ? "conversation.support_send" : "conversation.support_read";

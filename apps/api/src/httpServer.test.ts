@@ -30,6 +30,89 @@ async function postJson(baseUrl: string, path: string, body: unknown): Promise<R
   });
 }
 
+test("production FCM rejects FILE persistence unless explicitly enabled", async (t) => {
+  const previous = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    PERSISTENCE: process.env.PERSISTENCE,
+    PUSH_ALLOW_FILE_PRODUCTION: process.env.PUSH_ALLOW_FILE_PRODUCTION,
+    PUSH_DEVICE_REGISTRATION_ENABLED: process.env.PUSH_DEVICE_REGISTRATION_ENABLED,
+    PUSH_SENDER_ENABLED: process.env.PUSH_SENDER_ENABLED,
+    FCM_SERVICE_ACCOUNT_JSON: process.env.FCM_SERVICE_ACCOUNT_JSON,
+  };
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  process.env.NODE_ENV = "production";
+  process.env.PERSISTENCE = "FILE";
+  process.env.PUSH_SENDER_ENABLED = "1";
+  process.env.FCM_SERVICE_ACCOUNT_JSON = "{}";
+  delete process.env.PUSH_ALLOW_FILE_PRODUCTION;
+  delete process.env.PUSH_DEVICE_REGISTRATION_ENABLED;
+
+  await assert.rejects(
+    createApp({ dataFilePath: `/tmp/navig8r-fcm-production-${Date.now()}.json` }),
+    /production_fcm_requires_db_persistence/,
+  );
+});
+
+test("production FCM allows FILE persistence with explicit opt-in", async (t) => {
+  const previous = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    PERSISTENCE: process.env.PERSISTENCE,
+    PUSH_ALLOW_FILE_PRODUCTION: process.env.PUSH_ALLOW_FILE_PRODUCTION,
+    PUSH_DEVICE_REGISTRATION_ENABLED: process.env.PUSH_DEVICE_REGISTRATION_ENABLED,
+    PUSH_SENDER_ENABLED: process.env.PUSH_SENDER_ENABLED,
+    FCM_SERVICE_ACCOUNT_JSON: process.env.FCM_SERVICE_ACCOUNT_JSON,
+  };
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  process.env.NODE_ENV = "production";
+  process.env.PERSISTENCE = "FILE";
+  process.env.PUSH_ALLOW_FILE_PRODUCTION = "1";
+  process.env.PUSH_SENDER_ENABLED = "1";
+  process.env.FCM_SERVICE_ACCOUNT_JSON = "{}";
+  delete process.env.PUSH_DEVICE_REGISTRATION_ENABLED;
+
+  const app = await createApp({ dataFilePath: `/tmp/navig8r-fcm-production-opt-in-${Date.now()}.json` });
+  assert.ok(app.store);
+  assert.equal(app.dataFilePath?.endsWith(".json"), true);
+});
+
+test("read-only requests do not snapshot the entire Store", async (t) => {
+  const f = await httpFixture(t);
+  Object.assign(f.store as unknown as Record<string, unknown>, {
+    nonCloneableTestMarker: () => undefined,
+  });
+
+  const health = await f.request("/health");
+  assert.equal(health.status, 200);
+  assert.equal(health.body.ok, true);
+});
+
+test("conversation message reads retain Store snapshot protection", async (t) => {
+  const f = await httpFixture(t);
+  const booked = await f.book();
+  assert.equal(booked.status, 201);
+  const shipmentId = booked.body.shipment.id as string;
+  Object.assign(f.store as unknown as Record<string, unknown>, {
+    nonCloneableTestMarker: () => undefined,
+  });
+
+  const result = await f.request(`/v1/shipments/${shipmentId}/conversation/messages`, "GET", undefined, f.tokens.shipperA);
+  assert.equal(result.status, 500);
+});
+
 /**
  * In production, legacy demo/admin routes return 403.
  * Public marketplace routes (anchor-trips, quote, book, customer shipments with Bearer) stay enabled;

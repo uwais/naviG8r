@@ -10,6 +10,13 @@ import http from "node:http";
 import { URL } from "node:url";
 import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
+import { FixedWindowRateLimiter } from "./http/rateLimit.ts";
+import {
+  assertPushTokenEncryptionConfigured,
+  pushFlagEnabled,
+  registerPushDevice,
+  revokePushDevice,
+} from "./features/push/push.ts";
 import {
   ApiError,
   acceptCarrierShipment,
@@ -70,7 +77,7 @@ import { verifyRazorpayWebhookSignature, razorpayPaymentsEnabled, publicRazorpay
 import { payoutsMode } from "./razorpayPayouts.ts";
 import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
 import { handleIntegrationPortalRoutes, handleIntegrationRoutes } from "./integrationHttp.ts";
-import { captureTerminalConversationWindows, captureWorkflowNotifications, CommunicationError, decideConversationEscalation, listConversationMessages, listConversationTimeline, listGroupedNotifications, listNotifications, markConversationRead, markNotificationRead, requestConversationEscalation, revokeConversationEscalation, sendConversationMessage, workflowSnapshot, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
+import { captureTerminalConversationWindows, captureWorkflowNotifications, CommunicationError, decideConversationEscalation, listConversationMessages, listConversationTimeline, listGroupedNotifications, listNotifications, markConversationRead, markNotificationRead, requestConversationEscalation, resolveNotificationOpenRoute, revokeConversationEscalation, sendConversationMessage, workflowSnapshot, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
 
 class CommunicationPersistenceError extends Error {}
 
@@ -139,9 +146,15 @@ function html(res: http.ServerResponse, status: number, body: string): void {
   res.end(body);
 }
 
-async function readJson(req: http.IncomingMessage): Promise<any> {
+async function readJson(req: http.IncomingMessage, maxBytes = 1_048_576): Promise<any> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+  let byteLength = 0;
+  for await (const c of req) {
+    const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+    byteLength += chunk.length;
+    if (byteLength > maxBytes) throw new AuthorizationError("payload_too_large", 413);
+    chunks.push(chunk);
+  }
   if (chunks.length === 0) return null;
   const raw = Buffer.concat(chunks).toString("utf8");
   const body = JSON.parse(raw);
@@ -210,19 +223,60 @@ function requireBearerUserId(
   }
 }
 
+function consumePushRateLimit(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  limiter: FixedWindowRateLimiter,
+  action: "registration" | "open",
+  userId: string,
+): boolean {
+  const now = Date.now();
+  const ip = req.socket.remoteAddress ?? "unknown";
+  const userLimit = limiter.consume(`push:${action}:user:${userId}`, action === "registration" ? 10 : 60, 60_000, now);
+  const ipLimit = limiter.consume(`push:${action}:ip:${ip}`, action === "registration" ? 30 : 120, 60_000, now);
+  const blocked = !userLimit.allowed ? userLimit : !ipLimit.allowed ? ipLimit : null;
+  if (!blocked) return true;
+  res.setHeader("retry-after", String(blocked.retryAfterSeconds));
+  json(res, 429, { error: "rate_limited" });
+  return false;
+}
+
+function userCanReceiveShipmentPush(store: ReturnType<typeof loadStoreFromDisk>, userId: string): boolean {
+  for (const membership of store.memberships.values()) {
+    if (membership.userId !== userId) continue;
+    try {
+      const principal = resolvePrincipal(store, userId, membership.orgId);
+      if ((principal.roles.includes("SHIPPER") || principal.roles.includes("CARRIER")) && principal.permissions.includes("notification.read")) return true;
+    } catch {
+      // Inactive or incompatible memberships are not eligible for push registration.
+    }
+  }
+  return false;
+}
+
 export async function createApp(options: {
   /** Test hook for simulating a failed communication persistence operation. */
   beforeCommunicationPersist?: () => Promise<void> | void;
+  /** Test hook for simulating any failed Store persistence operation. */
+  beforePersist?: () => Promise<void> | void;
+  /** Isolated FILE path for persistence/rollback tests. */
+  dataFilePath?: string;
 } = {}): Promise<{
   server: http.Server;
   store: ReturnType<typeof loadStoreFromDisk>;
   persist: () => Promise<void>;
+  runSerialized: <T>(operation: () => Promise<T> | T) => Promise<T>;
   dataFilePath: string | null;
 }> {
+  if (pushFlagEnabled("PUSH_DEVICE_REGISTRATION_ENABLED")) assertPushTokenEncryptionConfigured();
+  if (pushFlagEnabled("PUSH_SENDER_ENABLED") && !process.env.FCM_SERVICE_ACCOUNT_JSON?.trim()) {
+    throw new Error("PUSH_SENDER_ENABLED requires FCM_SERVICE_ACCOUNT_JSON");
+  }
   const otp = createOtpDependencies();
-  const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (process.env.DATA_FILE ?? "./data/store.json");
+  const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (options.dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
 
   let store: ReturnType<typeof loadStoreFromDisk>;
+  let rawPersist: () => Promise<void>;
   let persist: () => Promise<void>;
   let timelinePageReader: TimelinePageReader | undefined;
   let groupedInboxPageReader: GroupedInboxPageReader | undefined;
@@ -236,20 +290,65 @@ export async function createApp(options: {
     store = await db.loadStoreFromDatabase();
     timelinePageReader = db.readTimelinePageFromDatabase;
     groupedInboxPageReader = db.readGroupedInboxPageFromDatabase;
-    persist = async () => {
+    rawPersist = async () => {
       captureTerminalConversationWindows(store);
       captureWorkflowNotifications(store, eventSnapshot);
       await db.saveStoreToDatabase(store);
     };
   } else {
+    if (process.env.NODE_ENV === "production" && pushFlagEnabled("PUSH_SENDER_ENABLED") && process.env.PUSH_ALLOW_FILE_PRODUCTION !== "1") {
+      throw new Error("production_fcm_requires_db_persistence");
+    }
     store = loadStoreFromDisk(dataFilePath!);
-    persist = async () => {
+    rawPersist = async () => {
       captureTerminalConversationWindows(store);
       captureWorkflowNotifications(store, eventSnapshot);
       saveStoreToDisk(dataFilePath!, store);
     };
   }
   eventSnapshot = workflowSnapshot(store);
+
+  type MutationSnapshot = {
+    store: ReturnType<typeof loadStoreFromDisk>;
+    eventSnapshot: typeof eventSnapshot;
+  };
+  let activeMutationSnapshot: MutationSnapshot | null = null;
+  persist = async () => {
+    try {
+      await options.beforePersist?.();
+      await rawPersist();
+    } catch (error) {
+      if (activeMutationSnapshot) {
+        restoreStoreSnapshot(store, activeMutationSnapshot.store);
+        restoreMutableObject(eventSnapshot, activeMutationSnapshot.eventSnapshot);
+      }
+      throw error;
+    }
+  };
+
+  let requests: Promise<unknown> = Promise.resolve();
+  function runSerialized<T>(operation: () => Promise<T> | T, captureSnapshot = true): Promise<T> {
+    const result = requests.then(async () => {
+      const snapshot = captureSnapshot ? {
+        store: structuredClone(store),
+        eventSnapshot: structuredClone(eventSnapshot),
+      } : null;
+      activeMutationSnapshot = snapshot;
+      try {
+        return await operation();
+      } catch (error) {
+        if (snapshot) {
+          restoreStoreSnapshot(store, snapshot.store);
+          restoreMutableObject(eventSnapshot, snapshot.eventSnapshot);
+        }
+        throw error;
+      } finally {
+        activeMutationSnapshot = null;
+      }
+    });
+    requests = result.then(() => undefined, () => undefined);
+    return result;
+  }
 
   // Requests are serialized below, so failed persistence can safely restore OTP state.
   async function persistOtp<T>(operation: () => T): Promise<T> {
@@ -277,18 +376,14 @@ export async function createApp(options: {
   }
 
   async function persistCommunication<T>(operation: () => T | Promise<T>): Promise<T> {
-    const conversations = new Map(store.conversations);
-    const conversationMessages = new Map(store.conversationMessages);
-    const conversationReadStates = new Map(store.conversationReadStates);
-    const conversationEscalationGrants = new Map(store.conversationEscalationGrants);
-    const notifications = new Map(store.notifications);
-    const auditEvents = new Map(store.auditEvents);
+    const conversations = structuredClone(store.conversations);
+    const conversationMessages = structuredClone(store.conversationMessages);
+    const conversationReadStates = structuredClone(store.conversationReadStates);
+    const conversationEscalationGrants = structuredClone(store.conversationEscalationGrants);
+    const notifications = structuredClone(store.notifications);
+    const auditEvents = structuredClone(store.auditEvents);
     const notificationSequence = store.notificationSequence;
-    const previousEventSnapshot = {
-      shipments: new Map(eventSnapshot.shipments),
-      trips: new Map(eventSnapshot.trips),
-      payments: new Map(eventSnapshot.payments),
-    };
+    const previousEventSnapshot = structuredClone(eventSnapshot);
 
     let result: T;
     try {
@@ -318,9 +413,12 @@ export async function createApp(options: {
     }
   }
 
-  let requests: Promise<unknown> = Promise.resolve();
+  const pushRateLimiter = new FixedWindowRateLimiter();
   const server = http.createServer((req, res) => {
-    requests = requests.then(() => authorizationContext.run(requestContext(), async () => {
+    const method = req.method ?? "GET";
+    const urlPath = (req.url ?? "/").split("?", 1)[0];
+    const capturesState = !["GET", "HEAD", "OPTIONS"].includes(method) || /\/conversation\/(?:timeline|messages)$/.test(urlPath);
+    void runSerialized(() => authorizationContext.run(requestContext(), async () => {
     try {
       const method = req.method ?? "GET";
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -350,6 +448,61 @@ export async function createApp(options: {
           paymentProvider: razorpayPaymentsEnabled() ? "razorpay" : "mock",
           release: process.env.RELEASE_SHA ?? "unknown",
         });
+      }
+
+      if (method === "PUT" && url.pathname === "/v1/me/push-devices") {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        if (!consumePushRateLimit(req, res, pushRateLimiter, "registration", userId)) return;
+        if (!pushFlagEnabled("PUSH_DEVICE_REGISTRATION_ENABLED")) return json(res, 503, { error: "push_registration_disabled" });
+        if (!userCanReceiveShipmentPush(store, userId)) return json(res, 403, { error: "forbidden" });
+        const body = await readJson(req, 8 * 1024);
+        if (!body || typeof body !== "object" || typeof body.installationId !== "string" || body.installationId.length < 16 || body.installationId.length > 128 ||
+            typeof body.token !== "string" || body.token.length < 20 || body.token.length > 4096 || body.consented !== true ||
+            body.permissionGranted !== true || body.channelEnabled !== true) {
+          return json(res, 400, { error: "invalid_push_registration" });
+        }
+        try {
+          const device = registerPushDevice(store, {
+            userId,
+            installationId: body.installationId,
+            token: body.token,
+            consented: body.consented,
+            permissionGranted: body.permissionGranted,
+            channelEnabled: body.channelEnabled,
+          });
+          await persist();
+          return json(res, 200, { deviceId: device.id, ownershipGeneration: device.ownershipGeneration, environment: device.environment });
+        } catch (error) {
+          const code = String((error as Error)?.message ?? "push_registration_failed");
+          if (code === "push_token_encryption_not_configured" || code === "push_token_encryption_key_invalid") return json(res, 503, { error: "push_registration_unavailable" });
+          if (code === "push_device_limit_reached" || code === "push_token_already_registered") return json(res, 409, { error: code });
+          throw error;
+        }
+      }
+
+      const pushDeviceRevokeRoute = method === "DELETE" ? /^\/v1\/me\/push-devices\/([^/]+)$/.exec(url.pathname) : null;
+      if (pushDeviceRevokeRoute) {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        if (!consumePushRateLimit(req, res, pushRateLimiter, "registration", userId)) return;
+        const deviceId = decodeURIComponent(pushDeviceRevokeRoute[1]!);
+        if (deviceId.length > 128) return json(res, 400, { error: "invalid_push_device" });
+        const body = await readJson(req, 8 * 1024);
+        if (!Number.isSafeInteger(body?.ownershipGeneration) || body.ownershipGeneration < 1) return json(res, 400, { error: "invalid_push_device" });
+        const revoked = revokePushDevice(store, { userId, deviceId, ownershipGeneration: body.ownershipGeneration });
+        await persist();
+        return json(res, 200, { revoked });
+      }
+
+      const notificationOpenRoute = method === "POST" ? /^\/v1\/notifications\/([^/]+)\/open$/.exec(url.pathname) : null;
+      if (notificationOpenRoute) {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        if (!consumePushRateLimit(req, res, pushRateLimiter, "open", userId)) return;
+        const notificationId = decodeURIComponent(notificationOpenRoute[1]!);
+        if (notificationId.length > 128) return json(res, 404, { error: "notification_not_found" });
+        return json(res, 200, resolveNotificationOpenRoute(store, notificationId, userId));
       }
 
       if (method === "GET" && url.pathname === "/v1/notifications") {
@@ -1272,8 +1425,30 @@ export async function createApp(options: {
       }
       return json(res, 400, { error: msg });
     }
-  })).catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
+  }), capturesState).catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
   });
 
-  return { server, store, persist, dataFilePath };
+  return { server, store, persist, runSerialized, dataFilePath };
+}
+
+function restoreStoreSnapshot(
+  target: ReturnType<typeof loadStoreFromDisk>,
+  snapshot: ReturnType<typeof loadStoreFromDisk>,
+): void {
+  restoreMutableObject(target, snapshot);
+}
+
+function restoreMutableObject<T extends object>(target: T, snapshot: T): void {
+  const targetRecord = target as Record<string, unknown>;
+  const snapshotRecord = snapshot as Record<string, unknown>;
+  for (const key of Object.keys(snapshotRecord)) {
+    const current = targetRecord[key];
+    const saved = snapshotRecord[key];
+    if (current instanceof Map && saved instanceof Map) {
+      current.clear();
+      for (const [mapKey, value] of saved) current.set(mapKey, structuredClone(value));
+    } else {
+      targetRecord[key] = structuredClone(saved);
+    }
+  }
 }

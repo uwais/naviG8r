@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'authorization_session.dart';
 import 'conversation_drafts.dart';
 import 'pilot_api.dart';
+import 'push_notifications.dart';
 
 const _navy = Color(0xFF122C53);
 const _background = Color(0xFFF4F7FA);
@@ -125,6 +126,35 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
     }
   }
 
+  Future<void> _enablePushAlerts() async {
+    final continueSetup = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Shipment alerts'),
+        content: const Text(
+            'Allow this device to show private alerts when there is new activity on your shipments. Message text and shipment details are not shown in the alert.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (continueSetup != true || !mounted) return;
+    final enabled = await PushNotifications.instance.enableAlerts();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(enabled
+          ? 'Shipment alerts are enabled on this device.'
+          : 'Alerts were not enabled. Check Android notification permission and Firebase setup.'),
+    ));
+  }
+
   Future<void> _loadEarlier() async {
     final cursor = _nextCursor;
     if (cursor == null || _loadingEarlier) return;
@@ -176,6 +206,12 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: _background,
         appBar: AppBar(title: const Text('Notifications'), actions: [
+          if (PushNotifications.instance.available)
+            IconButton(
+              tooltip: 'Enable alerts on this device',
+              onPressed: _enablePushAlerts,
+              icon: const Icon(Icons.notifications_active_outlined),
+            ),
           if (_unread > 0)
             Padding(
                 padding: const EdgeInsets.only(right: 16),

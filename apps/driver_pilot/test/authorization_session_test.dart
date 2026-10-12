@@ -6,6 +6,7 @@ import 'package:driver_pilot/customer_session.dart';
 import 'package:driver_pilot/driver_session.dart';
 import 'package:driver_pilot/organization_access.dart';
 import 'package:driver_pilot/pilot_api.dart';
+import 'package:driver_pilot/push_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -65,6 +66,77 @@ void main() {
     expect(mobileAccessRedirect('/customer/shipments'), '/workspace');
   });
 
+  test('initial sign-in preserves a queued cold-start notification tap',
+      () async {
+    const pending =
+        '{"schemaVersion":"1","notificationId":"notice-1","expiresAt":4102444800000}';
+    FlutterSecureStorage.setMockInitialValues({
+      'push_pending_notification': pending,
+    });
+    await api.setToken('new-signed-in-token');
+    final stored = await const FlutterSecureStorage()
+        .read(key: 'push_pending_notification');
+    expect(stored, pending);
+  });
+
+  test('expired established session clears push state and leaves revocation',
+      () async {
+    await AuthorizationSession.refresh();
+    await const FlutterSecureStorage()
+        .write(key: 'push_device_owner', value: 'dual');
+    await const FlutterSecureStorage()
+        .write(key: 'push_device_id', value: 'device-1');
+    await const FlutterSecureStorage()
+        .write(key: 'push_device_generation', value: '7');
+    await const FlutterSecureStorage()
+        .write(key: 'push_alerts_consented', value: 'true');
+    await const FlutterSecureStorage()
+        .write(key: 'push_alerts_consent_owner', value: 'dual');
+    await const FlutterSecureStorage().write(
+        key: 'push_pending_notification',
+        value: '{"schemaVersion":"1","notificationId":"notice-1"}');
+    api.dio.httpClientAdapter = MockApiAdapter(
+        (request) => jsonResponse({'error': 'unauthorized'}, 401));
+
+    await AuthorizationSession.refresh();
+
+    expect(AuthorizationSession.signedIn, isFalse);
+    final storage = const FlutterSecureStorage();
+    expect(await storage.read(key: 'push_alerts_consented'), isNull);
+    expect(await storage.read(key: 'push_alerts_consent_owner'), isNull);
+    expect(await storage.read(key: 'push_pending_notification'), isNull);
+    expect(await storage.read(key: 'push_pending_revocation'),
+        '{"userId":"dual","deviceId":"device-1","generation":7}');
+    PushNotifications.instance.onCredentialChanged();
+  });
+
+  test('cold boot with expired stored bearer cleans prior push owner',
+      () async {
+    await const FlutterSecureStorage()
+        .write(key: 'push_device_owner', value: 'old-account');
+    await const FlutterSecureStorage()
+        .write(key: 'push_device_id', value: 'old-device');
+    await const FlutterSecureStorage()
+        .write(key: 'push_device_generation', value: '3');
+    await const FlutterSecureStorage()
+        .write(key: 'push_alerts_consented', value: 'true');
+    await const FlutterSecureStorage().write(
+        key: 'push_pending_notification',
+        value: '{"schemaVersion":"1","notificationId":"old-notice"}');
+    api.dio.httpClientAdapter = MockApiAdapter(
+        (request) => jsonResponse({'error': 'unauthorized'}, 401));
+
+    await AuthorizationSession.refresh();
+
+    expect(AuthorizationSession.signedIn, isFalse);
+    final storage = const FlutterSecureStorage();
+    expect(await storage.read(key: 'push_alerts_consented'), isNull);
+    expect(await storage.read(key: 'push_pending_notification'), isNull);
+    expect(await storage.read(key: 'push_pending_revocation'),
+        '{"userId":"old-account","deviceId":"old-device","generation":3}');
+    PushNotifications.instance.onCredentialChanged();
+  });
+
   test('uses server permissions for owner actions and blocks deep links',
       () async {
     await AuthorizationSession.refresh();
@@ -116,6 +188,33 @@ void main() {
       ]
     }));
     await assertion;
+  });
+
+  test('keeps push registration response across organization changes',
+      () async {
+    await AuthorizationSession.refresh();
+    await AuthorizationSession.selectOrganization('shipper-a');
+    final started = Completer<void>();
+    final delayed = Completer<ResponseBody>();
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.method == 'PUT' && request.path == '/v1/me/push-devices') {
+        started.complete();
+        return delayed.future;
+      }
+      return jsonResponse(me(request.headers['x-organization-id'] as String?));
+    });
+    final registration = api.put<Map<String, dynamic>>(
+      '/v1/me/push-devices',
+      data: const {'installationId': 'test-install', 'token': 'test-token'},
+    );
+    await started.future;
+    await AuthorizationSession.selectOrganization('platform');
+    delayed.complete(jsonResponse({
+      'deviceId': 'device-1',
+      'ownershipGeneration': 4,
+    }));
+
+    expect((await registration).data?['ownershipGeneration'], 4);
   });
 
   test(

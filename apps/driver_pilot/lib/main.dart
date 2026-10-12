@@ -14,6 +14,8 @@ import "driver_session.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
 import "pilot_api.dart";
+import "notification_center.dart";
+import "push_notifications.dart";
 
 Future<void> _copyToClipboard(
     BuildContext context, String label, String value) async {
@@ -67,9 +69,14 @@ void _defaultAnchorTripWindow(
   w2.text = _formatIst(endUtc);
 }
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   api = Api(resolveApiBaseUrl());
+  await PushNotifications.instance.initialize(
+    onOpen: _openPushNotification,
+    isAuthenticated: () => AuthorizationSession.signedIn,
+    userId: () => AuthorizationSession.user?['id']?.toString(),
+  );
   runApp(const DriverPilotApp());
 }
 
@@ -131,6 +138,11 @@ class _DriverPilotAppState extends State<DriverPilotApp>
   }
 
   void _sessionChanged() {
+    final userId = AuthorizationSession.user?['id']?.toString();
+    if (userId != null) {
+      unawaited(
+          PushNotifications.instance.onAuthenticatedSessionChanged(userId));
+    }
     if (!AuthorizationSession.signedIn || AuthorizationSession.switching) {
       // DriverSession.clear() notifies this listener. Only drop the carrier cache.
       DriverSession.clearCarrierCache();
@@ -148,7 +160,12 @@ class _DriverPilotAppState extends State<DriverPilotApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) AuthorizationSession.refresh();
+    if (state == AppLifecycleState.resumed) {
+      AuthorizationSession.refresh();
+      if (AuthorizationSession.signedIn) {
+        unawaited(PushNotifications.instance.refreshPermissionState());
+      }
+    }
   }
 
   @override
@@ -166,7 +183,7 @@ class _DriverPilotAppState extends State<DriverPilotApp>
         pages: [
           MaterialPage<void>(
               child:
-                OrganizationAccess(child: child ?? const SizedBox.shrink()))
+                  OrganizationAccess(child: child ?? const SizedBox.shrink()))
         ],
         onPopPage: (route, result) => route.didPop(result),
       ),
@@ -174,6 +191,44 @@ class _DriverPilotAppState extends State<DriverPilotApp>
       theme: DriverTheme.theme(),
       routerConfig: router,
     );
+  }
+}
+
+Future<void> _openPushNotification(String notificationId) async {
+  if (!AuthorizationSession.signedIn) return;
+  final identityGeneration = AuthorizationSession.identityGeneration;
+  final userId = AuthorizationSession.user?['id']?.toString();
+  bool identityIsCurrent() =>
+      AuthorizationSession.identityGeneration == identityGeneration &&
+      AuthorizationSession.user?['id']?.toString() == userId;
+  try {
+    final response = await api.post<Map<String, dynamic>>(
+      '/v1/notifications/${Uri.encodeComponent(notificationId)}/open',
+    );
+    final route = response.data ?? const <String, dynamic>{};
+    if (!identityIsCurrent()) return;
+    final organizationId = route['organizationId']?.toString();
+    final shipmentId = route['shipmentId']?.toString();
+    if (organizationId == null || shipmentId == null) return;
+    if (!AuthorizationSession.organizations
+        .any((org) => org['id'] == organizationId)) {
+      await AuthorizationSession.refresh();
+    }
+    if (!identityIsCurrent()) return;
+    if (!AuthorizationSession.organizations
+        .any((org) => org['id'] == organizationId)) return;
+    if (AuthorizationSession.organizationId != organizationId) {
+      await AuthorizationSession.selectOrganization(organizationId);
+    }
+    if (!identityIsCurrent()) return;
+    if (!AuthorizationSession.can('conversation.read')) return;
+    final context = _rootNavigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ShipmentConversationScreen(shipmentId: shipmentId),
+    ));
+  } catch (_) {
+    // Push payloads are hints; the authenticated resolver decides whether to open.
   }
 }
 
@@ -294,7 +349,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _logout(BuildContext context) async {
-    await api.clearToken();
+    await AuthorizationSession.signOut();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Logged out (token cleared).")));
@@ -805,7 +860,7 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
         IconButton(
           tooltip: "Logout",
           onPressed: () async {
-            await api.clearToken();
+            await AuthorizationSession.signOut();
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text("Logged out (token cleared).")));
