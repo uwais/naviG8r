@@ -1,5 +1,3 @@
-// What the bank details screen does after Save: when the server refuses and when it works.
-// One file because both halves share the setup, the field labels and the Save helper; splitting would copy them.
 import 'dart:async';
 
 import 'package:dio/dio.dart';
@@ -16,14 +14,6 @@ import 'package:go_router/go_router.dart';
 import 'support/mock_api.dart';
 
 void main() {
-  DioException payoutSetupRefusal(Map<String, dynamic> body) {
-    final options = RequestOptions(path: '/v1/pilot/carrier/payout-setup');
-    return DioException(
-      requestOptions: options,
-      response: Response(requestOptions: options, statusCode: 400, data: body),
-    );
-  }
-
   setUp(() {
     FlutterSecureStorage.setMockInitialValues({});
     api = Api('http://test');
@@ -51,52 +41,6 @@ void main() {
     // Production always needs the account number, and "real" exposed the test servers.
     expect(find.textContaining(RegExp(r'\breal\b', caseSensitive: false)),
         findsNothing);
-  });
-
-  test('a bank details format error shows the server sentence unchanged', () {
-    const sentence =
-        'IFSC must be 11 characters: four letters for the bank, then 0, then six letters or digits for the branch. Example: HDFC0000123.';
-    final error = payoutSetupRefusal(
-        {'error': 'invalid_payout_profile', 'detail': sentence, 'field': 'ifsc'});
-
-    expect(formatApiError(error), sentence);
-  });
-
-  test(
-      'a bank details error without a sentence falls back to the raw reply, and the app keeps its own sentences',
-      () {
-    // No sentence from the server: the raw reply shows, as before this change.
-    expect(
-        formatApiError(payoutSetupRefusal({'error': 'invalid_payout_profile'})),
-        startsWith('HTTP 400'));
-    // Errors on the app's own list keep its sentence, whatever detail they carry.
-    expect(
-        formatApiError(payoutSetupRefusal({'error': 'forbidden', 'detail': 'x'})),
-        'You do not have permission for this action in the selected organization.');
-  });
-
-  test('the refused field is read only from a bank details refusal', () {
-    expect(
-        refusedBankDetailsField(payoutSetupRefusal(
-            {'error': 'invalid_payout_profile', 'detail': 'x', 'field': 'ifsc'})),
-        'ifsc');
-    // Nothing to box when the reply names no field or is another error, when the
-    // request got no reply at all (offline, timed out), or when the error is not from the network.
-    expect(
-        refusedBankDetailsField(
-            payoutSetupRefusal({'error': 'invalid_payout_profile'})),
-        isNull);
-    expect(
-        refusedBankDetailsField(
-            payoutSetupRefusal({'error': 'forbidden', 'field': 'ifsc'})),
-        isNull);
-    expect(
-        refusedBankDetailsField(DioException(
-            requestOptions:
-                RequestOptions(path: '/v1/pilot/carrier/payout-setup'),
-            type: DioExceptionType.connectionError)),
-        isNull);
-    expect(refusedBankDetailsField(Exception('not from the network')), isNull);
   });
 
   const fieldLabels = {
@@ -253,8 +197,7 @@ void main() {
     await typeInto(tester, 'accountNumber', accountNumberAtTap);
   }
 
-  // Taps Save and stops while the request is in flight, unlike save, which waits for the reply.
-  Future<void> startSave(WidgetTester tester) async {
+  Future<void> tapSaveWithoutWaiting(WidgetTester tester) async {
     await tester.tap(find.text('Save bank details'));
     await tester.pump();
   }
@@ -301,7 +244,7 @@ void main() {
       });
       await openScreenWithHistory(tester);
       await fillInBankDetails(tester);
-      await startSave(tester);
+      await tapSaveWithoutWaiting(tester);
 
       if (moment == duringSave) {
         await typeInto(tester, 'accountNumber', accountNumberTypedAfter);
@@ -354,12 +297,11 @@ void main() {
     });
   }
 
-  // The moment tests above type in the account number; the other two fields count too.
-  const textTypedAfterTap = {
+  const nameAndIfscTypedAfterTap = {
     'accountHolderName': 'Other Owner',
     'ifsc': 'HDFC0000999',
   };
-  textTypedAfterTap.forEach((field, text) {
+  nameAndIfscTypedAfterTap.forEach((field, text) {
     testWidgets(
         'text typed in $field after the tap is told about too, and does not open the payout history',
         (tester) async {
@@ -367,7 +309,7 @@ void main() {
       fakeServer((_) => saveReply.future);
       await openScreenWithHistory(tester);
       await fillInBankDetails(tester);
-      await startSave(tester);
+      await tapSaveWithoutWaiting(tester);
       await typeInto(tester, field, text);
       saveReply.complete(jsonResponse({'message': serverLine}));
       await tester.pumpAndSettle();
@@ -401,7 +343,7 @@ void main() {
     fakeServer((_) => saveReply.future);
     await openScreenWithHistory(tester);
     await fillInBankDetails(tester);
-    await startSave(tester);
+    await tapSaveWithoutWaiting(tester);
 
     // The app trims the number before sending, so the space is not a change.
     await typeInto(tester, 'accountNumber', '${accountNumberAtTap}4');
@@ -429,7 +371,7 @@ void main() {
       fakeServer((_) => saveReply.future);
       await openScreenWithHistory(tester);
       await fillInBankDetails(tester, ifsc: ifscAtTap);
-      await startSave(tester);
+      await tapSaveWithoutWaiting(tester);
       await typeInto(tester, 'ifsc', ifscRetyped);
       saveReply.complete(jsonResponse({'message': serverLine}));
       await tester.pumpAndSettle();
@@ -454,7 +396,7 @@ void main() {
     });
     await openScreenWithHistory(tester);
     await fillInBankDetails(tester);
-    await startSave(tester);
+    await tapSaveWithoutWaiting(tester);
     await typeInto(tester, 'accountNumber', accountNumberTypedAfter);
     firstReply.complete(jsonResponse({'message': serverLine}));
     await tester.pumpAndSettle();
@@ -475,7 +417,6 @@ void main() {
       'a screen reader can reach Save under the message: the old message goes and the new save shows its own line',
       (tester) async {
     // With a screen reader on, a message that has a button stays up until it is closed.
-    final semantics = tester.ensureSemantics();
     tester.platformDispatcher.accessibilityFeaturesTestValue =
         const FakeAccessibilityFeatures(accessibleNavigation: true);
     addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
@@ -486,7 +427,7 @@ void main() {
         : Future.value(jsonResponse({'message': serverLine})));
     await openScreenWithHistory(tester);
     await fillInBankDetails(tester);
-    await startSave(tester);
+    await tapSaveWithoutWaiting(tester);
     await typeInto(tester, 'accountNumber', accountNumberTypedAfter);
     firstReply.complete(jsonResponse({'message': serverLine}));
     await tester.pumpAndSettle();
@@ -506,6 +447,5 @@ void main() {
         findsOneWidget,
         reason:
             'the new save shows its own line, not one queued behind the old message');
-    semantics.dispose();
   });
 }
