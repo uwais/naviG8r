@@ -46,6 +46,7 @@ import {
   razorpayPayoutsEnabled,
 } from "./razorpayPayouts.ts";
 import { emitIntegrationEvent } from "./integrationWebhooks.ts";
+import { checkpointMutation } from "./mutationCheckpoint.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
 
 function nowUtcMs(): number {
@@ -1952,7 +1953,7 @@ export async function releasePaymentAndDeliver(
   if (s.status !== "PENDING_RELEASE") {
     throw new ApiError("shipment_not_pending_release", { status: s.status });
   }
-  await ensureRazorpayCapturedBeforePod(store, params.shipmentId);
+  const capturedNow = await ensureRazorpayCapturedBeforePod(store, params.shipmentId);
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
   if (pay.provider !== "MOCK" && pay.status !== "CAPTURED") {
@@ -1960,6 +1961,7 @@ export async function releasePaymentAndDeliver(
   }
   const result = finalizeDeliveredShipment(store, s, s.podAtUtcMs!);
   recordAudit(store, "PAYMENT_CAPTURED", "shipment", s.id, s.status, result.shipment.status);
+  if (capturedNow) checkpointMutation(store);
   return result;
 }
 
@@ -2079,15 +2081,15 @@ export async function attachRazorpayOrderForShipment(store: Store, shipmentId: s
   });
 }
 
-/** After customer authorizes, capture funds at POD time (authorize-then-capture). */
-export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: string): Promise<void> {
+/** After customer authorizes, capture funds at POD time (authorize-then-capture). Returns true when this call captured. */
+export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: string): Promise<boolean> {
   const s = store.shipments.get(shipmentId);
   if (!s) throw new Error("shipment_not_found");
   requirePermission(store, "payment.capture", s);
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
-  if (pay.provider !== "RAZORPAY") return;
-  if (pay.status === "CAPTURED") return;
+  if (pay.provider !== "RAZORPAY") return false;
+  if (pay.status === "CAPTURED") return false;
   if (pay.status !== "AUTHORIZED") {
     throw new ApiError("checkout_not_completed_for_pod", {
       detail: "Complete Razorpay checkout (authorized) before POD, or wait for webhook.",
@@ -2098,6 +2100,8 @@ export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: 
   if (!pid) throw new ApiError("payment_id_missing", {});
   await captureRazorpayPayment(pid, pay.amountPaise);
   store.payments.set(pay.id, { ...pay, status: "CAPTURED", updatedAtUtcMs: nowUtcMs() });
+  checkpointMutation(store);
+  return true;
 }
 
 export async function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Promise<Shipment> {
@@ -2111,6 +2115,7 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
 
+  let refundedAtProvider = false;
   if (pay.provider === "RAZORPAY") {
     if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
       if (!pay.razorpayPaymentId) {
@@ -2118,6 +2123,7 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
       }
       try {
         await razorpayRefundPayment(pay.razorpayPaymentId, pay.amountPaise);
+        refundedAtProvider = true;
       } catch (e: any) {
         throw new ApiError("razorpay_refund_failed", { detail: "Payment provider operation failed" });
       }
@@ -2146,6 +2152,7 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
   store.shipments.set(updated.id, updated);
   recordAudit(store, "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
   emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: updated.id });
+  if (refundedAtProvider) checkpointMutation(store);
   return updated;
 }
 
@@ -2257,6 +2264,7 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
         status: transferStatus,
         providerPayoutId: result.id,
       });
+      checkpointMutation(store);
     } catch (err) {
       transfers.push({
         carrierId,
@@ -2283,6 +2291,7 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
 
   store.payoutBatches.set(batch.id, batch);
   recordAudit(store, "SETTLEMENT_RELEASED", "payout_batch", batch.id, "ACCRUED", "PROCESSED");
+  if (transfers.some((t) => t.providerPayoutId)) checkpointMutation(store);
   return batch;
 }
 
