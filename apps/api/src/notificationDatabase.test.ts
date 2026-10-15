@@ -36,6 +36,28 @@ test("PostgreSQL grouped inbox and conversation timeline preserve pagination and
     fixture.store.notifications.set(id, { ...notification, recipientSequence: ++notificationSequence });
   }
   fixture.store.notificationSequence = notificationSequence;
+  const pushSource = [...fixture.store.notifications.values()].find(notification =>
+    notification.recipientUserId === fixture.shipperA.user.id &&
+    notification.recipientOrgId === fixture.shipperA.org.id);
+  assert.ok(pushSource, "fixture should contain a canonical notification for the push snapshot");
+  fixture.store.pushDevices.set("db-push-device", {
+    id: "db-push-device", installationId: "db-push-installation", userId: fixture.shipperA.user.id,
+    platform: "ANDROID", tokenCiphertext: "encrypted-test-token", tokenHash: "test-token-hash",
+    environment: "DEVELOPMENT", consentedAtUtcMs: Date.now(), permissionGrantedHint: true,
+    channelEnabledHint: true, ownershipGeneration: 3, createdAtUtcMs: Date.now(), updatedAtUtcMs: Date.now(),
+    lastSeenAtUtcMs: Date.now(), revokedAtUtcMs: null,
+  });
+  fixture.store.pushIntents.set("db-push-intent", {
+    id: "db-push-intent", notificationId: pushSource.id, recipientUserId: fixture.shipperA.user.id,
+    recipientOrgId: fixture.shipperA.org.id, shipmentId: pushSource.shipmentId,
+    presentationKey: "opaque-test-key", createdAtUtcMs: Date.now(), expiresAtUtcMs: Date.now() + 86_400_000,
+  });
+  fixture.store.pushDeliveries.set("db-push-delivery", {
+    id: "db-push-delivery", intentId: "db-push-intent", deviceId: "db-push-device",
+    ownershipGeneration: 3, status: "PENDING", attempts: 0, nextAttemptAtUtcMs: Date.now(),
+    leaseId: null, leaseUntilUtcMs: null, providerAcceptedAtUtcMs: null, lastErrorCode: null,
+    createdAtUtcMs: Date.now(), updatedAtUtcMs: Date.now(),
+  });
   await database.saveStoreToDatabase(fixture.store);
   process.env.PERSISTENCE = "DB";
   const app = await (await import("./httpServer.ts")).createApp();
@@ -191,6 +213,9 @@ test("PostgreSQL grouped inbox and conversation timeline preserve pagination and
   assert.equal(readResponse.status, 200);
 
   const reloadedStore = await database.loadStoreFromDatabase();
+  assert.equal(reloadedStore.pushDevices.get("db-push-device")?.tokenCiphertext, "encrypted-test-token");
+  assert.equal(reloadedStore.pushIntents.get("db-push-intent")?.presentationKey, "opaque-test-key");
+  assert.equal(reloadedStore.pushDeliveries.get("db-push-delivery")?.ownershipGeneration, 3);
   const persistedTimeline = [...reloadedStore.notifications.values()]
     .filter(n => n.shipmentId === conversationId && n.recipientUserId === fixture.shipperA.user.id && n.recipientOrgId === fixture.shipperA.org.id);
   assert.ok(persistedTimeline.find(n => n.id === eventAtTieId)?.readAtUtcMs != null, "events within the acknowledged notification watermark persist as read");

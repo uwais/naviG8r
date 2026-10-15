@@ -23,6 +23,9 @@ import type {
   OtpChallenge,
   PayoutBatch,
   Payment,
+  PushDevice,
+  PushIntent,
+  PushDelivery,
   Shipment,
   User,
   Vehicle,
@@ -101,6 +104,10 @@ type StoreJsonV7 = Omit<StoreJsonV6, "version" | "notifications"> & {
   version: 7;
   notificationSequence: number;
   notifications: Notification[];
+  /** Additive push metadata remains version 7-compatible with existing binaries. */
+  pushDevices?: PushDevice[];
+  pushIntents?: PushIntent[];
+  pushDeliveries?: PushDelivery[];
 };
 
 export function dumpStore(store: Store): StoreJsonV7 {
@@ -132,6 +139,9 @@ export function dumpStore(store: Store): StoreJsonV7 {
     conversationReadStates: [...store.conversationReadStates.values()],
     notifications: [...store.notifications.values()],
     conversationEscalationGrants: [...store.conversationEscalationGrants.values()],
+    pushDevices: [...store.pushDevices.values()],
+    pushIntents: [...store.pushIntents.values()],
+    pushDeliveries: [...store.pushDeliveries.values()],
   };
 }
 
@@ -269,6 +279,9 @@ function hydrateStoreV6(json: StoreJsonV6): Store {
 function hydrateStoreV7(json: StoreJsonV7): Store {
   const store = hydrateStoreV6({ ...json, version: 6 });
   store.notificationSequence = Math.max(Number(json.notificationSequence) || 0, store.notificationSequence);
+  for (const device of json.pushDevices ?? []) store.pushDevices.set(device.id, device);
+  for (const intent of json.pushIntents ?? []) store.pushIntents.set(intent.id, intent);
+  for (const delivery of json.pushDeliveries ?? []) store.pushDeliveries.set(delivery.id, delivery);
   return store;
 }
 

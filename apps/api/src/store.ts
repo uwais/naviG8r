@@ -20,6 +20,9 @@ import type {
   OtpChallenge,
   PayoutBatch,
   Payment,
+  PushDevice,
+  PushIntent,
+  PushDelivery,
   Shipment,
   User,
   Vehicle,
@@ -53,6 +56,9 @@ export type Store = {
   conversationReadStates: Map<string, ConversationReadState>;
   notifications: Map<string, Notification>;
   conversationEscalationGrants: Map<string, ConversationEscalationGrant>;
+  pushDevices: Map<string, PushDevice>;
+  pushIntents: Map<string, PushIntent>;
+  pushDeliveries: Map<string, PushDelivery>;
 };
 
 export function createStore(): Store {
@@ -84,5 +90,8 @@ export function createStore(): Store {
     conversationReadStates: new Map(),
     notifications: new Map(),
     conversationEscalationGrants: new Map(),
+    pushDevices: new Map(),
+    pushIntents: new Map(),
+    pushDeliveries: new Map(),
   };
 }

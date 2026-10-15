@@ -10,9 +10,25 @@ import "package:flutter_secure_storage/flutter_secure_storage.dart";
 /// `flutter run --dart-define=API_BASE_URL=http://192.168.x.x:3000` (physical device → LAN)
 const String kDefaultBaseUrl = "https://navig8r.onrender.com";
 
+String normalizeApiBaseUrl(String raw) {
+  var value = raw.trim();
+  if (value.startsWith("http://http://")) {
+    value = value.substring("http://".length);
+  } else if (value.startsWith("https://https://")) {
+    value = value.substring("https://".length);
+  }
+  if (value.isNotEmpty &&
+      !value.startsWith("http://") &&
+      !value.startsWith("https://") &&
+      !value.startsWith("/")) {
+    value = "http://$value";
+  }
+  return value;
+}
+
 String resolveApiBaseUrl() {
   const fromEnv = String.fromEnvironment("API_BASE_URL");
-  if (fromEnv.trim().isNotEmpty) return fromEnv.trim();
+  if (fromEnv.trim().isNotEmpty) return normalizeApiBaseUrl(fromEnv);
 
   if (kIsWeb) {
     return '/api';
@@ -50,10 +66,16 @@ class Api {
     dio.interceptors
         .add(InterceptorsWrapper(onRequest: (options, handler) async {
       final version = scopeVersion;
+      final identityVersionAtRequest = identityVersion;
+      final organizationIndependent = _isPushLifecycleRequest(options.path);
       options.extra["scopeVersion"] = version;
+      options.extra["identityVersion"] = identityVersionAtRequest;
+      options.extra["organizationIndependent"] = organizationIndependent;
       await _tokenWrite;
       final token = await _storage.read(key: "access_token");
-      if (version != scopeVersion) {
+      if (organizationIndependent
+          ? identityVersionAtRequest != identityVersion
+          : version != scopeVersion) {
         handler.reject(DioException(
             requestOptions: options, type: DioExceptionType.cancel));
         return;
@@ -66,7 +88,11 @@ class Api {
       }
       handler.next(options);
     }, onResponse: (response, handler) {
-      if (response.requestOptions.extra["scopeVersion"] != scopeVersion) {
+      final extra = response.requestOptions.extra;
+      final stale = extra["organizationIndependent"] == true
+          ? extra["identityVersion"] != identityVersion
+          : extra["scopeVersion"] != scopeVersion;
+      if (stale) {
         handler.reject(DioException(
             requestOptions: response.requestOptions,
             type: DioExceptionType.cancel));
@@ -74,7 +100,11 @@ class Api {
       }
       handler.next(response);
     }, onError: (error, handler) {
-      if (error.requestOptions.extra["scopeVersion"] == scopeVersion &&
+      final extra = error.requestOptions.extra;
+      final currentScope = extra["organizationIndependent"] == true
+          ? extra["identityVersion"] == identityVersion
+          : extra["scopeVersion"] == scopeVersion;
+      if (currentScope &&
           error.requestOptions.path != "/v1/auth/me" &&
           [401, 403].contains(error.response?.statusCode)) {
         onAuthorizationFailure?.call();
@@ -88,9 +118,14 @@ class Api {
 
   String? activeOrganizationId;
   int scopeVersion = 0;
+  int identityVersion = 0;
   Future<void>? _tokenWrite;
   VoidCallback? onIdentityChanged;
+  Future<void> Function()? onBeforeIdentityChange;
   VoidCallback? onAuthorizationFailure;
+
+  bool _isPushLifecycleRequest(String path) =>
+      path == '/v1/me/push-devices' || path.startsWith('/v1/me/push-devices/');
 
   void selectOrganization(String? id) {
     activeOrganizationId = id;
@@ -99,6 +134,8 @@ class Api {
   }
 
   Future<void> setToken(String token) async {
+    await onBeforeIdentityChange?.call();
+    identityVersion++;
     selectOrganization(null);
     _tokenWrite = _storage.write(key: "access_token", value: token);
     onIdentityChanged?.call();
@@ -110,6 +147,8 @@ class Api {
   }
 
   Future<void> clearToken() async {
+    await onBeforeIdentityChange?.call();
+    identityVersion++;
     selectOrganization(null);
     _tokenWrite = _storage.delete(key: "access_token");
     onIdentityChanged?.call();
@@ -120,12 +159,22 @@ class Api {
     }
   }
 
+  Future<bool> hasBearerToken() async {
+    await _tokenWrite;
+    final token = await _storage.read(key: "access_token");
+    return token != null && token.isNotEmpty;
+  }
+
   Future<Response<T>> get<T>(String path, {Map<String, dynamic>? query}) =>
       dio.get<T>(path, queryParameters: query);
   Future<Response<T>> post<T>(String path, {Object? data}) =>
       dio.post<T>(path, data: data);
   Future<Response<T>> patch<T>(String path, {Object? data}) =>
       dio.patch<T>(path, data: data);
+  Future<Response<T>> put<T>(String path, {Object? data}) =>
+      dio.put<T>(path, data: data);
+  Future<Response<T>> delete<T>(String path, {Object? data}) =>
+      dio.delete<T>(path, data: data);
 }
 
 late Api api;
@@ -142,7 +191,9 @@ String formatApiError(Object e) {
     }
     // The server writes this error's detail for the carrier (which bank field is wrong, and how).
     final detail = body is Map ? body["detail"] : null;
-    if (code == "invalid_payout_profile" && detail is String && detail.isNotEmpty) {
+    if (code == "invalid_payout_profile" &&
+        detail is String &&
+        detail.isNotEmpty) {
       return detail;
     }
     const messages = {

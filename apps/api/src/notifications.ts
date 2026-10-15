@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { effectivePermissions, legacyRoles, principalFor, recordAudit, requirePermission, type Principal } from "./rbac.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import type { Store } from "./store.ts";
+import { enqueuePushIntentForNotification } from "./features/push/push.ts";
 import type { Conversation, ConversationEscalationGrant, ConversationMessage, Notification, Shipment } from "./types.ts";
 
 const MAX_MESSAGE_LENGTH = 4000;
@@ -147,6 +148,7 @@ function createNotifications(store: Store, shipment: Shipment, eventId: string, 
       data: { shipmentId: shipment.id, audience: recipient.role, title: notificationTitle(eventKey, recipient.role), body: notificationBody(eventKey, recipient.role) },
     };
     store.notifications.set(notification.id, notification);
+    enqueuePushIntentForNotification(store, notification);
   }
 }
 
@@ -194,6 +196,25 @@ export function listNotifications(store: Store, limit = 30, before?: string) {
   const items = filtered.slice(0, pageSize);
   const cursor = filtered.length > pageSize && items.length ? `${items[items.length - 1]!.createdAtUtcMs}:${items[items.length - 1]!.id}` : null;
   return { notifications: items, nextCursor: cursor, unreadCount: all.filter(n => n.readAtUtcMs == null).length };
+}
+
+export function resolveNotificationOpenRoute(store: Store, notificationId: string, userId: string): {
+  organizationId: string;
+  shipmentId: string;
+  conversationId: string;
+} {
+  const notification = store.notifications.get(notificationId);
+  if (!notification || notification.recipientUserId !== userId) throw new CommunicationError("notification_not_found", 404);
+  const shipment = store.shipments.get(notification.shipmentId);
+  if (!shipment || !isActiveEntity(shipment)) throw new CommunicationError("notification_not_found", 404);
+  const role = notification.recipientOrgId === shipment.customerOrgId ? "SHIPPER"
+    : notification.recipientOrgId === shipment.carrierId ? "CARRIER" : null;
+  if (!role || !eligibleActor(store, userId, notification.recipientOrgId, role)) throw new CommunicationError("notification_not_found", 404);
+  return {
+    organizationId: notification.recipientOrgId,
+    shipmentId: shipment.id,
+    conversationId: notification.conversationId ?? shipment.id,
+  };
 }
 
 type TimelineItem =

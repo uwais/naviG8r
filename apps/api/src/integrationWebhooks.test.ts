@@ -11,9 +11,11 @@ import {
 } from "./services.ts";
 import { updateIntegrationConnection } from "./integrationServices.ts";
 import {
+  claimPendingWebhookDeliveries,
   deliverIntegrationWebhook,
   processPendingWebhookDeliveries,
   emitIntegrationEvent,
+  retryWebhookDelivery,
 } from "./integrationWebhooks.ts";
 import { signWebhookPayload, verifyWebhookSignature } from "./integrationAuth.ts";
 import type { IntegrationWebhookDelivery } from "./types.ts";
@@ -170,4 +172,67 @@ test("processPendingWebhookDeliveries retries failed delivery with backoff", asy
   } finally {
     fetchMock.mock.restore();
   }
+});
+
+test("an explicit webhook retry starts a fresh bounded attempt budget", () => {
+  const store = createStore();
+  const delivery = {
+    id: "whd_manual_retry",
+    eventId: "evt_manual_retry",
+    orgId: "org_manual_retry",
+    connectionId: "conn_manual_retry",
+    webhookUrl: "https://erp.example.com/hook",
+    payloadJson: "{}",
+    status: "DEAD" as const,
+    attempts: 10,
+    nextRetryAtUtcMs: Date.now(),
+    lastHttpStatus: 500,
+    lastError: "delivery_failed",
+    deliveredAtUtcMs: null,
+    createdAtUtcMs: Date.now(),
+    updatedAtUtcMs: Date.now(),
+  } satisfies IntegrationWebhookDelivery;
+  store.integrationWebhookDeliveries.set(delivery.id, delivery);
+
+  const retried = retryWebhookDelivery(store, delivery.id);
+  assert.equal(retried.status, "PENDING");
+  assert.equal(retried.attempts, 0);
+  assert.equal(claimPendingWebhookDeliveries(store, { nowUtcMs: Date.now() }).claims.length, 1);
+});
+
+test("expired exhausted webhook lease becomes terminal and is persisted as changed", () => {
+  const store = createStore();
+  const now = Date.now();
+  const delivery = {
+    id: "whd_exhausted_lease",
+    eventId: "evt_exhausted_lease",
+    orgId: "org_exhausted_lease",
+    connectionId: "conn_exhausted_lease",
+    webhookUrl: "https://erp.example.com/hook",
+    payloadJson: "{}",
+    status: "PENDING" as const,
+    attempts: 10,
+    nextRetryAtUtcMs: now - 1,
+    leaseId: "crashed-worker",
+    leaseUntilUtcMs: now - 1,
+    lastHttpStatus: 500,
+    lastError: null,
+    deliveredAtUtcMs: null,
+    createdAtUtcMs: now,
+    updatedAtUtcMs: now,
+  } satisfies IntegrationWebhookDelivery;
+  store.integrationWebhookDeliveries.set(delivery.id, delivery);
+
+  const result = claimPendingWebhookDeliveries(store, { nowUtcMs: now });
+  const recovered = store.integrationWebhookDeliveries.get(delivery.id)!;
+  assert.equal(result.claims.length, 0);
+  assert.equal(result.changed, true);
+  assert.equal(recovered.status, "DEAD");
+  assert.equal(recovered.leaseId, null);
+  assert.equal(recovered.leaseUntilUtcMs, null);
+  assert.equal(recovered.lastError, "delivery_attempts_exhausted");
+
+  const again = claimPendingWebhookDeliveries(store, { nowUtcMs: now + 1 });
+  assert.equal(again.claims.length, 0);
+  assert.equal(again.changed, false);
 });

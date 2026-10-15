@@ -21,6 +21,7 @@ This document defines the **first concrete API resources** for the Flutter pilot
 - **`FREIGHT_PAISE_PER_KM_SMALL`**, **`FREIGHT_PAISE_PER_KM_MEDIUM`**, **`FREIGHT_PAISE_PER_KM_LARGE`**: paise per km defaults (see `apps/api/src/config.ts`).
 - **`FREIGHT_MIN_GROSS_PAISE`**: optional minimum gross paise when distance is priced.
 - **`PERSISTENCE`**: omit or **`FILE`** (default) — JSON snapshot via **`DATA_FILE`** (path). Set **`DB`** for Postgres (**`DATABASE_URL`** required); run `cd apps/api && npx prisma db push` once. Full-store snapshot load/save, not row-level repos yet.
+- **`PUSH_ALLOW_FILE_PRODUCTION=1`**: explicit opt-in for the FCM sender with `NODE_ENV=production` and FILE persistence. Leave unset by default; use only for an approved single-process pilot with durable storage. PostgreSQL remains required before horizontal scaling or broader rollout.
 - **`PAYMENT_PROVIDER`**: omit or **`MOCK`** — payment is **`CAPTURED`** at booking (tests + local demos). **`RAZORPAY`** — Razorpay test/live keys; authorize at checkout, capture at POD (see below).
 - **`RAZORPAY_KEY_ID`**, **`RAZORPAY_KEY_SECRET`**: Standard checkout + server APIs (Flutter uses **key id**; server gets **`razorpayKeyId`** on book response — must match checkout key).
 - **`RAZORPAY_WEBHOOK_SECRET`**: Razorpay dashboard webhook secret; required for **`POST /v1/payments/razorpay/webhook`**.

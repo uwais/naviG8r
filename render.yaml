@@ -224,6 +224,9 @@ projects:
             envVars:
               - key: NODE_ENV
                 value: production
+              # Keep Production FILE-based FCM opt-in explicit and disabled by default.
+              - key: PUSH_ALLOW_FILE_PRODUCTION
+                value: "0"
               - key: OTP_DEBUG
                 value: "0"
               - key: DATA_FILE
