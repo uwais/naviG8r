@@ -31,6 +31,27 @@ const DATE_PATTERN = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
 const DATE_TIME_PATTERN = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})$/;
 
 const billsByNumber = new Map<string, DemoBill>();
+let seededBillAdded = false;
+
+/**
+ * The demo seed (scripts/rbac-manual.mjs) gives shipment load-a-with-bill this exact bill, so the portal
+ * must know it too or ops' look-up would say "No e-way bill matches" for it. Change both together.
+ */
+function addSeededBillOnce(): void {
+  if (seededBillAdded) return;
+  seededBillAdded = true;
+  billsByNumber.set("123456789012", {
+    billNumber: "123456789012",
+    billDate: "2026-10-01",
+    generatedAtUtcMs: Date.UTC(2026, 9, 1) - INDIA_OFFSET_MS,
+    makerGstin: "29ABCDE1234F1Z5",
+    invoiceNumber: "SYN/2026/001",
+    invoiceDate: "2026-10-01",
+    transporterName: "Synthetic Carrier A",
+    vehicleNumber: null,
+    validUntilUtcMs: null,
+  });
+}
 
 const BANNER_TEXT = "naviG8r DEMO. This is a practice site, not the government e-way bill portal. Nothing here is real.";
 
@@ -367,44 +388,53 @@ function showGuide(res: ServerResponse): void {
   sendHtml(res, 200, "Demo guide", `<h1>Demo guide: one e-way bill, four people</h1>
 <h2>Before you start</h2>
 <ul>
-<li>The demo server is running with the practice site switched on.</li>
+<li>Open http://127.0.0.1:3139/demo/eway-guide to come back to this page.</li>
+<li>The demo server is running with the practice site switched on. Restarting it resets everything, including the bills on this practice site.</li>
 <li>Shipper app: <a href="http://127.0.0.1:8087/#/customer/login">http://127.0.0.1:8087/#/customer/login</a>. Sign in as 8000000001.</li>
 <li>Carrier: the Android emulator, or <a href="http://127.0.0.1:8087/#/driver">http://127.0.0.1:8087/#/driver</a>. Sign in as 8000000003 (the owner).</li>
-<li>Driver: sign in as 8000000009.</li>
+<li>Driver: the same carrier app. Sign in as 8000000009.</li>
 <li>Ops: <a href="/ops/beta">/ops/beta</a>. Sign in as 8000000005.</li>
 <li>Tap Send code and the code fills in for you.</li>
 </ul>
+<h2>Which shipment to use</h2>
+<ul>
+<li>The seeded shipment load-a-with-bill already has a bill (1234 5678 9012) that this practice site knows, so ops can look it up and see a Found straight away.</li>
+<li>The shipment load-a-booked has no bill yet. It is the first one the shipper adds a bill to by hand, and it is the one that follows this whole guide.</li>
+</ul>
 <h2>Step 1. Shipper adds the bill</h2>
 <ol>
-<li>Open the shipment that has no bill.</li>
+<li>Open <a href="http://127.0.0.1:8087/#/customer/shipments/load-a-booked">http://127.0.0.1:8087/#/customer/shipments/load-a-booked</a>. Its E-way bill card says No e-way bill added yet.</li>
 <li>Tap Open the government e-way bill portal. It opens this practice site in a new tab.</li>
 <li>Choose <a href="/demo/eway-portal/generate">Generate a new e-way bill</a>. Use a GSTIN in the right shape, such as 29ABCDE1234F1Z5 (two digits, five letters, four digits, a letter, then a digit or letter, Z and a digit or letter), and any invoice number.</li>
-<li>Name the carrier as the transporter, then generate.</li>
-<li>Copy the four details: bill number, bill date, GSTIN, invoice number.</li>
-<li>Go back to the app tab, tap Add e-way bill, paste the four details, tap Save.</li>
+<li>Name the carrier as the transporter, then tap Generate e-way bill.</li>
+<li>Copy the bill number, the GSTIN and the invoice number, and note the date shown as Generated on.</li>
+<li>Go back to the app tab and tap Add e-way bill. Paste the number, the GSTIN and the invoice number, then tap Bill date: choose the date and pick the day the practice site showed as Generated on. The practice site stamps that date itself, and ops' look-up needs all four details to match exactly.</li>
+<li>Tap Save e-way bill. The card shows the number in groups of four and Entered by you. Not checked yet.</li>
 </ol>
 <h2>Step 2. Carrier (owner) adds the truck</h2>
 <ol>
-<li>Open the shipment in Shipments. You see the bill and Add truck.</li>
-<li>Open the portal and choose <a href="/demo/eway-portal/vehicle">Add a vehicle to a bill (Part B)</a>.</li>
-<li>Type the bill number, vehicle KA01AB1234, and a valid-until time tomorrow.</li>
-<li>Copy the vehicle number and the time.</li>
-<li>Return to the app, tap Add truck, paste, tap Save.</li>
+<li>Open the shipment in Shipments. The E-way bill card shows the bill number, Add truck and Open the government e-way bill portal.</li>
+<li>Tap Open the government e-way bill portal and choose <a href="/demo/eway-portal/vehicle">Add a vehicle to a bill (Part B)</a>.</li>
+<li>Type the bill number, vehicle KA01AB1234, and a valid-until time tomorrow, then tap Add vehicle.</li>
+<li>Copy the vehicle number and note the valid-until time. It is India time.</li>
+<li>Switch back to the app (on a phone, switch apps; nothing returns you automatically). Tap Add truck, paste the truck number, tap Valid until: choose the date and Time in India: choose the time to match the practice site, then tap Save truck.</li>
 </ol>
 <h2>Step 3. Ops checks the bill</h2>
 <ol>
-<li>Open <a href="/ops/beta">/ops/beta</a> and find E-way bills to check.</li>
+<li>Open <a href="/ops/beta">/ops/beta</a> and find E-way bills to check. Each row shows the four details with a Copy button on each.</li>
 <li>Tap Open the government portal, then choose <a href="/demo/eway-portal/check">Look up a bill</a>.</li>
-<li>Type the four details shown in the row and look up.</li>
-<li>Back on the ops page, tap Mark as found.</li>
+<li>Paste the four details from the row and tap Look up. The page says Found and shows the vehicle.</li>
+<li>Back on the ops page, tap Mark as found on the portal.</li>
 </ol>
 <h2>Step 4. Driver reads it</h2>
 <ol>
 <li>Sign in as 8000000009 and open the shipment.</li>
-<li>Read the bill number, the truck, the valid-until time and the ops line. There are no buttons.</li>
+<li>The driver's part is read only by design. The driver sees the bill number in large type, the truck, the valid-until time and the ops line, and once fewer than 12 hours are left, how many hours remain. There are no buttons.</li>
+<li>At a check-post the driver quotes the bill number. The driver creates nothing and changes nothing.</li>
 </ol>
 <h2>Step 5. What to try next</h2>
 <ol>
+<li>As ops, look up the seeded bill on load-a-with-bill: number 123456789012, bill date 1 Oct 2026, GSTIN 29ABCDE1234F1Z5, invoice number SYN/2026/001. The page says Found, with no vehicle added yet.</li>
 <li>As the shipper, edit the invoice number and watch the ops check clear.</li>
 <li>Remove the bill.</li>
 </ol>
@@ -429,6 +459,7 @@ export async function handleEwayDemoPortal(req: IncomingMessage, res: ServerResp
   if (process.env.EWAY_DEMO_PORTAL !== "1") return false;
   const path = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") : url.pathname;
   if (!path.startsWith("/demo/eway-portal") && path !== "/demo/eway-guide") return false;
+  addSeededBillOnce();
 
   if (path === "/demo/eway-guide") {
     if (req.method !== "GET") sendMethodNotAllowed(res);

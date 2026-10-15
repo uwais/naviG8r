@@ -86,6 +86,7 @@ for (const [id, customerOrgId, carrierId, status, podAtUtcMs] of [
   });
 }
 // One booked shipment already has a bill typed in and not yet checked, so ops has something to check at first sign-in.
+// The practice portal (apps/api/src/ewayDemoPortal.ts) holds this same bill so ops' look-up finds it; change both together.
 store.shipments.get("load-a-with-bill").ewayBill = {
   kind: "BILL", billNumber: "123456789012", billDate: "2026-10-01", makerGstin: "29ABCDE1234F1Z5",
   invoiceNumber: "SYN/2026/001", enteredAtUtcMs: now, enteredByUserId: "user-shipper-a",
