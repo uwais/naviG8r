@@ -158,7 +158,8 @@ test("the carrier owner or the shipper adds the truck; a driver cannot; any chan
   assert.equal((await f.request(carrierRoute, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow }, driverToken)).status, 403, "a driver reads only");
   assert.equal((await f.request(carrierRoute, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow }, f.tokens.carrierB)).status, 404);
   assert.equal((await f.request(shipperRoute, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow }, f.tokens.shipperB)).status, 404);
-  for (const [change, field] of [[{ truckNumber: "X" }, "truckNumber"], [{ validUntilUtcMs: Date.now() - 1000 }, "validUntilUtcMs"], [{ validUntilUtcMs: Date.now() + 90 * 86400000 }, "validUntilUtcMs"], [{ validUntilUtcMs: "tomorrow" }, "validUntilUtcMs"]] as const) {
+  const refusedTruckChanges: Array<[Record<string, unknown>, string]> = [[{ truckNumber: "X" }, "truckNumber"], [{ validUntilUtcMs: Date.now() - 1000 }, "validUntilUtcMs"], [{ validUntilUtcMs: Date.now() + 90 * 86400000 }, "validUntilUtcMs"], [{ validUntilUtcMs: "tomorrow" }, "validUntilUtcMs"]];
+  for (const [change, field] of refusedTruckChanges) {
     const refused = await f.request(carrierRoute, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow, ...change }, f.tokens.carrierA);
     assert.deepEqual([refused.status, refused.body.field], [400, field]);
   }
