@@ -26,6 +26,11 @@ class FakeServer {
   bool connectionDrops = false;
   bool saveConnectionDrops = false;
   Completer<void>? saveHeldOpen;
+  Completer<void>? shipmentHeldOpen;
+
+  /// The server answers the shipment request with this refusal instead, such as 403 or 404.
+  int? refusalStatus;
+  String refusalCode = '';
   final saves = <Map>[];
 
   Future<ResponseBody> handle(RequestOptions request) async {
@@ -49,6 +54,10 @@ class FakeServer {
           'Connection closed before full header was received');
     }
     if (request.path == '/shipments/shipment-a') {
+      final held = shipmentHeldOpen;
+      if (held != null) await held.future;
+      final status = refusalStatus;
+      if (status != null) return jsonResponse({'error': refusalCode}, status);
       return jsonResponse({'shipment': current});
     }
     return jsonResponse({});
@@ -86,6 +95,10 @@ Future<void> fillBillForm(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// The wall clock is not faked, so the time is matched by shape, not value.
+final refreshFailedLine = RegExp(
+    r'^Could not refresh, so this may be out of date\. Pull down to try again\. Last updated \d\d:\d\d$');
+
 Future<void> waitForNextRefresh(WidgetTester tester) async {
   await tester.pump(const Duration(seconds: 15));
   await tester.pump();
@@ -104,20 +117,73 @@ void main() {
     await waitForNextRefresh(tester);
     expect(find.textContaining('HTTP'), findsNothing,
         reason: 'no raw exception text on screen');
-    expect(find.text('Could not refresh. Showing what was loaded earlier.'),
-        findsOneWidget,
-        reason: 'one small line says the refresh failed');
+    expect(find.textContaining(refreshFailedLine), findsOneWidget,
+        reason:
+            'one small line says the refresh failed and when it last worked');
     expect(find.text('SYN/E2E/101'), findsOneWidget,
         reason: 'the typed invoice number is still in the form');
     expect(find.text('Save e-way bill'), findsOneWidget,
         reason: 'the form is still open');
     server.connectionDrops = false;
     await waitForNextRefresh(tester);
-    expect(find.text('Could not refresh. Showing what was loaded earlier.'),
-        findsNothing,
+    expect(find.textContaining('Could not refresh'), findsNothing,
         reason: 'the line goes once a refresh works again');
     expect(find.text('SYN/E2E/101'), findsOneWidget,
         reason: 'still typed after the next good refresh');
+    await leaveScreen(tester);
+  });
+
+  for (final (status, code, sentence) in [
+    (
+      403,
+      'forbidden',
+      'You do not have permission for this action in the selected organization.'
+    ),
+    (
+      404,
+      'not_found',
+      'This record is unavailable in the selected organization.'
+    ),
+  ]) {
+    testWidgets(
+        'a refresh the server refuses with $status clears the shipment and says why',
+        (tester) async {
+      final server = await mountDetailScreen(tester);
+      await fillBillForm(tester);
+      server.refusalStatus = status;
+      server.refusalCode = code;
+      await waitForNextRefresh(tester);
+      expect(find.text(sentence), findsOneWidget,
+          reason: 'the plain refusal, not the stale-data line');
+      expect(find.textContaining('Could not refresh'), findsNothing);
+      expect(find.text('E-way bill'), findsNothing,
+          reason: 'a shipment this person may no longer see is not kept');
+      expect(find.text('SYN/E2E/101'), findsNothing);
+      await leaveScreen(tester);
+    });
+  }
+
+  testWidgets(
+      'a response that lands after a different person signed in is thrown away',
+      (tester) async {
+    final server = await mountDetailScreen(tester);
+    server.shipmentHeldOpen = Completer<void>();
+    server.current = {...server.current, 'externalLoadId': 'LATE-RESPONSE'};
+    await tester.pump(const Duration(seconds: 15));
+    AuthorizationSession.clear();
+    AuthorizationSession.user = {'id': 'someone-else'};
+    AuthorizationSession.principal = {
+      'organizationId': 'shipper-b',
+      'roles': ['SHIPPER'],
+      'permissions': ['eway_bill.write']
+    };
+    server.shipmentHeldOpen!.complete();
+    server.shipmentHeldOpen = null;
+    await tester.pumpAndSettle();
+    expect(find.textContaining('LATE-RESPONSE'), findsNothing,
+        reason: 'the late response belongs to the person signed in before');
+    expect(find.text('E-way bill'), findsNothing,
+        reason: 'what the earlier person loaded is not left on screen either');
     await leaveScreen(tester);
   });
 
@@ -330,5 +396,59 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('1234 5678 9012'), findsOneWidget,
         reason: 'trying again loads the shipment and its bill');
+  });
+
+  testWidgets(
+      'the carrier detail screen does not blame the connection when the server answered',
+      (tester) async {
+    signInAsCarrier(canAddTruck: true);
+    api.dio.httpClientAdapter =
+        MockApiAdapter((_) => jsonResponse({'error': 'internal'}, 500));
+    tester.view.physicalSize = const Size(800, 3000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+        theme: DriverTheme.theme(),
+        home: const Scaffold(
+            body: DriverShipmentDetailScreen(shipmentId: 'shipment-a'))));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Could not load this shipment.'), findsOneWidget);
+    expect(find.textContaining('connection'), findsNothing);
+  });
+
+  group('the sentence under an e-way bill save', () {
+    final request = RequestOptions(path: '/shipments/shipment-a/eway-bill');
+    DioException answered(int status, Object? body) => DioException(
+        requestOptions: request,
+        response:
+            Response(requestOptions: request, statusCode: status, data: body));
+
+    test('is the server sentence when it wrote one', () {
+      expect(
+          ewayBillErrorSentence(
+              answered(400, {'detail': 'The bill number must be 12 digits.'})),
+          'The bill number must be 12 digits.');
+    });
+
+    test('asks to check the connection when the server never answered', () {
+      expect(
+          ewayBillErrorSentence(DioException(
+              requestOptions: request, type: DioExceptionType.connectionError)),
+          'Could not save. Check your connection and try again.');
+    });
+
+    test('is one fixed sentence for anything else, never raw text', () {
+      for (final error in <Object>[
+        answered(500, 'Internal Server Error <html>'),
+        answered(403, {'error': 'forbidden'}),
+        answered(401, {'error': 'unauthorized'}),
+        answered(400, {'detail': ''}),
+        StateError('unexpected'),
+      ]) {
+        expect(ewayBillErrorSentence(error),
+            'Something went wrong. Please try again.');
+      }
+    });
   });
 }

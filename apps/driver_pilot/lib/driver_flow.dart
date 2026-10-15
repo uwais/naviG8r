@@ -1017,6 +1017,7 @@ class _DriverShipmentDetailScreenState
   Map<String, dynamic>? _shipment;
   bool _accepting = false;
   bool _loadFailed = false;
+  bool _loadNeverAnswered = false;
 
   @override
   void initState() {
@@ -1055,8 +1056,13 @@ class _DriverShipmentDetailScreenState
           }
         }
       }
-    } catch (_) {
-      if (mounted) setState(() => _loadFailed = true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadFailed = true;
+          _loadNeverAnswered = serverNeverAnswered(e);
+        });
+      }
     }
   }
 
@@ -1066,8 +1072,9 @@ class _DriverShipmentDetailScreenState
     if (s == null && _loadFailed) {
       return Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Text(
-            "Could not load this shipment. Check your connection and try again."),
+        Text(_loadNeverAnswered
+            ? "Could not load this shipment. Check your connection and try again."
+            : "Could not load this shipment."),
         TextButton(
             onPressed: () {
               setState(() => _loadFailed = false);

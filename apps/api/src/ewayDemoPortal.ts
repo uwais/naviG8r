@@ -104,7 +104,7 @@ async function readPostedForm(req: IncomingMessage, res: ServerResponse, persona
     return null;
   }
   if (sentFromAnotherSite(req)) {
-    sendHtml(res, 403, "Not allowed", "<h1>Practice site: form refused</h1><p>This form was sent from another site.</p>", persona);
+    sendHtml(res, 403, "Not allowed", "<h1>Practice site: form refused</h1><p>This form was not accepted because it came from a different site. Open the practice site again and resubmit.</p>", persona);
     return null;
   }
   return body.fields;

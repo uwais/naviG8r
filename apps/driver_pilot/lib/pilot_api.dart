@@ -251,7 +251,8 @@ String ewayBillErrorSentence(Object e) {
     final detail = body is Map ? body["detail"] : null;
     if (detail is String && detail.isNotEmpty) return detail;
   }
-  return formatApiError(e);
+  // formatApiError can print a raw body, "HTTP n" or the server address; none of that helps here.
+  return "Something went wrong. Please try again.";
 }
 
 /// The bank details field the server refused (accountHolderName, ifsc or accountNumber), so the form can box it.

@@ -9,6 +9,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 import "authorization_session.dart";
 import "shipment_payment_status.dart";
 import "eway_bill_card.dart";
+import "eway_bill_dates.dart";
 import "eway_bill_words.dart";
 import "customer_checkout.dart";
 import "customer_layout.dart";
@@ -2221,20 +2222,45 @@ class _CustomerShipmentDetailScreenState
   Map<String, dynamic>? _liveLocation;
   bool _isLive = false;
   bool _refreshFailed = false;
+  DateTime? _lastLoadedAt;
   Timer? _poll;
 
-  // A failed refresh keeps what was loaded: clearing it would throw away a half-typed e-way bill form.
+  // Only a refresh the server never answered keeps what was loaded, so a half-typed e-way bill form
+  // survives weak signal. An answered refusal (401, 403, 404) means this person may no longer see it.
   void _showLoadFailure(Object e) {
-    if (_shipment != null) {
+    if (_shipment != null && serverNeverAnswered(e)) {
       _refreshFailed = true;
       return;
     }
+    _shipment = null;
+    _refreshFailed = false;
     _payment = null;
     _trip = null;
     _liveLocation = null;
     _error = serverNeverAnswered(e)
         ? "Could not load this shipment. Check your connection and pull down to try again."
         : formatApiError(e);
+  }
+
+  String get _refreshFailedLine {
+    const sentence =
+        "Could not refresh, so this may be out of date. Pull down to try again.";
+    final at = _lastLoadedAt;
+    if (at == null) return sentence;
+    return "$sentence Last updated ${ewayBillClockTime(at.hour, at.minute)}";
+  }
+
+  String _signedInIdentity() =>
+      "${AuthorizationSession.identityGeneration}:${AuthorizationSession.scopeKey}";
+
+  // A response, or a failure, for whoever was signed in before must not show to whoever is now.
+  void _forgetEarlierIdentity() {
+    _shipment = null;
+    _payment = null;
+    _trip = null;
+    _liveLocation = null;
+    _refreshFailed = false;
+    _error = null;
   }
 
   Future<void> _load({bool showSpinner = true}) async {
@@ -2244,10 +2270,15 @@ class _CustomerShipmentDetailScreenState
         _error = null;
       });
     }
+    final identity = _signedInIdentity();
     try {
       final r = await api
           .get<Map<String, dynamic>>("/shipments/${widget.shipmentId}");
       if (!mounted) return;
+      if (identity != _signedInIdentity()) {
+        setState(_forgetEarlierIdentity);
+        return;
+      }
       setState(() {
         _shipment = r.data?["shipment"] is Map<String, dynamic>
             ? r.data!["shipment"] as Map<String, dynamic>
@@ -2256,20 +2287,27 @@ class _CustomerShipmentDetailScreenState
             ? r.data!["payment"] as Map<String, dynamic>
             : null;
         _refreshFailed = false;
+        _lastLoadedAt = DateTime.now();
       });
       await _loadTracking();
     } catch (e) {
-      if (mounted) setState(() => _showLoadFailure(e));
+      if (!mounted) return;
+      if (identity != _signedInIdentity()) {
+        setState(_forgetEarlierIdentity);
+      } else {
+        setState(() => _showLoadFailure(e));
+      }
     } finally {
       if (showSpinner && mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _loadTracking() async {
+    final identity = _signedInIdentity();
     try {
       final r = await api.get<Map<String, dynamic>>(
           "/shipments/${widget.shipmentId}/tracking");
-      if (!mounted) return;
+      if (!mounted || identity != _signedInIdentity()) return;
       setState(() {
         _trip = r.data?["trip"] is Map<String, dynamic>
             ? r.data!["trip"] as Map<String, dynamic>
@@ -2281,7 +2319,7 @@ class _CustomerShipmentDetailScreenState
         _trackingError = null;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || identity != _signedInIdentity()) return;
       setState(() => _trackingError = serverNeverAnswered(e)
           ? "Could not reach the server. Check your connection."
           : formatApiError(e));
@@ -2306,10 +2344,15 @@ class _CustomerShipmentDetailScreenState
   Future<void> _refreshAll() async {
     if (_refreshing) return;
     setState(() => _refreshing = true);
+    final identity = _signedInIdentity();
     try {
       final r = await api
           .get<Map<String, dynamic>>("/shipments/${widget.shipmentId}");
       if (!mounted) return;
+      if (identity != _signedInIdentity()) {
+        setState(_forgetEarlierIdentity);
+        return;
+      }
       setState(() {
         _shipment = r.data?["shipment"] is Map<String, dynamic>
             ? r.data!["shipment"] as Map<String, dynamic>
@@ -2319,11 +2362,16 @@ class _CustomerShipmentDetailScreenState
             : null;
         _error = null;
         _refreshFailed = false;
+        _lastLoadedAt = DateTime.now();
       });
       await _loadTracking();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _showLoadFailure(e));
+      if (identity != _signedInIdentity()) {
+        setState(_forgetEarlierIdentity);
+      } else {
+        setState(() => _showLoadFailure(e));
+      }
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
@@ -2401,9 +2449,8 @@ class _CustomerShipmentDetailScreenState
                   if (_error != null)
                     Text(_error!, style: const TextStyle(color: Colors.red))
                   else if (_refreshFailed)
-                    const Text(
-                        "Could not refresh. Showing what was loaded earlier.",
-                        style: TextStyle(color: DriverTheme.muted))
+                    Text(_refreshFailedLine,
+                        style: const TextStyle(color: DriverTheme.muted))
                   else
                     const SizedBox.shrink(),
                   if (shipment != null) ...[

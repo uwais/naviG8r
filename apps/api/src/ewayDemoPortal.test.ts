@@ -436,7 +436,7 @@ test("a form sent from another site is refused; the same site, or no Origin at a
   const host = new URL(baseUrl).host;
   const foreign = await postWithHeaders("/demo/eway-portal/sign-in", { persona: "supplier" }, { origin: "http://elsewhere.example" });
   assert.equal(foreign.status, 403);
-  assert.ok(foreign.text.includes("This form was sent from another site."));
+  assert.ok(foreign.text.includes("This form was not accepted because it came from a different site. Open the practice site again and resubmit."));
   assert.equal(foreign.headers.get("set-cookie"), null, "nothing was signed in");
   assert.ok(foreign.text.includes(BANNER));
   for (const origin of ["null", "not a web address", `http://${host}.elsewhere.example`]) {
