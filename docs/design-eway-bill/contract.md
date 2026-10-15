@@ -113,6 +113,36 @@ Ops page: "E-way bills to check" and "Missing". Each row shows the four details,
 "Open the government portal", "Mark as found on the portal" and "Report a problem" (reason chosen from the four
 above, none preselected). Results appear inside the row and say whether anything changed.
 
+## Part B (the truck) and the demo portal, added 15 Oct 2026
+
+Rishabh asked for a demo where shipper, carrier and driver each do their part, with a fake government site to
+link out to and come back from. This brings back, from the cut list, the truck number and valid-until.
+
+| Who | Part |
+|---|---|
+| Shipper | Makes the bill on the portal (Part A), copies its four details into the app. May also add the truck. |
+| Carrier owner or dispatcher | The carrier named on the bill: adds its truck to the bill on the portal (Part B), then types the truck number and valid-until into the app. |
+| Driver | Read only: the number in large type, truck, valid-until, the ops line, and "Expires in N hours" only under 12 hours. Quotes the number at a check-post. |
+| Ops | Looks the bill up on the portal's search page with the four details, then records found or problem. |
+
+New data on the record: `truckNumber` (6 to 12 letters and digits, spaces and hyphens removed, upper case),
+`validUntilUtcMs`. Both are shown to shipper, ops and carrier logins. Adding or changing them clears the ops check
+(same rule as every other detail). New permission `eway_bill.add_truck`: SHIPPER, and CARRIER for owner, owner-driver
+and dispatcher only (not DRIVER). New routes: `POST /shipments/:id/eway-bill/truck` (shipper) and
+`POST /v1/pilot/carrier/shipments/:id/eway-bill/truck` (carrier), body `{ truckNumber, validUntilUtcMs }`, only on a
+`BILL`. Audit `EWAY_BILL_TRUCK_ADDED` (state words only). Not compared with any trip's truck: trips still name none
+(question 1).
+
+**Return path (Rishabh's choice): browser tab, copy back.** The app opens the portal in the browser (a new tab on
+web, Chrome on a phone). The user makes or looks up the bill there, copies the details, switches back to the app and
+pastes. There is no automatic return: the real portal cannot send data to naviG8r, so the demo does not pretend it
+can. The fake portal says on every page that it is a naviG8r demo and not the government site.
+
+**The fake portal** is served by the demo server only when `EWAY_DEMO_PORTAL=1` (the demo script sets it), under
+`/demo/eway-portal` (generate a bill, add a vehicle, search by the four details) with a step-by-step guide at
+`/demo/eway-guide`. It keeps its bills in memory and resets on restart. The app's portal address comes from the
+build (`--dart-define=EWAY_PORTAL=...`, default the real portal); the ops page gets its link from the server.
+
 ## Open and unchecked
 
 - Permission keys `eway_bill.write` and `eway_bill.check` are new (code only; the database seeds them on save).
