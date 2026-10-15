@@ -9,6 +9,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 import "authorization_session.dart";
 import "shipment_payment_status.dart";
 import "eway_bill_card.dart";
+import "eway_bill_words.dart";
 import "customer_checkout.dart";
 import "customer_layout.dart";
 import "customer_session.dart";
@@ -2182,7 +2183,8 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
                 child: ListTile(
                   title: Text(carrier),
                   subtitle: Text(
-                      "$status · ${s["weightKg"]} kg\n${s["pickupAddress"]} → ${s["dropAddress"]}"),
+                      "$status · ${s["weightKg"]} kg\n${s["pickupAddress"]} → ${s["dropAddress"]}"
+                      "\n${ewayBillRowSummary(s)}"),
                   isThreeLine: true,
                   trailing: const Icon(Icons.chevron_right),
                   onTap: id.isEmpty

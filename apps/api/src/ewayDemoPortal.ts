@@ -29,6 +29,10 @@ const MAX_FORM_BODY_BYTES = 8 * 1024;
 /** A form body not complete by then is dropped, so a slow sender cannot hold a connection open. */
 export const FORM_BODY_TIMEOUT_MS = 5000;
 const SEEDED_BILL_NUMBER = "123456789012";
+const SEEDED_TRUCK_BILL_NUMBER = "234567890123";
+const SEEDED_BILL_NUMBERS = new Set([SEEDED_BILL_NUMBER, SEEDED_TRUCK_BILL_NUMBER]);
+/** Fixed when the server starts; the demo seed reads it so the shipment and this site show the same valid-until. */
+export const SEEDED_TRUCK_VALID_UNTIL_UTC_MS = Date.now() + 20 * 60 * 60 * 1000;
 const INDIA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
@@ -40,8 +44,8 @@ const billsByNumber = new Map<string, DemoBill>();
 let seededBillAdded = false;
 
 /**
- * The demo seed (scripts/rbac-manual.mjs) gives shipment load-a-with-bill this exact bill, so the portal
- * must know it too or ops' look-up would say "No e-way bill matches" for it. Change both together.
+ * The demo seed (scripts/rbac-manual.mjs) gives shipments load-a-with-bill and load-a-with-truck these exact
+ * bills, so the portal must know them too or ops' look-up would say "No e-way bill matches". Change both together.
  */
 function addSeededBillOnce(): void {
   if (seededBillAdded) return;
@@ -56,6 +60,17 @@ function addSeededBillOnce(): void {
     transporterName: "Synthetic Carrier A",
     vehicleNumber: null,
     validUntilUtcMs: null,
+  });
+  billsByNumber.set(SEEDED_TRUCK_BILL_NUMBER, {
+    billNumber: SEEDED_TRUCK_BILL_NUMBER,
+    billDate: "2026-10-02",
+    generatedAtUtcMs: Date.UTC(2026, 9, 2) - INDIA_OFFSET_MS,
+    makerGstin: "29ABCDE1234F1Z5",
+    invoiceNumber: "SYN/2026/002",
+    invoiceDate: "2026-10-02",
+    transporterName: "Synthetic Carrier A",
+    vehicleNumber: "KA01AB1234",
+    validUntilUtcMs: SEEDED_TRUCK_VALID_UNTIL_UTC_MS,
   });
 }
 
@@ -273,10 +288,10 @@ ${transporterLine}
 <p>Go back to the naviG8r app tab and paste them there.</p>`);
 }
 
-/** A Map keeps insertion order, so the first key is the oldest. The seeded bill stays: the guide's ops look-up needs it. */
+/** A Map keeps insertion order, so the first key is the oldest. The seeded bills stay: the guide's ops look-up needs them. */
 function dropOldestBill(): void {
   for (const billNumber of billsByNumber.keys()) {
-    if (billNumber === SEEDED_BILL_NUMBER) continue;
+    if (SEEDED_BILL_NUMBERS.has(billNumber)) continue;
     billsByNumber.delete(billNumber);
     return;
   }
@@ -442,6 +457,7 @@ function showGuide(req: IncomingMessage, res: ServerResponse): void {
 <h2>Which shipment to use</h2>
 <ul>
 <li>The seeded shipment load-a-with-bill already has a bill (1234 5678 9012) that this practice site knows, so ops can look it up and see a Found straight away.</li>
+<li>The seeded shipment load-a-with-truck has a bill (2345 6789 0123) whose carrier already added truck KA01AB1234, valid until 20 hours after the demo server started. Ops' look-up shows Found with the vehicle.</li>
 <li>The shipment load-a-booked has no bill yet. It is the first one the shipper adds a bill to by hand, and it is the one that follows this whole guide.</li>
 </ul>
 <h2>Step 1. Shipper adds the bill</h2>
@@ -478,6 +494,7 @@ function showGuide(req: IncomingMessage, res: ServerResponse): void {
 <h2>Step 5. What to try next</h2>
 <ol>
 <li>As ops, look up the seeded bill on load-a-with-bill: number 123456789012, bill date 1 Oct 2026, GSTIN 29ABCDE1234F1Z5, invoice number SYN/2026/001. The page says Found, with no vehicle added yet.</li>
+<li>Then look up the seeded bill on load-a-with-truck: number 234567890123, bill date 2 Oct 2026, GSTIN 29ABCDE1234F1Z5, invoice number SYN/2026/002. The page says Found and shows vehicle KA01AB1234.</li>
 <li>As the shipper, edit the invoice number and watch the ops check clear.</li>
 <li>Remove the bill.</li>
 </ol>

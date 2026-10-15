@@ -11,6 +11,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 import "authorization_session.dart";
 import "carrier_approval_banner.dart";
 import "eway_bill_carrier_card.dart";
+import "eway_bill_words.dart";
 import "shipment_payment_status.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
@@ -973,7 +974,8 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
               child: ListTile(
                 title: Text("${s["customerOrgName"]} · ${s["weightKg"]} kg"),
                 subtitle: Text(
-                    "$stLabel · ${s["pickupAddress"]} → ${s["dropAddress"]}"),
+                    "$stLabel · ${s["pickupAddress"]} → ${s["dropAddress"]}"
+                    "\n${ewayBillRowSummary(s)}"),
                 trailing: st == "PENDING_CARRIER_ACCEPT"
                     ? FilledButton(
                         onPressed: DriverSession.complianceApproved &&

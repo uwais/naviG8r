@@ -111,6 +111,29 @@ String groupedBillNumber(String number) {
   return groups.join(' ');
 }
 
+/// One line for a shipment list row. It states a problem ops found, never that a bill is fine: a row
+/// has no room for "when, and it may have changed". Every value is type-checked so a row cannot throw.
+String ewayBillRowSummary(Map<String, dynamic> shipment) {
+  final bill = shipment['ewayBill'];
+  if (bill is! Map) return 'E-way bill: not added yet';
+  if (bill['kind'] == 'NOT_NEEDED') {
+    return 'No e-way bill needed (the shipper says so)';
+  }
+  if (bill['kind'] != 'BILL') return 'E-way bill: open the shipment to see it';
+  final number = bill['billNumber'];
+  final truck = bill['truckNumber'];
+  final check = bill['check'];
+  final numberWords = number is String && number.isNotEmpty
+      ? 'E-way bill ${groupedBillNumber(number)}'
+      : 'E-way bill';
+  final truckWords =
+      truck is String && truck.isNotEmpty ? 'truck $truck' : 'truck not added';
+  final problemWords = check is Map && check['result'] == 'PROBLEM'
+      ? '. Ops found a problem'
+      : '';
+  return '$numberWords, $truckWords$problemWords';
+}
+
 /// The reasons a shipper can give, in the order shown, none chosen to start.
 const notNeededReasonChoices = {
   'BELOW_THRESHOLD': 'Below the value that needs one',
