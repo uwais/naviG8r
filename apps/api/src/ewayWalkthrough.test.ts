@@ -8,19 +8,16 @@ import { FORM_BODY_TIMEOUT_MS } from "./ewayDemoPortal.ts";
 import { inviteCarrierDriver, registerCustomerUser } from "./services.ts";
 
 const INDIA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-const MONTH_NUMBERS: Record<string, string> = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
+const MONTH_NUMBERS: Record<string, number> = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
 const SAMPLE_GSTIN = "29ABCDE1234F1Z5";
+const TRANSPORTER_ID = "29TRNSP1234A1Z7";
 const INVOICE_NUMBER = "SYN/2026/101";
 
-/** The portal's vehicle form takes a datetime-local value read as India time. */
-function indiaDateTimeLocal(utcMs: number): string {
-  return new Date(utcMs + INDIA_OFFSET_MS).toISOString().slice(0, 16);
-}
-
-/** "14 Oct 2026" as the portal prints it, back to the YYYY-MM-DD the app takes. */
-function isoFromPortalDay(words: string): string {
-  const [day, month, year] = words.split(" ");
-  return `${year}-${MONTH_NUMBERS[month]}-${day.padStart(2, "0")}`;
+/** "Valid up to 17 Oct 2026, 23:59" as the portal prints it, in India time, back to UTC milliseconds for the app. */
+function utcMsFromPortalValidUpTo(words: string): number {
+  const match = /^(\d{1,2}) ([A-Z][a-z]{2}) (\d{4}), (\d{2}):(\d{2})$/.exec(words);
+  assert.ok(match, words);
+  return Date.UTC(Number(match[3]), MONTH_NUMBERS[match[2]] - 1, Number(match[1]), Number(match[4]), Number(match[5])) - INDIA_OFFSET_MS;
 }
 
 test("the demo guide's order works end to end over HTTP, and the portal is off without the switch", async t => {
@@ -31,44 +28,59 @@ test("the demo guide's order works end to end over HTTP, and the portal is off w
     else process.env.EWAY_DEMO_PORTAL = originalSwitch;
   });
   const f = await httpFixture(t);
-  const portalGet = async (path: string) => {
-    const response = await fetch(f.base + path);
+  const portalGet = async (path: string, cookie = "") => {
+    const response = await fetch(f.base + path, { headers: cookie ? { cookie } : {} });
     return { status: response.status, text: await response.text() };
   };
-  const portalPost = async (path: string, fields: Record<string, string>) => {
-    const response = await fetch(f.base + path, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(fields).toString() });
-    return { status: response.status, text: await response.text() };
+  const portalPost = async (path: string, fields: Record<string, string>, cookie = "") => {
+    const response = await fetch(f.base + path, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded", ...(cookie ? { cookie } : {}) }, body: new URLSearchParams(fields).toString() });
+    return { status: response.status, setCookie: response.headers.get("set-cookie") ?? "", text: await response.text() };
+  };
+  const signIn = async (persona: string) => {
+    const reply = await portalPost("/demo/eway-portal/sign-in", { persona });
+    assert.equal(reply.status, 303);
+    return reply.setCookie.split(";")[0];
   };
 
   const guide = await portalGet("/demo/eway-guide");
   assert.equal(guide.status, 200);
-  assert.ok(guide.text.includes("/demo/eway-portal/check"), "the guide links the look-up page");
+  assert.ok(guide.text.includes("/demo/eway-portal/check"), "the guide links the Verify page");
 
   // Shipper books, carrier accepts.
   const booking = await f.book(); assert.equal(booking.status, 201);
   const id = booking.body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
 
-  // Shipper generates the bill on the practice portal and reads the number and date off the page.
-  const generated = await portalPost("/demo/eway-portal/generate", { makerGstin: SAMPLE_GSTIN, invoiceNumber: INVOICE_NUMBER, invoiceDate: "2026-10-14", transporterName: "Synthetic Carrier A" });
+  // Shipper signs in to the practice portal as the Supplier and generates the bill, naming the transporter and no vehicle.
+  const supplierCookie = await signIn("supplier");
+  const generated = await portalPost("/demo/eway-portal/generate", {
+    supplierGstin: SAMPLE_GSTIN, recipientGstin: "33AAACT5678L1Z2", dispatchPin: "560099", deliveryPin: "600032", documentNumber: INVOICE_NUMBER,
+    documentDate: "2026-10-01", goodsValueRupees: "75000", hsnCode: "8471", transportReason: "Supply", distanceKm: "450", vehicleNumber: "", transporterId: TRANSPORTER_ID,
+  }, supplierCookie);
   assert.equal(generated.status, 200, generated.text);
+  assert.ok(generated.text.includes("Part B not entered: not valid for movement"));
   const numberMatch = /<p class="number">(\d{4}) (\d{4}) (\d{4})<\/p>/.exec(generated.text);
-  const dateMatch = /Generated on (\d{1,2} [A-Z][a-z]{2} \d{4})/.exec(generated.text);
-  assert.ok(numberMatch && dateMatch, "the result page shows the number and the Generated on date");
+  const dateMatch = /<dt>Bill date<\/dt><dd>[^<]* \((\d{4}-\d{2}-\d{2})\)<\/dd>/.exec(generated.text);
+  assert.ok(numberMatch && dateMatch, "the result page shows the number and the bill date");
   const billNumber = numberMatch[1] + numberMatch[2] + numberMatch[3];
-  const billDate = isoFromPortalDay(dateMatch[1]);
+  const billDate = dateMatch[1];
 
+  // The shipper saves the portal's number and date in the app; the document number is the app's invoice number.
   const saved = await f.request(`/shipments/${id}/eway-bill`, "POST", { kind: "BILL", billNumber, billDate, makerGstin: SAMPLE_GSTIN, invoiceNumber: INVOICE_NUMBER }, f.tokens.shipperA);
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
 
   const opsLists = await f.request("/ops/eway-bills", "GET", undefined, f.tokens.ops);
   assert.ok((opsLists.body.toCheck as Array<{ id: string }>).some(s => s.id === id), "ops lists the bill under toCheck");
 
-  // Carrier adds the truck on the portal, then the same truck in the app.
-  const validUntilUtcMs = Math.floor((Date.now() + 24 * 60 * 60 * 1000) / 60000) * 60000;
-  const vehicle = await portalPost("/demo/eway-portal/vehicle", { billNumber, vehicleNumber: "KA01AB1234", validUntil: indiaDateTimeLocal(validUntilUtcMs) });
+  // Carrier signs in as the Transporter, updates the vehicle for the first time, and copies the computed valid-up-to into the app.
+  const transporterCookie = await signIn("transporter");
+  const vehicle = await portalPost("/demo/eway-portal/vehicle", { billNumber, vehicleNumber: "KA01AB1234", reasonCode: "4", remark: "" }, transporterCookie);
   assert.equal(vehicle.status, 200, vehicle.text);
-  assert.ok(vehicle.text.includes("Vehicle KA01AB1234 added."));
+  const validUpToMatch = /Vehicle KA01AB1234\. Valid up to (\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}) \(India time\)/.exec(vehicle.text);
+  assert.ok(validUpToMatch, vehicle.text);
+  const validUntilUtcMs = utcMsFromPortalValidUpTo(validUpToMatch[1]);
+  const todayInIndia = new Date(Date.now() + INDIA_OFFSET_MS);
+  assert.equal(validUntilUtcMs, Date.UTC(todayInIndia.getUTCFullYear(), todayInIndia.getUTCMonth(), todayInIndia.getUTCDate() + 3, 23, 59) - INDIA_OFFSET_MS, "450 km is three days, ending 23:59 India time");
   const truck = await f.request(`/v1/pilot/carrier/shipments/${id}/eway-bill/truck`, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs }, f.tokens.carrierA);
   assert.equal(truck.status, 200, JSON.stringify(truck.body));
 
@@ -81,11 +93,12 @@ test("the demo guide's order works end to end over HTTP, and the portal is off w
   assert.deepEqual([driverSees.billNumber, driverSees.truckNumber, driverSees.validUntilUtcMs], [billNumber, "KA01AB1234", validUntilUtcMs]);
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/eway-bill/truck`, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs }, driverToken)).status, 403, "the driver reads only");
 
-  // Ops looks the four details up on the portal, then records what it saw.
+  // Ops verifies the four details on the public Verify page, with no sign-in, then records what it saw.
   const lookup = await portalGet("/demo/eway-portal/check?" + new URLSearchParams({ number: billNumber, billDate, gstin: SAMPLE_GSTIN, invoiceNumber: INVOICE_NUMBER }).toString());
   assert.equal(lookup.status, 200);
   assert.ok(lookup.text.includes("<h2>Found (practice site)</h2>"), lookup.text);
   assert.ok(lookup.text.includes("KA01AB1234"), "the look-up shows the vehicle");
+  assert.ok(lookup.text.includes(`Valid up to ${validUpToMatch[1]} (India time)`), "and the same valid-up-to");
   const checked = await f.request(`/ops/eway-bills/${id}/check`, "POST", { result: "FOUND", billNumber }, f.tokens.ops);
   assert.equal(checked.status, 200, JSON.stringify(checked.body));
 

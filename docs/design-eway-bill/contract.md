@@ -147,9 +147,14 @@ pastes. There is no automatic return: the real portal cannot send data to naviG8
 can. The fake portal says on every page that it is a naviG8r demo and not the government site.
 
 **The fake portal** is served by the demo server only when `EWAY_DEMO_PORTAL=1` (the demo script sets it), under
-`/demo/eway-portal` (generate a bill, add a vehicle, search by the four details) with a step-by-step guide at
-`/demo/eway-guide`. It keeps its bills in memory and resets on restart, holds at most 500 and drops the oldest
-(never the seeded bill) to make room. It is answered before the server's one-at-a-time request queue, since it never
+`/demo/eway-portal` with a step-by-step guide at `/demo/eway-guide`. It copies the real portal's BEHAVIOUR, never its
+look: a demo sign-in as the supplier, the carrier (transporter) or a stranger; generate a bill with the real Part A
+field names; validity computed from the distance (one day per 200 km, ending at 23:59 India time of the last day);
+update the vehicle with the real reasons, by the generator or the named transporter only; extend validity (the
+transporter, within the window the notification states); cancel within 24 hours; a public Verify page that takes the
+four details. Which rules come from the notifications and which are assumptions is listed in the guide's "Rules I
+modelled" box (the three notifications were read as page images; seven rules are marked assumed). It keeps its bills in
+memory and resets on restart, holds at most 500 and drops the oldest (never the two seeded bills) to make room. It is answered before the server's one-at-a-time request queue, since it never
 touches the store, and drops a form whose body is not complete within 5 seconds, so a slow sender cannot stall other
 requests. Its generated bill and look-up result are headed "Practice bill, not a real e-way bill" and "Found (practice
 site)". The guide builds its addresses from the Host the visitor used. The app's portal address comes from the

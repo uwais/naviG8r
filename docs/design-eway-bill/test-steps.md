@@ -27,14 +27,16 @@ Restarting the server resets everything: shipments, sign-ins and the practice po
 Real: the app, its format checks, the server's rules on who may see and change what, and the ops page. Pretend:
 the practice portal under `/demo/eway-portal`. It is served only when `EWAY_DEMO_PORTAL=1`, says on every page that
 it is not the government site, and keeps its bills in memory. The real portal cannot send data back to naviG8r,
-so in the demo, as in real use, people copy details from the portal and paste them into the app. The real
-portal's login, captcha and rules are not shown.
+so in the demo, as in real use, people copy details from the portal and paste them into the app. The practice
+portal follows the real rules on who may generate, update the vehicle, extend and cancel, and computes validity
+from distance; the guide page lists which rules come from the notifications and which are assumed. Its sign-in
+(choose Supplier, Transporter or Someone else, no password, no captcha) and the typed distance are pretend.
 
 ## Known limits
 
 - The carrier on a phone returns to the app by switching apps and pasting. There is no automatic return.
-- A restart wipes the practice portal's bills. Only the seeded bill on load-a-with-bill comes back.
-- The practice portal holds 500 bills; past that, each new bill drops the oldest one (never the seeded bill).
+- A restart wipes the practice portal's bills. Only the two seeded bills, on load-a-with-bill and load-a-with-truck, come back.
+- The practice portal holds 500 bills; past that, each new bill drops the oldest one (never a seeded bill).
 - A practice-portal form whose body has not fully arrived within 5 seconds is dropped.
 
 ## Stop
