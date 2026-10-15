@@ -144,3 +144,37 @@ test("ERP snapshot and tracking never carry the bill", async t => {
   assert.equal(JSON.stringify(snapshot).includes("123456789012"), false);
   assert.equal(JSON.stringify(tracking).includes("ewayBill"), false);
 });
+
+test("the carrier owner or the shipper adds the truck; a driver cannot; any change clears the check; carriers see truck and time", async t => {
+  const f = await httpFixture(t); const id = await bookedShipment(f);
+  registerCustomerUser(f.store, { fullName: "Synthetic Driver", phone: "8000000013" });
+  inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: f.carrierA.org.id, phone: "8000000013", role: "DRIVER", vehicleRegistrationNumber: "TEST-D", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
+  const driverToken = await f.login("8000000013");
+  const shipperRoute = `/shipments/${id}/eway-bill/truck`, carrierRoute = `/v1/pilot/carrier/shipments/${id}/eway-bill/truck`;
+  const tomorrow = Date.now() + 24 * 60 * 60 * 1000;
+  assert.equal((await f.request(carrierRoute, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow }, f.tokens.carrierA)).body.error, "eway_bill_not_entered", "no truck before a bill");
+  await f.request(`/shipments/${id}/eway-bill`, "POST", goodBill, f.tokens.shipperA);
+  await f.request(`/ops/eway-bills/${id}/check`, "POST", { result: "FOUND", billNumber: "123456789012" }, f.tokens.ops);
+  assert.equal((await f.request(carrierRoute, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow }, driverToken)).status, 403, "a driver reads only");
+  assert.equal((await f.request(carrierRoute, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow }, f.tokens.carrierB)).status, 404);
+  assert.equal((await f.request(shipperRoute, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow }, f.tokens.shipperB)).status, 404);
+  for (const [change, field] of [[{ truckNumber: "X" }, "truckNumber"], [{ validUntilUtcMs: Date.now() - 1000 }, "validUntilUtcMs"], [{ validUntilUtcMs: Date.now() + 90 * 86400000 }, "validUntilUtcMs"], [{ validUntilUtcMs: "tomorrow" }, "validUntilUtcMs"]] as const) {
+    const refused = await f.request(carrierRoute, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow, ...change }, f.tokens.carrierA);
+    assert.deepEqual([refused.status, refused.body.field], [400, field]);
+  }
+  const added = await f.request(carrierRoute, "POST", { truckNumber: "ka 01-ab 1234", validUntilUtcMs: tomorrow }, f.tokens.carrierA);
+  assert.equal(added.status, 200); assert.equal(added.body.shipment.ewayBill.truckNumber, "KA01AB1234");
+  assert.equal(added.body.shipment.ewayBill.check, undefined, "adding the truck clears ops' check");
+  for (const token of [f.tokens.carrierA, driverToken]) {
+    const seen = (await f.request("/v1/pilot/carrier/shipments", "GET", undefined, token)).body.shipments.find((s: { id: string }) => s.id === id).ewayBill;
+    assert.deepEqual([seen.truckNumber, seen.validUntilUtcMs, seen.makerGstin, seen.truckEnteredByUserId], ["KA01AB1234", Math.round(tomorrow), undefined, undefined]);
+  }
+  const edited = await f.request(`/shipments/${id}/eway-bill`, "POST", { ...goodBill, invoiceNumber: "INV/2026/009" }, f.tokens.shipperA);
+  assert.equal(edited.body.shipment.ewayBill.truckNumber, "KA01AB1234", "editing the same bill keeps its truck");
+  const other = await f.request(`/shipments/${id}/eway-bill`, "POST", { ...goodBill, billNumber: "210987654321" }, f.tokens.shipperA);
+  assert.equal(other.body.shipment.ewayBill.truckNumber, undefined, "a different bill starts with no truck");
+  assert.equal((await f.request(shipperRoute, "POST", { truckNumber: "MH12XY9876", validUntilUtcMs: tomorrow }, f.tokens.shipperA)).status, 200, "the shipper may add it too");
+  const restored = loadStoreFromDisk(f.dataFilePath!);
+  assert.ok([...restored.auditEvents.values()].some(e => e.action === "EWAY_BILL_TRUCK_ADDED"));
+  assert.equal(JSON.stringify([...restored.auditEvents.values()]).includes("KA01AB1234"), false, "no typed text in the audit log");
+});

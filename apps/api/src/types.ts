@@ -228,6 +228,10 @@ export type EwayBill = {
   invoiceNumber?: string;
   notNeededReason?: EwayBillNotNeededReason;
   notNeededNote?: string;
+  /** Part B, typed in by the shipper or the shipment's carrier after the truck was added on the portal. */
+  truckNumber?: string;
+  validUntilUtcMs?: number;
+  truckEnteredByUserId?: string;
   enteredAtUtcMs: number;
   enteredByUserId: string;
   /** Ops looked the bill up on the portal by hand. Any edit clears it. */

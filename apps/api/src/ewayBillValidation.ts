@@ -65,6 +65,32 @@ export function checkEwayBillDetails(input: Record<string, unknown>, nowUtcMs: n
   return { ok: true, value: { billNumber, billDate, makerGstin, invoiceNumber } };
 }
 
+export type EwayBillTruckCheck =
+  | { ok: true; value: { truckNumber: string; validUntilUtcMs: number } }
+  | { ok: false; field: "truckNumber" | "validUntilUtcMs"; detail: string };
+
+/** Letters and digits only once spaces and hyphens are gone. Shape only: plates differ by state and era. */
+const TRUCK_NUMBER_PATTERN = /^[A-Z0-9]{6,12}$/;
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function checkEwayBillTruck(input: Record<string, unknown>, nowUtcMs: number): EwayBillTruckCheck {
+  const truckNumber = String(input.truckNumber ?? "").replace(/[\s-]/g, "").toUpperCase();
+  if (!TRUCK_NUMBER_PATTERN.test(truckNumber)) {
+    return { ok: false, field: "truckNumber", detail: "The truck number is 6 to 12 letters and digits, for example KA01AB1234." };
+  }
+  const validUntilUtcMs = input.validUntilUtcMs;
+  if (typeof validUntilUtcMs !== "number" || !Number.isFinite(validUntilUtcMs)) {
+    return { ok: false, field: "validUntilUtcMs", detail: "Choose the date and time the bill is valid until." };
+  }
+  if (validUntilUtcMs <= nowUtcMs) {
+    return { ok: false, field: "validUntilUtcMs", detail: "The valid-until time has already passed. Copy it from the portal again." };
+  }
+  if (validUntilUtcMs > nowUtcMs + THIRTY_DAYS_MS) {
+    return { ok: false, field: "validUntilUtcMs", detail: "The valid-until time is more than 30 days away. Check it against the portal." };
+  }
+  return { ok: true, value: { truckNumber, validUntilUtcMs: Math.round(validUntilUtcMs) } };
+}
+
 export function checkEwayBillStatement(input: Record<string, unknown>): EwayBillStatementCheck {
   const reason = String(input.reason ?? "");
   if (!NOT_NEEDED_REASONS.includes(reason)) {

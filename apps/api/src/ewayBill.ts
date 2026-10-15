@@ -8,7 +8,7 @@ import { ApiError, shipmentWithCarrierDisplay } from "./services.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import type { Store } from "./store.ts";
 import type { EwayBill, EwayBillProblemReason, Shipment } from "./types.ts";
-import { checkEwayBillDetails, checkEwayBillStatement } from "./ewayBillValidation.ts";
+import { checkEwayBillDetails, checkEwayBillStatement, checkEwayBillTruck } from "./ewayBillValidation.ts";
 
 const PROBLEM_REASONS: readonly string[] = ["NOT_FOUND", "CANCELLED", "DETAILS_DO_NOT_MATCH", "OTHER"];
 
@@ -42,7 +42,12 @@ export function saveEwayBill(store: Store, shipmentId: string, input: Record<str
   if (input.kind === "BILL") {
     const checked = checkEwayBillDetails(input, now);
     if (!checked.ok) throw new ApiError("invalid_eway_bill", { detail: checked.detail, field: checked.field });
-    bill = { kind: "BILL", ...checked.value, ...entered };
+    // The truck belongs to the bill on the portal: keep it through an edit of the same bill, drop it for a different one.
+    const before = shipment.ewayBill;
+    const truck = before?.kind === "BILL" && before.billNumber === checked.value.billNumber && before.truckNumber && before.validUntilUtcMs && before.truckEnteredByUserId
+      ? { truckNumber: before.truckNumber, validUntilUtcMs: before.validUntilUtcMs, truckEnteredByUserId: before.truckEnteredByUserId }
+      : {};
+    bill = { kind: "BILL", ...checked.value, ...truck, ...entered };
   } else if (input.kind === "NOT_NEEDED") {
     const checked = checkEwayBillStatement(input);
     if (!checked.ok) throw new ApiError("invalid_eway_bill", { detail: checked.detail, field: checked.field });
@@ -55,6 +60,35 @@ export function saveEwayBill(store: Store, shipmentId: string, input: Record<str
   store.shipments.set(updated.id, updated);
   recordAudit(store, bill.kind === "BILL" ? "EWAY_BILL_ENTERED" : "EWAY_BILL_NOT_NEEDED_STATED", "shipment", updated.id, stateWord(shipment.ewayBill), bill.kind);
   return updated;
+}
+
+/**
+ * Part B: the truck and the valid-until time, typed in after the truck was added to the bill on the portal.
+ * The shipper may do it for its own shipment, and so may the shipment's carrier (owner or dispatcher, not a driver).
+ * Any change clears ops' check, like every other detail.
+ */
+export function addEwayBillTruck(store: Store, shipmentId: string, input: Record<string, unknown>): Shipment {
+  const shipment = findShipment(store, shipmentId);
+  const principal = requirePermission(store, "eway_bill.add_truck", shipment);
+  if (lockedForChanges(shipment)) throw lockedError();
+  const bill = shipment.ewayBill;
+  if (bill?.kind !== "BILL") {
+    throw new ApiError("eway_bill_not_entered", { detail: "The shipper has not added an e-way bill to this shipment yet." }, 409);
+  }
+  const now = Date.now();
+  const checked = checkEwayBillTruck(input, now);
+  if (!checked.ok) throw new ApiError("invalid_eway_truck", { detail: checked.detail, field: checked.field });
+  const next: EwayBill = { ...bill, ...checked.value, truckEnteredByUserId: principal.userId };
+  delete next.check;
+  const updated: Shipment = { ...shipment, ewayBill: next, updatedAtUtcMs: now };
+  store.shipments.set(updated.id, updated);
+  recordAudit(store, "EWAY_BILL_TRUCK_ADDED", "shipment", updated.id, bill.truckNumber ? "TRUCK_ADDED" : "NO_TRUCK", "TRUCK_ADDED");
+  return updated;
+}
+
+/** Where the page and the app send people to look a bill up. The demo server swaps in its practice site. */
+export function ewayPortalAddress(): string {
+  return process.env.EWAY_DEMO_PORTAL === "1" ? "/demo/eway-portal" : "https://ewaybillgst.gov.in";
 }
 
 export function removeEwayBill(store: Store, shipmentId: string): Shipment {
@@ -134,6 +168,8 @@ export function ewayBillForRoles(bill: EwayBill | undefined, roles: readonly str
   return {
     kind: bill.kind,
     ...(bill.billNumber ? { billNumber: bill.billNumber } : {}),
+    ...(bill.truckNumber ? { truckNumber: bill.truckNumber } : {}),
+    ...(bill.validUntilUtcMs ? { validUntilUtcMs: bill.validUntilUtcMs } : {}),
     ...(bill.notNeededReason ? { notNeededReason: bill.notNeededReason } : {}),
     ...(bill.notNeededNote ? { notNeededNote: bill.notNeededNote } : {}),
     ...(check ? { check } : {}),

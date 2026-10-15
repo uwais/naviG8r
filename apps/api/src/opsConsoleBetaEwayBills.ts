@@ -19,7 +19,7 @@ export const ewayBillMarkup = `
 // No backticks, no dollar-brace and no backslashes in here: this sits inside a template string.
 export const ewayBillScript = `
 // The government portal's address, named in docs/design-eway-bill/contract.md. Never built from server data.
-const ewayPortalAddress = 'https://ewaybillgst.gov.in';
+let ewayPortalAddress = 'https://ewaybillgst.gov.in';
 const ewayProblemWords = [['NOT_FOUND', 'Not found on the portal'], ['CANCELLED', 'Cancelled on the portal'], ['DETAILS_DO_NOT_MATCH', 'Details here do not match the portal'], ['OTHER', 'Other']];
 const ewayProblemWordsByCode = Object.fromEntries(ewayProblemWords);
 const ewayNotNeededWords = { BELOW_THRESHOLD: 'Below the value that needs one', GOODS_EXEMPT: 'These goods do not need one', OTHER: 'Other' };
@@ -57,6 +57,8 @@ async function loadEwayBills() {
     for (const [name, what] of cards) { byId(name + 'Count').textContent = ''; sectionFailed(name, what, error, loadEwayBills); }
     return;
   }
+  // The demo server points this at its practice site; anything else is ignored, so server data cannot send ops elsewhere.
+  if (ewayLists.portalAddress === '/demo/eway-portal') ewayPortalAddress = ewayLists.portalAddress;
   for (const [name] of cards) sectionLoaded(name);
   ewayCheckedSinceLoad = new Set();
   showEwayCounts();
@@ -174,6 +176,8 @@ function ewayCheckRow(shipment) {
     ewayDetail('Bill date', bill.billDate, ewayDateWords(bill.billDate)),
     ewayDetail('GSTIN of whoever made the bill', bill.makerGstin, bill.makerGstin),
     ewayDetail('Invoice number', bill.invoiceNumber, bill.invoiceNumber),
+    bill.truckNumber ? ewayDetail('Truck number', bill.truckNumber, bill.truckNumber) : '',
+    bill.validUntilUtcMs ? ewayDetail('Valid until', dateIST(bill.validUntilUtcMs) + ', ' + timeIST(bill.validUntilUtcMs), dateIST(bill.validUntilUtcMs) + ', ' + timeIST(bill.validUntilUtcMs)) : '',
     actions, picker, result);
 }
 

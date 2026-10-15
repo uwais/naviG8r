@@ -7,8 +7,8 @@ import { isActiveEntity } from "./softDelete.ts";
 export const ROLES = ["SHIPPER", "CARRIER", "OPS", "FINANCE", "ADMIN"] as const;
 export type Role = typeof ROLES[number];
 export const ROLE_PERMISSIONS = {
-  SHIPPER: ["organization.profile.read", "organization.member.invite", "load.create", "load.read", "pod.accept", "payment.read", "payment.checkout", "kyc.status_read", "audit.read", "integration.manage", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request", "eway_bill.write"],
-  CARRIER: ["organization.profile.read", "organization.member.invite", "load.read", "trip.publish", "load.status_update", "carrier.offer_accept", "pod.upload", "payment.read", "bank_account.create_token", "kyc.status_read", "audit.read", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request"],
+  SHIPPER: ["organization.profile.read", "organization.member.invite", "load.create", "load.read", "pod.accept", "payment.read", "payment.checkout", "kyc.status_read", "audit.read", "integration.manage", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request", "eway_bill.write", "eway_bill.add_truck"],
+  CARRIER: ["organization.profile.read", "organization.member.invite", "load.read", "trip.publish", "load.status_update", "carrier.offer_accept", "pod.upload", "payment.read", "bank_account.create_token", "kyc.status_read", "audit.read", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request", "eway_bill.add_truck"],
   OPS: ["directory.read", "fleet.read", "carrier.onboard", "organization.profile.read", "load.create", "load.read", "trip.publish", "load.status_update", "pod.upload", "payment.read", "kyc.status_read", "kyc.verify", "audit.read", "conversation.support_read", "conversation.support_send", "eway_bill.check"],
   FINANCE: ["directory.read", "organization.profile.read", "load.read", "payment.read", "payment.capture", "payment.refund", "settlement.release", "kyc.status_read", "audit.read"],
   ADMIN: ["directory.read", "fleet.read", "organization.profile.read", "load.read", "payment.read", "user.role_manage", "kyc.status_read", "audit.read", "conversation.escalation_approve"],
@@ -44,6 +44,8 @@ export function effectivePermissions(roles: Role[], subrole: string): string[] {
   return [...new Set(roles.flatMap(r => [...(ROLE_PERMISSIONS[r] ?? [])]))].filter(p => {
     if (p === "organization.member.invite") return ["CUSTOMER_ADMIN", "OWNER_DRIVER", "OWNER", "DISPATCHER"].includes(subrole);
     if (p === "integration.manage") return subrole === "CUSTOMER_ADMIN";
+    // A driver only reads the bill; the owner or dispatcher is the carrier's voice on it.
+    if (p === "eway_bill.add_truck") return subrole !== "DRIVER";
     if (p === "bank_account.create_token") return ["OWNER_DRIVER", "OWNER"].includes(subrole);
     return true;
   });
