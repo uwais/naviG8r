@@ -86,6 +86,10 @@ export function checkEwayBill(store: Store, shipmentId: string, input: Record<st
   if (result === "PROBLEM" && !PROBLEM_REASONS.includes(String(problemReason))) {
     throw new ApiError("invalid_eway_check", { detail: "Choose what the problem is.", field: "problemReason" });
   }
+  // The check names the bill ops looked up, so it cannot land on one the shipper replaced after the list loaded.
+  if (input.billNumber !== bill.billNumber) {
+    throw new ApiError("eway_bill_changed", { detail: "The shipper changed this bill after your list loaded. Reload and look it up again." }, 409);
+  }
   const now = Date.now();
   const check: NonNullable<EwayBill["check"]> = {
     result,

@@ -30,6 +30,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
   String? _reason;
   bool _busy = false;
   String? _error;
+  num _savedAtUtcMs = 0;
 
   static Map<String, dynamic>? _billFrom(Map<String, dynamic> shipment) {
     final raw = shipment['ewayBill'];
@@ -51,7 +52,11 @@ class _EwayBillCardState extends State<EwayBillCard> {
   void didUpdateWidget(EwayBillCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     // The screen refreshes every 15 seconds. Never overwrite something half typed.
-    if (_mode == _Mode.viewing && !_busy) _bill = _billFrom(widget.shipment);
+    if (_mode != _Mode.viewing || _busy) return;
+    // A refresh that started before our own save can arrive after it; the newer server time wins.
+    final parentTime = widget.shipment['updatedAtUtcMs'];
+    if (parentTime is num && parentTime < _savedAtUtcMs) return;
+    _bill = _billFrom(widget.shipment);
   }
 
   @override
@@ -96,11 +101,14 @@ class _EwayBillCardState extends State<EwayBillCard> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final current = _billDate == null ? null : DateTime.tryParse(_billDate!);
+    final initial =
+        current != null && !current.isAfter(today) ? current : today;
+    final oneYearBack = DateTime(today.year - 1);
     final picked = await showDatePicker(
         context: context,
-        initialDate:
-            current != null && !current.isAfter(today) ? current : today,
-        firstDate: DateTime(today.year - 1),
+        initialDate: initial,
+        // An older saved date must still open the picker, so the range reaches back to it.
+        firstDate: initial.isBefore(oneYearBack) ? initial : oneYearBack,
         lastDate: today);
     if (picked == null || !mounted) return;
     final month = picked.month.toString().padLeft(2, '0');
@@ -169,6 +177,10 @@ class _EwayBillCardState extends State<EwayBillCard> {
       final shipment = response.data?['shipment'];
       setState(() {
         _bill = shipment is Map<String, dynamic> ? _billFrom(shipment) : null;
+        final savedTime = shipment is Map<String, dynamic>
+            ? shipment['updatedAtUtcMs']
+            : null;
+        if (savedTime is num) _savedAtUtcMs = savedTime;
         _mode = _Mode.viewing;
       });
     } catch (e) {
@@ -328,15 +340,10 @@ class _EwayBillCardState extends State<EwayBillCard> {
   }
 
   List<Widget> _statementForm() {
-    const reasons = {
-      'BELOW_THRESHOLD': 'Below the value that needs one',
-      'GOODS_EXEMPT': 'These goods do not need one',
-      'OTHER': 'Other',
-    };
     return [
       const Text('Why is no e-way bill needed?'),
       _ReasonChoices(
-          reasons: reasons,
+          reasons: notNeededReasonChoices,
           selected: _reason,
           enabled: !_busy,
           onChanged: (value) => setState(() => _reason = value)),

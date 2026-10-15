@@ -8,7 +8,7 @@ import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
  * Built from the "NaviG8r ops console" design on the NaviG8r design system; token names match that system.
  *
  * Over 500 lines because markup and script are one screen: every element id the script reads is defined
- * here, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
+ * here, or in opsConsoleBetaEwayBills.ts, which is pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
  */
 export function opsConsoleBetaHtml(): string {
   return page;
@@ -173,6 +173,7 @@ const errorWords = {
   cannot_revoke_last_admin: 'that would leave the organization with no one holding ADMIN',
   invalid_eway_check: 'say whether you found the bill or found a problem, and choose which problem',
   eway_bill_not_entered: 'this shipment has no e-way bill entered to check',
+  eway_bill_changed: 'the shipper changed this bill after your list loaded, so reload and look it up again',
   eway_bill_locked: 'this shipment is already delivered, so its e-way bill can no longer be changed',
   internal_error: 'the server hit an error',
   // The server also sends this for any failure it did not name, a payment provider error included.
@@ -182,7 +183,7 @@ const errorWords = {
 // made and not saved, so the page must not say nothing happened.
 const refusedBeforeChange = ['unauthorized', 'forbidden', 'not_found', 'self_verification_forbidden', 'verification_status_and_reason_required',
   'invalid_role', 'payment_hold_active', 'shipment_not_found', 'payment_not_found', 'payment_id_missing', 'checkout_not_completed_for_pod', 'shipment_not_pending_release',
-  'membership_inactive', 'active_organization_required', 'cannot_revoke_last_admin', 'invalid_eway_check', 'eway_bill_not_entered', 'eway_bill_locked'];
+  'membership_inactive', 'active_organization_required', 'cannot_revoke_last_admin', 'invalid_eway_check', 'eway_bill_not_entered', 'eway_bill_changed', 'eway_bill_locked'];
 async function request(path, method = 'GET', body, headers = {}) {
   const sent = { 'content-type': 'application/json', ...headers };
   if (token) sent.authorization = 'Bearer ' + token;

@@ -43,12 +43,18 @@ String groupedBillNumber(String number) {
   return groups.join(' ');
 }
 
+/// The reasons a shipper can give, in the order shown, none chosen to start.
+const notNeededReasonChoices = {
+  'BELOW_THRESHOLD': 'Below the value that needs one',
+  'GOODS_EXEMPT': 'These goods do not need one',
+  'OTHER': 'Other',
+};
+
 String notNeededReasonWords(Map<String, dynamic> bill) {
   switch (bill['notNeededReason']) {
     case 'BELOW_THRESHOLD':
-      return 'Below the value that needs one';
     case 'GOODS_EXEMPT':
-      return 'These goods do not need one';
+      return notNeededReasonChoices[bill['notNeededReason']]!;
     default:
       final note = bill['notNeededNote'];
       return note is String && note.isNotEmpty ? note : 'Other';

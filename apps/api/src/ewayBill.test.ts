@@ -62,6 +62,12 @@ test("each role gets its own cut of the bill; finance, admin and other shippers 
   }
   assert.equal(driver.user.id.length > 0, true);
   assert.equal((await f.request(`/shipments/${id}`, "GET", undefined, f.tokens.shipperB)).status, 404);
+  // No response for any role may carry who entered or checked a bill.
+  await f.request(`/ops/eway-bills/${id}/check`, "POST", { result: "FOUND", billNumber: "123456789012" }, f.tokens.ops);
+  for (const [path, token] of [[`/shipments/${id}`, f.tokens.shipperA], ["/shipments", f.tokens.shipperA], ["/v1/pilot/carrier/shipments", f.tokens.carrierA], ["/v1/pilot/carrier/shipments", driverToken], [`/ops/shipments/${id}`, f.tokens.ops], ["/ops/eway-bills", f.tokens.ops]] as const) {
+    const text = JSON.stringify((await f.request(path, "GET", undefined, token)).body);
+    assert.equal(text.includes("enteredByUserId") || text.includes("checkedByUserId"), false, `user ids leaked on ${path}`);
+  }
   for (const token of [f.tokens.finance, f.tokens.admin]) {
     const view = await f.request(`/ops/shipments/${id}`, "GET", undefined, token);
     assert.equal(view.body.shipment?.ewayBill, undefined);
@@ -95,13 +101,16 @@ test("ops lists, checks and reports a problem; any edit clears the check; typed 
   assert.equal((await f.request(check, "POST", { result: "PROBLEM" }, f.tokens.ops)).body.field, "problemReason");
   assert.equal((await f.request(check, "POST", { result: "MAYBE" }, f.tokens.ops)).body.field, "result");
   assert.equal((await f.request(`/ops/eway-bills/${second}/check`, "POST", { result: "FOUND" }, f.tokens.ops)).status, 409);
-  const problem = await f.request(check, "POST", { result: "PROBLEM", problemReason: "NOT_FOUND" }, f.tokens.ops);
+  const stale = await f.request(check, "POST", { result: "FOUND", billNumber: "999999999999" }, f.tokens.ops);
+  assert.deepEqual([stale.status, stale.body.error], [409, "eway_bill_changed"], "a check for a bill the shipper replaced is refused");
+  assert.equal(f.store.shipments.get(id)?.ewayBill?.check, undefined, "and nothing is stamped on the new bill");
+  const problem = await f.request(check, "POST", { result: "PROBLEM", problemReason: "NOT_FOUND", billNumber: "123456789012" }, f.tokens.ops);
   assert.equal(problem.status, 200); assert.equal(problem.body.shipment.ewayBill.check.problemReason, "NOT_FOUND");
   assert.equal(problem.body.shipment.ewayBill.check.checkedByUserId, undefined);
   const carrierSees = (await f.request("/v1/pilot/carrier/shipments", "GET", undefined, f.tokens.carrierA)).body.shipments.find((s: { id: string }) => s.id === id).ewayBill;
   assert.equal(carrierSees.check.result, "PROBLEM");
   assert.equal((await lists()).toCheck.length, 0, "a checked bill leaves the to-check list");
-  const found = await f.request(check, "POST", { result: "FOUND" }, f.tokens.ops);
+  const found = await f.request(check, "POST", { result: "FOUND", billNumber: "123456789012" }, f.tokens.ops);
   assert.equal(found.body.shipment.ewayBill.check.result, "FOUND");
   const edited = await f.request(`/shipments/${id}/eway-bill`, "POST", { ...goodBill, invoiceNumber: "INV/2026/002" }, f.tokens.shipperA);
   assert.equal(edited.body.shipment.ewayBill.check, undefined, "editing clears what ops saw");

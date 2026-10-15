@@ -328,7 +328,7 @@ Ops (`eway_bill.check`). `{ "toCheck": [shipment], "missing": [shipment], "notNe
 
 #### `POST /ops/eway-bills/:shipmentId/check`
 
-Ops. `{ "result": "FOUND" }` or `{ "result": "PROBLEM", "problemReason": "NOT_FOUND | CANCELLED | DETAILS_DO_NOT_MATCH | OTHER" }`. Only on a `BILL` (`409 eway_bill_not_entered` otherwise). Last writer wins. Audit rows `EWAY_BILL_ENTERED`, `EWAY_BILL_NOT_NEEDED_STATED`, `EWAY_BILL_REMOVED`, `EWAY_BILL_CHECKED` hold state words only.
+Ops. `{ "result": "FOUND", "billNumber": "123456789012" }` or `{ "result": "PROBLEM", "problemReason": "NOT_FOUND | CANCELLED | DETAILS_DO_NOT_MATCH | OTHER", "billNumber": "..." }`. `billNumber` is the bill ops looked up; if the shipper has since replaced it the answer is `409 eway_bill_changed`. Only on a `BILL` (`409 eway_bill_not_entered` otherwise). Last writer wins. Audit rows `EWAY_BILL_ENTERED`, `EWAY_BILL_NOT_NEEDED_STATED`, `EWAY_BILL_REMOVED`, `EWAY_BILL_CHECKED` hold state words only.
 
 ### Existing marketplace endpoints (still available)
 - `GET /anchor-trips` (list + `GET /anchor-trips/:id`) lists trips for the customer pilot; **enabled in production** as part of the public marketplace.

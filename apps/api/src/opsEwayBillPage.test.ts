@@ -36,6 +36,6 @@ test("the page names no web address except Google Fonts and the government porta
   const addresses = new Set(html.match(/https?:\/\/[^"' )]+/g) ?? []);
   assert.ok(addresses.has("https://ewaybillgst.gov.in"));
   for (const address of addresses) {
-    assert.match(address, /^https:\/\/fonts\.(googleapis|gstatic)\.com|^http:\/\/www\.w3\.org\/2000\/svg$|^https:\/\/ewaybillgst\.gov\.in$/, address);
+    assert.match(address, /^https:\/\/fonts\.(googleapis|gstatic)\.com(\/|$)|^http:\/\/www\.w3\.org\/2000\/svg$|^https:\/\/ewaybillgst\.gov\.in$/, address);
   }
 });

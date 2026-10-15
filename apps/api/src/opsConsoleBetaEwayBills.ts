@@ -1,5 +1,5 @@
 /**
- * The e-way bill cards of /ops/beta, kept apart so the page file stays under its size cap. Both strings are
+ * The e-way bill cards of /ops/beta, their own section of the page. Both strings are
  * pasted into that page before its security fingerprints are computed, and the script shares its helpers
  * (element, request, can, message, busy and the rest), so it only works inside that page.
  * Copy follows docs/design-eway-bill/contract.md. One request, GET /ops/eway-bills, feeds both cards.
@@ -123,10 +123,17 @@ function ewayDetail(label, copied, shown) {
   return element('div', { class: 'row center' }, element('span', { class: 'caption detail-label', text: label }), element('span', { class: 'detail-value', text: shown }), copy, status);
 }
 
+/* 2026-10-01 shown as 1 Oct 2026, the way the shipper sees it; the copied value stays the ISO date. */
+function ewayDateWords(isoDate) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[Number(isoDate.slice(5, 7)) - 1];
+  return month ? Number(isoDate.slice(8, 10)) + ' ' + month + ' ' + isoDate.slice(0, 4) : isoDate;
+}
+
 function ewayCheckRow(shipment) {
   const bill = shipment.ewayBill, name = shipment.customerOrgName, cardId = 'eway-' + shipment.id;
   const link = element('a', { href: ewayPortalAddress, target: '_blank', rel: 'noopener noreferrer', text: 'Open the government portal' });
-  const found = element('button', { class: 'btn btn-primary', type: 'button', text: 'Mark as found on the portal' });
+  const found = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Mark as found on the portal' });
   const problem = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Report a problem' });
   const actions = element('div', { class: 'row center' }, link, element('div', { class: 'grow' }), found, problem);
   const picker = element('div', { class: 'row', hidden: true });
@@ -137,7 +144,7 @@ function ewayCheckRow(shipment) {
   problem.onclick = () => {
     const select = element('select', { class: 'field', 'aria-labelledby': cardId + '-reason' });
     reasonChoices(select, ewayProblemWords);
-    const confirm = element('button', { class: 'btn btn-danger', type: 'button', text: 'Confirm problem' });
+    const confirm = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Confirm problem' });
     const back = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Cancel' });
     picker.replaceChildren(
       element('label', { class: 'stack reason' }, element('span', { id: cardId + '-reason', class: 'field-label' }, 'Reason for the problem', element('span', { class: 'visually-hidden', text: ' ' + name + ' (' + shipment.id + ')' })), select),
@@ -164,7 +171,7 @@ function ewayCheckRow(shipment) {
   return element('article', { 'aria-label': name + ' (' + shipment.id + ')' },
     ewayShipmentHeading(shipment, null),
     ewayDetail('E-way bill number', bill.billNumber, groupedInFours(bill.billNumber)),
-    ewayDetail('Bill date', bill.billDate, bill.billDate),
+    ewayDetail('Bill date', bill.billDate, ewayDateWords(bill.billDate)),
     ewayDetail('GSTIN of whoever made the bill', bill.makerGstin, bill.makerGstin),
     ewayDetail('Invoice number', bill.invoiceNumber, bill.invoiceNumber),
     actions, picker, result);
@@ -178,7 +185,7 @@ async function saveEwayCheck(row, body, button, working, controls, savedWords) {
   unlocked.forEach(control => { control.disabled = true; });
   busy(button, working);
   try {
-    await request('/ops/eway-bills/' + encodeURIComponent(row.shipment.id) + '/check', 'POST', body);
+    await request('/ops/eway-bills/' + encodeURIComponent(row.shipment.id) + '/check', 'POST', Object.assign({ billNumber: row.shipment.ewayBill.billNumber }, body));
     ewayCheckedSinceLoad.add(row.shipment.id);
     showEwayCounts();
     const done = message('ok', savedWords + ' It leaves this list on the next reload.');
