@@ -67,6 +67,7 @@ for (const [id, customerOrgId, carrierId, status, podAtUtcMs] of [
   ["load-a-hold", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 3600000],
   ["load-a-expired", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 49 * 3600000],
   ["load-a-booked", "shipper-a", "carrier-a", "BOOKED", null],
+  ["load-a-with-bill", "shipper-a", "carrier-a", "BOOKED", null],
   ["load-b-pending", "shipper-b", "carrier-b", "PENDING_CARRIER_ACCEPT", null],
 ]) {
   const paymentId = `payment-${id}`;
@@ -84,6 +85,11 @@ for (const [id, customerOrgId, carrierId, status, podAtUtcMs] of [
     createdAtUtcMs: now, updatedAtUtcMs: now,
   });
 }
+// One booked shipment already has a bill typed in and not yet checked, so ops has something to check at first sign-in.
+store.shipments.get("load-a-with-bill").ewayBill = {
+  kind: "BILL", billNumber: "123456789012", billDate: "2026-10-01", makerGstin: "29ABCDE1234F1Z5",
+  invoiceNumber: "SYN/2026/001", enteredAtUtcMs: now, enteredByUserId: "user-shipper-a",
+};
 migrateAuthorization(store);
 store.membershipRoles.set("user-all:platform", ["ADMIN", "OPS", "FINANCE"]);
 store.membershipRoles.set("user-admin-finance:platform", ["ADMIN", "FINANCE"]);

@@ -8,6 +8,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "authorization_session.dart";
 import "shipment_payment_status.dart";
+import "eway_bill_card.dart";
 import "customer_checkout.dart";
 import "customer_layout.dart";
 import "customer_session.dart";
@@ -2411,6 +2412,9 @@ class _CustomerShipmentDetailScreenState
                     ShipmentPaymentStatus(
                         shipment: shipment, onAccepted: () => _load()),
                     _ShipmentTimeline(steps: steps),
+                    EwayBillCard(
+                        key: const ValueKey("eway-bill-card"),
+                        shipment: shipment),
                     const SizedBox(height: 12),
                     if (AuthorizationSession.can("conversation.read"))
                       FilledButton.icon(

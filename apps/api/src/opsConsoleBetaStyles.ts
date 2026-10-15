@@ -13,6 +13,7 @@ export const opsConsoleBetaStyles = `
 [hidden]{display:none!important}
 body{margin:0;background:var(--page);color:var(--ink);font:400 15px/22px var(--font-body);font-variant-numeric:tabular-nums}
 h1,h2{margin:0;font:600 18px/24px var(--font-display);color:var(--navy-ink)}
+h3{margin:0;font:600 15px/22px var(--font-display);color:var(--navy-ink)}
 p{margin:0}
 a{color:var(--navy);text-underline-offset:3px}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
@@ -68,6 +69,9 @@ section.card{display:flex;flex-direction:column;overflow:hidden}
 .body{padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
 article{padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
 article+article{border-top:1px solid var(--line)}
+.detail-label{min-width:200px}
+.detail-value{font-family:var(--font-mono);font-size:15px;color:var(--ink);user-select:all}
+.sublist{border-top:1px solid var(--line)}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%}
 th{background:var(--sunken);text-align:left;font-size:13px;line-height:18px;font-weight:600;padding:8px 16px}

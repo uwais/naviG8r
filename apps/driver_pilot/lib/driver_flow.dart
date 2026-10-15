@@ -1,3 +1,5 @@
+// Size note: this file stays whole on purpose (owner decision, 12 Oct 2026). Splitting the screens waits until after
+// go-live and stability, and an unrelated change should not start it.
 import "organization_access.dart";
 import "dart:async";
 
@@ -8,6 +10,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "authorization_session.dart";
 import "carrier_approval_banner.dart";
+import "eway_bill_carrier_card.dart";
 import "shipment_payment_status.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
@@ -1058,9 +1061,11 @@ class _DriverShipmentDetailScreenState
       return const Center(child: CircularProgressIndicator());
     }
     final st = s["status"]?.toString() ?? "";
+    // Scrolls because the e-way bill card made this screen taller than a 360 by 640 phone.
     return Padding(
       padding: const EdgeInsets.all(20),
-      child: Column(
+      child: SingleChildScrollView(
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(s["customerOrgName"]?.toString() ?? "",
@@ -1076,7 +1081,8 @@ class _DriverShipmentDetailScreenState
           Text("Drop: ${s["dropAddress"]}"),
           Text(
               "Net to carrier: ${formatInrFromPaise(s["netToCarrierPaise"] as num? ?? 0)}"),
-          const Spacer(),
+          EwayBillCarrierCard(shipment: s),
+          const SizedBox(height: 16),
           if (st == "PENDING_CARRIER_ACCEPT")
             FilledButton(
               onPressed: _accepting ||
@@ -1108,7 +1114,7 @@ class _DriverShipmentDetailScreenState
           ],
           ShipmentPaymentStatus(shipment: s),
         ],
-      ),
+      )),
     );
   }
 }
