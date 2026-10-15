@@ -57,12 +57,14 @@ function carrierVehicleRegistration(
 function carrierOpsSnapshot(
   store: Store,
   shipment: Shipment,
-  trip: { startedByUserId?: string; startedAtUtcMs?: number } | undefined,
+  trip: { startedByUserId?: string; startedAtUtcMs?: number; assignedVehicleId?: string } | undefined,
 ): Record<string, unknown> {
   const driverUserId = trip?.startedByUserId ?? shipment.acceptedByUserId;
+  // The truck the carrier assigned to the trip is the one on the road, whoever started it.
+  const assignedVehicle = trip?.assignedVehicleId ? store.vehicles.get(trip.assignedVehicleId) : undefined;
   return {
     name: carrierDisplayName(store, shipment.carrierId),
-    vehicleNumber: carrierVehicleRegistration(store, shipment.carrierId, driverUserId),
+    vehicleNumber: assignedVehicle?.registrationNumber || carrierVehicleRegistration(store, shipment.carrierId, driverUserId),
     driverName: userDisplayName(store, driverUserId),
   };
 }

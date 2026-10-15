@@ -26,6 +26,9 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
   bool _fleetFailed = false;
   bool _saving = false;
   bool _driverBusy = false;
+  // True from a successful save until a choice changes or the next save starts, so a refused save never
+  // shows "Saved." (starting the save already cleared it).
+  bool _justSaved = false;
   String? _error;
 
   static String? _text(Object? value) =>
@@ -52,6 +55,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
       _driverUserId = _text(widget.trip['assignedDriverUserId']);
       if (_fleetLoaded) _forgetChoicesOutsideFleet();
       _driverBusy = false;
+      _justSaved = false;
       _error = null;
     });
   }
@@ -96,6 +100,8 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
     setState(() {
       _saving = true;
       _error = null;
+      _justSaved = false;
+      _driverBusy = false;
     });
     try {
       final response = await api.post<Map<String, dynamic>>(
@@ -106,6 +112,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
       setState(() {
         if (trip is Map<String, dynamic>) _savedTrip = trip;
         _driverBusy = response.data?['driverBusy'] == true;
+        _justSaved = true;
       });
     } catch (e) {
       if (mounted) setState(() => _error = _saveRefusalSentence(e));
@@ -114,12 +121,13 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
     }
   }
 
-  /// 403, 404 and 409 mean the trip or the fleet changed since this card loaded, so trying again here
-  /// cannot work; the trip screen reloads both when pulled down.
+  /// 403 and 404 mean the trip or the fleet changed since this card loaded, so trying again here cannot
+  /// work; the trip screen reloads both when pulled down. Any other refusal, a completed trip say, is the
+  /// server's own sentence.
   static String _saveRefusalSentence(Object e) {
     final status = e is DioException ? e.response?.statusCode : null;
-    if (status == 403 || status == 404 || status == 409) {
-      return 'This trip or the list changed. Pull down to reload, then try again.';
+    if (status == 403 || status == 404) {
+      return 'This trip, or your trucks and drivers, changed. Pull down to reload this screen.';
     }
     return ewayBillErrorSentence(e);
   }
@@ -175,9 +183,8 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
       return [const Text('No trucks or drivers are set up for this carrier yet.')];
     }
     final assignedDriver = _text(_trip['assignedDriverUserId']);
-    final saved = _savedTrip != null &&
-        _vehicleId == _text(_trip['assignedVehicleId']) &&
-        _driverUserId == assignedDriver;
+    final anythingAssigned =
+        _text(_trip['assignedVehicleId']) != null || assignedDriver != null;
     final replacingDriver = assignedDriver != null &&
         _driverUserId != null &&
         _driverUserId != assignedDriver;
@@ -194,7 +201,10 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
                   child: Text(plainTruckNumber(
                       vehicle['registrationNumber']?.toString() ?? '')))
           ],
-          onChanged: (value) => setState(() => _vehicleId = value)),
+          onChanged: (value) => setState(() {
+                _vehicleId = value;
+                _justSaved = false;
+              })),
       _picker(
           label: 'Driver',
           hint: 'Choose a driver',
@@ -209,6 +219,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
                 _driverUserId = value;
                 // The warning was about the driver chosen before.
                 _driverBusy = false;
+                _justSaved = false;
               })),
       if (replacingDriver)
         const Padding(
@@ -225,9 +236,11 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
             child: Text(_error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error))),
       const SizedBox(height: 8),
-      const Text(
-          'Saving replaces the truck and driver now assigned. Both are needed. You can change them until the trip is complete.',
-          style: TextStyle(color: DriverTheme.muted)),
+      Text(
+          anythingAssigned
+              ? 'Saving replaces the truck and driver assigned now. You can change them until the trip is complete.'
+              : 'Choose a truck and a driver, then tap Save. You can change them until the trip is complete.',
+          style: const TextStyle(color: DriverTheme.muted)),
       const SizedBox(height: 8),
       Align(
           alignment: Alignment.centerLeft,
@@ -236,7 +249,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
                   ? null
                   : _save,
               child: Text(_saving ? 'Saving...' : 'Save'))),
-      if (saved && !_saving)
+      if (_justSaved && !_saving)
         const Padding(
             padding: EdgeInsets.only(top: 8),
             child: Text(

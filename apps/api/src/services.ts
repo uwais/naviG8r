@@ -165,6 +165,13 @@ function assertVehicleClass(v: any): asserts v is VehicleClass {
   if (v !== "SMALL" && v !== "MEDIUM" && v !== "LARGE") throw new Error("invalid_vehicleClass");
 }
 
+/** Length only: existing trucks and test data use forms like TEST-A, so no letters-and-digits rule here. */
+function assertTruckNumberLength(registrationNumber: string): void {
+  if (registrationNumber.trim().length > 20) {
+    throw new ApiError("invalid_vehicleRegistrationNumber", { detail: "A truck number can have at most 20 characters.", field: "vehicleRegistrationNumber" });
+  }
+}
+
 function getOrgOrThrow(store: Store, orgId: string): Organization {
   const org = store.organizations.get(orgId);
   if (!org) throw new Error("org_not_found");
@@ -260,6 +267,7 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
   if (!String(params.vehicleRegistrationNumber ?? "").trim()) throw new Error("invalid_vehicleRegistrationNumber");
+  assertTruckNumberLength(String(params.vehicleRegistrationNumber));
   assertVehicleClass(params.vehicleClass);
   if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
 
@@ -958,10 +966,7 @@ export function updatePilotDriverVehicle(
   if (hasReg) {
     const reg = String(params.vehicleRegistrationNumber).trim();
     if (!reg) throw new Error("invalid_vehicleRegistrationNumber");
-    // Length only: existing trucks and test data use forms like TEST-A, so no letters-and-digits rule here.
-    if (reg.length > 20) {
-      throw new ApiError("invalid_vehicleRegistrationNumber", { detail: "A truck number can have at most 20 characters.", field: "vehicleRegistrationNumber" });
-    }
+    assertTruckNumberLength(reg);
     registrationNumber = reg;
   }
   if (hasClass) {
@@ -1932,6 +1937,7 @@ export function inviteCarrierDriver(
     if (!String(params.vehicleRegistrationNumber ?? "").trim()) {
       throw new Error("invalid_vehicleRegistrationNumber");
     }
+    assertTruckNumberLength(String(params.vehicleRegistrationNumber));
     vehicle = {
       id: id("veh"),
       orgId: params.orgId,

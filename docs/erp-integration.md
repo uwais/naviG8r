@@ -182,6 +182,10 @@ Verify with your per-connection webhook secret (shown once when created or after
 }
 ```
 
+`carrier.vehicleNumber` is the truck the carrier assigned to the trip, as registered, when the trip has one. Otherwise
+it is the primary truck of whoever started the trip (or accepted the load), else the carrier's first truck.
+`carrier.driverName` is still whoever started the trip.
+
 ### Retries
 
 Failed deliveries retry with exponential backoff (1m, 5m, 30m, 2h, 24h; max 10 attempts), then status `DEAD`. Use the portal delivery log or `GET /events` to reconcile.

@@ -24,9 +24,11 @@ const busySentence =
     'This driver is already on another trip that is in progress.';
 const replacedSentence = 'A driver who is replaced stops seeing this trip.';
 const changedSentence =
-    'This trip or the list changed. Pull down to reload, then try again.';
+    'This trip, or your trucks and drivers, changed. Pull down to reload this screen.';
 const unassignedSentence =
     'Your carrier has not assigned you a trip yet. Ask your carrier to assign one.';
+const completedSentence =
+    'This trip is complete, so its truck and driver can no longer change.';
 
 const fleet = {
   'vehicles': [
@@ -103,6 +105,11 @@ void main() {
           reason: 'no driver is preselected');
       expect(saveButton(tester).onPressed, isNull,
           reason: 'nothing to save until both are chosen');
+      expect(
+          find.text(
+              'Choose a truck and a driver, then tap Save. You can change them until the trip is complete.'),
+          findsOneWidget,
+          reason: 'nothing is assigned yet');
       await choose(tester, 'Choose a truck', 'KA02XY9999');
       expect(saveButton(tester).onPressed, isNull);
       await choose(tester, 'Choose a driver', 'Synthetic Driver One');
@@ -117,7 +124,7 @@ void main() {
       expect(find.text(busySentence), findsNothing);
       expect(
           find.text(
-              'Saving replaces the truck and driver now assigned. Both are needed. You can change them until the trip is complete.'),
+              'Saving replaces the truck and driver assigned now. You can change them until the trip is complete.'),
           findsOneWidget);
       expect(find.text(replacedSentence), findsNothing,
           reason: 'the saved driver is the one chosen');
@@ -287,18 +294,16 @@ void main() {
     });
 
     testWidgets(
-        'a 403, 404 or 409 on Save asks for a reload instead of another try',
+        'a 403 or 404 on Save asks for a reload; a 409 shows the server sentence',
         (tester) async {
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
       for (final status in [403, 404, 409]) {
         api.dio.httpClientAdapter = MockApiAdapter((request) =>
             request.method == 'GET'
                 ? jsonResponse(fleet)
-                : jsonResponse({
-                    'error': 'trip_completed',
-                    'detail':
-                        'This trip is complete, so its truck and driver can no longer change.'
-                  }, status));
+                : jsonResponse(
+                    {'error': 'trip_completed', 'detail': completedSentence},
+                    status));
         await mountCard(
             tester, TripAssignmentCard(key: ValueKey(status), trip: trip()));
         await tester.pumpAndSettle();
@@ -306,8 +311,44 @@ void main() {
         await choose(tester, 'Choose a driver', 'Synthetic Driver Two');
         await tester.tap(find.text('Save'));
         await tester.pumpAndSettle();
-        expect(find.text(changedSentence), findsOneWidget, reason: '$status');
+        expect(find.text(status == 409 ? completedSentence : changedSentence),
+            findsOneWidget,
+            reason: '$status');
       }
+    });
+
+    testWidgets('a save refused after a successful one shows no Saved line',
+        (tester) async {
+      signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
+      var saves = 0;
+      api.dio.httpClientAdapter = MockApiAdapter((request) {
+        if (request.method == 'GET') return jsonResponse(fleet);
+        saves++;
+        return saves == 1
+            ? jsonResponse({
+                'trip': trip(assigned: {
+                  'assignedVehicleId': 'vehicle-1',
+                  'assignedDriverUserId': 'driver-2',
+                  'assignedTruckNumber': 'KA01AB1234',
+                  'assignedDriverName': 'Synthetic Driver Two',
+                }),
+                'driverBusy': false,
+              })
+            : jsonResponse(
+                {'error': 'trip_completed', 'detail': completedSentence}, 409);
+      });
+      await mountCard(tester, TripAssignmentCard(trip: trip()));
+      await tester.pumpAndSettle();
+      await choose(tester, 'Choose a truck', 'KA01AB1234');
+      await choose(tester, 'Choose a driver', 'Synthetic Driver Two');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.text(savedSentence), findsOneWidget);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.text(completedSentence), findsOneWidget);
+      expect(find.text(savedSentence), findsNothing,
+          reason: 'the second save was refused');
     });
 
     testWidgets(
@@ -381,6 +422,131 @@ void main() {
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
       await mountNotice(tester);
       expect(find.text(unassignedSentence), findsNothing);
+    });
+
+    testWidgets(
+        'above an empty list a driver sees only the carrier name; the office keeps its hint',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      for (final subrole in ['DRIVER', 'OWNER']) {
+        signInAsCarrierStaff(subrole: subrole, canAssign: subrole == 'OWNER');
+        // The Loads screen refreshes the session first, so the server answers with the same login.
+        api.dio.httpClientAdapter = MockApiAdapter((request) {
+          if (request.path == '/v1/auth/me') {
+            return jsonResponse({
+              'user': {'id': 'carrier-person'},
+              'organizations': [
+                {
+                  'id': 'carrier-a',
+                  'kind': 'CARRIER_FLEET',
+                  'displayName': 'Synthetic Carrier A',
+                  'kycStatus': 'APPROVED'
+                }
+              ],
+              'principal': {
+                'organizationId': 'carrier-a',
+                'roles': ['CARRIER'],
+                'subrole': subrole,
+                'permissions': ['organization.profile.read', 'load.read'],
+              },
+            });
+          }
+          if (request.path == '/v1/pilot/anchor-trips') {
+            return jsonResponse({'trips': <Object>[]});
+          }
+          return jsonResponse({'vehicles': <Object>[]});
+        });
+        await tester.pumpWidget(MaterialApp(
+            theme: DriverTheme.theme(),
+            home: Scaffold(body: DriverLoadsScreen(key: ValueKey(subrole)))));
+        await tester.pumpAndSettle();
+        if (subrole == 'DRIVER') {
+          expect(find.text('Synthetic Carrier A'), findsOneWidget);
+          expect(find.textContaining('tap Publish'), findsNothing);
+          expect(find.text(unassignedSentence), findsOneWidget);
+        } else {
+          expect(
+              find.text(
+                  'Synthetic Carrier A · No anchor trips · tap Publish to add a lane'),
+              findsOneWidget);
+        }
+      }
+    });
+  });
+
+  group('A driver whose trip was given to someone else', () {
+    const tripNoLongerYours =
+        'This trip is no longer assigned to you. Go back to Loads and pull down to refresh.';
+
+    Future<void> mountScreen(WidgetTester tester, Widget screen) async {
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+          theme: DriverTheme.theme(), home: Scaffold(body: screen)));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'is told a shipment no longer listed is not on their trip, instead of a spinner',
+        (tester) async {
+      signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
+      api.dio.httpClientAdapter = MockApiAdapter(
+          (_) => jsonResponse({'shipments': <Object>[]}));
+      await mountScreen(
+          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
+      expect(
+          find.text(
+              'This shipment is not on a trip assigned to you now. Go back and pull down on Shipments to refresh.'),
+          findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets(
+        'the office gets its usual sentence for a shipment no longer listed',
+        (tester) async {
+      signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
+      api.dio.httpClientAdapter = MockApiAdapter(
+          (_) => jsonResponse({'shipments': <Object>[]}));
+      await mountScreen(
+          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
+      expect(find.text('Could not load this shipment.'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('is told the trip is no longer theirs when it answers 404',
+        (tester) async {
+      signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
+      api.dio.httpClientAdapter = MockApiAdapter((request) =>
+          request.path == '/v1/pilot/anchor-trips/trip-a'
+              ? jsonResponse({'error': 'not_found'}, 404)
+              : jsonResponse({'shipments': <Object>[]}));
+      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      expect(find.text(tripNoLongerYours), findsOneWidget);
+    });
+
+    testWidgets('is told the same when confirming delivery answers 404',
+        (tester) async {
+      signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
+      api.dio.httpClientAdapter =
+          MockApiAdapter((_) => jsonResponse({'error': 'not_found'}, 404));
+      await mountScreen(
+          tester, const DriverPodScreen(shipmentId: 'shipment-a'));
+      await tester.tap(find.text('Confirm POD'));
+      await tester.pumpAndSettle();
+      expect(find.text(tripNoLongerYours), findsOneWidget);
+    });
+  });
+
+  group('A driver publishing a trip', () {
+    test('is told the office must assign it before it shows under Loads', () {
+      signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
+      expect(tripPublishedSentence(),
+          'Trip published. The carrier owner or dispatcher must assign it to a driver. You will not see it under Loads until they do.');
+      signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
+      expect(tripPublishedSentence(), 'Trip published.');
     });
   });
 

@@ -322,6 +322,25 @@ test("a driver cannot change a truck named on a trip that is not finished; the o
   assert.equal((await editTruck(` ${"K".repeat(20)} `, f.tokens.carrierA)).status, 200, "20 characters after trimming is allowed");
 });
 
+test("a truck number has at most 20 characters when a carrier registers and when a driver is invited", async t => {
+  const f = await httpFixture(t);
+  const tooLong = "K".repeat(21);
+  const refusal = [400, "vehicleRegistrationNumber", "A truck number can have at most 20 characters."];
+  const registration = await f.request("/v1/pilot/driver/register", "POST", {
+    fullName: "Synthetic Carrier C", phone: "8000000017", orgDisplayName: "Synthetic Carrier C",
+    vehicleRegistrationNumber: tooLong, vehicleClass: "MEDIUM", vehicleCapacityKg: 1000,
+  });
+  assert.deepEqual([registration.status, registration.body.field, registration.body.detail], refusal);
+  assert.equal([...f.store.users.values()].some((user) => user.phone === "8000000017"), false, "nothing was registered");
+
+  registerCustomerUser(f.store, { fullName: "Synthetic Driver", phone: "8000000013" });
+  const invite = { orgId: f.carrierA.org.id, phone: "8000000013", role: "DRIVER", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 };
+  const invited = await f.request("/v1/pilot/carrier/drivers/invite", "POST", { ...invite, vehicleRegistrationNumber: tooLong }, f.tokens.carrierA);
+  assert.deepEqual([invited.status, invited.body.field, invited.body.detail], refusal);
+  const allowed = await f.request("/v1/pilot/carrier/drivers/invite", "POST", { ...invite, vehicleRegistrationNumber: "K".repeat(20) }, f.tokens.carrierA);
+  assert.equal(allowed.status, 201, "20 characters is allowed");
+});
+
 test("an owner-driver whose carrier became a fleet by inviting a driver publishes a trip that stays unassigned", async t => {
   const f = await httpFixture(t);
   registerCustomerUser(f.store, { fullName: "Synthetic Driver One", phone: "8000000013" });

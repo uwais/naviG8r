@@ -971,7 +971,8 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
           ..._shipments.map((s) {
             final id = s["id"]?.toString() ?? "";
             final st = s["status"]?.toString() ?? "";
-            final stLabel = shipmentStatusLabel(st);
+            final stLabel = shipmentStatusLabel(st,
+                seesPayment: AuthorizationSession.can("payment.read"));
             return Card(
               child: ListTile(
                 title: Text("${s["customerOrgName"]} · ${s["weightKg"]} kg"),
@@ -1020,6 +1021,8 @@ class _DriverShipmentDetailScreenState
   bool _accepting = false;
   bool _loadFailed = false;
   bool _loadNeverAnswered = false;
+  // The list answered without this shipment: for a driver, its trip is now someone else's.
+  bool _notListed = false;
 
   @override
   void initState() {
@@ -1058,11 +1061,19 @@ class _DriverShipmentDetailScreenState
           }
         }
       }
+      if (mounted) {
+        setState(() {
+          _loadFailed = true;
+          _loadNeverAnswered = false;
+          _notListed = true;
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
           _loadFailed = true;
           _loadNeverAnswered = serverNeverAnswered(e);
+          _notListed = false;
         });
       }
     }
@@ -1074,9 +1085,11 @@ class _DriverShipmentDetailScreenState
     if (s == null && _loadFailed) {
       return Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(_loadNeverAnswered
-            ? "Could not load this shipment. Check your connection and try again."
-            : "Could not load this shipment."),
+        Text(_notListed && DriverSession.carrierRole == "DRIVER"
+            ? "This shipment is not on a trip assigned to you now. Go back and pull down on Shipments to refresh."
+            : _loadNeverAnswered
+                ? "Could not load this shipment. Check your connection and try again."
+                : "Could not load this shipment."),
         TextButton(
             onPressed: () {
               setState(() => _loadFailed = false);
@@ -1102,7 +1115,8 @@ class _DriverShipmentDetailScreenState
                   fontWeight: FontWeight.w700,
                   color: DriverTheme.navy)),
           const SizedBox(height: 8),
-          Text("Status: ${shipmentStatusLabel(st)}",
+          Text(
+              "Status: ${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"))}",
               style: const TextStyle(color: DriverTheme.muted)),
           const SizedBox(height: 12),
           Text("Pickup: ${s["pickupAddress"]}"),
@@ -1274,7 +1288,10 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   String _loadsSummary() {
     final org = DriverSession.carrierOrgName ?? "Your carrier";
     if (_trips.isEmpty) {
-      return "$org · No anchor trips · tap Publish to add a lane";
+      // A driver's notice under the list says what to do.
+      return DriverSession.carrierRole == "DRIVER"
+          ? org
+          : "$org · No anchor trips · tap Publish to add a lane";
     }
     final open = _trips.where((t) => t["status"] == "OPEN").length;
     final full = _trips.where((t) => t["status"] == "FULL").length;
@@ -1766,6 +1783,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   }
 }
 
+/// What a driver reads when the office has given their trip to someone else since they opened it.
+const _tripNoLongerAssignedSentence =
+    "This trip is no longer assigned to you. Go back to Loads and pull down to refresh.";
+
 class DriverActiveTripScreen extends StatefulWidget {
   const DriverActiveTripScreen({required this.tripId, super.key});
   final String tripId;
@@ -1928,7 +1949,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       final t = r.data?["trip"];
       setState(() => _trip = t is Map<String, dynamic> ? t : null);
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error =
+            DriverSession.carrierRole == "DRIVER" && serverAnsweredNotFound(e)
+                ? _tripNoLongerAssignedSentence
+                : formatApiError(e));
+      }
     }
 
     try {
@@ -2156,7 +2182,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                               "${s["customerOrgName"]} · ${s["weightKg"]}kg"),
                           subtitle: Text(s["netToCarrierPaise"] is num
                               ? "${shipmentStatusLabel(st)} · ${formatInrFromPaise(s["netToCarrierPaise"] as num)} net"
-                              : shipmentStatusLabel(st)),
+                              : shipmentStatusLabel(st,
+                                  seesPayment:
+                                      AuthorizationSession.can("payment.read"))),
                           trailing: st == "PENDING_CARRIER_ACCEPT"
                               ? TextButton(
                                   onPressed: DriverSession.complianceApproved &&
@@ -2170,7 +2198,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                                       onPressed: () => _openPod(id),
                                       child: const Text("Confirm delivery"),
                                     )
-                                  : st == "PENDING_RELEASE"
+                                  : st == "PENDING_RELEASE" &&
+                                          AuthorizationSession.can(
+                                              "payment.read")
                                       ? const Text("Payment pending",
                                           style: TextStyle(
                                               fontSize: 12,
@@ -2240,17 +2270,22 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            "Delivery confirmed. Payment will be released after ops review.",
+            AuthorizationSession.can("payment.read")
+                ? "Delivery confirmed. Payment will be released after ops review."
+                : "Delivery confirmed.",
           ),
         ),
       );
       context.pop();
     } catch (e) {
       if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(DriverSession.carrierRole == "DRIVER" &&
+                    serverAnsweredNotFound(e)
+                ? _tripNoLongerAssignedSentence
+                : formatApiError(e))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -2263,9 +2298,11 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            "Confirming delivery submits proof of delivery to the platform. Ops will release customer payment to your carrier ledger after review.",
-            style: TextStyle(color: DriverTheme.muted),
+          Text(
+            AuthorizationSession.can("payment.read")
+                ? "Confirming delivery submits proof of delivery to the platform. Ops will release customer payment to your carrier ledger after review."
+                : "Confirming delivery sends your proof of delivery to naviG8r.",
+            style: const TextStyle(color: DriverTheme.muted),
           ),
           const SizedBox(height: 16),
           TextField(
@@ -2612,6 +2649,12 @@ class _DriverPayoutHistoryScreenState extends State<DriverPayoutHistoryScreen> {
   }
 }
 
+/// What the publisher is told. A trip a driver publishes names no driver, so it shows on no driver's Loads,
+/// theirs included, until the office assigns it.
+String tripPublishedSentence() => DriverSession.carrierRole == "DRIVER"
+    ? "Trip published. The carrier owner or dispatcher must assign it to a driver. You will not see it under Loads until they do."
+    : "Trip published.";
+
 class DriverPublishTripScreen extends StatefulWidget {
   const DriverPublishTripScreen({super.key});
 
@@ -2699,7 +2742,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Trip published.")));
+          .showSnackBar(SnackBar(content: Text(tripPublishedSentence())));
       context.go("/driver/loads");
     } catch (e) {
       if (mounted) setState(() => _error = formatApiError(e));

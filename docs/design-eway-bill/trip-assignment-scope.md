@@ -78,8 +78,9 @@ Rishabh's call after the build. It covers every place a driver could see what th
 - No response to a driver carries an amount the carrier earns, a payout date or the payment hold, whatever the route
   (the field names are in `docs/pilot-api.md`).
 - A driver is never notified of a payment status change.
-- The app shows a driver no "Net to carrier" line, no amount on the trip screen, and no payment status after
-  delivery (only that proof of delivery was submitted), and Profile has no "Earnings & payouts" for them.
+- The app shows a driver no "Net to carrier" line, no amount or "Payment pending" on the trip screen, and no payment
+  status after delivery: a delivered shipment reads "Delivery confirmed", and confirming delivery mentions no payment.
+  Profile has no "Earnings & payouts" for them.
 
 Owners, owner-drivers and dispatchers keep all of it, unchanged, as do shippers, finance and ops where they had it.
 
@@ -91,7 +92,8 @@ Owners, owner-drivers and dispatchers keep all of it, unchanged, as do shippers,
   to check which is right and, if the e-way bill is wrong, to update it on the portal and then in the app; the
   shipper is told what the carrier assigned and asked to check with the carrier; a driver is told the two numbers and
   to tell the carrier. Once the shipment is delivered, accepted or refunded, no sentence shows.
-- A driver with no trip sees "Your carrier has not assigned you a trip yet. Ask your carrier to assign one."
+- A driver with no trip sees "Your carrier has not assigned you a trip yet. Ask your carrier to assign one.", and the
+  bar above the list shows only the carrier's name.
 - Trips from before this change (approved 15 Oct 2026): a trip that names no driver stays with the driver who started
   it, in any status, so nobody mid-route loses it and it stays in their list once complete. It leaves only if the
   office assigns it to someone else before it is complete; a completed trip cannot be assigned, so it stays with its
@@ -99,14 +101,32 @@ Owners, owner-drivers and dispatchers keep all of it, unchanged, as do shippers,
   are visible to no driver. Before go-live the carrier office should assign every open trip; in-progress trips
   started by a driver keep working until assigned.
 - A driver cannot change a truck that a trip which is not finished names, since the shipper reads that truck. A
-  truck number has at most 20 characters, with no letters-and-digits rule.
+  truck number has at most 20 characters when a carrier registers, invites a driver or edits a truck, with no
+  letters-and-digits rule.
 - Only a solo owner-operator's trip assigns itself. Once the owner invites a driver or dispatcher, the organization
   is a fleet and the office assigns each trip.
 - A push queued for a driver is dropped at send time if the trip names someone else by then. The replaced driver and
-  the new one are sent no message; the new trip shows on their Loads screen when they pull down to refresh.
+  the new one are sent no message; the new trip shows on their Loads screen when they pull down to refresh. A
+  replaced driver who still has the trip or one of its shipments open is told it is no longer assigned to them and
+  to pull down to refresh.
+- A trip a driver publishes is assigned to no one, so the app tells them the owner or dispatcher must assign it
+  before it shows under Loads. Whether drivers should publish at all is the owner's open decision.
 - Database mode: two nullable columns, `ALTER TABLE "AnchorTripRow" ADD COLUMN "assignedVehicleId" TEXT, ADD
   COLUMN "assignedDriverUserId" TEXT;`. Without them the API does not start in database mode at all, so applying them
   by hand is a merge gate for every database-mode service. Not applied.
+- Not decided: payment-status notices a driver already received stay in their list (there is no amount in them).
+  The owner may want them hidden.
+- In database mode the unread number and the paging marker of the grouped notification list can still count
+  notifications on trips a driver no longer sees (counts and ids only, no content or money). Fixing it needs a SQL
+  join and cannot be tested without Postgres.
+- The truck shown on a finished shipment follows the truck record, so it changes if that truck's registration is
+  edited later.
+- An older app build shows "Net to carrier: ₹0" once the API stops sending the amount to a driver, so ship the new
+  app build before or with the API.
+- The public price quote and the rate estimate return the shipper's price to anyone, drivers included, so taking
+  publish away from drivers would not hide the price. The commission rate is in no driver response.
+- Refusals of accept and confirm delivery on an unpaid booking carry the shipper's checkout state, and the app prints
+  the raw reply. This existed before this branch and affects every carrier role.
 
 ## Open questions for the team
 

@@ -22,10 +22,9 @@ export function assignedDriverMaySee(store: Store, principal: Pick<Principal, "i
   else if (fields.reservedKg !== undefined && typeof fields.id === "string") tripId = fields.id;
   else return true;
   const trip = store.anchorTrips.get(tripId);
-  // Legacy: a trip started before assignment existed names no driver, so the driver who started it keeps it,
-  // finished or not. A trip never started has no starter, so open and full ones stay hidden. A driver cannot start
-  // a trip that names nobody, so only those older trips are affected. A completed trip can no longer be assigned,
-  // so removing this would hide finished trips from the drivers who drove them.
+  // Legacy: trips started before assignments existed name nobody; the driver who started one keeps it, finished
+  // or not. A trip never started has no starter, so open and full ones stay hidden. A completed trip can no longer
+  // be assigned, so removing this would hide finished trips from the drivers who drove them.
   if (trip && !trip.assignedDriverUserId && trip.startedByUserId) return trip.startedByUserId === principal.userId;
   return trip?.assignedDriverUserId === principal.userId;
 }
