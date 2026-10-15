@@ -1,4 +1,5 @@
 import { requirePermission } from "./rbac.ts";
+import { withoutEwayBill } from "./ewayBill.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import crypto from "node:crypto";
 import {
@@ -320,7 +321,7 @@ export function getIntegrationShipmentTracking(store: Store, orgId: string, ship
   const fresh = loc != null && now - loc.recordedAtUtcMs <= staleMs;
   const isLive = fresh && shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
   return {
-    shipment: shipmentWithCarrierDisplay(store, shipment),
+    shipment: withoutEwayBill(shipmentWithCarrierDisplay(store, shipment)),
     trip: tripWithCarrierDisplay(store, trip),
     liveLocation: loc,
     isLive,
@@ -341,7 +342,7 @@ export function getIntegrationShipmentSnapshot(store: Store, orgId: string, ship
   const trip = store.anchorTrips.get(shipment.anchorTripId);
   return {
     ...integrationLoadResponse(store, shipment, conn),
-    shipment: enriched,
+    shipment: withoutEwayBill(enriched),
     payment,
     trip: trip ?? null,
   };

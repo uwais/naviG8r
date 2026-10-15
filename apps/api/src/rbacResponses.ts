@@ -1,4 +1,6 @@
 import { authorizationContext, paymentReady } from "./rbac.ts";
+import { ewayBillForRoles } from "./ewayBill.ts";
+import type { EwayBill } from "./types.ts";
 const pick = (v: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter(k => v[k] !== undefined).map(k => [k, v[k]]));
 /** Domain allowlists prevent new storage fields from silently becoming API fields. */
 export function serializeResponse(value: unknown): unknown {
@@ -13,7 +15,8 @@ export function serializeResponse(value: unknown): unknown {
     if (p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r))) keys.push("grossPaise");
     if (p?.roles.some(r => ["CARRIER", "FINANCE"].includes(r))) keys.push("netToCarrierPaise");
     if (p?.roles.includes("FINANCE")) keys.push("commissionPaise", "paymentId");
-    out = { ...pick(v, keys), paymentReady: paymentReady(v as never), paymentHoldUntilUtcMs: typeof v.podAtUtcMs === "number" ? v.podAtUtcMs + 48 * 60 * 60 * 1000 : null };
+    const ewayBill = ewayBillForRoles(v.ewayBill as EwayBill | undefined, p?.roles ?? []);
+    out = { ...pick(v, keys), ...(ewayBill ? { ewayBill } : {}), paymentReady: paymentReady(v as never), paymentHoldUntilUtcMs: typeof v.podAtUtcMs === "number" ? v.podAtUtcMs + 48 * 60 * 60 * 1000 : null };
   } else if ("providerRef" in v && "amountPaise" in v) {
     out = pick(v, ["id", "shipmentId", "status", "provider", "createdAtUtcMs", "updatedAtUtcMs", ...(p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r)) ? ["amountPaise", "razorpayOrderId"] : [])]);
   } else if ("kind" in v && "kycStatus" in v) {

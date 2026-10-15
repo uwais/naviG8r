@@ -213,6 +213,32 @@ export type AnchorTrip = {
   lastLiveLocation?: TripLiveLocation;
 } & SoftDeleteFields;
 
+export type EwayBillNotNeededReason = "BELOW_THRESHOLD" | "GOODS_EXEMPT" | "OTHER";
+export type EwayBillProblemReason = "NOT_FOUND" | "CANCELLED" | "DETAILS_DO_NOT_MATCH" | "OTHER";
+
+/**
+ * What the shipper typed from a bill made on the government portal, or their statement that none is needed.
+ * naviG8r never makes or changes the bill itself. Role-by-role visibility lives in ewayBill.ts.
+ */
+export type EwayBill = {
+  kind: "BILL" | "NOT_NEEDED";
+  billNumber?: string;
+  billDate?: string;
+  makerGstin?: string;
+  invoiceNumber?: string;
+  notNeededReason?: EwayBillNotNeededReason;
+  notNeededNote?: string;
+  enteredAtUtcMs: number;
+  enteredByUserId: string;
+  /** Ops looked the bill up on the portal by hand. Any edit clears it. */
+  check?: {
+    result: "FOUND" | "PROBLEM";
+    problemReason?: EwayBillProblemReason;
+    checkedAtUtcMs: number;
+    checkedByUserId: string;
+  };
+};
+
 export type Shipment = {
   id: string;
   anchorTripId: string;
@@ -259,6 +285,7 @@ export type Shipment = {
   metadata?: Record<string, string>;
   /** Monotonic sequence for integration webhooks per shipment. */
   integrationSequence?: number;
+  ewayBill?: EwayBill;
 } & SoftDeleteFields;
 
 export type PaymentProviderId = "MOCK" | "RAZORPAY";

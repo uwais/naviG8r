@@ -5,6 +5,7 @@ import { opsConsoleBetaContentSecurityPolicy, opsConsoleBetaHtml } from "./opsCo
 import { assertAdminRemains, authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
 import { guardRequest, requestContext } from "./rbacRoutes.ts";
 import { carrierRejection } from "./carrierRejection.ts";
+import { checkEwayBill, listEwayBillsForOps, removeEwayBill, saveEwayBill } from "./ewayBill.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
 import { URL } from "node:url";
@@ -1290,6 +1291,25 @@ export async function createApp(options: {
           if (msg === "forbidden") return json(res, 403, { error: "forbidden" });
           throw e;
         }
+      }
+
+      if (method === "POST" && /^\/shipments\/[^/]+\/eway-bill$/.test(url.pathname)) {
+        const shipment = saveEwayBill(store, url.pathname.split("/")[2]!, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
+      }
+      if (method === "POST" && /^\/shipments\/[^/]+\/eway-bill\/remove$/.test(url.pathname)) {
+        const shipment = removeEwayBill(store, url.pathname.split("/")[2]!);
+        await persist();
+        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
+      }
+      if (method === "GET" && url.pathname === "/ops/eway-bills") {
+        return json(res, 200, listEwayBillsForOps(store));
+      }
+      if (method === "POST" && /^\/ops\/eway-bills\/[^/]+\/check$/.test(url.pathname)) {
+        const shipment = checkEwayBill(store, url.pathname.split("/")[3]!, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
       }
 
       if (method === "GET" && url.pathname === "/ops/compliance/pending") {
