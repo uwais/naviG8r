@@ -1,5 +1,5 @@
 import { requirePermission } from "./rbac.ts";
-import { withoutEwayBill } from "./ewayBill.ts";
+import { withoutEwayBill } from "./ewayBillVisibility.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import crypto from "node:crypto";
 import {

@@ -134,7 +134,8 @@ function ewayDateWords(isoDate) {
 
 function ewayCheckRow(shipment) {
   const bill = shipment.ewayBill, name = shipment.customerOrgName, cardId = 'eway-' + shipment.id;
-  const link = element('a', { href: ewayPortalAddress, target: '_blank', rel: 'noopener noreferrer', text: 'Open the government portal' });
+  const portalWords = ewayPortalAddress === '/demo/eway-portal' ? 'Open the practice portal' : 'Open the government portal';
+  const link = element('a', { href: ewayPortalAddress, target: '_blank', rel: 'noopener noreferrer', text: portalWords });
   const found = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Mark as found on the portal' });
   const problem = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Report a problem' });
   const actions = element('div', { class: 'row center' }, link, element('div', { class: 'grow' }), found, problem);

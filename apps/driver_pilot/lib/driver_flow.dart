@@ -975,7 +975,8 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
                 title: Text("${s["customerOrgName"]} · ${s["weightKg"]} kg"),
                 subtitle: Text(
                     "$stLabel · ${s["pickupAddress"]} → ${s["dropAddress"]}"
-                    "\n${ewayBillRowSummary(s)}"),
+                    "${ewayBillRowSummary(s).isEmpty ? "" : "\n${ewayBillRowSummary(s)}"}"),
+                isThreeLine: true,
                 trailing: st == "PENDING_CARRIER_ACCEPT"
                     ? FilledButton(
                         onPressed: DriverSession.complianceApproved &&

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'authorization_session.dart';
 import 'driver_theme.dart';
+import 'eway_bill_closed.dart';
+import 'eway_bill_dates.dart';
+import 'eway_bill_portal_link.dart';
 import 'eway_bill_truck_form.dart';
 import 'eway_bill_words.dart';
 
@@ -20,7 +22,6 @@ class EwayBillCarrierCard extends StatefulWidget {
 class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
   late Map<String, dynamic>? _bill = _billFrom(widget.shipment);
   bool _addingTruck = false;
-  String? _error;
   num _savedAtUtcMs = 0;
 
   static Map<String, dynamic>? _billFrom(Map<String, dynamic> shipment) {
@@ -28,15 +29,10 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
     return raw is Map<String, dynamic> ? raw : null;
   }
 
-  bool get _canAddTruck {
-    final shipment = widget.shipment;
-    final delivered = shipment['status'] == 'DELIVERED' ||
-        shipment['status'] == 'FAILED_CARRIER_REFUNDED' ||
-        shipment['podAcceptedAtUtcMs'] != null;
-    return AuthorizationSession.can('eway_bill.add_truck') &&
-        _bill?['kind'] == 'BILL' &&
-        !delivered;
-  }
+  bool get _canAddTruck =>
+      AuthorizationSession.can('eway_bill.add_truck') &&
+      _bill?['kind'] == 'BILL' &&
+      !ewayBillIsClosed(widget.shipment);
 
   @override
   void didUpdateWidget(EwayBillCarrierCard oldWidget) {
@@ -46,7 +42,6 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
       _bill = _billFrom(widget.shipment);
       _addingTruck = false;
       _savedAtUtcMs = 0;
-      _error = null;
       return;
     }
     // The screen refreshes every 15 seconds. Never overwrite something half typed.
@@ -63,19 +58,6 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
         if (savedTime is num) _savedAtUtcMs = savedTime;
         _addingTruck = false;
       });
-
-  Future<void> _openPortal() async {
-    var opened = false;
-    try {
-      opened = await launchUrl(Uri.parse(ewayBillPortalAddress),
-          mode: LaunchMode.externalApplication);
-    } catch (_) {
-      opened = false;
-    }
-    if (!opened && mounted) {
-      setState(() => _error = ewayBillPortalOpenFailedSentence);
-    }
-  }
 
   List<Widget> _billLines(Map<String, dynamic> bill) {
     final number = bill['billNumber'];
@@ -109,32 +91,17 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
             current: bill,
             clearsCheck: bill['check'] is Map,
             onSaved: _showSaved,
-            onCancel: () => setState(() {
-                  _error = null;
-                  _addingTruck = false;
-                })),
+            onCancel: () => setState(() => _addingTruck = false)),
       ] else if (canAddTruck) ...[
         const SizedBox(height: 8),
         Align(
             alignment: Alignment.centerLeft,
             child: OutlinedButton(
-                onPressed: () => setState(() {
-                      _error = null;
-                      _addingTruck = true;
-                    }),
+                onPressed: () => setState(() => _addingTruck = true),
                 child:
                     Text(truckLines.isEmpty ? 'Add truck' : 'Change truck'))),
       ],
-      if (canAddTruck)
-        Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-                onPressed: _openPortal,
-                icon: const Icon(Icons.open_in_new, size: 18),
-                label: Text(ewayBillPortalButtonLabel))),
-      if (_error != null)
-        Text(_error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error)),
+      if (canAddTruck) const EwayBillPortalButton(),
     ];
   }
 

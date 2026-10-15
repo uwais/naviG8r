@@ -1,18 +1,42 @@
 import 'package:driver_pilot/eway_bill_words.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Map<String, dynamic> shipmentWith(Object? ewayBill) =>
-    {'id': 'load-1', if (ewayBill != null) 'ewayBill': ewayBill};
+Map<String, dynamic> shipmentWith(Object? ewayBill,
+        {String status = 'BOOKED'}) =>
+    {
+      'id': 'load-1',
+      'status': status,
+      if (ewayBill != null) 'ewayBill': ewayBill
+    };
 
 void main() {
-  test('no record reads as not added yet', () {
-    expect(ewayBillRowSummary(shipmentWith(null)), 'E-way bill: not added yet');
+  test('no record reads as a fact, not a to-do, while one can still be added',
+      () {
+    expect(ewayBillRowSummary(shipmentWith(null)), 'E-way bill: none added');
+    expect(
+        ewayBillRowSummary(
+            shipmentWith(null, status: 'PENDING_CARRIER_ACCEPT')),
+        'E-way bill: none added');
+  });
+
+  test('no record says nothing once the shipment is past booking', () {
+    for (final status in [
+      'IN_TRANSIT',
+      'PENDING_RELEASE',
+      'DELIVERED',
+      'FAILED_CARRIER_REFUNDED'
+    ]) {
+      expect(ewayBillRowSummary(shipmentWith(null, status: status)), '',
+          reason: status);
+    }
+    expect(ewayBillRowSummary({'id': 'load-1'}), '', reason: 'no status');
   });
 
   test('the shipper saying none is needed reads as their statement', () {
     expect(
         ewayBillRowSummary(shipmentWith(
-            {'kind': 'NOT_NEEDED', 'notNeededReason': 'BELOW_THRESHOLD'})),
+            {'kind': 'NOT_NEEDED', 'notNeededReason': 'BELOW_THRESHOLD'},
+            status: 'DELIVERED')),
         'No e-way bill needed (the shipper says so)');
   });
 
@@ -34,14 +58,19 @@ void main() {
         'E-way bill 2345 6789 0123, truck KA01AB1234');
   });
 
-  test('a problem ops found is added; a found check adds nothing', () {
-    expect(
-        ewayBillRowSummary(shipmentWith({
-          'kind': 'BILL',
-          'billNumber': '123456789012',
-          'check': {'result': 'PROBLEM', 'problemReason': 'NOT_FOUND'},
-        })),
-        'E-way bill 1234 5678 9012, truck not added. Ops found a problem');
+  test(
+      'a problem ops found is a flag to open, never a claim the bill is wrong; a found check adds nothing',
+      () {
+    final flagged = ewayBillRowSummary(shipmentWith({
+      'kind': 'BILL',
+      'billNumber': '123456789012',
+      'check': {'result': 'PROBLEM', 'problemReason': 'NOT_FOUND'},
+    }));
+    expect(flagged,
+        'E-way bill 1234 5678 9012, truck not added. Ops flagged this bill. Open it to see why');
+    for (final word in ['wrong', 'invalid', 'fake', 'problem']) {
+      expect(flagged.toLowerCase(), isNot(contains(word)));
+    }
     final found = ewayBillRowSummary(shipmentWith({
       'kind': 'BILL',
       'billNumber': '123456789012',
@@ -55,9 +84,10 @@ void main() {
   });
 
   test('malformed values never throw and never claim more than they know', () {
+    expect(ewayBillRowSummary(shipmentWith('BILL')), 'E-way bill: none added');
+    expect(ewayBillRowSummary(shipmentWith(42)), 'E-way bill: none added');
     expect(
-        ewayBillRowSummary(shipmentWith('BILL')), 'E-way bill: not added yet');
-    expect(ewayBillRowSummary(shipmentWith(42)), 'E-way bill: not added yet');
+        ewayBillRowSummary({'id': 'load-1', 'status': 7, 'ewayBill': 42}), '');
     expect(ewayBillRowSummary(shipmentWith({})),
         'E-way bill: open the shipment to see it');
     expect(ewayBillRowSummary(shipmentWith({'kind': 7})),

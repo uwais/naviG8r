@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'authorization_session.dart';
 import 'driver_theme.dart';
+import 'eway_bill_closed.dart';
+import 'eway_bill_dates.dart';
+import 'eway_bill_error_text.dart';
+import 'eway_bill_portal_link.dart';
 import 'eway_bill_truck_form.dart';
 import 'eway_bill_words.dart';
 import 'pilot_api.dart';
@@ -39,13 +42,10 @@ class _EwayBillCardState extends State<EwayBillCard> {
 
   bool get _canEdit {
     final shipment = widget.shipment;
-    final delivered = shipment['status'] == 'DELIVERED' ||
-        shipment['status'] == 'FAILED_CARRIER_REFUNDED' ||
-        shipment['podAcceptedAtUtcMs'] != null;
     return AuthorizationSession.hasRole('SHIPPER') &&
         AuthorizationSession.can('eway_bill.write') &&
         shipment['customerOrgId'] == AuthorizationSession.organizationId &&
-        !delivered;
+        !ewayBillIsClosed(shipment);
   }
 
   @override
@@ -130,19 +130,6 @@ class _EwayBillCardState extends State<EwayBillCard> {
     setState(() => _billDate = '${picked.year}-$month-$day');
   }
 
-  Future<void> _openPortal() async {
-    var opened = false;
-    try {
-      opened = await launchUrl(Uri.parse(ewayBillPortalAddress),
-          mode: LaunchMode.externalApplication);
-    } catch (_) {
-      opened = false;
-    }
-    if (!opened && mounted) {
-      setState(() => _error = ewayBillPortalOpenFailedSentence);
-    }
-  }
-
   Future<void> _saveBill() async {
     final date = _billDate;
     if (_number.text.trim().isEmpty ||
@@ -215,20 +202,6 @@ class _EwayBillCardState extends State<EwayBillCard> {
         _mode = _Mode.addingTruck;
       });
 
-  Widget _errorText() => _error == null
-      ? const SizedBox.shrink()
-      : Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Text(_error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error)));
-
-  Widget _portalButton() => Align(
-      alignment: Alignment.centerLeft,
-      child: TextButton.icon(
-          onPressed: _openPortal,
-          icon: const Icon(Icons.open_in_new, size: 18),
-          label: Text(ewayBillPortalButtonLabel)));
-
   List<Widget> _viewing() {
     final bill = _bill;
     final canEdit = _canEdit;
@@ -244,7 +217,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
                 onPressed: _openStatementForm,
                 child: const Text('No e-way bill needed')),
           ]),
-          _portalButton(),
+          const EwayBillPortalButton(),
         ],
       ];
     }
@@ -263,7 +236,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
                 child: const Text('Remove e-way bill')),
           ]),
         ],
-        _errorText(),
+        EwayBillErrorText(_error),
       ];
     }
     final number = bill['billNumber'];
@@ -305,9 +278,9 @@ class _EwayBillCardState extends State<EwayBillCard> {
               onPressed: _busy ? null : _remove,
               child: const Text('Remove e-way bill')),
         ]),
-        _portalButton(),
+        const EwayBillPortalButton(),
       ],
-      _errorText(),
+      EwayBillErrorText(_error),
     ];
   }
 
@@ -334,9 +307,9 @@ class _EwayBillCardState extends State<EwayBillCard> {
   List<Widget> _billForm() {
     final checked = _bill?['check'] is Map;
     return [
-      const Text(
-          'Copy these four details from the government portal. All four are needed to save. naviG8r does not make or change e-way bills.'),
-      _portalButton(),
+      Text(
+          'Copy these four details from the $ewayBillPortalName. All four are needed to save. naviG8r does not make or change e-way bills.'),
+      const EwayBillPortalButton(),
       const SizedBox(height: 8),
       _field(_number, 'E-way bill number (12 digits)',
           maxLength: 14, keyboardType: TextInputType.number),
@@ -355,7 +328,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
           helper: 'Used only by naviG8r ops to find the bill on the portal.',
           maxLength: 32),
       if (checked) const Text('Changing these details clears the check.'),
-      _errorText(),
+      EwayBillErrorText(_error),
       const SizedBox(height: 8),
       Wrap(spacing: 8, runSpacing: 8, children: [
         FilledButton(
@@ -376,7 +349,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
           enabled: !_busy,
           onChanged: (value) => setState(() => _reason = value)),
       if (_reason == 'OTHER') _field(_note, 'Write the reason', maxLength: 140),
-      _errorText(),
+      EwayBillErrorText(_error),
       const SizedBox(height: 8),
       Wrap(spacing: 8, runSpacing: 8, children: [
         FilledButton(
@@ -401,8 +374,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
               clearsCheck: _bill?['check'] is Map,
               onSaved: _showSaved,
               onCancel: _cancel),
-          _portalButton(),
-          _errorText(),
+          const EwayBillPortalButton(),
         ],
     };
     return Card(

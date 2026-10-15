@@ -49,7 +49,7 @@ Problem reasons: `NOT_FOUND`, `CANCELLED`, `DETAILS_DO_NOT_MATCH`, `OTHER`.
 ## What each role gets back
 
 The record is cut by role before it leaves the server (nested objects are not filtered by the general
-serializer, so `ewayBill` is built per role in `ewayBill.ts`).
+serializer, so `ewayBill` is built per role in `ewayBillVisibility.ts`).
 
 | Role | Gets |
 |---|---|
@@ -83,7 +83,8 @@ Shipper card, title "E-way bill":
 - Nothing added: "No e-way bill added yet." Two equal buttons: "Add e-way bill" and "No e-way bill needed".
   Nothing preselected.
 - Add form note: "Copy these four details from the government portal. All four are needed to save. naviG8r
-  does not make or change e-way bills." Fields: "E-way bill number (12 digits)", "Bill date", "GSTIN of
+  does not make or change e-way bills." (On a practice build every "government portal" in the app's copy reads
+  "practice portal".) Fields: "E-way bill number (12 digits)", "Bill date", "GSTIN of
   whoever made the bill", "Invoice number"; under the last two: "Used only by naviG8r ops to find the bill on
   the portal." Above Save, when the bill had been checked: "Changing these details clears the check." Buttons:
   "Save e-way bill", "Cancel". Link: "Open the government e-way bill portal" ("Open the practice e-way bill
@@ -111,7 +112,7 @@ Carrier card, same title, read only:
   number and note on it (brief question 1). Not "only the people involved".
 
 Ops page: "E-way bills to check" and "Missing". Each row shows the four details, a Copy button on each, a link
-"Open the government portal", "Mark as found on the portal" and "Report a problem" (reason chosen from the four
+"Open the government portal" ("Open the practice portal" when the server points at its practice site), "Mark as found on the portal" and "Report a problem" (reason chosen from the four
 above, none preselected). Results appear inside the row and say whether anything changed.
 
 ## Part B (the truck) and the demo portal, added 15 Oct 2026
@@ -153,7 +154,7 @@ field names; validity computed from the distance (one day per 200 km, ending at 
 update the vehicle with the real reasons, by the generator or the named transporter only; extend validity (the
 transporter, within the window the notification states); cancel within 24 hours; a public Verify page that takes the
 four details. Which rules come from the notifications and which are assumptions is listed in the guide's "Rules I
-modelled" box (the three notifications were read as page images; seven rules are marked assumed). It keeps its bills in
+modelled" box (the three notifications were read as page images; the assumed rules and practice-site limits are listed under their own heading). It keeps its bills in
 memory and resets on restart, holds at most 500 and drops the oldest (never the two seeded bills) to make room. It is answered before the server's one-at-a-time request queue, since it never
 touches the store, and drops a form whose body is not complete within 5 seconds, so a slow sender cannot stall other
 requests. Its generated bill and look-up result are headed "Practice bill, not a real e-way bill" and "Found (practice

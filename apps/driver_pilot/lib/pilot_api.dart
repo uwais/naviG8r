@@ -238,6 +238,16 @@ String formatApiError(Object e) {
   return e.toString();
 }
 
+/// The server writes a plain sentence for each e-way bill refusal; show it instead of "HTTP 400".
+String ewayBillErrorSentence(Object e) {
+  if (e is DioException) {
+    final body = e.response?.data;
+    final detail = body is Map ? body["detail"] : null;
+    if (detail is String && detail.isNotEmpty) return detail;
+  }
+  return formatApiError(e);
+}
+
 /// The bank details field the server refused (accountHolderName, ifsc or accountNumber), so the form can box it.
 String? refusedBankDetailsField(Object e) {
   if (e is! DioException) return null;

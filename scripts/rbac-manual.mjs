@@ -54,25 +54,29 @@ store.memberships.set("user-dual:platform", {
   userId: "user-dual", orgId: "platform", role: "FINANCE", createdAtUtcMs: now,
 });
 
-for (const carrierId of ["carrier-a", "carrier-b"]) {
-  const id = `trip-${carrierId}`;
-  store.anchorTrips.set(id, {
-    id, carrierId, originCity: "Synthetic Origin", destCity: "Synthetic Destination",
-    windowStart: new Date(now).toISOString(), windowEnd: new Date(now + 86400000).toISOString(),
-    vehicleClass: "MEDIUM", capacityKg: 1000, reservedKg: carrierId === "carrier-a" ? 30 : 10,
-    status: "OPEN", createdAtUtcMs: now,
-  });
-}
-
 // Each shipment gets its own route and weight so the list rows can be told apart.
-for (const [id, customerOrgId, carrierId, status, podAtUtcMs, weightKg, pickupAddress, dropAddress] of [
+const seededShipments = [
   ["load-a-hold", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 3600000, 120, "Peenya, Bengaluru", "Ambattur, Chennai"],
   ["load-a-expired", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 49 * 3600000, 45, "Whitefield, Bengaluru", "Hosur"],
   ["load-a-booked", "shipper-a", "carrier-a", "BOOKED", null, 250, "Bommasandra, Bengaluru", "Guindy, Chennai"],
   ["load-a-with-bill", "shipper-a", "carrier-a", "BOOKED", null, 80, "Yeshwanthpur, Bengaluru", "Mysuru"],
   ["load-a-with-truck", "shipper-a", "carrier-a", "BOOKED", null, 400, "Electronic City, Bengaluru", "Coimbatore"],
   ["load-b-pending", "shipper-b", "carrier-b", "PENDING_CARRIER_ACCEPT", null, 10, "Hebbal, Bengaluru", "Tumakuru"],
-]) {
+];
+
+// Each trip's reserved weight is the weight of the shipments seeded on it, so its remaining capacity adds up.
+for (const carrierId of ["carrier-a", "carrier-b"]) {
+  const id = `trip-${carrierId}`;
+  const reservedKg = seededShipments.filter(shipment => shipment[2] === carrierId).reduce((sum, shipment) => sum + shipment[5], 0);
+  store.anchorTrips.set(id, {
+    id, carrierId, originCity: "Synthetic Origin", destCity: "Synthetic Destination",
+    windowStart: new Date(now).toISOString(), windowEnd: new Date(now + 86400000).toISOString(),
+    vehicleClass: "MEDIUM", capacityKg: 1000, reservedKg,
+    status: "OPEN", createdAtUtcMs: now,
+  });
+}
+
+for (const [id, customerOrgId, carrierId, status, podAtUtcMs, weightKg, pickupAddress, dropAddress] of seededShipments) {
   const paymentId = `payment-${id}`;
   store.shipments.set(id, {
     id, anchorTripId: `trip-${carrierId}`, customerOrgId, carrierId,

@@ -1,5 +1,7 @@
-// Over 500 lines on purpose: both e-way bill cards share the shipment fixture, the mount helper and
-// the launcher fake, and splitting by card would copy all three. The truck form has its own file.
+// Both e-way bill cards: the shipper's and the carrier's, on their own and on the carrier detail screen.
+// The truck form, and the shipper adding a truck through it, are in eway_bill_truck_form_test.dart.
+// Over 500 lines but one concern: each test walks a card through several states, and splitting by card
+// would part the tests that hold the shipper's and the carrier's wording side by side.
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
@@ -7,74 +9,18 @@ import 'package:driver_pilot/eway_bill_card.dart';
 import 'package:driver_pilot/eway_bill_carrier_card.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
-class _RecordingLauncher extends Fake
-    with MockPlatformInterfaceMixin
-    implements UrlLauncherPlatform {
-  final opened = <String>[];
-  bool opens = true;
-  @override
-  Future<bool> launchUrl(String url, LaunchOptions options) async {
-    opened.add(url);
-    return opens;
-  }
-}
-
 void main() {
-  setUp(() {
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test'});
-    api = Api('http://test');
-    AuthorizationSession.clear();
-    AuthorizationSession.user = {'id': 'shipper'};
-    AuthorizationSession.principal = {
-      'organizationId': 'shipper-a',
-      'roles': ['SHIPPER'],
-      'permissions': ['eway_bill.write']
-    };
-    AuthorizationSession.organizations = [
-      {'id': 'shipper-a', 'displayName': 'Shipper A'}
-    ];
-    api.selectOrganization('shipper-a');
-  });
-
-  Map<String, dynamic> shipment(
-          {Map<String, dynamic>? bill, String status = 'BOOKED'}) =>
-      {
-        'id': 'shipment-a',
-        'customerOrgId': 'shipper-a',
-        'customerOrgName': 'Synthetic Shipper A',
-        'status': status,
-        if (bill != null) 'ewayBill': bill,
-      };
-
-  const savedBill = {
-    'kind': 'BILL',
-    'billNumber': '123456789012',
-    'billDate': '2026-10-01',
-    'makerGstin': '29ABCDE1234F1Z5',
-    'invoiceNumber': 'INV/1',
-  };
-
-  Future<void> mount(WidgetTester tester, Widget card) async {
-    tester.view.physicalSize = const Size(800, 3000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(
-        theme: DriverTheme.theme(),
-        home: Scaffold(body: ListView(children: [card]))));
-  }
-
-  Finder field(String label) => find.widgetWithText(TextField, label);
+  setUp(signInAsShipper);
 
   testWidgets('with nothing added, two equal buttons and no choice made',
       (tester) async {
-    await mount(tester, EwayBillCard(shipment: shipment()));
+    await mountCard(tester, EwayBillCard(shipment: shipment()));
     expect(find.text('No e-way bill added yet.'), findsOneWidget,
         reason: 'the empty state says nothing is added');
     expect(
@@ -106,7 +52,7 @@ void main() {
       sent = request.data as Map;
       return jsonResponse({'shipment': shipment(bill: savedBill)});
     });
-    await mount(tester, EwayBillCard(shipment: shipment()));
+    await mountCard(tester, EwayBillCard(shipment: shipment()));
     await tester.tap(find.text('Add e-way bill'));
     await tester.pump();
     expect(find.textContaining('All four are needed to save'), findsOneWidget,
@@ -155,7 +101,7 @@ void main() {
           'detail': 'The e-way bill number is 12 digits.',
           'field': 'billNumber'
         }, 400));
-    await mount(tester, EwayBillCard(shipment: shipment()));
+    await mountCard(tester, EwayBillCard(shipment: shipment()));
     await tester.tap(find.text('Add e-way bill'));
     await tester.pump();
     await tester.enterText(field('E-way bill number (12 digits)'), '1');
@@ -188,7 +134,7 @@ void main() {
         })
       });
     });
-    await mount(tester, EwayBillCard(shipment: shipment()));
+    await mountCard(tester, EwayBillCard(shipment: shipment()));
     await tester.tap(find.text('No e-way bill needed'));
     await tester.pump();
     await tester.tap(find.text('Save'));
@@ -216,7 +162,7 @@ void main() {
       ...savedBill,
       'check': {'result': 'FOUND', 'checkedAtUtcMs': 1792000000000}
     };
-    await mount(tester, EwayBillCard(shipment: shipment(bill: found)));
+    await mountCard(tester, EwayBillCard(shipment: shipment(bill: found)));
     expect(
         find.text(
             'Ops saw this bill on the government portal on 14 Oct 2026. It may have changed since.'),
@@ -232,7 +178,7 @@ void main() {
         'checkedAtUtcMs': 1792000000000
       }
     };
-    await mount(tester,
+    await mountCard(tester,
         EwayBillCard(key: UniqueKey(), shipment: shipment(bill: problem)));
     expect(
         find.text(
@@ -244,17 +190,8 @@ void main() {
   testWidgets('the 15 second refresh never wipes what is half typed',
       (tester) async {
     final current = ValueNotifier(shipment());
-    tester.view.physicalSize = const Size(800, 3000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(
-        theme: DriverTheme.theme(),
-        home: Scaffold(
-            body: ValueListenableBuilder(
-                valueListenable: current,
-                builder: (context, value, _) => ListView(children: [
-                      EwayBillCard(key: const ValueKey('card'), shipment: value)
-                    ])))));
+    await mountRefreshingCard(tester, current,
+        (value) => EwayBillCard(key: const ValueKey('card'), shipment: value));
     await tester.tap(find.text('Add e-way bill'));
     await tester.pump();
     await tester.enterText(field('Invoice number'), 'HALF-TYPED');
@@ -271,7 +208,7 @@ void main() {
       'roles': ['SHIPPER'],
       'permissions': <String>[]
     };
-    await mount(tester, EwayBillCard(shipment: shipment()));
+    await mountCard(tester, EwayBillCard(shipment: shipment()));
     expect(find.text('No e-way bill added yet.'), findsOneWidget,
         reason: 'still readable');
     expect(find.text('Add e-way bill'), findsNothing,
@@ -281,7 +218,7 @@ void main() {
       'roles': ['SHIPPER'],
       'permissions': ['eway_bill.write']
     };
-    await mount(
+    await mountCard(
         tester,
         EwayBillCard(
             key: UniqueKey(),
@@ -298,7 +235,7 @@ void main() {
       path = request.path;
       return jsonResponse({'shipment': shipment()});
     });
-    await mount(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
+    await mountCard(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
     await tester.tap(find.text('Remove e-way bill'));
     await tester.pumpAndSettle();
     expect(path, '/shipments/shipment-a/eway-bill/remove');
@@ -307,9 +244,9 @@ void main() {
   });
 
   testWidgets('the portal link opens the government address', (tester) async {
-    final launcher = _RecordingLauncher();
+    final launcher = RecordingLauncher();
     UrlLauncherPlatform.instance = launcher;
-    await mount(tester, EwayBillCard(shipment: shipment()));
+    await mountCard(tester, EwayBillCard(shipment: shipment()));
     await tester.tap(find.text('Open the government e-way bill portal'));
     await tester.pump();
     expect(launcher.opened, ['https://ewaybillgst.gov.in'],
@@ -328,13 +265,13 @@ void main() {
 
   testWidgets('the carrier card shows each state read only, with no buttons',
       (tester) async {
-    await mount(tester, EwayBillCarrierCard(shipment: shipment()));
+    await mountCard(tester, EwayBillCarrierCard(shipment: shipment()));
     expect(
         find.text(
             'Synthetic Shipper A has not added an e-way bill or said none is needed.'),
         findsOneWidget,
         reason: 'neutral, no pressure');
-    await mount(
+    await mountCard(
         tester,
         EwayBillCarrierCard(
             key: UniqueKey(),
@@ -347,7 +284,7 @@ void main() {
             "This is the shipper's statement. naviG8r has not checked it."),
         findsOneWidget,
         reason: 'the statement is the shipper\'s');
-    await mount(
+    await mountCard(
         tester,
         EwayBillCarrierCard(
             key: UniqueKey(),
@@ -374,185 +311,11 @@ void main() {
     expect(find.byType(FilledButton), findsNothing, reason: 'read only');
   });
 
-  // 23:59 on 16 Oct 2026 in India.
-  final sixteenthOctoberLastMinuteUtcMs =
-      DateTime.utc(2026, 10, 16, 18, 29).millisecondsSinceEpoch;
-
-  Map<String, dynamic> withTruck(Map<String, dynamic> bill) => {
-        ...bill,
-        'truckNumber': 'KA01AB1234',
-        'validUntilUtcMs': sixteenthOctoberLastMinuteUtcMs,
-      };
-
-  void signInAsCarrier({required bool canAddTruck}) {
-    AuthorizationSession.user = {'id': 'carrier-person'};
-    AuthorizationSession.principal = {
-      'organizationId': 'carrier-a',
-      'roles': ['CARRIER'],
-      'permissions': [
-        'load.read',
-        'carrier.offer_accept',
-        'pod.upload',
-        'conversation.read',
-        if (canAddTruck) 'eway_bill.add_truck'
-      ]
-    };
-  }
-
-  Future<void> chooseTodayAtLastMinute(WidgetTester tester) async {
-    await tester.tap(find.text('Valid until, date in India: choose the date'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('OK'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Time in India: choose the time'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('OK'));
-    await tester.pumpAndSettle();
-  }
-
-  testWidgets('the shipper adds a truck and sees it on the bill',
-      (tester) async {
-    AuthorizationSession.principal = {
-      'organizationId': 'shipper-a',
-      'roles': ['SHIPPER'],
-      'permissions': ['eway_bill.write', 'eway_bill.add_truck']
-    };
-    String? path;
-    Map? sent;
-    api.dio.httpClientAdapter = MockApiAdapter((request) {
-      path = request.path;
-      sent = request.data as Map;
-      return jsonResponse({
-        'shipment': {
-          ...shipment(bill: withTruck(savedBill)),
-          'updatedAtUtcMs': 10
-        }
-      });
-    });
-    await mount(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
-    expect(
-        find.text(
-            'Truck not added yet. You or your carrier can add it after the truck is on the bill on the portal.'),
-        findsOneWidget,
-        reason: 'says who can add the truck, and when');
-    expect(find.widgetWithText(OutlinedButton, 'Add truck'), findsOneWidget,
-        reason: 'a shipper with eway_bill.add_truck can add it');
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Add truck'));
-    await tester.pump();
-    expect(find.widgetWithText(TextField, 'Truck number'), findsOneWidget,
-        reason: 'the truck form opens');
-    expect(find.text('Changing these details clears the check.'), findsNothing,
-        reason: 'the bill has no check to clear');
-    expect(find.text('Open the government e-way bill portal'), findsOneWidget,
-        reason: 'the portal is one tap from the form');
-    await tester.enterText(
-        find.widgetWithText(TextField, 'Truck number'), 'KA01AB1234');
-    await chooseTodayAtLastMinute(tester);
-    await tester.tap(find.text('Save truck'));
-    await tester.pumpAndSettle();
-    final india =
-        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
-    expect(path, '/shipments/shipment-a/eway-bill/truck');
-    expect(sent, {
-      'truckNumber': 'KA01AB1234',
-      'validUntilUtcMs':
-          DateTime.utc(india.year, india.month, india.day, 23, 59)
-              .subtract(const Duration(hours: 5, minutes: 30))
-              .millisecondsSinceEpoch
-    });
-    expect(find.text('Truck: KA01AB1234'), findsOneWidget,
-        reason: 'the returned bill shows the truck');
-    expect(find.text('Valid until: 16 Oct 2026, 23:59 (India time)'),
-        findsOneWidget,
-        reason: 'and its valid-until time in India');
-    expect(find.widgetWithText(OutlinedButton, 'Change truck'), findsOneWidget,
-        reason: 'a saved truck can be changed');
-    expect(find.text('Save truck'), findsNothing, reason: 'the form closed');
-  });
-
-  testWidgets('a shipper truck refusal shows the server sentence',
-      (tester) async {
-    AuthorizationSession.principal = {
-      'organizationId': 'shipper-a',
-      'roles': ['SHIPPER'],
-      'permissions': ['eway_bill.write', 'eway_bill.add_truck']
-    };
-    api.dio.httpClientAdapter = MockApiAdapter((request) => jsonResponse({
-          'error': 'invalid_eway_truck',
-          'detail':
-              'The valid-until time is more than 30 days away. Check it against the portal.',
-          'field': 'validUntilUtcMs'
-        }, 400));
-    await mount(
-        tester,
-        EwayBillCard(
-            shipment: shipment(bill: {
-          ...withTruck(savedBill),
-          'check': {'result': 'FOUND', 'checkedAtUtcMs': 1792000000000}
-        })));
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Change truck'));
-    await tester.pump();
-    expect(find.text('KA01AB1234'), findsOneWidget,
-        reason: 'the saved truck is filled in');
-    expect(
-        find.text('Changing these details clears the check.'), findsOneWidget,
-        reason: 'the bill was checked, and a change clears it');
-    await tester.tap(find.text('Save truck'));
-    await tester.pumpAndSettle();
-    expect(
-        find.text(
-            'The valid-until time is more than 30 days away. Check it against the portal.'),
-        findsOneWidget,
-        reason: 'the server sentence is shown');
-    expect(find.textContaining('HTTP'), findsNothing,
-        reason: 'no raw status text');
-  });
-
-  testWidgets('a shipper without the truck permission gets no truck button',
-      (tester) async {
-    await mount(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
-    expect(find.textContaining('Truck not added yet.'), findsOneWidget,
-        reason: 'the missing truck is still said');
-    expect(find.text('Add truck'), findsNothing,
-        reason: 'no eway_bill.add_truck, no button');
-    expect(find.text('Edit'), findsOneWidget,
-        reason: 'the bill itself can still be edited');
-  });
-
-  testWidgets('the 15 second refresh never wipes a half typed truck',
-      (tester) async {
-    AuthorizationSession.principal = {
-      'organizationId': 'shipper-a',
-      'roles': ['SHIPPER'],
-      'permissions': ['eway_bill.write', 'eway_bill.add_truck']
-    };
-    final current = ValueNotifier(shipment(bill: savedBill));
-    tester.view.physicalSize = const Size(800, 3000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(
-        theme: DriverTheme.theme(),
-        home: Scaffold(
-            body: ValueListenableBuilder(
-                valueListenable: current,
-                builder: (context, value, _) => ListView(children: [
-                      EwayBillCard(key: const ValueKey('card'), shipment: value)
-                    ])))));
-    await tester.tap(find.text('Add truck'));
-    await tester.pump();
-    await tester.enterText(
-        find.widgetWithText(TextField, 'Truck number'), 'HALF-TYPED');
-    current.value = {...shipment(bill: savedBill), 'extra': 1};
-    await tester.pump();
-    expect(find.text('HALF-TYPED'), findsOneWidget,
-        reason: 'typed text survives a refresh');
-  });
-
   testWidgets(
       'a carrier owner sees the truck buttons and the portal, and saves on the carrier path',
       (tester) async {
     signInAsCarrier(canAddTruck: true);
-    final launcher = _RecordingLauncher();
+    final launcher = RecordingLauncher();
     UrlLauncherPlatform.instance = launcher;
     String? path;
     api.dio.httpClientAdapter = MockApiAdapter((request) {
@@ -562,7 +325,7 @@ void main() {
             bill: withTruck({'kind': 'BILL', 'billNumber': '123456789012'}))
       });
     });
-    await mount(
+    await mountCard(
         tester,
         EwayBillCarrierCard(
             shipment: shipment(
@@ -610,18 +373,11 @@ void main() {
     signInAsCarrier(canAddTruck: true);
     final bill = {'kind': 'BILL', 'billNumber': '123456789012'};
     final current = ValueNotifier(shipment(bill: bill));
-    tester.view.physicalSize = const Size(800, 3000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(
-        theme: DriverTheme.theme(),
-        home: Scaffold(
-            body: ValueListenableBuilder(
-                valueListenable: current,
-                builder: (context, value, _) => ListView(children: [
-                      EwayBillCarrierCard(
-                          key: const ValueKey('card'), shipment: value)
-                    ])))));
+    await mountRefreshingCard(
+        tester,
+        current,
+        (value) =>
+            EwayBillCarrierCard(key: const ValueKey('card'), shipment: value));
     await tester.tap(find.text('Add truck'));
     await tester.pump();
     await tester.enterText(
@@ -635,7 +391,7 @@ void main() {
   testWidgets('a carrier owner gets no truck buttons once delivered',
       (tester) async {
     signInAsCarrier(canAddTruck: true);
-    await mount(
+    await mountCard(
         tester,
         EwayBillCarrierCard(
             shipment: shipment(
@@ -650,7 +406,7 @@ void main() {
   testWidgets('a driver sees the truck lines but no buttons and no portal link',
       (tester) async {
     signInAsCarrier(canAddTruck: false);
-    await mount(
+    await mountCard(
         tester,
         EwayBillCarrierCard(
             shipment: shipment(
@@ -670,7 +426,7 @@ void main() {
     expect(find.byType(FilledButton), findsNothing, reason: 'read only');
     expect(find.text('Open the government e-way bill portal'), findsNothing,
         reason: 'a driver has nothing to do on the portal');
-    await mount(
+    await mountCard(
         tester,
         EwayBillCarrierCard(
             key: UniqueKey(),
@@ -797,11 +553,11 @@ void main() {
 
   testWidgets('a different shipment in the same place starts clean',
       (tester) async {
-    await mount(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
+    await mountCard(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
     await tester.tap(find.text('Edit'));
     await tester.pump();
     await tester.enterText(field('Invoice number'), 'TYPED-FOR-A');
-    await mount(
+    await mountCard(
         tester, EwayBillCard(shipment: {...shipment(), 'id': 'shipment-b'}));
     expect(find.text('No e-way bill added yet.'), findsOneWidget,
         reason: 'the new shipment\'s own state, form closed');
@@ -811,12 +567,12 @@ void main() {
         reason: 'nothing typed for the old shipment carries over');
 
     signInAsCarrier(canAddTruck: true);
-    await mount(
+    await mountCard(
         tester, EwayBillCarrierCard(shipment: shipment(bill: savedBill)));
     await tester.tap(find.text('Add truck'));
     await tester.pump();
     expect(find.text('Save truck'), findsOneWidget, reason: 'form open');
-    await mount(
+    await mountCard(
         tester,
         EwayBillCarrierCard(shipment: {
           ...shipment(bill: {'kind': 'BILL', 'billNumber': '999988887777'}),

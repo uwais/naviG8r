@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
 import 'authorization_session.dart';
-import 'eway_bill_words.dart';
+import 'eway_bill_dates.dart';
+import 'eway_bill_error_text.dart';
+import 'eway_bill_portal_link.dart';
 import 'pilot_api.dart';
-
-const _indiaOffset = Duration(hours: 5, minutes: 30);
 
 /// The moment a date and time typed as India time stands for, whatever zone the phone is set to.
 int validUntilUtcMsFromIndiaTime(DateTime date, TimeOfDay time) =>
     DateTime.utc(date.year, date.month, date.day, time.hour, time.minute)
-        .subtract(_indiaOffset)
+        .subtract(indiaTimeOffset)
         .millisecondsSinceEpoch;
 
 /// Part B of an e-way bill: the truck number and valid-until time, copied from the government portal
@@ -51,7 +51,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
     if (validUntil is num) {
       final india =
           DateTime.fromMillisecondsSinceEpoch(validUntil.toInt(), isUtc: true)
-              .add(_indiaOffset);
+              .add(indiaTimeOffset);
       _date = DateTime(india.year, india.month, india.day);
       _time = TimeOfDay(hour: india.hour, minute: india.minute);
     }
@@ -64,7 +64,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
   }
 
   Future<void> _chooseDate() async {
-    final india = DateTime.now().toUtc().add(_indiaOffset);
+    final india = DateTime.now().toUtc().add(indiaTimeOffset);
     final today = DateTime(india.year, india.month, india.day);
     // The server refuses more than 30 days from now, so the last day is 29 ahead: even 23:59 on it stays
     // inside. Built from the day number, because adding a Duration shifts by an hour across a clock change.
@@ -125,8 +125,9 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
     final date = _date;
     if (date == null) return 'Valid until, date in India: choose the date';
     final time = _time;
-    final dateWords =
-        ewayBillDateFromCalendarDate('${date.year}-${date.month}-${date.day}');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    final dateWords = ewayBillDateFromCalendarDate('${date.year}-$month-$day');
     return time == null
         ? 'Valid until, date in India: $dateWords'
         : 'Valid until, date in India: $dateWords, ${ewayBillClockTime(time.hour, time.minute)}';
@@ -136,8 +137,8 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
   Widget build(BuildContext context) {
     final time = _time;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      const Text(
-          'Add the truck to the bill on the government portal first, then copy the truck number and the valid-until time from it.'),
+      Text(
+          'Add the truck to the bill on the $ewayBillPortalName first, then copy the truck number and the valid-until time from it.'),
       const SizedBox(height: 12),
       TextField(
           controller: _truckNumber,
@@ -160,11 +161,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
       const SizedBox(height: 8),
       if (widget.clearsCheck)
         const Text('Changing these details clears the check.'),
-      if (_error != null)
-        Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(_error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error))),
+      EwayBillErrorText(_error),
       const SizedBox(height: 8),
       Wrap(spacing: 8, runSpacing: 8, children: [
         FilledButton(

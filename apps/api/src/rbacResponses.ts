@@ -1,5 +1,5 @@
 import { authorizationContext, paymentReady } from "./rbac.ts";
-import { ewayBillForRoles } from "./ewayBill.ts";
+import { ewayBillForRoles } from "./ewayBillVisibility.ts";
 import type { EwayBill } from "./types.ts";
 const pick = (v: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter(k => v[k] !== undefined).map(k => [k, v[k]]));
 /** Domain allowlists prevent new storage fields from silently becoming API fields. */

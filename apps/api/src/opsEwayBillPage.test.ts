@@ -8,7 +8,7 @@ test("/ops/beta carries the two e-way bill cards with every heading, button and 
   const html = await (await fetch(f.base + "/ops/beta")).text();
   const words = [
     "E-way bills to check", "Missing", "Shipper says no e-way bill is needed",
-    "Open the government portal", "Mark as found on the portal", "Report a problem", "Copy", "Copied", "Select it and copy it yourself.",
+    "Open the government portal", "Open the practice portal", "Mark as found on the portal", "Report a problem", "Copy", "Copied", "Select it and copy it yourself.",
     "Not found on the portal", "Cancelled on the portal", "Details here do not match the portal", "Confirm problem", "Cancel",
     "E-way bill number", "Bill date", "GSTIN of whoever made the bill", "Invoice number",
     "Only OPS can check e-way bills. You hold ",

@@ -59,7 +59,7 @@ test("the demo guide's order works end to end over HTTP, and the portal is off w
   }, supplierCookie);
   assert.equal(generated.status, 200, generated.text);
   assert.ok(generated.text.includes("Part B not entered: not valid for movement"));
-  const numberMatch = /<p class="number">(\d{4}) (\d{4}) (\d{4})<\/p>/.exec(generated.text);
+  const numberMatch = /<p class="number">(\d{4}) (\d{4}) (\d{4}) <span class="practice-mark">\(practice\)<\/span><\/p>/.exec(generated.text);
   const dateMatch = /<dt>Bill date<\/dt><dd>[^<]* \((\d{4}-\d{2}-\d{2})\)<\/dd>/.exec(generated.text);
   assert.ok(numberMatch && dateMatch, "the result page shows the number and the bill date");
   const billNumber = numberMatch[1] + numberMatch[2] + numberMatch[3];

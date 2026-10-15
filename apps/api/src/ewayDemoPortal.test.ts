@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { createServer, request as httpRequest } from "node:http";
 import type { Server } from "node:http";
+import { connect } from "node:net";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import { SEEDED_TRUCK_VALID_UNTIL_UTC_MS, handleEwayDemoPortal } from "./ewayDemoPortal.ts";
@@ -56,6 +58,24 @@ async function post(path: string, fields: Record<string, string>, cookie = ""): 
   return { status: response.status, headers: response.headers, text: await response.text() };
 }
 
+/** node:http, because it sends exactly the Origin and Host given and nothing else of its own. */
+function postWithHeaders(path: string, fields: Record<string, string>, headers: Record<string, string>): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(baseUrl + path, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...headers } }, (response) => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => { text += chunk; });
+      response.on("end", () => {
+        const replyHeaders = new Headers();
+        for (const [name, value] of Object.entries(response.headers)) if (typeof value === "string") replyHeaders.set(name, value);
+        resolve({ status: response.statusCode ?? 0, headers: replyHeaders, text });
+      });
+    });
+    request.on("error", reject);
+    request.end(new URLSearchParams(fields).toString());
+  });
+}
+
 async function signIn(persona: "supplier" | "transporter" | "other"): Promise<string> {
   const reply = await post("/demo/eway-portal/sign-in", { persona });
   assert.equal(reply.status, 303);
@@ -74,8 +94,8 @@ function billFields(overrides: Record<string, string> = {}): Record<string, stri
 async function generateBill(cookie: string, overrides: Record<string, string> = {}): Promise<{ billNumber: string; text: string }> {
   const reply = await post("/demo/eway-portal/generate", billFields(overrides), cookie);
   assert.equal(reply.status, 200, reply.text);
-  const match = /<p class="number">(\d{4}) (\d{4}) (\d{4})<\/p>/.exec(reply.text);
-  assert.ok(match, "result page shows the number in groups of four");
+  const match = /<p class="number">(\d{4}) (\d{4}) (\d{4}) <span class="practice-mark">\(practice\)<\/span><\/p>/.exec(reply.text);
+  assert.ok(match, "result page shows the number in groups of four, marked practice beside it");
   return { billNumber: match[1] + match[2] + match[3], text: reply.text };
 }
 
@@ -123,8 +143,35 @@ test("every page carries the banner, the signed-in line, the content-security-po
       assert.ok(!result.text.toLowerCase().includes("<script"), `no script on ${path}`);
       assert.ok(result.text.includes(cookie ? "Signed in as Supplier: Synthetic Shipper A" : "Not signed in."), `who is signed in on ${path}`);
       assert.ok(result.text.includes(cookie ? "Switch user" : "Choose who you are"), path);
+      assertHeadingsSayPractice(result.text, path);
     }
   }
+});
+
+function assertHeadingsSayPractice(html: string, where: string): void {
+  const headings = [...html.matchAll(/<h1>([^<]*)<\/h1>/g)].map((match) => match[1]);
+  assert.ok(headings.length > 0, `a heading on ${where}`);
+  for (const heading of headings) assert.ok(heading.startsWith("Practice "), `${where}: ${heading}`);
+}
+
+test("refusals and results are headed as practice too", async () => {
+  const supplier = await signIn("supplier");
+  const other = await signIn("other");
+  const { billNumber } = await generateBill(supplier);
+  const replies: [string, Reply][] = [
+    ["405", await post("/demo/eway-portal", {})],
+    ["413", await post("/demo/eway-portal/generate", billFields({ documentNumber: "a".repeat(9000) }), supplier)],
+    ["sign-in 400", await post("/demo/eway-portal/sign-in", { persona: "admin" })],
+    ["401", await post("/demo/eway-portal/vehicle", { billNumber })],
+    ["generate 403", await post("/demo/eway-portal/generate", billFields(), other)],
+    ["detail 403", await get(`/demo/eway-portal/bill?number=${billNumber}`, other)],
+    ["detail 404", await get("/demo/eway-portal/bill?number=999999999999", supplier)],
+    ["generated", await post("/demo/eway-portal/generate", billFields(), supplier)],
+    ["vehicle done", await post("/demo/eway-portal/vehicle", { billNumber, vehicleNumber: "KA01AB1234", reasonCode: "4" }, supplier)],
+    ["cancel done", await post("/demo/eway-portal/cancel", { billNumber }, supplier)],
+    ["origin 403", await postWithHeaders("/demo/eway-portal/cancel", { billNumber }, { origin: "http://elsewhere.example", cookie: supplier })],
+  ];
+  for (const [where, reply] of replies) assertHeadingsSayPractice(reply.text, where);
 });
 
 test("sign-in sets an HttpOnly, SameSite=Lax cookie scoped to /demo, and says there is no password", async () => {
@@ -297,7 +344,7 @@ test("bill details go to its parties only", async () => {
 
 test("verify: Found with vehicle and valid up to, the one differing detail named, and the seeded bills", async () => {
   const page = await get("/demo/eway-portal/check");
-  assert.ok(page.text.includes("This public look-up is a practice-site convenience. Who may look a bill up on the real portal is an open question."));
+  assert.ok(!page.text.includes("open question"), "the developer note lives in the guide, not on the page ops uses");
 
   const seededTruck = await get(verifyPath("2345 6789 0123", "2026-10-02", SUPPLIER_GSTIN.toLowerCase(), "SYN/2026/002"));
   assert.ok(seededTruck.text.includes("<h2>Found (practice site)</h2>"));
@@ -363,12 +410,48 @@ test("a form body over 8 KB is refused, one under it is read", async () => {
   assert.ok(justUnder.text.includes("A.5 Document Number is up to 32 characters."));
 });
 
+test("after a 413 the connection is closed instead of reading the rest of the body", { timeout: 5000 }, async () => {
+  const socket = connect(Number(new URL(baseUrl).port), "127.0.0.1");
+  await once(socket, "connect");
+  let received = "";
+  socket.setEncoding("utf8");
+  socket.on("data", (chunk: string) => { received += chunk; });
+  socket.on("error", () => {});
+  const closed = once(socket, "close");
+  socket.write("POST /demo/eway-portal/generate HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 10000000\r\n\r\n");
+  socket.write("a".repeat(9000));
+  const keepSending = setInterval(() => { if (!socket.destroyed) socket.write("a".repeat(1000)); }, 20);
+  try {
+    await closed;
+  } finally {
+    clearInterval(keepSending);
+  }
+  assert.ok(received.startsWith("HTTP/1.1 413"), received.slice(0, 40));
+});
+
+test("a form sent from another site is refused; the same site, or no Origin at all, is not", async () => {
+  const host = new URL(baseUrl).host;
+  const foreign = await postWithHeaders("/demo/eway-portal/sign-in", { persona: "supplier" }, { origin: "http://elsewhere.example" });
+  assert.equal(foreign.status, 403);
+  assert.ok(foreign.text.includes("This form was sent from another site."));
+  assert.equal(foreign.headers.get("set-cookie"), null, "nothing was signed in");
+  assert.ok(foreign.text.includes(BANNER));
+  for (const origin of ["null", "not a web address", `http://${host}.elsewhere.example`]) {
+    assert.equal((await postWithHeaders("/demo/eway-portal/sign-in", { persona: "supplier" }, { origin })).status, 403, origin);
+  }
+  const sameSite = await postWithHeaders("/demo/eway-portal/sign-in", { persona: "supplier" }, { origin: `http://${host}` });
+  assert.equal(sameSite.status, 303, "the same host");
+  const noOrigin = await postWithHeaders("/demo/eway-portal/sign-in", { persona: "supplier" }, {});
+  assert.equal(noOrigin.status, 303, "no Origin header, as from a test or an old client");
+});
+
 test("guide has the new steps, the rules box with sources, and only local links", async () => {
   const guide = await get("/demo/eway-guide");
   assert.equal(guide.status, 200);
   for (const phrase of ["Before you start", "Step 1", "Step 2", "Step 3", "Step 4", "Step 5", "8000000001", "8000000003", "8000000009", "8000000005",
     "Choose who you are: Supplier", "Switch user to Transporter", "reason First Time", "Verify an e-way bill", "Rules I modelled", "Notification 94/2020",
-    "Notification 31/2019", "Rule 138(5) and 138(5A)", "Assumed, my reading", "What is real", "What is pretend", "no password, no captcha", "from the PIN codes"]) {
+    "Notification 31/2019", "Rule 138(5) and 138(5A)", "Assumed, my reading", "What is real", "What is pretend", "no password, no captcha", "from the PIN codes",
+    "This public look-up is a practice-site convenience. Who may look a bill up on the real portal is an open question.", "Tap Open the practice portal"]) {
     assert.ok(guide.text.includes(phrase), phrase);
   }
   const links = [...guide.text.matchAll(/href="([^"]*)"/g)].map((match) => match[1]);

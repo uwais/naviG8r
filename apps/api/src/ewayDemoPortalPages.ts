@@ -25,6 +25,7 @@ button{margin-top:18px;padding:12px 20px;font:inherit;font-weight:600;color:#fff
 .error{background:#fde8e4;border:1px solid #9b2c1f;color:#1a1a1a;padding:10px 12px;border-radius:6px;margin:12px 0}
 .box{background:#fff;border:1px solid #5c564d;border-radius:8px;padding:12px 16px;margin:16px 0}
 .number{font:700 2.2rem/1.2 ui-monospace,Menlo,monospace;letter-spacing:0.06em;margin:12px 0}
+.practice-mark{font-size:1.2rem;letter-spacing:0}
 .mono{font-family:ui-monospace,Menlo,monospace}
 ol li{margin:6px 0}
 ul.links li{margin:10px 0;font-size:1.1rem}
@@ -124,17 +125,17 @@ export function signInBody(): string {
 <input type="hidden" name="persona" value="${escapeHtml(persona.key)}">
 <button type="submit">${escapeHtml(persona.role)}: ${escapeHtml(persona.name)} (${escapeHtml(persona.idLabel)} ${escapeHtml(persona.id)})</button>
 </form>`).join("\n");
-  return `<h1>Choose who you are</h1>
+  return `<h1>Practice sign-in: choose who you are</h1>
 <p>This is a demo sign-in: no password and no captcha. The real portal has its own login, which this site does not copy. Choosing only sets which practice user you are, until you switch.</p>
 ${buttons}`;
 }
 
 export function signInNeededBody(): string {
-  return `<h1>Choose who you are first</h1><p>This page acts as a signed-in user. <a href="/demo/eway-portal/sign-in">Choose who you are</a>, then come back.</p>`;
+  return `<h1>Practice site: choose who you are first</h1><p>This page acts as a signed-in user. <a href="/demo/eway-portal/sign-in">Choose who you are</a>, then come back.</p>`;
 }
 
 export function homeBody(): string {
-  return `<h1>E-way bill practice site</h1>
+  return `<h1>Practice e-way bill site</h1>
 <p>Choose what to practise. Bills made here are kept in memory and disappear when the demo server restarts.</p>
 <ul class="links">
 <li><a href="/demo/eway-portal/generate">Generate a new e-way bill</a></li>
@@ -153,7 +154,7 @@ ${textField("Open a bill's full details (supplier and named transporter only)", 
 
 export function generateFormBody(typed: GenerateTyped, errorMessage: string): string {
   const reasons = TRANSPORT_REASONS.map((reason) => ({ code: reason, words: reason }));
-  return `<h1>Generate a new e-way bill</h1>${errorBox(errorMessage)}
+  return `<h1>Practice e-way bill: generate a new bill</h1>${errorBox(errorMessage)}
 <form method="post" action="/demo/eway-portal/generate">
 <h2>Part A</h2>
 ${textField("A.1 GSTIN of Supplier", "supplierGstin", typed.supplierGstin, "text", "15 letters and digits, for example 29ABCDE1234F1Z5")}
@@ -177,8 +178,8 @@ export function generatedBillBody(bill: DemoBill): string {
   const transporterLine = bill.transporterId
     ? `<p>Transporter named on the bill: ${escapeHtml(transporterName(bill.transporterId) || "unknown transporter")} (<span class="mono">${escapeHtml(bill.transporterId)}</span>)</p>`
     : "<p>No transporter is named on this bill.</p>";
-  return `<h1>E-way bill generated</h1>
-<p class="number">${escapeHtml(groupsOfFour(bill.billNumber))}</p>
+  return `<h1>Practice e-way bill generated</h1>
+<p class="number">${escapeHtml(groupsOfFour(bill.billNumber))} <span class="practice-mark">(practice)</span></p>
 <p>Generated on ${escapeHtml(formatDay(bill.billDate))}</p>
 <p><strong>${escapeHtml(validityLine(bill))}</strong></p>
 <div class="box"><h2>Practice bill, not a real e-way bill</h2>
@@ -198,7 +199,7 @@ ${transporterLine}
 export type VehicleTyped = { billNumber: string; vehicleNumber: string; reasonCode: string; remark: string };
 
 export function vehicleFormBody(typed: VehicleTyped, errorMessage: string): string {
-  return `<h1>Update vehicle (Part B)</h1>${errorBox(errorMessage)}
+  return `<h1>Practice e-way bill: update vehicle (Part B)</h1>${errorBox(errorMessage)}
 <p>Practice rule: only whoever generated the bill, or the transporter it names, can update the vehicle. Once the transporter has updated it, the supplier cannot.</p>
 <form method="post" action="/demo/eway-portal/vehicle">
 ${textField("E-way bill number", "billNumber", typed.billNumber)}
@@ -210,7 +211,7 @@ ${textField("Remarks (needed when the reason is Others)", "remark", typed.remark
 }
 
 export function vehicleDoneBody(bill: DemoBill): string {
-  return `<h1>Vehicle updated</h1>
+  return `<h1>Practice e-way bill: vehicle updated</h1>
 <p class="number" style="font-size:1.4rem">Vehicle ${escapeHtml(currentVehicle(bill) ?? "")}. ${escapeHtml(validityLine(bill))}.</p>
 <p>Copy the vehicle number and the Valid up to date and time into the naviG8r app.</p>
 <p>Practice rule: the first vehicle starts the validity, one day per 200 km of the bill's distance; a later vehicle change keeps it.</p>`;
@@ -219,7 +220,7 @@ export function vehicleDoneBody(bill: DemoBill): string {
 export type ExtendTyped = { billNumber: string; reasonCode: string; remark: string; remainingDistanceKm: string };
 
 export function extendFormBody(typed: ExtendTyped, errorMessage: string): string {
-  return `<h1>Extend validity</h1>${errorBox(errorMessage)}
+  return `<h1>Practice e-way bill: extend validity</h1>${errorBox(errorMessage)}
 <p>Practice rule: only the transporter named on the bill, after updating its vehicle, can extend it, and only in the eight hours after it expires.</p>
 <form method="post" action="/demo/eway-portal/extend">
 ${textField("E-way bill number", "billNumber", typed.billNumber)}
@@ -231,13 +232,13 @@ ${textField("Remaining distance (km)", "remainingDistanceKm", typed.remainingDis
 }
 
 export function extendDoneBody(bill: DemoBill): string {
-  return `<h1>Validity extended</h1>
+  return `<h1>Practice e-way bill: validity extended</h1>
 <p class="number" style="font-size:1.4rem">${escapeHtml(validityLine(bill))}.</p>
 <p>Copy the new Valid up to date and time into the naviG8r app.</p>`;
 }
 
 export function cancelFormBody(billNumber: string, errorMessage: string): string {
-  return `<h1>Cancel an e-way bill</h1>${errorBox(errorMessage)}
+  return `<h1>Practice e-way bill: cancel a bill</h1>${errorBox(errorMessage)}
 <p>Practice rule: whoever generated the bill can cancel it within 24 hours of generating it.</p>
 <form method="post" action="/demo/eway-portal/cancel">
 ${textField("E-way bill number", "billNumber", billNumber)}
@@ -246,7 +247,7 @@ ${textField("E-way bill number", "billNumber", billNumber)}
 }
 
 export function cancelDoneBody(bill: DemoBill): string {
-  return `<h1>E-way bill cancelled</h1><p>Bill <span class="mono">${escapeHtml(groupsOfFour(bill.billNumber))}</span> is now Cancelled.</p>`;
+  return `<h1>Practice e-way bill cancelled</h1><p>Bill <span class="mono">${escapeHtml(groupsOfFour(bill.billNumber))}</span> is now Cancelled.</p>`;
 }
 
 // ---------- detail and verify ----------
@@ -258,7 +259,7 @@ export function billDetailBody(bill: DemoBill): string {
   const extensionRows = bill.extensions
     .map((extension) => `<li>${escapeHtml(reasonWords(EXTENSION_REASONS, extension.reasonCode))}${extension.remark ? ` (${escapeHtml(extension.remark)})` : ""}, ${extension.remainingDistanceKm} km left, on ${escapeHtml(formatIndiaDateTime(extension.atUtcMs))}, to ${escapeHtml(formatIndiaDateTime(extension.validUpToUtcMs))}</li>`)
     .join("");
-  return `<h1>E-way bill ${escapeHtml(groupsOfFour(bill.billNumber))}</h1>
+  return `<h1>Practice e-way bill ${escapeHtml(groupsOfFour(bill.billNumber))}</h1>
 <p><strong>${escapeHtml(validityLine(bill))}</strong></p>
 <div class="box"><h2>Practice bill, not a real e-way bill</h2><dl>
 <dt>Bill date</dt><dd>${escapeHtml(formatDay(bill.billDate))}</dd>
@@ -296,9 +297,8 @@ function verifyResultHtml(bill: DemoBill | undefined, result: VerifyResult): str
 }
 
 export function verifyBody(typed: VerifyTyped, looked: { bill: DemoBill | undefined; result: VerifyResult } | null): string {
-  return `<h1>Verify an e-way bill</h1>
+  return `<h1>Practice e-way bill: verify a bill</h1>
 <p>Type the four details: bill number, bill date, supplier GSTIN and document number. Anyone can use this page; no sign-in is needed.</p>
-<p>This public look-up is a practice-site convenience. Who may look a bill up on the real portal is an open question.</p>
 ${looked ? verifyResultHtml(looked.bill, looked.result) : ""}
 <form method="get" action="/demo/eway-portal/check">
 ${textField("E-way bill number", "number", typed.billNumber)}

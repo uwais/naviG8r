@@ -5,6 +5,8 @@
  * Sources are CGST Rule 138 as substituted by Notification 12/2018, amended by 31/2019 and 94/2020. Where a rule
  * here goes beyond that text it is marked "assumed", and the guide page lists each one.
  */
+// The date, GSTIN, invoice and truck shapes are the app's own, so for those four the practice site refuses exactly what the app refuses.
+import { isGstinShaped, isInvoiceNumberShaped, isRealCalendarDate, isTruckNumberShaped } from "./ewayBillValidation.ts";
 
 export type PersonaKey = "supplier" | "transporter" | "other";
 export type Persona = { key: PersonaKey; role: string; name: string; idLabel: "GSTIN" | "Transporter ID"; id: string };
@@ -73,6 +75,8 @@ const KM_PER_DAY = 200;
 export const MAX_DISTANCE_KM = 4000;
 const EXTENSION_WINDOW_MS = 8 * HOUR_MS;
 const CANCEL_WINDOW_MS = 24 * HOUR_MS;
+/** A practice-site limit, not a portal rule: bills live in memory, so one bill cannot grow without end. */
+export const MAX_ENTRIES_PER_LIST = 20;
 
 export function indiaDateIso(utcMs: number): string {
   return new Date(utcMs + INDIA_OFFSET_MS).toISOString().slice(0, 10);
@@ -85,12 +89,13 @@ export function validityDays(distanceKm: number): number {
 
 /**
  * Explanation 1 to rule 138(10): the first day expires at midnight of the day after the start date, and each
- * further day adds one. Stored as 23:59 India time, the way the app's valid-until picker and copy show it.
+ * further day adds one. Stored as the last millisecond of that day in India, 23:59:59.999: pages show it as 23:59,
+ * the way the app's valid-until picker does, and a bill read as "valid up to 23:59" must not expire at 23:59:30.
  */
 export function validUpToUtcMs(startUtcMs: number, distanceKm: number): number {
   const start = new Date(startUtcMs + INDIA_OFFSET_MS);
   const lastDay = start.getUTCDate() + validityDays(distanceKm);
-  return Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), lastDay, 23, 59) - INDIA_OFFSET_MS;
+  return Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), lastDay, 23, 59, 59, 999) - INDIA_OFFSET_MS;
 }
 
 export function transporterName(transporterId: string): string {
@@ -140,6 +145,9 @@ export function vehicleUpdateRefusal(bill: DemoBill, persona: Persona, reasonCod
   if (persona.key === "supplier" && transporterHasUpdatedPartB(bill)) {
     return "The transporter has already updated the vehicle on this bill. Practice rule: After that, the supplier can no longer change it.";
   }
+  if (bill.vehicleUpdates.length >= MAX_ENTRIES_PER_LIST) {
+    return `This bill already has ${MAX_ENTRIES_PER_LIST} vehicle updates, the most this practice site keeps. Generate a new bill to keep practising.`;
+  }
   if (bill.validUpToUtcMs !== null && nowUtcMs > bill.validUpToUtcMs) {
     return "This bill has expired. Practice rule: An expired bill's vehicle cannot be changed; the transporter can extend it in the eight hours after it expires.";
   }
@@ -160,6 +168,9 @@ export function extensionRefusal(bill: DemoBill, persona: Persona, nowUtcMs: num
   if (bill.cancelledAtUtcMs !== null) return "This bill was cancelled. A cancelled bill cannot be extended.";
   if (!isNamedTransporter(bill, persona) || !bill.vehicleUpdates.some((update) => update.byPersonaKey === "transporter")) {
     return "Practice rule: Only the transporter named on this bill, after it has updated the vehicle, can extend it.";
+  }
+  if (bill.extensions.length >= MAX_ENTRIES_PER_LIST) {
+    return `This bill has already been extended ${MAX_ENTRIES_PER_LIST} times, the most this practice site keeps. Generate a new bill to keep practising.`;
   }
   if (bill.validUpToUtcMs === null) return "This bill has no vehicle yet, so it has no validity to extend.";
   if (nowUtcMs <= bill.validUpToUtcMs) {
@@ -203,26 +214,13 @@ export function verifyBill(bill: DemoBill | undefined, typed: VerifyTyped): Veri
 
 // ---------- form shapes ----------
 
-/** Shape only, the same as the app's check; the check character is not computed. Transporter IDs share it. */
-const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const PIN_PATTERN = /^[1-9][0-9]{5}$/;
 const HSN_PATTERN = /^[0-9]{4}(?:[0-9]{2}){0,2}$/;
 const MONEY_PATTERN = /^[0-9]{1,11}(?:\.[0-9]{1,2})?$/;
-const DATE_PATTERN = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
 const PRINTABLE_ASCII = /^[\x20-\x7E]+$/;
-const VEHICLE_PATTERN = /^[A-Z0-9]{6,12}$/;
 
-export function isGstinShaped(text: string): boolean {
-  return GSTIN_PATTERN.test(text);
-}
-
-function isRealCalendarDate(text: string): boolean {
-  const match = DATE_PATTERN.exec(text);
-  if (!match) return false;
-  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
-}
+// Transporter IDs share the GSTIN shape.
+export { isGstinShaped };
 
 export function cleanVehicleNumber(text: string): string {
   return text.replace(/[\s-]/g, "").toUpperCase();
@@ -256,7 +254,7 @@ export function generateInputProblem(typed: GenerateTyped, persona: Persona, now
   }
   if (!PIN_PATTERN.test(typed.dispatchPin)) return "A.2 Place of Dispatch is a 6-digit PIN code.";
   if (!PIN_PATTERN.test(typed.deliveryPin)) return "A.4 Place of Delivery is a 6-digit PIN code.";
-  if (typed.documentNumber.length < 1 || typed.documentNumber.length > 32 || !PRINTABLE_ASCII.test(typed.documentNumber)) {
+  if (!isInvoiceNumberShaped(typed.documentNumber)) {
     return "A.5 Document Number is up to 32 characters.";
   }
   if (!isRealCalendarDate(typed.documentDate)) return "Choose A.6 Document Date.";
@@ -267,7 +265,7 @@ export function generateInputProblem(typed: GenerateTyped, persona: Persona, now
   if (!HSN_PATTERN.test(typed.hsnCode)) return "A.8 HSN Code is 4, 6 or 8 digits.";
   if (!TRANSPORT_REASONS.includes(typed.transportReason)) return "Choose A.9 Reason for Transportation.";
   if (parseDistanceKm(typed.distanceKm) === null) return `Approximate distance is a whole number of km from 1 to ${MAX_DISTANCE_KM}.`;
-  if (typed.vehicleNumber && !VEHICLE_PATTERN.test(typed.vehicleNumber)) {
+  if (typed.vehicleNumber && !isTruckNumberShaped(typed.vehicleNumber)) {
     return "B.1 Vehicle Number is 6 to 12 letters and digits, for example KA01AB1234.";
   }
   if (typed.transporterId && !isGstinShaped(typed.transporterId)) {
@@ -280,7 +278,7 @@ export function generateInputProblem(typed: GenerateTyped, persona: Persona, now
 }
 
 export function vehicleInputProblem(vehicleNumber: string, reasonCode: string, remark: string): string {
-  if (!VEHICLE_PATTERN.test(vehicleNumber)) return "The vehicle number is 6 to 12 letters and digits, for example KA01AB1234.";
+  if (!isTruckNumberShaped(vehicleNumber)) return "The vehicle number is 6 to 12 letters and digits, for example KA01AB1234.";
   if (!VEHICLE_UPDATE_REASONS.some((reason) => reason.code === reasonCode)) return "Choose a reason for the vehicle update.";
   return remarkProblem(remark, reasonCode === OTHERS);
 }

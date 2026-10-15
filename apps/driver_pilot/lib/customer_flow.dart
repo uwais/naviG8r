@@ -2184,7 +2184,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
                   title: Text(carrier),
                   subtitle: Text(
                       "$status · ${s["weightKg"]} kg\n${s["pickupAddress"]} → ${s["dropAddress"]}"
-                      "\n${ewayBillRowSummary(s)}"),
+                      "${ewayBillRowSummary(s).isEmpty ? "" : "\n${ewayBillRowSummary(s)}"}"),
                   isThreeLine: true,
                   trailing: const Icon(Icons.chevron_right),
                   onTap: id.isEmpty

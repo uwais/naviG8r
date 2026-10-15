@@ -72,23 +72,39 @@ function personaFromRequest(req: IncomingMessage): Persona | null {
 }
 
 function sendMethodNotAllowed(res: ServerResponse, persona: Persona | null): void {
-  sendHtml(res, 405, "Not allowed", "<h1>That is not allowed here</h1><p>This page takes a normal page visit or a form submit only.</p>", persona);
+  sendHtml(res, 405, "Not allowed", "<h1>Practice site: that is not allowed here</h1><p>This page takes a normal page visit or a form submit only.</p>", persona);
 }
 
+/** The rest of the body is never read: the connection is closed once the refusal is out, however much is still coming. */
 function sendTooLarge(req: IncomingMessage, res: ServerResponse, persona: Persona | null): void {
-  sendHtml(res, 413, "Too large", "<h1>That form is too large</h1><p>Forms on this site are up to 8 KB. Shorten what you typed and try again.</p>", persona, true);
-  req.resume();
+  res.on("finish", () => req.socket.destroy());
+  sendHtml(res, 413, "Too large", "<h1>Practice site: that form is too large</h1><p>Forms on this site are up to 8 KB. Shorten what you typed and try again.</p>", persona, true);
+}
+
+/** A browser always names the page a form came from; a form posted from another site could act as the signed-in user. */
+function sentFromAnotherSite(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (origin === undefined) return false;
+  try {
+    return new URL(origin).host.toLowerCase() !== String(req.headers.host ?? "").toLowerCase();
+  } catch {
+    return true;
+  }
 }
 
 /**
- * Every POST reads its body before looking at who is signed in: a refusal sent mid-body would leave a trickling
- * sender's connection open past the timeout.
+ * Every POST reads its body before looking at who is signed in or where it came from: a refusal sent mid-body would
+ * leave a trickling sender's connection open past the timeout.
  */
 async function readPostedForm(req: IncomingMessage, res: ServerResponse, persona: Persona | null): Promise<URLSearchParams | null> {
   const body = await readFormBody(req);
   if (body.outcome === "timedOut") return null;
   if (body.outcome === "tooLarge") {
     sendTooLarge(req, res, persona);
+    return null;
+  }
+  if (sentFromAnotherSite(req)) {
+    sendHtml(res, 403, "Not allowed", "<h1>Practice site: form refused</h1><p>This form was sent from another site.</p>", persona);
     return null;
   }
   return body.fields;
@@ -106,7 +122,7 @@ async function handleSignIn(req: IncomingMessage, res: ServerResponse, persona: 
   const fields = await readPostedForm(req, res, persona);
   if (!fields) return;
   const chosen = personaFromKey(field(fields, "persona"));
-  if (!chosen) return sendHtml(res, 400, "Choose who you are", refusalBody("Choose who you are", "Pick one of the three practice users.") + signInBody(), persona);
+  if (!chosen) return sendHtml(res, 400, "Choose who you are", refusalBody("Practice site: choose who you are", "Pick one of the three practice users.") + signInBody(), persona);
   res.writeHead(303, {
     location: "/demo/eway-portal",
     "set-cookie": `${PERSONA_COOKIE}=${chosen.key}; Path=/demo; HttpOnly; SameSite=Lax`,
@@ -128,7 +144,7 @@ async function handleGenerate(req: IncomingMessage, res: ServerResponse, persona
   if (!fields) return;
   if (!persona) return sendHtml(res, 401, "Choose who you are first", signInNeededBody(), persona);
   const refusal = generateRefusal(persona);
-  if (refusal) return sendHtml(res, 403, "Not allowed to generate", refusalBody("You cannot generate an e-way bill", refusal), persona);
+  if (refusal) return sendHtml(res, 403, "Not allowed to generate", refusalBody("Practice site: you cannot generate an e-way bill", refusal), persona);
   if (req.method === "GET") return sendHtml(res, 200, "Generate an e-way bill", generateFormBody(blank, ""), persona);
 
   const typed: GenerateTyped = {
@@ -242,9 +258,9 @@ async function handleCancel(req: IncomingMessage, res: ServerResponse, persona: 
 function showBillDetail(res: ServerResponse, url: URL, persona: Persona | null): void {
   if (!persona) return sendHtml(res, 401, "Choose who you are first", signInNeededBody(), persona);
   const bill = findBill(cleanBillNumber(url.searchParams.get("number") ?? ""));
-  if (!bill) return sendHtml(res, 404, "No such bill", refusalBody("No such bill", "No e-way bill with this number."), persona);
+  if (!bill) return sendHtml(res, 404, "No such bill", refusalBody("Practice site: no such bill", "No e-way bill with this number."), persona);
   const refusal = detailRefusal(bill, persona);
-  if (refusal) return sendHtml(res, 403, "Not your bill", refusalBody("You cannot see this bill", refusal), persona);
+  if (refusal) return sendHtml(res, 403, "Not your bill", refusalBody("Practice site: you cannot see this bill", refusal), persona);
   sendHtml(res, 200, "E-way bill details", billDetailBody(bill), persona);
 }
 
@@ -264,6 +280,11 @@ function showVerify(res: ServerResponse, url: URL, persona: Persona | null): voi
 }
 
 // ---------- routing ----------
+
+/** Where the ops page sends people to look a bill up. The demo server swaps in this practice site. */
+export function ewayPortalAddress(): string {
+  return process.env.EWAY_DEMO_PORTAL === "1" ? "/demo/eway-portal" : "https://ewaybillgst.gov.in";
+}
 
 function withoutTrailingSlash(pathname: string): string {
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
@@ -306,7 +327,7 @@ export async function handleEwayDemoPortal(req: IncomingMessage, res: ServerResp
     if (isGet) showVerify(res, url, persona);
     else sendMethodNotAllowed(res, persona);
   } else {
-    sendHtml(res, 404, "Page not found", "<h1>No such page on the practice site</h1>", persona);
+    sendHtml(res, 404, "Page not found", "<h1>Practice site: no such page</h1>", persona);
   }
   return true;
 }

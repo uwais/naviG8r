@@ -36,6 +36,8 @@ const RULES_MODELLED = `<div class="box"><h2>Rules I modelled</h2>
 <li>Once a transporter has updated the vehicle, the supplier can no longer update it at all. The text only stops the supplier reassigning the bill to another transporter.</li>
 <li>Someone else, a party to nothing, cannot generate a bill. The rules let any registered person who causes movement do so.</li>
 <li>Signed in as the Supplier, A.1 must be your own GSTIN. A Transporter that leaves Transporter ID empty is named on the bill itself.</li>
+<li>Anyone can use the Verify page without signing in. This public look-up is a practice-site convenience. Who may look a bill up on the real portal is an open question.</li>
+<li>A bill keeps at most 20 vehicle updates and 20 extensions. This is a limit of the practice site, not a portal rule.</li>
 <li>Full details go to the supplier and the named transporter only. Rule 138(4) also makes the bill number available to the recipient, who is not a practice user here.</li>
 <li>An expired bill's vehicle cannot be changed.</li>
 <li>Only whoever generated a bill can cancel it. Rule 138(9) names no one. The rule that a bill verified in transit cannot be cancelled is not modelled.</li>
@@ -49,7 +51,7 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
   const addresses = guideAddresses(req);
   const guideAddress = escapeHtml(addresses.guideAddress);
   const appAddress = escapeHtml(addresses.appAddress);
-  sendHtml(res, 200, "Demo guide", `<h1>Demo guide: one e-way bill, four people</h1>
+  sendHtml(res, 200, "Demo guide", `<h1>Practice demo guide: one e-way bill, four people</h1>
 <h2>Before you start</h2>
 <ul>
 <li>Open ${guideAddress} to come back to this page.</li>
@@ -88,7 +90,7 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <h2>Step 3. Ops verifies the bill</h2>
 <ol>
 <li>Open <a href="/ops/beta">/ops/beta</a> and find E-way bills to check. Each row shows the four details with a Copy button on each.</li>
-<li>Tap Open the government portal, then choose <a href="/demo/eway-portal/check">Verify an e-way bill</a>. No sign-in is needed.</li>
+<li>Tap Open the practice portal, then choose <a href="/demo/eway-portal/check">Verify an e-way bill</a>. No sign-in is needed.</li>
 <li>Paste the four details and tap Verify. The page says Found and shows the vehicle and Valid up to.</li>
 <li>Back on the ops page, tap Mark as found on the portal.</li>
 </ol>

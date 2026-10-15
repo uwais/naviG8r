@@ -34,12 +34,26 @@ export function indiaDateString(nowUtcMs: number): string {
   return new Date(nowUtcMs + INDIA_OFFSET_MS).toISOString().slice(0, 10);
 }
 
-function isRealCalendarDate(text: string): boolean {
+export function isRealCalendarDate(text: string): boolean {
   const match = DATE_PATTERN.exec(text);
   if (!match) return false;
   const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+export function isGstinShaped(text: string): boolean {
+  return GSTIN_PATTERN.test(text);
+}
+
+/** Expects text already trimmed. */
+export function isInvoiceNumberShaped(text: string): boolean {
+  return text.length >= 1 && text.length <= 32 && PRINTABLE_ASCII.test(text);
+}
+
+/** Expects text already cleaned of spaces and hyphens and upper-cased. */
+export function isTruckNumberShaped(text: string): boolean {
+  return TRUCK_NUMBER_PATTERN.test(text);
 }
 
 export function checkEwayBillDetails(input: Record<string, unknown>, nowUtcMs: number): EwayBillDetailsCheck {
@@ -55,11 +69,11 @@ export function checkEwayBillDetails(input: Record<string, unknown>, nowUtcMs: n
     return { ok: false, field: "billDate", detail: "The bill date cannot be in the future." };
   }
   const makerGstin = String(input.makerGstin ?? "").replace(/\s/g, "").toUpperCase();
-  if (!GSTIN_PATTERN.test(makerGstin)) {
+  if (!isGstinShaped(makerGstin)) {
     return { ok: false, field: "makerGstin", detail: "The GSTIN is 15 letters and digits, for example 29ABCDE1234F1Z5." };
   }
   const invoiceNumber = String(input.invoiceNumber ?? "").trim();
-  if (invoiceNumber.length < 1 || invoiceNumber.length > 32 || !PRINTABLE_ASCII.test(invoiceNumber)) {
+  if (!isInvoiceNumberShaped(invoiceNumber)) {
     return { ok: false, field: "invoiceNumber", detail: "Type the invoice number, up to 32 characters." };
   }
   return { ok: true, value: { billNumber, billDate, makerGstin, invoiceNumber } };
@@ -75,7 +89,7 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 export function checkEwayBillTruck(input: Record<string, unknown>, nowUtcMs: number): EwayBillTruckCheck {
   const truckNumber = String(input.truckNumber ?? "").replace(/[\s-]/g, "").toUpperCase();
-  if (!TRUCK_NUMBER_PATTERN.test(truckNumber)) {
+  if (!isTruckNumberShaped(truckNumber)) {
     return { ok: false, field: "truckNumber", detail: "The truck number is 6 to 12 letters and digits, for example KA01AB1234." };
   }
   const validUntilUtcMs = input.validUntilUtcMs;

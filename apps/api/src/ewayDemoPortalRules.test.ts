@@ -6,6 +6,7 @@ import {
   vehicleUpdateRefusal, verifyBill,
 } from "./ewayDemoPortalRules.ts";
 import type { DemoBill, GenerateTyped } from "./ewayDemoPortalRules.ts";
+import { formatIndiaDateTime } from "./ewayDemoPortalPages.ts";
 
 const [supplier, transporter, someoneElse] = PERSONAS;
 const otherTransporter = { ...transporter, id: "27TRNSP9999B1Z3", name: "Synthetic Carrier B" };
@@ -14,6 +15,11 @@ const HOUR_MS = 60 * 60 * 1000;
 /** UTC milliseconds for a wall-clock time in India. */
 function india(year: number, month: number, day: number, hour = 0, minute = 0): number {
   return Date.UTC(year, month - 1, day, hour, minute) - 5.5 * HOUR_MS;
+}
+
+/** 23:59:59.999 in India on that day, the instant a bill's validity ends. */
+function lastInstantInIndia(year: number, month: number, day: number): number {
+  return india(year, month, day, 23, 59) + 59_999;
 }
 
 function sampleBill(overrides: Partial<DemoBill> = {}): DemoBill {
@@ -40,12 +46,22 @@ test("validity is one day per 200 km or part of it, at least one day", () => {
   assert.deepEqual([1, 199, 200, 201, 400, 401, 4000].map(validityDays), [1, 1, 1, 2, 2, 3, 20]);
 });
 
-test("valid up to is 23:59 India time on the start date plus the days", () => {
-  assert.equal(validUpToUtcMs(india(2026, 10, 14, 23, 50), 150), india(2026, 10, 15, 23, 59), "late on the 14th, one day");
-  assert.equal(validUpToUtcMs(india(2026, 10, 14, 0, 5), 150), india(2026, 10, 15, 23, 59), "just after midnight, still one day to the 15th");
-  assert.equal(validUpToUtcMs(india(2026, 10, 14, 10), 350), india(2026, 10, 16, 23, 59), "350 km, two days");
-  assert.equal(validUpToUtcMs(india(2026, 10, 30, 10), 401), india(2026, 11, 2, 23, 59), "rolls into the next month");
-  assert.equal(validUpToUtcMs(Date.UTC(2026, 9, 14, 20, 0), 100), india(2026, 10, 16, 23, 59), "20:00 UTC is already the 15th in India");
+test("valid up to is the last instant of the day in India, the start date plus the days", () => {
+  assert.equal(validUpToUtcMs(india(2026, 10, 14, 23, 50), 150), lastInstantInIndia(2026, 10, 15), "late on the 14th, one day");
+  assert.equal(validUpToUtcMs(india(2026, 10, 14, 0, 5), 150), lastInstantInIndia(2026, 10, 15), "just after midnight, still one day to the 15th");
+  assert.equal(validUpToUtcMs(india(2026, 10, 14, 10), 350), lastInstantInIndia(2026, 10, 16), "350 km, two days");
+  assert.equal(validUpToUtcMs(india(2026, 10, 30, 10), 401), lastInstantInIndia(2026, 11, 2), "rolls into the next month");
+  assert.equal(validUpToUtcMs(Date.UTC(2026, 9, 14, 20, 0), 100), lastInstantInIndia(2026, 10, 16), "20:00 UTC is already the 15th in India");
+  assert.equal(formatIndiaDateTime(lastInstantInIndia(2026, 10, 16)), "16 Oct 2026, 23:59", "and it reads as 23:59");
+});
+
+test("a bill shown as valid up to 23:59 is still valid at 23:59:30 and expired at the next midnight", () => {
+  const bill = withTransporterVehicle(sampleBill(), validUpToUtcMs(india(2026, 10, 14, 10), 350));
+  const halfMinuteBeforeMidnight = india(2026, 10, 16, 23, 59) + 30_000;
+  assert.equal(vehicleUpdateRefusal(bill, transporter, "1", halfMinuteBeforeMidnight), "");
+  assert.match(extensionRefusal(bill, transporter, halfMinuteBeforeMidnight), /has not expired yet/);
+  assert.match(vehicleUpdateRefusal(bill, transporter, "1", india(2026, 10, 17)), /has expired/);
+  assert.equal(extensionRefusal(bill, transporter, india(2026, 10, 17)), "");
 });
 
 test("only the supplier or a transporter may generate", () => {
@@ -86,7 +102,7 @@ test("vehicle update: generator or named transporter; First Time first; supplier
   assert.match(vehicleUpdateRefusal(bill, otherTransporter, "4", now), /names a different transporter/);
   assert.match(vehicleUpdateRefusal(bill, transporter, "1", now), /Choose First Time/);
 
-  assert.equal(validUpToAfterVehicleUpdate(bill, now), india(2026, 10, 16, 23, 59), "first Part B starts validity from the stored 350 km");
+  assert.equal(validUpToAfterVehicleUpdate(bill, now), lastInstantInIndia(2026, 10, 16), "first Part B starts validity from the stored 350 km");
   withTransporterVehicle(bill, india(2026, 10, 16, 23, 59));
   assert.equal(validUpToAfterVehicleUpdate(bill, india(2026, 10, 15, 9)), india(2026, 10, 16, 23, 59), "a later change keeps it");
   assert.match(vehicleUpdateRefusal(bill, transporter, "4", now), /already has a vehicle/);
@@ -131,7 +147,7 @@ test("extension: only the named transporter that updated Part B, only in the eig
   supplierVehicle.vehicleUpdates.push({ vehicleNumber: "KA01AB1234", reasonCode: "4", remark: "", byPersonaKey: "supplier", atUtcMs: expiry - HOUR_MS });
   assert.match(extensionRefusal(supplierVehicle, transporter, expiry + HOUR_MS), /after it has updated the vehicle/);
   assert.match(extensionRefusal({ ...bill, cancelledAtUtcMs: expiry }, transporter, expiry + HOUR_MS), /cancelled/);
-  assert.equal(validUpToUtcMs(expiry + HOUR_MS, 120), india(2026, 10, 18, 23, 59), "extended from 00:59 on the 17th over 120 km");
+  assert.equal(validUpToUtcMs(expiry + HOUR_MS, 120), lastInstantInIndia(2026, 10, 18), "extended from 00:59 on the 17th over 120 km");
 });
 
 test("every refusal that states who may act or a time limit is marked as a practice rule", () => {
@@ -154,6 +170,25 @@ test("every refusal that states who may act or a time limit is marked as a pract
     cancelRefusal(sampleBill(), supplier, now + 25 * HOUR_MS),
   ];
   for (const refusal of refusals) assert.match(refusal, /Practice rule: [A-Z]/, refusal);
+});
+
+test("a bill keeps at most 20 vehicle updates and 20 extensions, refused in plain words", () => {
+  const expiry = india(2026, 10, 16, 23, 59);
+  const full = withTransporterVehicle(sampleBill(), expiry);
+  for (let count = 1; count < 20; count += 1) {
+    full.vehicleUpdates.push({ vehicleNumber: "KA01AB1234", reasonCode: "1", remark: "", byPersonaKey: "transporter", atUtcMs: expiry - HOUR_MS });
+  }
+  assert.equal(full.vehicleUpdates.length, 20);
+  assert.match(vehicleUpdateRefusal(full, transporter, "1", expiry - HOUR_MS), /already has 20 vehicle updates, the most this practice site keeps/);
+  full.vehicleUpdates.pop();
+  assert.equal(vehicleUpdateRefusal(full, transporter, "1", expiry - HOUR_MS), "", "the twentieth is still allowed");
+
+  for (let count = 0; count < 20; count += 1) {
+    full.extensions.push({ reasonCode: "ACCIDENT", remark: "", remainingDistanceKm: 10, atUtcMs: expiry, validUpToUtcMs: expiry });
+  }
+  assert.match(extensionRefusal(full, transporter, expiry + HOUR_MS), /already been extended 20 times, the most this practice site keeps/);
+  full.extensions.pop();
+  assert.equal(extensionRefusal(full, transporter, expiry + HOUR_MS), "", "the twentieth is still allowed");
 });
 
 test("cancel: the generator, within 24 hours of generation", () => {

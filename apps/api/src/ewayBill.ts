@@ -1,7 +1,7 @@
 /**
  * The e-way bill record on a shipment: the shipper types it in, ops checks it by hand on the
  * government portal, carriers read it. naviG8r never makes, changes or verifies a bill itself.
- * Format checks are in ewayBillValidation.ts; what each role may see is `ewayBillForRoles` below.
+ * Format checks are in ewayBillValidation.ts; what each role may see is in ewayBillVisibility.ts.
  */
 import { AuthorizationError, recordAudit, requirePermission } from "./rbac.ts";
 import { ApiError, shipmentWithCarrierDisplay } from "./services.ts";
@@ -86,11 +86,6 @@ export function addEwayBillTruck(store: Store, shipmentId: string, input: Record
   return updated;
 }
 
-/** Where the page and the app send people to look a bill up. The demo server swaps in its practice site. */
-export function ewayPortalAddress(): string {
-  return process.env.EWAY_DEMO_PORTAL === "1" ? "/demo/eway-portal" : "https://ewaybillgst.gov.in";
-}
-
 export function removeEwayBill(store: Store, shipmentId: string): Shipment {
   const shipment = findShipment(store, shipmentId);
   requirePermission(store, "eway_bill.write", shipment);
@@ -150,41 +145,4 @@ export function listEwayBillsForOps(store: Store): { toCheck: Shipment[]; missin
     missing: open.filter((s) => !s.ewayBill && (s.status === "PENDING_CARRIER_ACCEPT" || s.status === "BOOKED")),
     notNeeded: open.filter((s) => s.ewayBill?.kind === "NOT_NEEDED"),
   };
-}
-
-/**
- * Cuts the record by role before it leaves the server, because the general serializer does not
- * filter nested objects. Shipper and ops see everything except user ids. Carrier logins (owner,
- * dispatcher, driver alike) never get the bill date, the maker's GSTIN or the invoice number.
- * Finance and admin get nothing.
- */
-export function ewayBillForRoles(bill: EwayBill | undefined, roles: readonly string[]): Record<string, unknown> | undefined {
-  if (!bill) return undefined;
-  const sharesAll = roles.includes("SHIPPER") || roles.includes("OPS");
-  if (!sharesAll && !roles.includes("CARRIER")) return undefined;
-  const check = bill.check
-    ? { result: bill.check.result, ...(bill.check.problemReason ? { problemReason: bill.check.problemReason } : {}), checkedAtUtcMs: bill.check.checkedAtUtcMs }
-    : undefined;
-  return {
-    kind: bill.kind,
-    ...(bill.billNumber ? { billNumber: bill.billNumber } : {}),
-    ...(bill.truckNumber ? { truckNumber: bill.truckNumber } : {}),
-    ...(bill.validUntilUtcMs ? { validUntilUtcMs: bill.validUntilUtcMs } : {}),
-    ...(bill.notNeededReason ? { notNeededReason: bill.notNeededReason } : {}),
-    ...(bill.notNeededNote ? { notNeededNote: bill.notNeededNote } : {}),
-    ...(check ? { check } : {}),
-    ...(sharesAll ? {
-      enteredAtUtcMs: bill.enteredAtUtcMs,
-      ...(bill.billDate ? { billDate: bill.billDate } : {}),
-      ...(bill.makerGstin ? { makerGstin: bill.makerGstin } : {}),
-      ...(bill.invoiceNumber ? { invoiceNumber: bill.invoiceNumber } : {}),
-    } : {}),
-  };
-}
-
-/** ERP callers are other systems, not people the shipper chose to show a bill to. */
-export function withoutEwayBill<T extends { ewayBill?: unknown }>(shipment: T): Omit<T, "ewayBill"> {
-  const copy = { ...shipment };
-  delete copy.ewayBill;
-  return copy;
 }
