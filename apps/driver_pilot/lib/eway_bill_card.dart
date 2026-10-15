@@ -1,13 +1,13 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'authorization_session.dart';
 import 'driver_theme.dart';
+import 'eway_bill_truck_form.dart';
 import 'eway_bill_words.dart';
 import 'pilot_api.dart';
 
-enum _Mode { viewing, addingBill, statingNotNeeded }
+enum _Mode { viewing, addingBill, statingNotNeeded, addingTruck }
 
 /// The shipper's e-way bill for one shipment. The bill is made on the government portal; this card
 /// only holds the details the shipper types in and shows what ops saw when it looked the bill up.
@@ -175,30 +175,25 @@ class _EwayBillCardState extends State<EwayBillCard> {
       final response = await api.post<Map<String, dynamic>>(path, data: data);
       if (!mounted || scope != AuthorizationSession.scopeKey) return;
       final shipment = response.data?['shipment'];
-      setState(() {
-        _bill = shipment is Map<String, dynamic> ? _billFrom(shipment) : null;
-        final savedTime = shipment is Map<String, dynamic>
-            ? shipment['updatedAtUtcMs']
-            : null;
-        if (savedTime is num) _savedAtUtcMs = savedTime;
-        _mode = _Mode.viewing;
-      });
+      _showSaved(shipment is Map<String, dynamic> ? shipment : null);
     } catch (e) {
-      if (mounted) setState(() => _error = _sentence(e));
+      if (mounted) setState(() => _error = ewayBillErrorSentence(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  /// The server writes a plain sentence for each refusal; show it instead of "HTTP 400".
-  static String _sentence(Object e) {
-    if (e is DioException) {
-      final body = e.response?.data;
-      final detail = body is Map ? body['detail'] : null;
-      if (detail is String && detail.isNotEmpty) return detail;
-    }
-    return formatApiError(e);
-  }
+  void _showSaved(Map<String, dynamic>? shipment) => setState(() {
+        _bill = shipment == null ? null : _billFrom(shipment);
+        final savedTime = shipment?['updatedAtUtcMs'];
+        if (savedTime is num) _savedAtUtcMs = savedTime;
+        _mode = _Mode.viewing;
+      });
+
+  void _openTruckForm() => setState(() {
+        _error = null;
+        _mode = _Mode.addingTruck;
+      });
 
   Widget _errorText() => _error == null
       ? const SizedBox.shrink()
@@ -253,6 +248,9 @@ class _EwayBillCardState extends State<EwayBillCard> {
     }
     final number = bill['billNumber'];
     final date = bill['billDate'];
+    final truckLines = ewayBillTruckLines(bill);
+    final canAddTruck =
+        canEdit && AuthorizationSession.can('eway_bill.add_truck');
     return [
       if (number is String)
         SelectableText(groupedBillNumber(number),
@@ -266,6 +264,12 @@ class _EwayBillCardState extends State<EwayBillCard> {
       Text('GSTIN of whoever made the bill: ${bill['makerGstin'] ?? ''}'),
       Text('Invoice number: ${bill['invoiceNumber'] ?? ''}'),
       const SizedBox(height: 8),
+      if (truckLines.isEmpty)
+        const Text(
+            'Truck not added yet. You or your carrier can add it after the truck is on the bill on the portal.')
+      else
+        for (final line in truckLines) Text(line),
+      const SizedBox(height: 8),
       Text(ewayBillCheckLine(bill, forShipper: true)),
       if (canEdit) ...[
         const SizedBox(height: 8),
@@ -273,6 +277,10 @@ class _EwayBillCardState extends State<EwayBillCard> {
           OutlinedButton(
               onPressed: _busy ? null : _openBillForm,
               child: const Text('Edit')),
+          if (canAddTruck)
+            OutlinedButton(
+                onPressed: _busy ? null : _openTruckForm,
+                child: Text(truckLines.isEmpty ? 'Add truck' : 'Change truck')),
           OutlinedButton(
               onPressed: _busy ? null : _remove,
               child: const Text('Remove e-way bill')),
@@ -366,6 +374,16 @@ class _EwayBillCardState extends State<EwayBillCard> {
       _Mode.viewing => _viewing(),
       _Mode.addingBill => _billForm(),
       _Mode.statingNotNeeded => _statementForm(),
+      _Mode.addingTruck => [
+          EwayBillTruckForm(
+              path: '/shipments/${widget.shipment['id']}/eway-bill/truck',
+              current: _bill,
+              clearsCheck: _bill?['check'] is Map,
+              onSaved: _showSaved,
+              onCancel: _cancel),
+          _portalButton(),
+          _errorText(),
+        ],
     };
     return Card(
         child: Padding(
