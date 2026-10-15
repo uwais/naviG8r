@@ -5,6 +5,8 @@ import { opsConsoleBetaContentSecurityPolicy, opsConsoleBetaHtml } from "./opsCo
 import { assertAdminRemains, authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
 import { guardRequest, requestContext } from "./rbacRoutes.ts";
 import { carrierRejection } from "./carrierRejection.ts";
+import { addEwayBillTruck, checkEwayBill, listEwayBillsForOps, removeEwayBill, saveEwayBill } from "./ewayBill.ts";
+import { ewayPortalAddress, handleEwayDemoPortal, isEwayDemoPortalPath } from "./ewayDemoPortal.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
 import { URL } from "node:url";
@@ -415,6 +417,14 @@ export async function createApp(options: {
 
   const pushRateLimiter = new FixedWindowRateLimiter();
   const server = http.createServer((req, res) => {
+    // The practice portal takes form bodies from anyone and never touches the store. Served outside the
+    // queue, a sender that trickles its body in cannot hold up every other request.
+    let portalUrl: URL | null = null;
+    try { portalUrl = new URL(req.url ?? "/", "http://localhost"); } catch { portalUrl = null; }
+    if (portalUrl && isEwayDemoPortalPath(portalUrl.pathname)) {
+      handleEwayDemoPortal(req, res, portalUrl).catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.destroy(); });
+      return;
+    }
     const method = req.method ?? "GET";
     const urlPath = (req.url ?? "/").split("?", 1)[0];
     const capturesState = !["GET", "HEAD", "OPTIONS"].includes(method) || /\/conversation\/(?:timeline|messages)$/.test(urlPath);
@@ -1290,6 +1300,35 @@ export async function createApp(options: {
           if (msg === "forbidden") return json(res, 403, { error: "forbidden" });
           throw e;
         }
+      }
+
+      if (method === "POST" && /^\/shipments\/[^/]+\/eway-bill$/.test(url.pathname)) {
+        const shipment = saveEwayBill(store, url.pathname.split("/")[2]!, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
+      }
+      if (method === "POST" && /^\/shipments\/[^/]+\/eway-bill\/remove$/.test(url.pathname)) {
+        const shipment = removeEwayBill(store, url.pathname.split("/")[2]!);
+        await persist();
+        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
+      }
+      if (method === "POST" && /^\/shipments\/[^/]+\/eway-bill\/truck$/.test(url.pathname)) {
+        const shipment = addEwayBillTruck(store, url.pathname.split("/")[2]!, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
+      }
+      if (method === "POST" && /^\/v1\/pilot\/carrier\/shipments\/[^/]+\/eway-bill\/truck$/.test(url.pathname)) {
+        const shipment = addEwayBillTruck(store, url.pathname.split("/")[5]!, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
+      }
+      if (method === "GET" && url.pathname === "/ops/eway-bills") {
+        return json(res, 200, { ...listEwayBillsForOps(store), portalAddress: ewayPortalAddress() });
+      }
+      if (method === "POST" && /^\/ops\/eway-bills\/[^/]+\/check$/.test(url.pathname)) {
+        const shipment = checkEwayBill(store, url.pathname.split("/")[3]!, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
       }
 
       if (method === "GET" && url.pathname === "/ops/compliance/pending") {

@@ -238,6 +238,23 @@ String formatApiError(Object e) {
   return e.toString();
 }
 
+/// The request failed before any answer came back: a dropped connection, a timeout, no signal.
+bool serverNeverAnswered(Object e) => e is DioException && e.response == null;
+
+/// The server writes a plain sentence for each e-way bill refusal; show it instead of "HTTP 400".
+String ewayBillErrorSentence(Object e) {
+  if (serverNeverAnswered(e)) {
+    return "Could not save. Check your connection and try again.";
+  }
+  if (e is DioException) {
+    final body = e.response?.data;
+    final detail = body is Map ? body["detail"] : null;
+    if (detail is String && detail.isNotEmpty) return detail;
+  }
+  // formatApiError can print a raw body, "HTTP n" or the server address; none of that helps here.
+  return "Something went wrong. Please try again.";
+}
+
 /// The bank details field the server refused (accountHolderName, ifsc or accountNumber), so the form can box it.
 String? refusedBankDetailsField(Object e) {
   if (e is! DioException) return null;

@@ -303,6 +303,33 @@ Lists users + memberships for a customer org. Requires `CUSTOMER_ADMIN` on that 
 
 **Multi-user visibility:** shipments booked while signed in with a CUSTOMER org are tagged with `customerOrgId`. Any user with a membership to that org (admin or member) can list/view them via `GET /shipments`.
 
+### E-way bill (link-out demo)
+
+The shipper types in an e-way bill made on the government portal, or says none is needed. Ops looks it up by hand and records what it saw. naviG8r never makes, changes or verifies a bill. Design and copy: `docs/design-eway-bill/contract.md`. The record is `shipment.ewayBill`, cut by role: shipper and ops get everything except user ids, carrier logins (owner, dispatcher, driver) get only the kind, the bill number, the "not needed" reason and the check, finance and admin get nothing. ERP integration responses never carry it. **Database mode:** the `ShipmentRow."ewayBill"` JSONB column must exist first (`ALTER TABLE "ShipmentRow" ADD COLUMN "ewayBill" JSONB;`), or every shipment read fails.
+
+#### `POST /shipments/:id/eway-bill`
+
+Shipper (`eway_bill.write`), own shipment, until delivery is accepted. Replaces the record and clears ops' check.
+
+```json
+{ "kind": "BILL", "billNumber": "1234 5678 9012", "billDate": "2026-10-01", "makerGstin": "29ABCDE1234F1Z5", "invoiceNumber": "INV/1" }
+{ "kind": "NOT_NEEDED", "reason": "BELOW_THRESHOLD | GOODS_EXEMPT | OTHER", "note": "required with OTHER, 3 to 140 characters" }
+```
+
+Response `200 { "shipment": { ..., "ewayBill": {...} } }`. Refusals: `400 { "error": "invalid_eway_bill", "detail": "a sentence", "field": "billNumber" }`, `409 eway_bill_locked`.
+
+#### `POST /shipments/:id/eway-bill/remove`
+
+Shipper. Back to "nothing added". Removing twice is harmless. Same response and `409` as above.
+
+#### `GET /ops/eway-bills`
+
+Ops (`eway_bill.check`). `{ "toCheck": [shipment], "missing": [shipment], "notNeeded": [shipment] }`, oldest booking first. `missing` is shipments waiting for a carrier or booked with no record.
+
+#### `POST /ops/eway-bills/:shipmentId/check`
+
+Ops. `{ "result": "FOUND", "billNumber": "123456789012" }` or `{ "result": "PROBLEM", "problemReason": "NOT_FOUND | CANCELLED | DETAILS_DO_NOT_MATCH | OTHER", "billNumber": "..." }`. `billNumber` is the bill ops looked up; if the shipper has since replaced it the answer is `409 eway_bill_changed`. Only on a `BILL` (`409 eway_bill_not_entered` otherwise). Last writer wins. Audit rows `EWAY_BILL_ENTERED`, `EWAY_BILL_NOT_NEEDED_STATED`, `EWAY_BILL_REMOVED`, `EWAY_BILL_CHECKED` hold state words only.
+
 ### Existing marketplace endpoints (still available)
 - `GET /anchor-trips` (list + `GET /anchor-trips/:id`) lists trips for the customer pilot; **enabled in production** as part of the public marketplace.
 - `POST /shipments/quote` quotes a shipment. Body **`weightKg`** (required); optional **`pickup`** / **`drop`** (`GeoPoint` each — send **both** or **neither**); optional **`anchorTripId`**. Response includes **`grossPaise`** plus **`breakdown`** (`pricingMode`, `laneKm`, `shipmentKm`, `distanceKmForPrice`, `modelVersion`, component paise). Booking uses the same formula when coords allow distance pricing.

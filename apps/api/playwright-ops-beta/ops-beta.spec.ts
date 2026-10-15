@@ -185,3 +185,50 @@ test("someone without an operator role is told who to ask", async ({ page }) => 
   await expect(page.getByText("You're signed in, but you don't have an operator role for Synthetic Carrier B.")).toBeVisible();
   await expect(page.locator("#sections")).toBeHidden();
 });
+
+// Not run when written: these need the e-way bill rows that scripts/rbac-manual.mjs seeds (at least one bill to check).
+test("OPS: e-way bill cards copy the four details, link out safely, and record a check inside the row", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await signIn(page, phones.ops);
+  const bills = page.locator("#ewayBills");
+  await expect(bills.getByRole("heading", { name: "E-way bills to check" })).toBeVisible();
+  await expect(page.locator("#ewayMissing").getByRole("heading", { name: "Missing" })).toBeVisible();
+  await expect(page.locator("#ewayMissing").getByRole("heading", { name: "Shipper says no e-way bill is needed" })).toBeVisible();
+  await expect(page.locator("#countEwayBills")).not.toHaveText("0");
+
+  const row = bills.getByRole("article").first();
+  await expect(row.getByRole("button", { name: /^Copy/ })).toHaveCount(4);
+  const portal = row.getByRole("link", { name: "Open the government portal" });
+  await expect(portal).toHaveAttribute("href", "https://ewaybillgst.gov.in");
+  await expect(portal).toHaveAttribute("target", "_blank");
+  await expect(portal).toHaveAttribute("rel", "noopener noreferrer");
+
+  await row.getByRole("button", { name: "Copy E-way bill number" }).click();
+  await expect(row.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^[0-9]{12}$/);
+  await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { value: { writeText: () => Promise.reject(new Error("blocked")) }, configurable: true }); });
+  await row.getByRole("button", { name: "Copy Invoice number" }).click();
+  await expect(row.getByText("Select it and copy it yourself.")).toBeVisible();
+
+  await row.getByRole("button", { name: "Report a problem" }).click();
+  const reason = row.getByLabel(/^Reason for the problem/);
+  await expect(reason).toBeFocused();
+  await expect(reason.locator("option")).toHaveText(["Choose a reason", "Not found on the portal", "Cancelled on the portal", "Details here do not match the portal", "Other"]);
+  await row.getByRole("button", { name: "Confirm problem" }).click();
+  await expect(row.getByRole("alert")).toHaveText("Not reported yet. Choose a reason from the list.");
+  await row.getByRole("button", { name: "Cancel" }).click();
+  await expect(row.getByRole("button", { name: "Report a problem" })).toBeFocused();
+
+  const before = Number(await page.locator("#countEwayBills").textContent());
+  await row.getByRole("button", { name: "Mark as found on the portal" }).click();
+  await expect(row.getByRole("status").filter({ hasText: /Marked as found on the portal by you at \d\d:\d\d IST\./ })).toBeVisible();
+  await expect(page.locator("#countEwayBills")).toHaveText(String(before - 1));
+  for (const words of await page.locator(".tag").allTextContents()) expect(words).not.toContain("_");
+});
+
+test("FINANCE: both e-way bill cards say only OPS can check them", async ({ page }) => {
+  await signIn(page, phones.finance);
+  await expect(page.locator("#ewayBills").getByText("Only OPS can check e-way bills. You hold FINANCE.")).toBeVisible();
+  await expect(page.locator("#ewayMissing").getByText("Only OPS can check e-way bills. You hold FINANCE.")).toBeVisible();
+  await expect(page.locator("#jumpEwayBills")).toBeHidden();
+});

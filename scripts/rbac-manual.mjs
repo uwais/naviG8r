@@ -20,6 +20,7 @@ const { createStore } = await import("../apps/api/src/store.ts");
 const { saveStoreToDisk, loadStoreFromDisk } = await import("../apps/api/src/persistence.ts");
 const { migrateAuthorization, resolvePrincipal } = await import("../apps/api/src/rbac.ts");
 const { createApp } = await import("../apps/api/src/httpServer.ts");
+const { SEEDED_TRUCK_VALID_UNTIL_UTC_MS } = await import("../apps/api/src/ewayDemoPortal.ts");
 const store = createStore();
 const now = Date.now();
 
@@ -53,27 +54,34 @@ store.memberships.set("user-dual:platform", {
   userId: "user-dual", orgId: "platform", role: "FINANCE", createdAtUtcMs: now,
 });
 
+// Each shipment gets its own route and weight so the list rows can be told apart.
+const seededShipments = [
+  ["load-a-hold", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 3600000, 120, "Peenya, Bengaluru", "Ambattur, Chennai"],
+  ["load-a-expired", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 49 * 3600000, 45, "Whitefield, Bengaluru", "Hosur"],
+  ["load-a-booked", "shipper-a", "carrier-a", "BOOKED", null, 250, "Bommasandra, Bengaluru", "Guindy, Chennai"],
+  ["load-a-with-bill", "shipper-a", "carrier-a", "BOOKED", null, 80, "Yeshwanthpur, Bengaluru", "Mysuru"],
+  ["load-a-with-truck", "shipper-a", "carrier-a", "BOOKED", null, 400, "Electronic City, Bengaluru", "Coimbatore"],
+  ["load-b-pending", "shipper-b", "carrier-b", "PENDING_CARRIER_ACCEPT", null, 10, "Hebbal, Bengaluru", "Tumakuru"],
+];
+
+// Each trip's reserved weight is the weight of the shipments seeded on it, so its remaining capacity adds up.
 for (const carrierId of ["carrier-a", "carrier-b"]) {
   const id = `trip-${carrierId}`;
+  const reservedKg = seededShipments.filter(shipment => shipment[2] === carrierId).reduce((sum, shipment) => sum + shipment[5], 0);
   store.anchorTrips.set(id, {
     id, carrierId, originCity: "Synthetic Origin", destCity: "Synthetic Destination",
     windowStart: new Date(now).toISOString(), windowEnd: new Date(now + 86400000).toISOString(),
-    vehicleClass: "MEDIUM", capacityKg: 1000, reservedKg: carrierId === "carrier-a" ? 30 : 10,
+    vehicleClass: "MEDIUM", capacityKg: 1000, reservedKg,
     status: "OPEN", createdAtUtcMs: now,
   });
 }
 
-for (const [id, customerOrgId, carrierId, status, podAtUtcMs] of [
-  ["load-a-hold", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 3600000],
-  ["load-a-expired", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 49 * 3600000],
-  ["load-a-booked", "shipper-a", "carrier-a", "BOOKED", null],
-  ["load-b-pending", "shipper-b", "carrier-b", "PENDING_CARRIER_ACCEPT", null],
-]) {
+for (const [id, customerOrgId, carrierId, status, podAtUtcMs, weightKg, pickupAddress, dropAddress] of seededShipments) {
   const paymentId = `payment-${id}`;
   store.shipments.set(id, {
     id, anchorTripId: `trip-${carrierId}`, customerOrgId, carrierId,
     customerOrgName: store.organizations.get(customerOrgId).displayName,
-    status, weightKg: 10, pickupAddress: "Synthetic pickup", dropAddress: "Synthetic drop",
+    status, weightKg, pickupAddress, dropAddress,
     grossPaise: 5000, commissionPaise: 500, netToCarrierPaise: 4500, paymentId,
     podAtUtcMs, firstPayoutEligibleAtUtcMs: null, payoutBatchCutoffUtcMs: null,
     createdAtUtcMs: now - 50 * 3600000, updatedAtUtcMs: now,
@@ -84,6 +92,20 @@ for (const [id, customerOrgId, carrierId, status, podAtUtcMs] of [
     createdAtUtcMs: now, updatedAtUtcMs: now,
   });
 }
+// One booked shipment already has a bill typed in and not yet checked, so ops has something to check at first sign-in.
+// The practice portal (apps/api/src/ewayDemoPortalStore.ts) holds this same bill so ops' look-up finds it; change both together.
+store.shipments.get("load-a-with-bill").ewayBill = {
+  kind: "BILL", billNumber: "123456789012", billDate: "2026-10-01", makerGstin: "29ABCDE1234F1Z5",
+  invoiceNumber: "SYN/2026/001", enteredAtUtcMs: now, enteredByUserId: "user-shipper-a",
+};
+// A second bill whose carrier has already added the truck, so every row state shows at first sign-in.
+// The portal holds it too, with the same truck. The valid-until is imported from the portal, so the two match
+// when this script starts the server; a server started separately after --seed-only computes its own.
+store.shipments.get("load-a-with-truck").ewayBill = {
+  kind: "BILL", billNumber: "234567890123", billDate: "2026-10-02", makerGstin: "29ABCDE1234F1Z5",
+  invoiceNumber: "SYN/2026/002", enteredAtUtcMs: now, enteredByUserId: "user-shipper-a",
+  truckNumber: "KA01AB1234", validUntilUtcMs: SEEDED_TRUCK_VALID_UNTIL_UTC_MS, truckEnteredByUserId: "user-carrier-a",
+};
 migrateAuthorization(store);
 store.membershipRoles.set("user-all:platform", ["ADMIN", "OPS", "FINANCE"]);
 store.membershipRoles.set("user-admin-finance:platform", ["ADMIN", "FINANCE"]);

@@ -138,6 +138,7 @@ model ShipmentRow {
   externalSource String?
   integrationConnectionId String?
   metadata Json?
+  ewayBill Json?
   integrationSequence Int?
   @@index([customerOrgId, status])
   @@index([carrierId, status])

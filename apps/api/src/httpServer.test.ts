@@ -272,7 +272,8 @@ test("GET /ops/beta serves the redesigned ops page beside the unchanged current 
     assert.ok(html.includes("/ops/compliance/pending") && html.includes("/ops/shipments/pending-release"));
     assert.ok(!html.includes("prefers-color-scheme"), "light mode only, never switched by the system setting");
     for (const address of html.match(/https?:\/\/[^"' )]+/g) ?? []) {
-      assert.match(address, /^https:\/\/fonts\.(googleapis|gstatic)\.com|^http:\/\/www\.w3\.org\/2000\/svg$/, `unexpected outside address ${address}`);
+      // The one link out is the government e-way bill portal, matched whole so no other address passes.
+      assert.match(address, /^https:\/\/fonts\.(googleapis|gstatic)\.com(\/|$)|^http:\/\/www\.w3\.org\/2000\/svg$|^https:\/\/ewaybillgst\.gov\.in$/, `unexpected outside address ${address}`);
     }
 
     const current = await (await fetch(`${baseUrl}/ops`)).text();

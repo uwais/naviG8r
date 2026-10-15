@@ -1,3 +1,5 @@
+// Size note: this file stays whole on purpose (owner decision, 12 Oct 2026). Splitting the screens waits until after
+// go-live and stability, and an unrelated change should not start it.
 import "organization_access.dart";
 import "dart:async";
 
@@ -8,6 +10,8 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "authorization_session.dart";
 import "carrier_approval_banner.dart";
+import "eway_bill_carrier_card.dart";
+import "eway_bill_words.dart";
 import "shipment_payment_status.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
@@ -970,7 +974,9 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
               child: ListTile(
                 title: Text("${s["customerOrgName"]} · ${s["weightKg"]} kg"),
                 subtitle: Text(
-                    "$stLabel · ${s["pickupAddress"]} → ${s["dropAddress"]}"),
+                    "$stLabel · ${s["pickupAddress"]} → ${s["dropAddress"]}"
+                    "${ewayBillRowSummary(s).isEmpty ? "" : "\n${ewayBillRowSummary(s)}"}"),
+                isThreeLine: true,
                 trailing: st == "PENDING_CARRIER_ACCEPT"
                     ? FilledButton(
                         onPressed: DriverSession.complianceApproved &&
@@ -1010,6 +1016,8 @@ class _DriverShipmentDetailScreenState
     extends State<DriverShipmentDetailScreen> {
   Map<String, dynamic>? _shipment;
   bool _accepting = false;
+  bool _loadFailed = false;
+  bool _loadNeverAnswered = false;
 
   @override
   void initState() {
@@ -1048,19 +1056,42 @@ class _DriverShipmentDetailScreenState
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadFailed = true;
+          _loadNeverAnswered = serverNeverAnswered(e);
+        });
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final s = _shipment;
+    if (s == null && _loadFailed) {
+      return Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text(_loadNeverAnswered
+            ? "Could not load this shipment. Check your connection and try again."
+            : "Could not load this shipment."),
+        TextButton(
+            onPressed: () {
+              setState(() => _loadFailed = false);
+              _load();
+            },
+            child: const Text("Try again")),
+      ]));
+    }
     if (s == null) {
       return const Center(child: CircularProgressIndicator());
     }
     final st = s["status"]?.toString() ?? "";
+    // Scrolls because the e-way bill card made this screen taller than a 360 by 640 phone.
     return Padding(
       padding: const EdgeInsets.all(20),
-      child: Column(
+      child: SingleChildScrollView(
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(s["customerOrgName"]?.toString() ?? "",
@@ -1076,7 +1107,8 @@ class _DriverShipmentDetailScreenState
           Text("Drop: ${s["dropAddress"]}"),
           Text(
               "Net to carrier: ${formatInrFromPaise(s["netToCarrierPaise"] as num? ?? 0)}"),
-          const Spacer(),
+          EwayBillCarrierCard(shipment: s),
+          const SizedBox(height: 16),
           if (st == "PENDING_CARRIER_ACCEPT")
             FilledButton(
               onPressed: _accepting ||
@@ -1108,7 +1140,7 @@ class _DriverShipmentDetailScreenState
           ],
           ShipmentPaymentStatus(shipment: s),
         ],
-      ),
+      )),
     );
   }
 }

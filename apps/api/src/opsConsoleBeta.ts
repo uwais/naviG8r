@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ewayBillMarkup, ewayBillScript } from "./opsConsoleBetaEwayBills.ts";
 import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
 
 /**
@@ -7,7 +8,7 @@ import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
  * Built from the "NaviG8r ops console" design on the NaviG8r design system; token names match that system.
  *
  * Over 500 lines because markup and script are one screen: every element id the script reads is defined
- * here, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
+ * here, or in opsConsoleBetaEwayBills.ts, which is pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
  */
 export function opsConsoleBetaHtml(): string {
   return page;
@@ -56,6 +57,8 @@ const markup = `
     <span class="caption">Needs someone</span>
     <a class="jump" href="#carriers" id="jumpCarriers">Carriers waiting <span class="count" id="countCarriers">0</span></a>
     <a class="jump" href="#payments">Payments waiting <span class="count" id="countPayments">0</span></a>
+    <a class="jump" href="#ewayBills" id="jumpEwayBills">E-way bills to check <span class="count" id="countEwayBills">0</span></a>
+    <a class="jump" href="#ewayMissing" id="jumpEwayMissing">Missing e-way bills <span class="count" id="countEwayMissing">0</span></a>
     <a class="jump" href="#team">Team access</a>
     <div class="grow"></div>
     <div id="legend" class="legend" role="group" aria-label="Status key"><span class="caption">Status key</span></div>
@@ -86,7 +89,7 @@ const markup = `
     <section id="team" class="card" aria-labelledby="teamTitle">
       <div class="head"><h2 id="teamTitle">Team access</h2><div class="grow"></div><span id="teamTag"></span></div>
       <div id="teamBody" class="body"></div>
-    </section>
+    </section>${ewayBillMarkup}
   </main>
 </div>
 <dialog id="release" aria-labelledby="releaseTitle" aria-describedby="releaseText">
@@ -168,6 +171,10 @@ const errorWords = {
   membership_inactive: "your membership of that organization is switched off",
   active_organization_required: "choose the organization you're acting for first",
   cannot_revoke_last_admin: 'that would leave the organization with no one holding ADMIN',
+  invalid_eway_check: 'say whether you found the bill or found a problem, and choose which problem',
+  eway_bill_not_entered: 'this shipment has no e-way bill entered to check',
+  eway_bill_changed: 'the shipper changed this bill after your list loaded, so reload and look it up again',
+  eway_bill_locked: 'this shipment is already delivered, so its e-way bill can no longer be changed',
   internal_error: 'the server hit an error',
   // The server also sends this for any failure it did not name, a payment provider error included.
   bad_request: 'the server hit an error it did not name',
@@ -176,7 +183,7 @@ const errorWords = {
 // made and not saved, so the page must not say nothing happened.
 const refusedBeforeChange = ['unauthorized', 'forbidden', 'not_found', 'self_verification_forbidden', 'verification_status_and_reason_required',
   'invalid_role', 'payment_hold_active', 'shipment_not_found', 'payment_not_found', 'payment_id_missing', 'checkout_not_completed_for_pod', 'shipment_not_pending_release',
-  'membership_inactive', 'active_organization_required', 'cannot_revoke_last_admin'];
+  'membership_inactive', 'active_organization_required', 'cannot_revoke_last_admin', 'invalid_eway_check', 'eway_bill_not_entered', 'eway_bill_changed', 'eway_bill_locked'];
 async function request(path, method = 'GET', body, headers = {}) {
   const sent = { 'content-type': 'application/json', ...headers };
   if (token) sent.authorization = 'Bearer ' + token;
@@ -655,7 +662,7 @@ async function loadWorkspace() {
   byId('notice').hidden = true;
   byId('tools').hidden = byId('sections').hidden = false;
   renderTeam();
-  await Promise.all([loadCarriers(), loadPayments()]);
+  await Promise.all([loadCarriers(), loadPayments(), loadEwayBills()]);
 }
 
 // A second click while a sign-in is still running would try the same code again and fail confusingly.
@@ -719,6 +726,7 @@ byId('organization').onchange = () => {
 };
 byId('carriersReload').onclick = () => run(loadCarriers, "Couldn't reload");
 byId('paymentsReload').onclick = () => run(loadPayments, "Couldn't reload");
+${ewayBillScript}
 byId('legend').append(...[['Done', 'good'], ['Someone must act', 'attention'], ['Blocked or failed', 'problem'], ['In progress', 'info']].map(statusTag));
 if (!token) byId('signin').hidden = false;
 else {
