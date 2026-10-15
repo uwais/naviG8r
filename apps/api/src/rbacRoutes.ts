@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Store } from "./store.ts";
 import { verifyBearer } from "./auth.ts";
 import { authorizationContext, AuthorizationError, resolvePrincipal, requirePermission, visible, type Permission } from "./rbac.ts";
+import { assignedDriverMaySee } from "./tripAssignmentRules.ts";
 
 const rules: [string, RegExp, Permission][] = [
   ["GET", /^\/v1\/notifications$/, "notification.read"],
@@ -22,6 +23,8 @@ const rules: [string, RegExp, Permission][] = [
   ["GET", /^\/v1\/pilot\/anchor-trips(?:\/[^/]+)?$/, "load.read"],
   ["POST", /^\/v1\/pilot\/anchor-trips$/, "trip.publish"],
   ["POST", /^\/v1\/pilot\/anchor-trips\/[^/]+\/(?:start|complete|location)$/, "load.status_update"],
+  ["POST", /^\/v1\/pilot\/anchor-trips\/[^/]+\/assignment$/, "trip.assign"],
+  ["GET", /^\/v1\/pilot\/carrier\/fleet$/, "trip.assign"],
   ["POST", /^\/v1\/pilot\/rates\/estimate$/, "trip.publish"],
   ["GET", /^\/v1\/pilot\/carrier\/shipments$/, "load.read"],
   ["POST", /^\/v1\/pilot\/carrier\/shipments\/[^/]+\/accept$/, "carrier.offer_accept"],
@@ -98,7 +101,7 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   const tripId = /^\/v1\/pilot\/anchor-trips\/([^/]+)/.exec(path)?.[1];
   if (tripId) resource = store.anchorTrips.get(tripId);
   if ((tripId || (shipmentId && !["book", "pending-release", "delivered"].includes(shipmentId))) && !resource) throw new AuthorizationError("not_found", 404);
-  if (resource && !visible(p, resource)) throw new AuthorizationError("not_found", 404);
+  if (resource && (!visible(p, resource) || !assignedDriverMaySee(store, p, resource))) throw new AuthorizationError("not_found", 404);
   if (!p.permissions.includes(requiredPermission)) throw new AuthorizationError("forbidden");
   if ((path.startsWith("/v1/ops/") || path.startsWith("/ops/") || path === "/payout-batches" || path.startsWith("/carriers/")) && !p.internal) throw new AuthorizationError("forbidden");
   if ((path === "/payout-batches" || path.startsWith("/carriers/")) && !p.roles.includes("FINANCE")) throw new AuthorizationError("forbidden");

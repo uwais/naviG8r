@@ -62,6 +62,9 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
     final number = bill['billNumber'];
     final truckLines = ewayBillTruckLines(bill);
     final canAddTruck = _canAddTruck;
+    final mismatch = ewayBillTruckMismatchSentence(widget.shipment, bill,
+        canUpdate: canAddTruck);
+    final assignedTruck = widget.shipment['assignedTruckNumber'];
     return [
       if (number is String)
         SelectableText(groupedBillNumber(number),
@@ -76,6 +79,7 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
             : 'Truck not added yet.')
       else
         for (final line in truckLines) Text(line),
+      if (mismatch != null) Text(mismatch),
       Text(ewayBillCheckLine(bill, forShipper: false)),
       Text(
           truckLines.isEmpty
@@ -88,6 +92,7 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
             path:
                 '/v1/pilot/carrier/shipments/${widget.shipment['id']}/eway-bill/truck',
             current: bill,
+            assignedTruckNumber: assignedTruck is String ? assignedTruck : null,
             clearsCheck: bill['check'] is Map,
             onSaved: _showSaved,
             onCancel: () => setState(() => _addingTruck = false)),

@@ -1,7 +1,8 @@
 # Scope: a truck and a driver on each trip
 
-Status: scope only, 15 Oct 2026. Nothing here is built. It needs Rishabh's approval first because it changes data
-(two optional fields on a trip) and who may see what. It answers question 1 of the e-way bill brief.
+Status: built, 15 Oct 2026, on branch feat/trip-assignment after Rishabh approved it that day. It changes data
+(two optional fields on a trip) and who may see what. It answers question 1 of the e-way bill brief. Routes, the
+permission and the database column note are in `docs/pilot-api.md` under "Truck and driver per trip".
 
 ## The problem
 
@@ -40,7 +41,7 @@ wrong.
 
 ## Proposed change
 
-1. **Data (needs approval, additive):** `assignedVehicleId` and `assignedDriverUserId` on a trip, both optional.
+1. **Data (approved 15 Oct 2026, additive):** `assignedVehicleId` and `assignedDriverUserId` on a trip, both optional.
    Database mode needs two nullable columns on the trip table, applied by hand before merge.
 2. **Who assigns:** carrier owner, owner-driver and dispatcher, any time before the trip completes. A change is
    recorded (audit, state words only). A solo owner-operator's trip assigns itself to the owner and the primary
@@ -62,9 +63,19 @@ wrong.
 Blocking trip start, extending validity, consolidated bills, SMS, PDF upload, drivers working for two carriers at
 once (a login with two memberships already picks one organization per request), letting a driver do Part B.
 
-## Demo changes if approved
+## Demo changes
 
-Seed a second driver and a second trip so the filtering shows; the guide gets a driver-sees-only-mine step.
+The seed has a second carrier A driver (8000000013, Synthetic Driver B) and a second trip (Hoskote to Kolar) named
+for him, with one shipment; the first trip names 8000000009 and truck KA01AB1234. The guide's Step 5 shows each
+driver seeing only their own trip.
+
+## As built: differences and limits
+
+- Assigning needs both a truck and a driver; there is no way to clear an assignment once made.
+- A driver on a trip sees the truck and driver line on the trip screen, read only. The bill's mismatch sentence asks
+  only someone who can change the bill's truck to update it; a driver is told the two numbers and nothing more.
+- Database mode: two nullable columns, `ALTER TABLE "AnchorTripRow" ADD COLUMN "assignedVehicleId" TEXT, ADD
+  COLUMN "assignedDriverUserId" TEXT;`, applied by hand before merge. Not applied.
 
 ## Open questions for the team
 

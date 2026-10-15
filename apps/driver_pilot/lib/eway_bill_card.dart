@@ -244,6 +244,8 @@ class _EwayBillCardState extends State<EwayBillCard> {
     final truckLines = ewayBillTruckLines(bill);
     final canAddTruck =
         canEdit && AuthorizationSession.can('eway_bill.add_truck');
+    final mismatch = ewayBillTruckMismatchSentence(widget.shipment, bill,
+        canUpdate: canAddTruck);
     return [
       if (number is String)
         SelectableText(groupedBillNumber(number),
@@ -262,6 +264,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
             'Truck not added yet. You or your carrier can add it after the truck is on the bill on the portal.')
       else
         for (final line in truckLines) Text(line),
+      if (mismatch != null) Text(mismatch),
       const SizedBox(height: 8),
       Text(ewayBillCheckLine(bill, forShipper: true)),
       if (canEdit) ...[

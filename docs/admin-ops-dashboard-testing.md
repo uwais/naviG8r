@@ -55,10 +55,11 @@ The script creates a fresh temporary FILE store, mock payments and bookkeeping p
 | 8000000006 | FINANCE, platform                                                                   |
 | 8000000007 | ADMIN, platform                                                                     |
 | 8000000008 | SHIPPER in shipper-a; FINANCE in platform; explicit organization selection required |
-| 8000000009 | Carrier DRIVER in carrier-a                                                         |
+| 8000000009 | Carrier DRIVER in carrier-a, named on trip-carrier-a (truck KA01AB1234)             |
 | 8000000010 | Disposable customer member, user-member                                             |
 | 8000000011 | ADMIN + OPS + FINANCE, platform                                                     |
 | 8000000012 | ADMIN + FINANCE, platform                                                           |
+| 8000000013 | Carrier DRIVER in carrier-a (Synthetic Driver B), named on trip-carrier-a-2         |
 
 Use a fresh seed run when repeating destructive synthetic scenarios. Changes made through either UI are visible in the other after refresh.
 

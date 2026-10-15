@@ -47,6 +47,7 @@ test("each role gets its own cut of the bill; finance, admin and other shippers 
   assert.equal((await f.request(`/shipments/${id}/eway-bill`, "POST", goodBill, f.tokens.shipperA)).status, 200);
   registerCustomerUser(f.store, { fullName: "Synthetic Driver", phone: "8000000013" });
   const driver = inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: f.carrierA.org.id, phone: "8000000013", role: "DRIVER", vehicleRegistrationNumber: "TEST-D", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
+  assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/assignment`, "POST", { vehicleId: driver.vehicle.id, driverUserId: driver.user.id }, f.tokens.carrierA)).status, 200, "a driver sees only a trip naming them");
   const driverToken = await f.login("8000000013");
   const shipperView = (await f.request(`/shipments/${id}`, "GET", undefined, f.tokens.shipperA)).body.shipment.ewayBill;
   assert.equal(shipperView.invoiceNumber, "INV/2026/001"); assert.equal(shipperView.billDate, "2026-10-01");
@@ -148,7 +149,8 @@ test("ERP snapshot and tracking never carry the bill", async t => {
 test("the carrier owner or the shipper adds the truck; a driver cannot; any change clears the check; carriers see truck and time", async t => {
   const f = await httpFixture(t); const id = await bookedShipment(f);
   registerCustomerUser(f.store, { fullName: "Synthetic Driver", phone: "8000000013" });
-  inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: f.carrierA.org.id, phone: "8000000013", role: "DRIVER", vehicleRegistrationNumber: "TEST-D", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
+  const driver = inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: f.carrierA.org.id, phone: "8000000013", role: "DRIVER", vehicleRegistrationNumber: "TEST-D", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
+  assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/assignment`, "POST", { vehicleId: driver.vehicle.id, driverUserId: driver.user.id }, f.tokens.carrierA)).status, 200, "a driver sees only a trip naming them");
   const driverToken = await f.login("8000000013");
   const shipperRoute = `/shipments/${id}/eway-bill/truck`, carrierRoute = `/v1/pilot/carrier/shipments/${id}/eway-bill/truck`;
   const tomorrow = Date.now() + 24 * 60 * 60 * 1000;

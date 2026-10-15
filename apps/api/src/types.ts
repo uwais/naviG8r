@@ -211,6 +211,9 @@ export type AnchorTrip = {
   completedByUserId?: string;
   /** Updated by driver location pings during active trips. */
   lastLiveLocation?: TripLiveLocation;
+  /** The truck and the driver the carrier named for this trip. A DRIVER login sees only trips naming them. */
+  assignedVehicleId?: string;
+  assignedDriverUserId?: string;
 } & SoftDeleteFields;
 
 export type EwayBillNotNeededReason = "BELOW_THRESHOLD" | "GOODS_EXEMPT" | "OTHER";

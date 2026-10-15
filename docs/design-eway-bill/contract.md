@@ -20,7 +20,7 @@ its details here. Ops looks it up on the portal by hand. The carrier reads it.
 | Left out | Why |
 |---|---|
 | Blocking trip start | Depends on the team's questions 1 to 3 and 5. |
-| Truck number, valid-until, time left | The truck per trip does not exist yet (question 1); without it there is nothing to compare. |
+| Truck number, valid-until, time left | Brought back in Part B below; trips name a truck since 15 Oct 2026 (`trip-assignment-scope.md`). |
 | PDF upload | Own route, size cap, and a retention answer (question 8). |
 | Naming a truck, "Start without this shipment" | Questions 1 and 2. |
 | Reading offline | The app keeps nothing on the phone, and a failed refresh replaces every screen. Not cheap. |
@@ -108,8 +108,9 @@ Carrier card, same title, read only:
 - Bill: number in groups of four, the same check line as the shipper's (with the same date and "may have
   changed since"), and "Shown as the shipper entered it. naviG8r has not made or changed this bill, and has not
   checked the truck or the expiry." A problem adds "The shipper can see this on their shipment."
-- Known limit: every login at a carrier sees every shipment of that carrier, so any of them sees any bill
-  number and note on it (brief question 1). Not "only the people involved".
+- Who sees it (changed 15 Oct 2026, `trip-assignment-scope.md`): the carrier's owner, owner-driver and dispatcher
+  see every shipment of that carrier, so any of them sees any bill number and note on it. A driver sees only the
+  shipments on trips naming them.
 
 Ops page: "E-way bills to check" and "Missing". Each row shows the four details, a Copy button on each, a link
 "Open the government portal" ("Open the practice portal" when the server points at its practice site), "Mark as found on the portal" and "Report a problem" (reason chosen from the four
@@ -132,8 +133,12 @@ New data on the record: `truckNumber` (6 to 12 letters and digits, spaces and hy
 (same rule as every other detail). New permission `eway_bill.add_truck`: SHIPPER, and CARRIER for owner, owner-driver
 and dispatcher only (not DRIVER). It is an allow-list of subroles, so a new subrole gets nothing until named. New routes: `POST /shipments/:id/eway-bill/truck` (shipper) and
 `POST /v1/pilot/carrier/shipments/:id/eway-bill/truck` (carrier), body `{ truckNumber, validUntilUtcMs }`, only on a
-`BILL`. Audit `EWAY_BILL_TRUCK_ADDED` (state words only). Not compared with any trip's truck: trips still name none
-(question 1). A wrong truck is replaced with Change truck; removing a truck is left out of the demo.
+`BILL`. Audit `EWAY_BILL_TRUCK_ADDED` (state words only). Since 15 Oct 2026 a trip can name its truck
+(`trip-assignment-scope.md`): when the bill's truck and the trip's differ, ignoring spaces, hyphens and case, both
+cards add one plain sentence under the truck lines, "The bill shows KA01AB1234. The truck on this trip is
+KA02XY9999. Update the bill on the portal, then here." (the request only for someone who can change the bill's
+truck), and the carrier's truck form starts with the trip's truck. A wrong truck is replaced with Change truck;
+removing a truck is left out of the demo.
 
 Truck copy: "Valid until: 16 Oct 2026, 23:59 (India time)". The date button reads "Valid until, date in India: choose
 the date", then the chosen date; the picker ends 29 days after today in India, so even 23:59 on the last day stays

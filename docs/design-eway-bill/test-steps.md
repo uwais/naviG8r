@@ -7,7 +7,8 @@ only, the guide page the demo server serves, so they cannot drift from what the 
 
 1. Server, with the practice portal switched on:
    `EWAY_DEMO_PORTAL=1 OTP_PHONE_START_LIMIT=1000 OTP_IP_START_LIMIT=1000 RBAC_MANUAL_PORT=3139 node --experimental-strip-types scripts/rbac-manual.mjs`
-   Right: a table of 12 accounts, then "Open http://127.0.0.1:3139/ops".
+   Right: a table of 13 accounts (the last is 8000000013, a second carrier A driver), then
+   "Open http://127.0.0.1:3139/ops".
 2. Web app (shipper, and the carrier stand-in), from `apps/driver_pilot`:
    `flutter build web --release --no-web-resources-cdn --dart-define=API_BASE_URL=http://127.0.0.1:3139 --dart-define=EWAY_PORTAL=http://127.0.0.1:3139/demo/eway-portal`
    then, from the repo folder, `node scripts/serve-mobile-rbac.mjs`. Right: the app opens at
@@ -18,7 +19,23 @@ only, the guide page the demo server serves, so they cannot drift from what the 
    real government site. Right: with `EWAY_PORTAL` set, the button reads "Open the practice e-way bill portal";
    only a build pointing at https://ewaybillgst.gov.in says "government".
 
-Then open http://127.0.0.1:3139/demo/eway-guide. It has the steps for shipper, carrier, ops and driver, in order.
+Then open http://127.0.0.1:3139/demo/eway-guide. It has the steps for shipper, carrier, ops and driver, in order,
+and a step where each of the two drivers sees only their own trip.
+
+Quick check of the truck and driver per trip (scope: `trip-assignment-scope.md`):
+
+1. Sign in as 8000000009 on the carrier app. Right: Loads shows one trip, Synthetic Origin to Synthetic
+   Destination, with a Truck and driver card that only reads (no dropdowns, no Save). Wrong: the Hoskote to Kolar
+   trip appears, or any button to change the truck.
+2. Sign in as 8000000013. Right: only the Hoskote to Kolar trip, and Shipments lists one shipment, 150 kg,
+   Hoskote to Kolar. Wrong: more than one shipment, or the first trip.
+3. Sign in as 8000000003 (owner). Right: both trips. Open the first trip; its card shows KA01AB1234 chosen. Choose
+   KA02XY9999 and tap Save. Right: "Saved." and the card reads "Truck: KA02XY9999". Then open load-a-with-truck on
+   Shipments. Right: "The bill shows KA01AB1234. The truck on this trip is KA02XY9999. Update the bill on the
+   practice portal, then here." under the truck lines; Change truck opens with KA02XY9999 filled in.
+4. Sign in as 8000000001 (shipper) and open load-a-with-truck. Right: the same sentence. Wrong: any driver's name.
+5. A driver with no trip (invite a new one from the owner's Profile, then sign in as them). Right: Loads says "Your
+   carrier has not assigned you a trip yet."
 
 Restarting the server resets everything: shipments, sign-ins and the practice portal's bills.
 

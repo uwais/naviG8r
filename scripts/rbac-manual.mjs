@@ -45,10 +45,22 @@ const accounts = [
   ["user-member", "8000000010", "shipper-a", "CUSTOMER_MEMBER"],
   ["user-all", "8000000011", "platform", "ADMIN"],
   ["user-admin-finance", "8000000012", "platform", "ADMIN"],
+  ["user-driver-b", "8000000013", "carrier-a", "DRIVER"],
 ];
 for (const [userId, phone, orgId, role] of accounts) {
   store.users.set(userId, { id: userId, phone, fullName: `Synthetic ${userId}`, createdAtUtcMs: now });
   store.memberships.set(`${userId}:${orgId}`, { userId, orgId, role, createdAtUtcMs: now });
+}
+store.users.get("user-driver-b").fullName = "Synthetic Driver B";
+
+// Each carrier A driver has a truck. The first truck is the one already on the seeded bill, so the two match until
+// the owner changes the trip's truck; then the bill and the trip differ and both cards say so.
+for (const [vehicleId, registrationNumber, userId] of [
+  ["vehicle-carrier-a-1", "KA01AB1234", "user-driver"],
+  ["vehicle-carrier-a-2", "KA02XY9999", "user-driver-b"],
+]) {
+  store.vehicles.set(vehicleId, { id: vehicleId, orgId: "carrier-a", registrationNumber, vehicleClass: "MEDIUM", capacityKg: 1000, createdAtUtcMs: now });
+  store.driverProfiles.set(userId, { userId, orgId: "carrier-a", primaryVehicleId: vehicleId, createdAtUtcMs: now });
 }
 store.memberships.set("user-dual:platform", {
   userId: "user-dual", orgId: "platform", role: "FINANCE", createdAtUtcMs: now,
@@ -56,30 +68,36 @@ store.memberships.set("user-dual:platform", {
 
 // Each shipment gets its own route and weight so the list rows can be told apart.
 const seededShipments = [
-  ["load-a-hold", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 3600000, 120, "Peenya, Bengaluru", "Ambattur, Chennai"],
-  ["load-a-expired", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 49 * 3600000, 45, "Whitefield, Bengaluru", "Hosur"],
-  ["load-a-booked", "shipper-a", "carrier-a", "BOOKED", null, 250, "Bommasandra, Bengaluru", "Guindy, Chennai"],
-  ["load-a-with-bill", "shipper-a", "carrier-a", "BOOKED", null, 80, "Yeshwanthpur, Bengaluru", "Mysuru"],
-  ["load-a-with-truck", "shipper-a", "carrier-a", "BOOKED", null, 400, "Electronic City, Bengaluru", "Coimbatore"],
-  ["load-b-pending", "shipper-b", "carrier-b", "PENDING_CARRIER_ACCEPT", null, 10, "Hebbal, Bengaluru", "Tumakuru"],
+  ["load-a-hold", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 3600000, 120, "Peenya, Bengaluru", "Ambattur, Chennai", "trip-carrier-a"],
+  ["load-a-expired", "shipper-a", "carrier-a", "PENDING_RELEASE", now - 49 * 3600000, 45, "Whitefield, Bengaluru", "Hosur", "trip-carrier-a"],
+  ["load-a-booked", "shipper-a", "carrier-a", "BOOKED", null, 250, "Bommasandra, Bengaluru", "Guindy, Chennai", "trip-carrier-a"],
+  ["load-a-with-bill", "shipper-a", "carrier-a", "BOOKED", null, 80, "Yeshwanthpur, Bengaluru", "Mysuru", "trip-carrier-a"],
+  ["load-a-with-truck", "shipper-a", "carrier-a", "BOOKED", null, 400, "Electronic City, Bengaluru", "Coimbatore", "trip-carrier-a"],
+  ["load-a2-booked", "shipper-a", "carrier-a", "BOOKED", null, 150, "Hoskote, Bengaluru", "Kolar", "trip-carrier-a-2"],
+  ["load-b-pending", "shipper-b", "carrier-b", "PENDING_CARRIER_ACCEPT", null, 10, "Hebbal, Bengaluru", "Tumakuru", "trip-carrier-b"],
 ];
 
 // Each trip's reserved weight is the weight of the shipments seeded on it, so its remaining capacity adds up.
-for (const carrierId of ["carrier-a", "carrier-b"]) {
-  const id = `trip-${carrierId}`;
-  const reservedKg = seededShipments.filter(shipment => shipment[2] === carrierId).reduce((sum, shipment) => sum + shipment[5], 0);
+// Carrier A's two trips each name a driver, so each driver login sees only its own trip.
+for (const [id, carrierId, originCity, destCity, assignedVehicleId, assignedDriverUserId] of [
+  ["trip-carrier-a", "carrier-a", "Synthetic Origin", "Synthetic Destination", "vehicle-carrier-a-1", "user-driver"],
+  ["trip-carrier-a-2", "carrier-a", "Hoskote", "Kolar", "vehicle-carrier-a-2", "user-driver-b"],
+  ["trip-carrier-b", "carrier-b", "Synthetic Origin", "Synthetic Destination", null, null],
+]) {
+  const reservedKg = seededShipments.filter(shipment => shipment[8] === id).reduce((sum, shipment) => sum + shipment[5], 0);
   store.anchorTrips.set(id, {
-    id, carrierId, originCity: "Synthetic Origin", destCity: "Synthetic Destination",
+    id, carrierId, originCity, destCity,
     windowStart: new Date(now).toISOString(), windowEnd: new Date(now + 86400000).toISOString(),
     vehicleClass: "MEDIUM", capacityKg: 1000, reservedKg,
     status: "OPEN", createdAtUtcMs: now,
+    ...(assignedVehicleId ? { assignedVehicleId, assignedDriverUserId } : {}),
   });
 }
 
-for (const [id, customerOrgId, carrierId, status, podAtUtcMs, weightKg, pickupAddress, dropAddress] of seededShipments) {
+for (const [id, customerOrgId, carrierId, status, podAtUtcMs, weightKg, pickupAddress, dropAddress, anchorTripId] of seededShipments) {
   const paymentId = `payment-${id}`;
   store.shipments.set(id, {
-    id, anchorTripId: `trip-${carrierId}`, customerOrgId, carrierId,
+    id, anchorTripId, customerOrgId, carrierId,
     customerOrgName: store.organizations.get(customerOrgId).displayName,
     status, weightKg, pickupAddress, dropAddress,
     grossPaise: 5000, commissionPaise: 500, netToCarrierPaise: 4500, paymentId,

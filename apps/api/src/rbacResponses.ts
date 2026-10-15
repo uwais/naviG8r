@@ -11,7 +11,7 @@ export function serializeResponse(value: unknown): unknown {
   let out: Record<string, unknown>;
   if ("customerOrgName" in v && "paymentId" in v) {
     const keys = ["id", "anchorTripId", "carrierId", "carrierDisplayName", "customerOrgId", "customerOrgName", "status", "weightKg", "createdAtUtcMs", "updatedAtUtcMs", "podAtUtcMs", "podAcceptedAtUtcMs", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs", "externalLoadId"];
-    if (p?.roles.some(r => ["SHIPPER", "CARRIER", "OPS"].includes(r))) keys.push("pickupAddress", "dropAddress", "pickup", "drop");
+    if (p?.roles.some(r => ["SHIPPER", "CARRIER", "OPS"].includes(r))) keys.push("pickupAddress", "dropAddress", "pickup", "drop", "assignedTruckNumber");
     if (p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r))) keys.push("grossPaise");
     if (p?.roles.some(r => ["CARRIER", "FINANCE"].includes(r))) keys.push("netToCarrierPaise");
     if (p?.roles.includes("FINANCE")) keys.push("commissionPaise", "paymentId");
@@ -22,7 +22,9 @@ export function serializeResponse(value: unknown): unknown {
   } else if ("kind" in v && "kycStatus" in v) {
     out = pick(v, ["id", "kind", "displayName", "kycStatus", "createdAtUtcMs", "inactiveAtUtcMs", "rejectionReasonCode", "approvalTakenBack"]);
   } else if ("originCity" in v && "reservedKg" in v) {
-    out = pick(v, ["id", "carrierId", "carrierDisplayName", "originCity", "destCity", "origin", "destination", "windowStart", "windowEnd", "vehicleClass", "capacityKg", "reservedKg", "status", "createdAtUtcMs", "startedAtUtcMs", "completedAtUtcMs"]);
+    out = pick(v, ["id", "carrierId", "carrierDisplayName", "originCity", "destCity", "origin", "destination", "windowStart", "windowEnd", "vehicleClass", "capacityKg", "reservedKg", "status", "createdAtUtcMs", "startedAtUtcMs", "completedAtUtcMs",
+      // Who drives is the carrier's own business, and ops'. Shippers and public trip lists never get it.
+      ...(p?.roles.some(r => ["CARRIER", "OPS"].includes(r)) ? ["assignedVehicleId", "assignedDriverUserId", "assignedTruckNumber", "assignedDriverName"] : [])]);
   } else if ("netToCarrierPaise" in v && "shipmentId" in v) {
     out = pick(v, ["id", "shipmentId", "carrierId", "status", "podAtUtcMs", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs", "paidAtUtcMs", "createdAtUtcMs", ...(p?.roles.some(r => ["CARRIER", "FINANCE"].includes(r)) ? ["netToCarrierPaise"] : []), ...(p?.roles.includes("FINANCE") ? ["grossPaise", "commissionPaise"] : [])]);
   } else {

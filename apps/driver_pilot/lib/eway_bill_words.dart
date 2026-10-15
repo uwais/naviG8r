@@ -72,6 +72,24 @@ List<String> ewayBillTruckLines(Map<String, dynamic> bill, {DateTime? now}) {
   return lines;
 }
 
+/// One plain sentence when the truck on the bill is not the truck the carrier named for the trip, or null
+/// when they match or either is missing. Only someone who can change the bill's truck is asked to update it.
+String? ewayBillTruckMismatchSentence(
+    Map<String, dynamic> shipment, Map<String, dynamic> bill,
+    {required bool canUpdate}) {
+  final onBill = bill['truckNumber'];
+  final onTrip = shipment['assignedTruckNumber'];
+  if (onBill is! String || onTrip is! String) return null;
+  String plain(String truck) =>
+      truck.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
+  if (plain(onBill).isEmpty || plain(onTrip).isEmpty) return null;
+  if (plain(onBill) == plain(onTrip)) return null;
+  final request = canUpdate
+      ? ' Update the bill on the $ewayBillPortalName, then here.'
+      : '';
+  return 'The bill shows $onBill. The truck on this trip is $onTrip.$request';
+}
+
 /// The reasons a shipper can give, in the order shown, none chosen to start.
 const notNeededReasonChoices = {
   'BELOW_THRESHOLD': 'Below the value that needs one',

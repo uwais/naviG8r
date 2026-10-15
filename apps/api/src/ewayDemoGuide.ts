@@ -58,7 +58,7 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>The demo server is running with the practice site switched on. Restarting it resets everything, including the bills on this practice site.</li>
 <li>Shipper app: <a href="${appAddress}/#/customer/login">${appAddress}/#/customer/login</a>. Sign in as 8000000001.</li>
 <li>Carrier: the Android emulator, or <a href="${appAddress}/#/driver">${appAddress}/#/driver</a>. Sign in as 8000000003 (the owner).</li>
-<li>Driver: the same carrier app. Sign in as 8000000009.</li>
+<li>Driver: the same carrier app. Sign in as 8000000009, who drives the Synthetic Origin to Synthetic Destination trip in truck KA01AB1234, or as 8000000013 (Synthetic Driver B), who drives the Hoskote to Kolar trip in truck KA02XY9999.</li>
 <li>Ops: <a href="/ops/beta">/ops/beta</a>. Sign in as 8000000005.</li>
 <li>Tap Send code and the code fills in for you.</li>
 <li>On the practice site you choose who you are on <a href="/demo/eway-portal/sign-in">Choose who you are</a>: Supplier (Synthetic Shipper A), Transporter (Synthetic Carrier A, Transporter ID 29TRNSP1234A1Z7) or Someone else. There is no password. Switch user is at the top of every page.</li>
@@ -100,7 +100,14 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>The driver's part is read only by design: the bill number in large type, the truck, the valid-until time and the ops line, and once fewer than 12 hours are left, how many hours remain.</li>
 <li>At a check-post the driver quotes the bill number. The driver creates nothing and changes nothing.</li>
 </ol>
-<h2>Step 5. What to try next</h2>
+<h2>Step 5. Each driver sees only their own trip</h2>
+<ol>
+<li>Signed in as 8000000009, Loads shows one trip, Synthetic Origin to Synthetic Destination, and Shipments shows only the shipments on it.</li>
+<li>Sign out and sign in as 8000000013. Loads shows only the Hoskote to Kolar trip, and Shipments only its one shipment.</li>
+<li>Sign in as the owner, 8000000003. Loads shows both trips. Open Synthetic Origin to Synthetic Destination: its Truck and driver card shows KA01AB1234 and the driver. Choose truck KA02XY9999 and tap Save.</li>
+<li>Open load-a-with-truck. Its e-way bill card now says the bill shows KA01AB1234 and the truck on this trip is KA02XY9999, and asks for the bill to be updated on the practice portal. The shipper sees the same sentence on that shipment. Choose KA01AB1234 again and the sentence goes away.</li>
+</ol>
+<h2>Step 6. What to try next</h2>
 <ol>
 <li>Switch user to Someone else and open the bill's details from the home page: it is refused.</li>
 <li>Switch user to Supplier and try Update vehicle on the same bill: it is refused, because the transporter already updated it.</li>

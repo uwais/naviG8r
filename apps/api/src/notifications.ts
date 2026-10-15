@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { effectivePermissions, legacyRoles, principalFor, recordAudit, requirePermission, type Principal } from "./rbac.ts";
 import { isActiveEntity } from "./softDelete.ts";
+import { assignedDriverMaySee } from "./tripAssignmentRules.ts";
 import type { Store } from "./store.ts";
 import { enqueuePushIntentForNotification } from "./features/push/push.ts";
 import type { Conversation, ConversationEscalationGrant, ConversationMessage, Notification, Shipment } from "./types.ts";
@@ -92,7 +93,7 @@ function requireShipmentActor(store: Store, shipment: Shipment, action: "convers
   if (!principal.permissions.includes(action) || !(principal.roles.includes("SHIPPER") || principal.roles.includes("CARRIER"))) throw new CommunicationError("forbidden", 403);
   const orgId = principal.organizationId;
   const belongs = principal.roles.includes("SHIPPER") ? shipment.customerOrgId === orgId : shipment.carrierId === orgId;
-  if (!belongs) throw new CommunicationError("not_found", 404);
+  if (!belongs || !assignedDriverMaySee(store, principal, shipment)) throw new CommunicationError("not_found", 404);
   return principal;
 }
 
@@ -130,7 +131,9 @@ function notificationRecipients(store: Store, shipment: Shipment): Array<{ userI
   for (const [orgId, role] of orgs) {
     if (!orgId) continue;
     for (const membership of store.memberships.values()) {
-      if (membership.orgId === orgId && eligibleActor(store, membership.userId, orgId, role)) recipients.push({ userId: membership.userId, orgId, role });
+      // A driver hears only about shipments on a trip naming them, push included.
+      const driverElsewhere = membership.role === "DRIVER" && store.anchorTrips.get(shipment.anchorTripId)?.assignedDriverUserId !== membership.userId;
+      if (membership.orgId === orgId && !driverElsewhere && eligibleActor(store, membership.userId, orgId, role)) recipients.push({ userId: membership.userId, orgId, role });
     }
   }
   return recipients;
@@ -210,6 +213,7 @@ export function resolveNotificationOpenRoute(store: Store, notificationId: strin
   const role = notification.recipientOrgId === shipment.customerOrgId ? "SHIPPER"
     : notification.recipientOrgId === shipment.carrierId ? "CARRIER" : null;
   if (!role || !eligibleActor(store, userId, notification.recipientOrgId, role)) throw new CommunicationError("notification_not_found", 404);
+  if (store.memberships.get(`${userId}:${notification.recipientOrgId}`)?.role === "DRIVER" && store.anchorTrips.get(shipment.anchorTripId)?.assignedDriverUserId !== userId) throw new CommunicationError("notification_not_found", 404);
   return {
     organizationId: notification.recipientOrgId,
     shipmentId: shipment.id,
@@ -348,7 +352,12 @@ export async function listGroupedNotifications(store: Store, limit = 30, before?
     const nextBefore = hasMore && last
       ? encodeOpaque({ ...cursorScope, notificationSequence: page.notificationSequence, latestAt: last.latestAtUtcMs, shipmentId: last.shipmentId })
       : null;
-    return { shipments, nextBefore, unreadCount: page.unreadCount, notificationSequence: page.notificationSequence };
+    // The database reader ignores trip assignments: drop a driver's other groups after the cursor, so paging advances.
+    const shown = shipments.filter((group) => {
+      const shipment = store.shipments.get(group.shipmentId);
+      return !shipment || assignedDriverMaySee(store, principal, shipment);
+    });
+    return { shipments: shown, nextBefore, unreadCount: page.unreadCount, notificationSequence: page.notificationSequence };
   }
   const groups = new Map<string, { shipmentId: string; latestAtUtcMs: number; unreadCount: number }>();
   for (const n of store.notifications.values()) {
@@ -356,7 +365,7 @@ export async function listGroupedNotifications(store: Store, limit = 30, before?
     const shipment = store.shipments.get(n.shipmentId);
     if (!shipment || !isActiveEntity(shipment)) continue;
     const belongs = (principal.roles.includes("SHIPPER") && shipment.customerOrgId === principal.organizationId) || (principal.roles.includes("CARRIER") && shipment.carrierId === principal.organizationId);
-    if (!belongs) continue;
+    if (!belongs || !assignedDriverMaySee(store, principal, shipment)) continue;
     const group = groups.get(n.shipmentId) ?? { shipmentId: n.shipmentId, latestAtUtcMs: n.createdAtUtcMs, unreadCount: 0 };
     group.latestAtUtcMs = Math.max(group.latestAtUtcMs, n.createdAtUtcMs);
     if (n.readAtUtcMs == null) group.unreadCount++;

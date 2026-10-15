@@ -20,6 +20,8 @@ import "location_editor.dart";
 import "maps_config.dart";
 import "pilot_api.dart";
 import "notification_center.dart";
+import "trip_assignment_card.dart";
+import "unassigned_driver_notice.dart";
 
 /// Nested navigator for the driver shell (tabs + pushed detail routes).
 final GlobalKey<NavigatorState> driverShellNavigatorKey =
@@ -1382,6 +1384,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
               child: Text("No trips match these filters.",
                   style: TextStyle(color: DriverTheme.muted)),
             ),
+          if (!_loading && _error == null && _trips.isEmpty) const UnassignedDriverNotice(),
           ..._filtered.map(
             (t) => _LoadCard(
               trip: t,
@@ -2055,6 +2058,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                       style: const TextStyle(
                           color: DriverTheme.muted, fontSize: 13),
                     ),
+                    if (trip != null) TripAssignmentCard(trip: trip),
                     if (tripComplete)
                       const Padding(
                         padding: EdgeInsets.only(top: 6),

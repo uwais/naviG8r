@@ -21,6 +21,7 @@ class EwayBillTruckForm extends StatefulWidget {
       required this.onCancel,
       required this.clearsCheck,
       this.current,
+      this.assignedTruckNumber,
       super.key});
   final String path;
   final void Function(Map<String, dynamic> shipment) onSaved;
@@ -29,6 +30,10 @@ class EwayBillTruckForm extends StatefulWidget {
 
   /// The bill as it is now, to show its truck back when changing it.
   final Map<String, dynamic>? current;
+
+  /// The truck the carrier named for the trip. It fills the field ahead of the bill's own truck, because
+  /// after a breakdown it is the truck the bill should now carry.
+  final String? assignedTruckNumber;
 
   @override
   State<EwayBillTruckForm> createState() => _EwayBillTruckFormState();
@@ -45,7 +50,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
   void initState() {
     super.initState();
     final current = widget.current;
-    final truck = current?['truckNumber'];
+    final truck = widget.assignedTruckNumber ?? current?['truckNumber'];
     if (truck is String) _truckNumber.text = truck;
     final validUntil = current?['validUntilUtcMs'];
     if (validUntil is num) {

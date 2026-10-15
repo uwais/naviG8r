@@ -1,0 +1,219 @@
+import 'package:flutter/material.dart';
+
+import 'authorization_session.dart';
+import 'driver_theme.dart';
+import 'pilot_api.dart';
+
+/// The truck and the driver on one trip. The carrier owner, owner-driver or dispatcher picks them; everyone
+/// else, drivers included, only reads them. Nothing is preselected except what the trip already names.
+class TripAssignmentCard extends StatefulWidget {
+  const TripAssignmentCard({required this.trip, super.key});
+  final Map<String, dynamic> trip;
+
+  @override
+  State<TripAssignmentCard> createState() => _TripAssignmentCardState();
+}
+
+class _TripAssignmentCardState extends State<TripAssignmentCard> {
+  List<Map<String, dynamic>> _vehicles = [];
+  List<Map<String, dynamic>> _drivers = [];
+  late String? _vehicleId = _text(widget.trip['assignedVehicleId']);
+  late String? _driverUserId = _text(widget.trip['assignedDriverUserId']);
+  Map<String, dynamic>? _savedTrip;
+  bool _fleetLoaded = false;
+  bool _fleetFailed = false;
+  bool _saving = false;
+  bool _driverBusy = false;
+  String? _error;
+
+  static String? _text(Object? value) =>
+      value is String && value.isNotEmpty ? value : null;
+
+  Map<String, dynamic> get _trip => _savedTrip ?? widget.trip;
+
+  bool get _canAssign =>
+      AuthorizationSession.can('trip.assign') && _trip['status'] != 'COMPLETED';
+
+  @override
+  void initState() {
+    super.initState();
+    if (_canAssign) _loadFleet();
+  }
+
+  @override
+  void didUpdateWidget(TripAssignmentCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.trip['id'] == oldWidget.trip['id']) return;
+    setState(() {
+      _savedTrip = null;
+      _vehicleId = _text(widget.trip['assignedVehicleId']);
+      _driverUserId = _text(widget.trip['assignedDriverUserId']);
+      if (_fleetLoaded) _forgetChoicesOutsideFleet();
+      _driverBusy = false;
+      _error = null;
+    });
+  }
+
+  /// A truck or driver no longer in the fleet (a deactivated truck, say) shows as unchosen, so it is not
+  /// sent either. A dropdown also refuses a value none of its items carry.
+  void _forgetChoicesOutsideFleet() {
+    if (!_vehicles.any((vehicle) => vehicle['id'] == _vehicleId)) {
+      _vehicleId = null;
+    }
+    if (!_drivers.any((driver) => driver['userId'] == _driverUserId)) {
+      _driverUserId = null;
+    }
+  }
+
+  static List<Map<String, dynamic>> _maps(Object? raw) => raw is List
+      ? raw.whereType<Map<String, dynamic>>().toList()
+      : <Map<String, dynamic>>[];
+
+  Future<void> _loadFleet() async {
+    setState(() => _fleetFailed = false);
+    try {
+      final response =
+          await api.get<Map<String, dynamic>>('/v1/pilot/carrier/fleet');
+      if (!mounted) return;
+      setState(() {
+        _vehicles = _maps(response.data?['vehicles']);
+        _drivers = _maps(response.data?['drivers']);
+        _forgetChoicesOutsideFleet();
+        _fleetLoaded = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _fleetFailed = true);
+    }
+  }
+
+  Future<void> _save() async {
+    final vehicleId = _vehicleId;
+    final driverUserId = _driverUserId;
+    if (_saving || vehicleId == null || driverUserId == null) return;
+    final scope = AuthorizationSession.scopeKey;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final response = await api.post<Map<String, dynamic>>(
+          '/v1/pilot/anchor-trips/${widget.trip['id']}/assignment',
+          data: {'vehicleId': vehicleId, 'driverUserId': driverUserId});
+      if (!mounted || scope != AuthorizationSession.scopeKey) return;
+      final trip = response.data?['trip'];
+      setState(() {
+        if (trip is Map<String, dynamic>) _savedTrip = trip;
+        _driverBusy = response.data?['driverBusy'] == true;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = ewayBillErrorSentence(e));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  String _assignmentWords() {
+    final truck = _text(_trip['assignedTruckNumber']);
+    final driver = _text(_trip['assignedDriverName']);
+    if (truck == null && driver == null) {
+      return 'No truck or driver named for this trip yet.';
+    }
+    return 'Truck: ${truck ?? 'not named'}. Driver: ${driver ?? 'not named'}.';
+  }
+
+  Widget _picker(
+      {required String label,
+      required String hint,
+      required String? value,
+      required List<DropdownMenuItem<String>> items,
+      required ValueChanged<String?> onChanged}) {
+    return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: InputDecorator(
+            decoration: InputDecoration(labelText: label),
+            child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                    isExpanded: true,
+                    isDense: true,
+                    value: value,
+                    hint: Text(hint),
+                    items: items,
+                    onChanged: _saving ? null : onChanged))));
+  }
+
+  List<Widget> _pickers() {
+    if (_fleetFailed) {
+      return [
+        const Text('Could not load your trucks and drivers.'),
+        Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+                onPressed: _loadFleet, child: const Text('Try again'))),
+      ];
+    }
+    if (!_fleetLoaded) return [const LinearProgressIndicator()];
+    final saved = _savedTrip != null &&
+        _vehicleId == _text(_trip['assignedVehicleId']) &&
+        _driverUserId == _text(_trip['assignedDriverUserId']);
+    return [
+      _picker(
+          label: 'Truck',
+          hint: 'Choose a truck',
+          value: _vehicleId,
+          items: [
+            for (final vehicle in _vehicles)
+              DropdownMenuItem(
+                  value: vehicle['id']?.toString(),
+                  child: Text(vehicle['registrationNumber']?.toString() ?? ''))
+          ],
+          onChanged: (value) => setState(() => _vehicleId = value)),
+      _picker(
+          label: 'Driver',
+          hint: 'Choose a driver',
+          value: _driverUserId,
+          items: [
+            for (final driver in _drivers)
+              DropdownMenuItem(
+                  value: driver['userId']?.toString(),
+                  child: Text(driver['displayName']?.toString() ?? ''))
+          ],
+          onChanged: (value) => setState(() => _driverUserId = value)),
+      if (_driverBusy)
+        const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text('This driver is already on a trip in progress.')),
+      if (_error != null)
+        Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(_error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error))),
+      const SizedBox(height: 8),
+      Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton(
+              onPressed: _saving || _vehicleId == null || _driverUserId == null
+                  ? null
+                  : _save,
+              child: Text(_saving ? 'Saving...' : 'Save'))),
+      if (saved && !_saving)
+        const Padding(padding: EdgeInsets.only(top: 8), child: Text('Saved.')),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+        child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Truck and driver',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(_assignmentWords(),
+                      style: const TextStyle(color: DriverTheme.navy)),
+                  if (_canAssign) ..._pickers(),
+                ])));
+  }
+}

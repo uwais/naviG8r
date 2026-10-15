@@ -176,7 +176,21 @@ Response:
 }
 ```
 
-Trips are limited to **carrier orgs** your user belongs to (`CARRIER_SOLO`, `CARRIER_FLEET`, `CARRIER_LEGACY`), newest first.
+Trips are limited to **carrier orgs** your user belongs to (`CARRIER_SOLO`, `CARRIER_FLEET`, `CARRIER_LEGACY`), newest first. A login whose membership is **`DRIVER`** gets only the trips whose `assignedDriverUserId` is them (see "Truck and driver per trip" below); with none assigned the list is empty.
+
+#### Truck and driver per trip
+
+A trip may name one truck and one driver: `assignedVehicleId` and `assignedDriverUserId`, both optional. Carrier and ops responses also carry `assignedTruckNumber` (the truck's registration, upper case, spaces and hyphens removed) and `assignedDriverName`; shippers, public trip lists and ERP responses get none of the four. A trip published by a solo owner-operator (`OWNER_DRIVER`) names that person and their primary vehicle by itself. Trips from before this change stay unassigned.
+
+**Who sees what.** Owners, owner-drivers and dispatchers see all of their carrier's trips and shipments. A `DRIVER` sees only trips naming them and the shipments on those trips on these routes: the trip list and detail, start, complete and location, the carrier shipment list (with or without `anchorTripId`), accept, proof of delivery, tracking, the shipment conversation, the notification list, the grouped inbox, mark-read and notification open. A trip or shipment outside that answers `404`, as for another carrier. New notifications go only to the driver named on the trip. Not yet limited: the earnings, ledger and payout-batch routes (a driver holds `payment.read`, and ledger lines carry shipment ids of the whole carrier), and `GET /v1/pilot/me`, which lists every truck of the carrier. In database mode the grouped inbox can return a short page, and its `unreadCount` still counts groups hidden from a driver.
+
+**`POST /v1/pilot/anchor-trips/:tripId/assignment`** (permission **`trip.assign`**: carrier `OWNER_DRIVER`, `OWNER`, `DISPATCHER`, never `DRIVER`). Body `{ "vehicleId": "...", "driverUserId": "..." }`. Both must belong to the trip's carrier: the vehicle's `orgId` is the trip's `carrierId`, and the driver is an active member with role `DRIVER`, `OWNER_DRIVER` or `OWNER`. Replaces any earlier assignment. Response `200 { "trip": {...}, "driverBusy": false }`; `driverBusy` is `true` when that driver is already named on another trip that is `IN_PROGRESS` (a warning, the assignment is saved). Refusals: `400 { "error": "invalid_trip_assignment", "detail": "a sentence", "field": "vehicleId" | "driverUserId" }`, `409 trip_completed`, `403` for a driver, `404` for another carrier's trip. Audit row `TRIP_ASSIGNED` on the trip, states `UNASSIGNED` or `ASSIGNED` only.
+
+**`GET /v1/pilot/carrier/fleet`** (permission `trip.assign`). The pickers' choices for the caller's own carrier: `{ "vehicles": [{ "id", "registrationNumber", "vehicleClass" }], "drivers": [{ "userId", "displayName" }] }`. No phone numbers. `GET /v1/pilot/me` already lists the carrier's vehicles but not its people, so this route was added.
+
+**Database mode:** two nullable columns on the trip table must exist first, applied by hand before merge, or every trip read fails: `ALTER TABLE "AnchorTripRow" ADD COLUMN "assignedVehicleId" TEXT, ADD COLUMN "assignedDriverUserId" TEXT;`
+
+Shipments carry a read-only `assignedTruckNumber` (the trip's truck, same form) for shipper, carrier and ops logins, never for finance, admin or ERP callers. The e-way bill cards compare it with the bill's `truckNumber`.
 
 #### `POST /v1/pilot/anchor-trips/:tripId/location`
 Driver live GPS ping while a trip is in progress (Bearer; trip must belong to your carrier org). The server stores the latest point on the anchor trip (`lastLiveLocation`). The driver app sends pings about every 30s when on the active-trip map screen.
