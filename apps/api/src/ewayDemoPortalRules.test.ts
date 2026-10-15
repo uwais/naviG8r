@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { extensionInputProblem, generateInputProblem, isGstinShaped, parseDistanceKm, vehicleInputProblem } from "./ewayDemoPortalFormChecks.ts";
+import type { GenerateTyped } from "./ewayDemoPortalFormChecks.ts";
 import {
-  PERSONAS, cancelRefusal, detailRefusal, extensionInputProblem, extensionRefusal, generateInputProblem, generateRefusal,
-  isGstinShaped, parseDistanceKm, validUpToAfterVehicleUpdate, validUpToUtcMs, validityDays, vehicleInputProblem,
-  vehicleUpdateRefusal, verifyBill,
+  PERSONAS, cancelRefusal, detailRefusal, extensionRefusal, generateRefusal, validUpToAfterVehicleUpdate, validUpToUtcMs,
+  validityDays, vehicleUpdateRefusal, verifyBill,
 } from "./ewayDemoPortalRules.ts";
-import type { DemoBill, GenerateTyped } from "./ewayDemoPortalRules.ts";
+import type { DemoBill } from "./ewayDemoPortalRules.ts";
 import { formatIndiaDateTime } from "./ewayDemoPortalPages.ts";
 
 const [supplier, transporter, someoneElse] = PERSONAS;

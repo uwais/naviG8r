@@ -44,6 +44,34 @@ String ewayBillRowSummary(Map<String, dynamic> shipment) {
   return '$numberWords, $truckWords$flaggedWords';
 }
 
+/// The truck on the bill and its valid-until time, or nothing when no truck is on it. The countdown
+/// shows only in the last 12 hours, so it reads as a reminder, not as pressure. It runs to the
+/// valid-until time as it was typed in, not as the portal holds it.
+List<String> ewayBillTruckLines(Map<String, dynamic> bill, {DateTime? now}) {
+  final truck = bill['truckNumber'];
+  if (truck is! String || truck.isEmpty) return const [];
+  final lines = ['Truck: $truck'];
+  final validUntil = bill['validUntilUtcMs'];
+  if (validUntil is! num) return lines;
+  lines.add(
+      'Valid until: ${ewayBillDateTimeFromUtcMs(validUntil)} (India time)');
+  final left =
+      DateTime.fromMillisecondsSinceEpoch(validUntil.toInt(), isUtc: true)
+          .difference(now ?? DateTime.now());
+  if (left <= Duration.zero) {
+    // naviG8r cannot see the portal, so it says only that the typed time has passed, not that the bill expired.
+    lines.add('The valid-until time entered has passed. Check the portal.');
+  } else if (left < const Duration(hours: 12)) {
+    final hours = left.inHours;
+    lines.add(switch (hours) {
+      0 => 'Expires in less than an hour',
+      1 => 'Expires in 1 hour',
+      _ => 'Expires in $hours hours',
+    });
+  }
+  return lines;
+}
+
 /// The reasons a shipper can give, in the order shown, none chosen to start.
 const notNeededReasonChoices = {
   'BELOW_THRESHOLD': 'Below the value that needs one',

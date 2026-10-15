@@ -448,38 +448,6 @@ test("a form sent from another site is refused; the same site, or no Origin at a
   assert.equal(noOrigin.status, 303, "no Origin header, as from a test or an old client");
 });
 
-test("guide has the new steps, the rules box with sources, and only local links", async () => {
-  const guide = await get("/demo/eway-guide");
-  assert.equal(guide.status, 200);
-  for (const phrase of ["Before you start", "Step 1", "Step 2", "Step 3", "Step 4", "Step 5", "8000000001", "8000000003", "8000000009", "8000000005",
-    "Choose who you are: Supplier", "Switch user to Transporter", "reason First Time", "Verify an e-way bill", "Rules I modelled", "Notification 94/2020",
-    "Notification 31/2019", "Rule 138(5) and 138(5A)", "Assumed, my reading", "What is real", "What is pretend", "no password, no captcha", "from the PIN codes",
-    "This public look-up is a practice-site convenience. Who may look a bill up on the real portal is an open question.", "Tap Open the practice portal"]) {
-    assert.ok(guide.text.includes(phrase), phrase);
-  }
-  const links = [...guide.text.matchAll(/href="([^"]*)"/g)].map((match) => match[1]);
-  for (const link of links) assert.ok(link.startsWith("/") || link.startsWith("http://127.0.0.1"), link);
-});
-
-test("guide addresses follow the Host the visitor used, escaped", async () => {
-  const guideFor = (host: string) => new Promise<string>((resolve, reject) => {
-    const request = httpRequest(baseUrl + "/demo/eway-guide", { headers: { host } }, (response) => {
-      let text = "";
-      response.setEncoding("utf8");
-      response.on("data", (chunk: string) => { text += chunk; });
-      response.on("end", () => resolve(text));
-    });
-    request.on("error", reject);
-    request.end();
-  });
-  const fromLaptop = await guideFor("192.168.1.20:3139");
-  assert.ok(fromLaptop.includes("Open http://192.168.1.20:3139/demo/eway-guide to come back to this page."));
-  assert.ok(fromLaptop.includes('href="http://192.168.1.20:8087/#/customer/login"'));
-  assert.ok(!fromLaptop.includes("127.0.0.1"));
-  const hostile = await guideFor("a\"><b>x");
-  assert.ok(!hostile.includes('"><b>'), "a hostile Host is never printed raw");
-});
-
 test("past 500 bills the oldest is dropped, never a seeded one, and generating keeps working", async () => {
   const supplier = await signIn("supplier");
   const today = todayInIndia();

@@ -5,7 +5,8 @@
  */
 import type { ServerResponse } from "node:http";
 import { EXTENSION_REASONS, INDIA_OFFSET_MS, PERSONAS, TRANSPORT_REASONS, VEHICLE_UPDATE_REASONS, currentVehicle, transporterName } from "./ewayDemoPortalRules.ts";
-import type { DemoBill, GenerateTyped, Persona, VerifyResult, VerifyTyped } from "./ewayDemoPortalRules.ts";
+import type { GenerateTyped } from "./ewayDemoPortalFormChecks.ts";
+import type { DemoBill, Persona, VerifyResult, VerifyTyped } from "./ewayDemoPortalRules.ts";
 
 const BANNER_TEXT = "naviG8r DEMO. This is a practice site, not the government e-way bill portal. Nothing here is real.";
 export const CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'";

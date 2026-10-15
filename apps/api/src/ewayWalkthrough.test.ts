@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { connect } from "node:net";
 import type { Socket } from "node:net";
 import { httpFixture } from "../test/httpFixtures.ts";
-import { FORM_BODY_TIMEOUT_MS } from "./ewayDemoPortal.ts";
+import { FORM_BODY_TIMEOUT_MS } from "./ewayDemoPortalForm.ts";
 import { inviteCarrierDriver, registerCustomerUser } from "./services.ts";
 
 const INDIA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
