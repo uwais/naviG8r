@@ -24,7 +24,7 @@ input,select{display:block;width:100%;box-sizing:border-box;margin-top:4px;paddi
 button{margin-top:18px;padding:12px 20px;font:inherit;font-weight:600;color:#fff;background:#2b2620;border:0;border-radius:6px;cursor:pointer}
 .error{background:#fde8e4;border:1px solid #9b2c1f;color:#1a1a1a;padding:10px 12px;border-radius:6px;margin:12px 0}
 .box{background:#fff;border:1px solid #5c564d;border-radius:8px;padding:12px 16px;margin:16px 0}
-.number{font:700 2.2rem/1.2 ui-monospace,Menlo,monospace;letter-spacing:0.06em;margin:12px 0}
+.number{font:700 clamp(1.25rem,6vw,2.2rem)/1.2 ui-monospace,Menlo,monospace;letter-spacing:0.06em;margin:12px 0}
 .practice-mark{font-size:1.2rem;letter-spacing:0}
 .mono{font-family:ui-monospace,Menlo,monospace}
 ol li{margin:6px 0}

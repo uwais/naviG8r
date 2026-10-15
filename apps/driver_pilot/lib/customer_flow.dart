@@ -2220,7 +2220,22 @@ class _CustomerShipmentDetailScreenState
   Map<String, dynamic>? _trip;
   Map<String, dynamic>? _liveLocation;
   bool _isLive = false;
+  bool _refreshFailed = false;
   Timer? _poll;
+
+  // A failed refresh keeps what was loaded: clearing it would throw away a half-typed e-way bill form.
+  void _showLoadFailure(Object e) {
+    if (_shipment != null) {
+      _refreshFailed = true;
+      return;
+    }
+    _payment = null;
+    _trip = null;
+    _liveLocation = null;
+    _error = serverNeverAnswered(e)
+        ? "Could not load this shipment. Check your connection and pull down to try again."
+        : formatApiError(e);
+  }
 
   Future<void> _load({bool showSpinner = true}) async {
     if (showSpinner) {
@@ -2240,17 +2255,11 @@ class _CustomerShipmentDetailScreenState
         _payment = r.data?["payment"] is Map<String, dynamic>
             ? r.data!["payment"] as Map<String, dynamic>
             : null;
+        _refreshFailed = false;
       });
       await _loadTracking();
     } catch (e) {
-      if (mounted)
-        setState(() {
-          _shipment = null;
-          _payment = null;
-          _trip = null;
-          _liveLocation = null;
-          _error = formatApiError(e);
-        });
+      if (mounted) setState(() => _showLoadFailure(e));
     } finally {
       if (showSpinner && mounted) setState(() => _loading = false);
     }
@@ -2273,7 +2282,9 @@ class _CustomerShipmentDetailScreenState
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _trackingError = formatApiError(e));
+      setState(() => _trackingError = serverNeverAnswered(e)
+          ? "Could not reach the server. Check your connection."
+          : formatApiError(e));
     }
   }
 
@@ -2307,17 +2318,12 @@ class _CustomerShipmentDetailScreenState
             ? r.data!["payment"] as Map<String, dynamic>
             : null;
         _error = null;
+        _refreshFailed = false;
       });
       await _loadTracking();
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _shipment = null;
-        _payment = null;
-        _trip = null;
-        _liveLocation = null;
-        _error = formatApiError(e);
-      });
+      setState(() => _showLoadFailure(e));
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
@@ -2391,8 +2397,15 @@ class _CustomerShipmentDetailScreenState
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16),
                 children: [
+                  // Always one child here, so the cards below keep their place and their state.
                   if (_error != null)
-                    Text(_error!, style: const TextStyle(color: Colors.red)),
+                    Text(_error!, style: const TextStyle(color: Colors.red))
+                  else if (_refreshFailed)
+                    const Text(
+                        "Could not refresh. Showing what was loaded earlier.",
+                        style: TextStyle(color: DriverTheme.muted))
+                  else
+                    const SizedBox.shrink(),
                   if (shipment != null) ...[
                     if ((shipment["externalLoadId"]?.toString() ?? "")
                         .isNotEmpty)

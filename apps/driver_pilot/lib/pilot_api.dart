@@ -238,8 +238,14 @@ String formatApiError(Object e) {
   return e.toString();
 }
 
+/// The request failed before any answer came back: a dropped connection, a timeout, no signal.
+bool serverNeverAnswered(Object e) => e is DioException && e.response == null;
+
 /// The server writes a plain sentence for each e-way bill refusal; show it instead of "HTTP 400".
 String ewayBillErrorSentence(Object e) {
+  if (serverNeverAnswered(e)) {
+    return "Could not save. Check your connection and try again.";
+  }
   if (e is DioException) {
     final body = e.response?.data;
     final detail = body is Map ? body["detail"] : null;

@@ -39,7 +39,7 @@ String ewayBillRowSummary(Map<String, dynamic> shipment) {
   final truckWords =
       truck is String && truck.isNotEmpty ? 'truck $truck' : 'truck not added';
   final flaggedWords = check is Map && check['result'] == 'PROBLEM'
-      ? '. Ops flagged this bill. Open it to see why'
+      ? '. Ops flagged this bill. Open it to see why.'
       : '';
   return '$numberWords, $truckWords$flaggedWords';
 }

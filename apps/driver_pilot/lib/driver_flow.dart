@@ -1016,6 +1016,7 @@ class _DriverShipmentDetailScreenState
     extends State<DriverShipmentDetailScreen> {
   Map<String, dynamic>? _shipment;
   bool _accepting = false;
+  bool _loadFailed = false;
 
   @override
   void initState() {
@@ -1054,12 +1055,27 @@ class _DriverShipmentDetailScreenState
           }
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) setState(() => _loadFailed = true);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final s = _shipment;
+    if (s == null && _loadFailed) {
+      return Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text(
+            "Could not load this shipment. Check your connection and try again."),
+        TextButton(
+            onPressed: () {
+              setState(() => _loadFailed = false);
+              _load();
+            },
+            child: const Text("Try again")),
+      ]));
+    }
     if (s == null) {
       return const Center(child: CircularProgressIndicator());
     }

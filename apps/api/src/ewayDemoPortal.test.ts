@@ -96,6 +96,9 @@ async function generateBill(cookie: string, overrides: Record<string, string> = 
   assert.equal(reply.status, 200, reply.text);
   const match = /<p class="number">(\d{4}) (\d{4}) (\d{4}) <span class="practice-mark">\(practice\)<\/span><\/p>/.exec(reply.text);
   assert.ok(match, "result page shows the number in groups of four, marked practice beside it");
+  // At 2.2rem the number and its marker need about 430 px, so a 360 to 412 px phone pushed "(practice)" to a
+  // line of its own. Scaling with the screen width keeps both on one line down to 360 px.
+  assert.match(reply.text, /\.number\{font:700 clamp\(1\.25rem,6vw,2\.2rem\)/, "the number shrinks on a phone so the marker fits beside it");
   return { billNumber: match[1] + match[2] + match[3], text: reply.text };
 }
 

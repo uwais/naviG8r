@@ -67,7 +67,7 @@ void main() {
       'check': {'result': 'PROBLEM', 'problemReason': 'NOT_FOUND'},
     }));
     expect(flagged,
-        'E-way bill 1234 5678 9012, truck not added. Ops flagged this bill. Open it to see why');
+        'E-way bill 1234 5678 9012, truck not added. Ops flagged this bill. Open it to see why.');
     for (final word in ['wrong', 'invalid', 'fake', 'problem']) {
       expect(flagged.toLowerCase(), isNot(contains(word)));
     }
