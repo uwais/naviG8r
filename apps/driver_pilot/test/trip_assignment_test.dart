@@ -95,7 +95,7 @@ void main() {
       });
       await mountCard(tester, TripAssignmentCard(trip: trip()));
       await tester.pumpAndSettle();
-      expect(find.text('No truck or driver named for this trip yet.'),
+      expect(find.text('No truck or driver is assigned to this trip yet.'),
           findsOneWidget);
       expect(find.text('Choose a truck'), findsOneWidget,
           reason: 'no truck is preselected');
@@ -195,6 +195,35 @@ void main() {
           reason: 'the current truck is the chosen one');
       expect(find.text('Synthetic Driver Two'), findsOneWidget);
       expect(saveButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets(
+        'the truck list writes a truck as the Truck line does, however it was typed',
+        (tester) async {
+      signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
+      api.dio.httpClientAdapter = MockApiAdapter((request) => jsonResponse({
+            'vehicles': [
+              {
+                'id': 'vehicle-1',
+                'registrationNumber': 'ka 01-ab 1234',
+                'vehicleClass': 'MEDIUM'
+              }
+            ],
+            'drivers': fleet['drivers']!,
+          }));
+      await mountCard(
+          tester,
+          TripAssignmentCard(
+              trip: trip(assigned: {
+            'assignedVehicleId': 'vehicle-1',
+            'assignedTruckNumber': 'KA01AB1234',
+          })));
+      await tester.pumpAndSettle();
+      expect(find.text('Truck: KA01AB1234. Driver: not assigned.'),
+          findsOneWidget);
+      expect(find.text('KA01AB1234'), findsOneWidget,
+          reason: 'the chosen truck in the list');
+      expect(find.text('ka 01-ab 1234'), findsNothing);
     });
 
     testWidgets(
@@ -391,7 +420,7 @@ void main() {
     Map<String, dynamic> onTrip(String truck) =>
         {...shipment(bill: billWithTruck), 'assignedTruckNumber': truck};
     final forCarrierOffice =
-        'The bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right; if the bill is wrong, update it on the $ewayBillPortalName, then here.';
+        'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right; if the e-way bill is wrong, update it on the $ewayBillPortalName, then here.';
 
     testWidgets(
         'the carrier office is asked to check which truck is right and fix the bill',
@@ -409,7 +438,7 @@ void main() {
           tester, EwayBillCarrierCard(shipment: onTrip('KA02XY9999')));
       expect(
           find.text(
-              'The bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your carrier.'),
+              'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your carrier.'),
           findsOneWidget);
       expect(find.textContaining('update it'), findsNothing);
     });
@@ -465,7 +494,7 @@ void main() {
           'KA02XY9999');
       expect(
           find.text(
-              'Filled in from the truck on this trip. Change it if the bill shows a different truck.'),
+              'Filled in from the truck on this trip. Change it if the e-way bill shows a different truck.'),
           findsOneWidget);
     });
 

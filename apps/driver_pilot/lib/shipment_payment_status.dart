@@ -5,9 +5,16 @@ import 'pilot_api.dart';
 
 class ShipmentPaymentStatus extends StatefulWidget {
   const ShipmentPaymentStatus(
-      {required this.shipment, this.onAccepted, super.key});
+      {required this.shipment,
+      this.onAccepted,
+      this.showPaymentStatus = true,
+      super.key});
   final Map<String, dynamic> shipment;
   final Future<void> Function()? onAccepted;
+
+  /// False for a driver: when the carrier's payment is held or released is part of carrier earnings, which a
+  /// driver never sees (owner decision, 15 Oct 2026). The delivery line still shows.
+  final bool showPaymentStatus;
 
   @override
   State<ShipmentPaymentStatus> createState() => _ShipmentPaymentStatusState();
@@ -84,12 +91,14 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
                         ? 'Delivery accepted'
                         : 'Proof of delivery submitted',
                     style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                Text(shipment['status'] == 'DELIVERED'
-                    ? 'Payment released.'
-                    : ready
-                        ? 'Ready for Finance review and payment release.'
-                        : 'Payment on hold${until == null ? '' : ' until $until'}. Shipper acceptance can end the hold earlier.'),
+                if (widget.showPaymentStatus) ...[
+                  const SizedBox(height: 8),
+                  Text(shipment['status'] == 'DELIVERED'
+                      ? 'Payment released.'
+                      : ready
+                          ? 'Ready for Finance review and payment release.'
+                          : 'Payment on hold${until == null ? '' : ' until $until'}. Shipper acceptance can end the hold earlier.'),
+                ],
                 if (_error != null)
                   Text(_error!, style: const TextStyle(color: Colors.red)),
                 if (_canAccept)

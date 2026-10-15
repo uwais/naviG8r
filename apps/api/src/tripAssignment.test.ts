@@ -236,7 +236,7 @@ test("the assigned truck reaches shipper, carrier and ops responses; finance, ad
   assert.equal(erp.includes(first.userId), false);
 });
 
-test("a trip in progress from before assignment existed stays with the driver who started it, only while in progress", async t => {
+test("a trip from before assignment existed stays with the driver who started it, finished or not; one never started is no driver's", async t => {
   const { f, first, second, secondTripId } = await fleetWithTwoDrivers(t);
   const delivered = await bookAndAccept(f, f.trip.id);
   const refunded = await bookAndAccept(f, f.trip.id);
@@ -268,12 +268,29 @@ test("a trip in progress from before assignment existed stays with the driver wh
   assert.equal((await f.request(`/shipments/${refunded}/fail-refund`, "POST", {}, f.tokens.finance)).status, 200, "the other booking leaves the trip another way");
   const completed = await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/complete`, "POST", {}, first.token);
   assert.deepEqual([completed.status, completed.body.trip?.status], [200, "COMPLETED"]);
-  assert.equal((await get(`/v1/pilot/anchor-trips/${f.trip.id}`, first.token)).status, 404, "a finished trip that names nobody leaves the driver's list");
+  assert.equal((await get(`/v1/pilot/anchor-trips/${f.trip.id}`, first.token)).status, 200, "the finished trip stays with the driver who drove it");
+  assert.equal((await get(`/v1/pilot/anchor-trips/${f.trip.id}`, second.token)).status, 404);
 
   // A trip that names a driver goes by that alone, whoever started it.
   f.store.anchorTrips.set(secondTripId, { ...f.store.anchorTrips.get(secondTripId)!, status: "IN_PROGRESS", startedByUserId: first.userId, assignedVehicleId: second.vehicleId, assignedDriverUserId: second.userId });
   assert.equal((await get(`/v1/pilot/anchor-trips/${secondTripId}`, first.token)).status, 404);
   assert.equal((await get(`/v1/pilot/anchor-trips/${secondTripId}`, second.token)).status, 200);
+});
+
+test("when the last proof of delivery completes a trip from before assignment, its driver still sees the trip and the shipment", async t => {
+  const { f, first, second } = await fleetWithTwoDrivers(t);
+  const shipmentId = await bookAndAccept(f, f.trip.id);
+  // Written directly, as in the test above.
+  f.store.anchorTrips.set(f.trip.id, { ...f.store.anchorTrips.get(f.trip.id)!, status: "IN_PROGRESS", startedAtUtcMs: Date.now(), startedByUserId: first.userId });
+  const get = (path: string, token: string) => f.request(path, "GET", undefined, token);
+
+  assert.equal((await f.request(`/shipments/${shipmentId}/driver-pod`, "POST", {}, first.token)).status, 200);
+  assert.equal(f.store.anchorTrips.get(f.trip.id)?.status, "COMPLETED", "precondition: the last proof of delivery completes the trip");
+  const reloaded = await get(`/v1/pilot/anchor-trips/${f.trip.id}`, first.token);
+  assert.deepEqual([reloaded.status, reloaded.body.trip?.status], [200, "COMPLETED"], "the trip screen's reload finds the finished trip");
+  assert.deepEqual(ids((await get(`/v1/pilot/carrier/shipments?anchorTripId=${f.trip.id}`, first.token)).body.shipments), [shipmentId]);
+  assert.equal((await get(`/v1/pilot/anchor-trips/${f.trip.id}`, second.token)).status, 404);
+  assert.deepEqual(ids((await get("/v1/pilot/carrier/shipments", second.token)).body.shipments), []);
 });
 
 test("a driver cannot change a truck named on a trip that is not finished; the owner can; a truck number has at most 20 characters", async t => {

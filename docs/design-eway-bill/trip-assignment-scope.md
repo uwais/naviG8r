@@ -65,36 +65,39 @@ once (a login with two memberships already picks one organization per request), 
 
 ## Demo changes
 
-The seed has a second carrier A driver (8000000013, Synthetic Driver B) and a second trip (Hoskote to Kolar) named
-for him, with one shipment; the first trip names 8000000009 and truck KA01AB1234. The guide's Step 5 shows each
-driver seeing only their own trip.
+Carrier A has two drivers, Synthetic Driver A (8000000009) and Synthetic Driver B (8000000013), and its owner is
+Synthetic Owner A (8000000003), so the owner's driver list shows names. The first trip is assigned to Driver A and
+truck KA01AB1234; a second trip (Hoskote to Kolar), with one shipment, is assigned to Driver B. The guide's Step 5
+shows each driver seeing only their own trip.
 
 ## Decided 15 Oct 2026: a driver never sees carrier earnings
 
-Rishabh's call after the build. It covers every place a driver could see what the carrier earns:
+Rishabh's call after the build. It covers every place a driver could see what the carrier earns or when it is paid:
 
 - A `DRIVER` membership has no `payment.read`, so the earnings, ledger and payout-batch routes answer 403 for a driver.
-- No response to a driver carries `netToCarrierPaise`, and payout batches and the earnings summary lose their
-  amounts for one, whatever the route.
+- No response to a driver carries an amount the carrier earns, a payout date or the payment hold, whatever the route
+  (the field names are in `docs/pilot-api.md`).
 - A driver is never notified of a payment status change.
-- The app shows a driver no "Net to carrier" line and no amount on the trip screen, and Profile has no "Earnings &
-  payouts" for them.
+- The app shows a driver no "Net to carrier" line, no amount on the trip screen, and no payment status after
+  delivery (only that proof of delivery was submitted), and Profile has no "Earnings & payouts" for them.
 
-Owners, owner-drivers and dispatchers keep all of it, unchanged.
+Owners, owner-drivers and dispatchers keep all of it, unchanged, as do shippers, finance and ops where they had it.
 
 ## As built: differences and limits
 
 - Assigning needs both a truck and a driver; there is no way to clear an assignment once made.
 - A driver on a trip sees the truck and driver line on the trip screen, read only.
-- When the bill's truck and the trip's differ, each reader gets their own sentence: the carrier office is asked to
-  check which is right and, if the bill is wrong, to update it on the portal and then in the app; the shipper is told
-  what the carrier assigned and asked to check with the carrier; a driver is told the two numbers and to tell the
-  carrier. Once the shipment is delivered, accepted or refunded, no sentence shows.
+- When the e-way bill's truck and the trip's differ, each reader gets their own sentence: the carrier office is asked
+  to check which is right and, if the e-way bill is wrong, to update it on the portal and then in the app; the
+  shipper is told what the carrier assigned and asked to check with the carrier; a driver is told the two numbers and
+  to tell the carrier. Once the shipment is delivered, accepted or refunded, no sentence shows.
 - A driver with no trip sees "Your carrier has not assigned you a trip yet. Ask your carrier to assign one."
-- Trips in progress at deploy: a trip that is in progress and names no driver stays with the driver who started it
-  until it is completed or assigned to someone else, so nobody mid-route loses it. Open and full trips that name no
-  driver are visible to no driver. Before go-live the carrier office should assign every open trip; in-progress
-  trips started by a driver keep working until assigned.
+- Trips from before this change (approved 15 Oct 2026): a trip that names no driver stays with the driver who started
+  it, in any status, so nobody mid-route loses it and it stays in their list once complete. It leaves only if the
+  office assigns it to someone else before it is complete; a completed trip cannot be assigned, so it stays with its
+  driver. A trip never started has no starter, so open and full trips that name no driver
+  are visible to no driver. Before go-live the carrier office should assign every open trip; in-progress trips
+  started by a driver keep working until assigned.
 - A driver cannot change a truck that a trip which is not finished names, since the shipper reads that truck. A
   truck number has at most 20 characters, with no letters-and-digits rule.
 - Only a solo owner-operator's trip assigns itself. Once the owner invites a driver or dispatcher, the organization

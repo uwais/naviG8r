@@ -84,6 +84,47 @@ void main() {
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
       expect(find.text('Net to carrier: ₹45'), findsOneWidget);
     });
+
+    /// What the server sends after proof of delivery; it leaves the payment hold out for a driver.
+    Map<String, dynamic> deliveredShipment({required bool withPaymentHold}) => {
+          ...bookedShipment(),
+          'status': 'PENDING_RELEASE',
+          'podAtUtcMs': 1760500000000,
+          if (withPaymentHold) ...{
+            'paymentReady': false,
+            'paymentHoldUntilUtcMs': 1760672800000,
+          },
+        };
+
+    testWidgets(
+        'tells a driver delivery was confirmed, without the payment hold or release lines',
+        (tester) async {
+      signInAsCarrierLogin(office: false);
+      api.dio.httpClientAdapter = MockApiAdapter((_) => jsonResponse({
+            'shipments': [deliveredShipment(withPaymentHold: false)]
+          }));
+      await mountScreen(
+          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
+      expect(find.text('Proof of delivery submitted'), findsOneWidget);
+      for (final payout in [
+        'Payment on hold',
+        'Ready for Finance review',
+        'Payment released'
+      ]) {
+        expect(find.textContaining(payout), findsNothing, reason: payout);
+      }
+    });
+
+    testWidgets('tells the office when the payment is held', (tester) async {
+      signInAsCarrierLogin(office: true);
+      api.dio.httpClientAdapter = MockApiAdapter((_) => jsonResponse({
+            'shipments': [deliveredShipment(withPaymentHold: true)]
+          }));
+      await mountScreen(
+          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
+      expect(find.text('Proof of delivery submitted'), findsOneWidget);
+      expect(find.textContaining('Payment on hold until'), findsOneWidget);
+    });
   });
 
   group('The trip screen', () {

@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 
 import 'authorization_session.dart';
 import 'driver_theme.dart';
+import 'eway_bill_words.dart';
 import 'pilot_api.dart';
 
 /// The truck and the driver on one trip. The carrier owner, owner-driver or dispatcher picks them; everyone
-/// else, drivers included, only reads them. Nothing is preselected except what the trip already names.
+/// else, drivers included, only reads them. Nothing is preselected except what the trip already has assigned.
 class TripAssignmentCard extends StatefulWidget {
   const TripAssignmentCard({required this.trip, super.key});
   final Map<String, dynamic> trip;
@@ -127,9 +128,9 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
     final truck = _text(_trip['assignedTruckNumber']);
     final driver = _text(_trip['assignedDriverName']);
     if (truck == null && driver == null) {
-      return 'No truck or driver named for this trip yet.';
+      return 'No truck or driver is assigned to this trip yet.';
     }
-    return 'Truck: ${truck ?? 'not named'}. Driver: ${driver ?? 'not named'}.';
+    return 'Truck: ${truck ?? 'not assigned'}. Driver: ${driver ?? 'not assigned'}.';
   }
 
   Widget _picker(
@@ -189,7 +190,9 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
             for (final vehicle in _vehicles)
               DropdownMenuItem(
                   value: vehicle['id']?.toString(),
-                  child: Text(vehicle['registrationNumber']?.toString() ?? ''))
+                  // The same form as the Truck line above, however the number was typed.
+                  child: Text(plainTruckNumber(
+                      vehicle['registrationNumber']?.toString() ?? '')))
           ],
           onChanged: (value) => setState(() => _vehicleId = value)),
       _picker(

@@ -51,6 +51,9 @@ for (const [userId, phone, orgId, role] of accounts) {
   store.users.set(userId, { id: userId, phone, fullName: `Synthetic ${userId}`, createdAtUtcMs: now });
   store.memberships.set(`${userId}:${orgId}`, { userId, orgId, role, createdAtUtcMs: now });
 }
+// The owner's driver list on a trip shows these names, so carrier A's people who can drive get real ones.
+store.users.get("user-carrier-a").fullName = "Synthetic Owner A";
+store.users.get("user-driver").fullName = "Synthetic Driver A";
 store.users.get("user-driver-b").fullName = "Synthetic Driver B";
 
 // Each carrier A driver has a truck. The first truck is the one already on the seeded bill, so the two match until

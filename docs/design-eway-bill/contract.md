@@ -137,17 +137,17 @@ and dispatcher only (not DRIVER). It is an allow-list of subroles, so a new subr
 (`trip-assignment-scope.md`): when the bill's truck and the trip's differ, ignoring spaces, hyphens and case, both
 cards add one plain sentence under the truck lines, worded for who is reading:
 
-- Carrier office (owner, owner-driver, dispatcher): "The bill shows KA01AB1234. The truck on this trip is KA02XY9999.
-  Check which one is right; if the bill is wrong, update it on the portal, then here." ("practice portal" or
-  "government portal", as everywhere else.)
+- Carrier office (owner, owner-driver, dispatcher): "The e-way bill shows KA01AB1234. The truck on this trip is
+  KA02XY9999. Check which one is right; if the e-way bill is wrong, update it on the portal, then here." ("practice
+  portal" or "government portal", as everywhere else.)
 - Shipper: "The e-way bill shows KA01AB1234. Your carrier has assigned KA02XY9999 to this trip. Ask your carrier which
   truck is right." The shipper is not sent to the portal: the carrier chose the truck, and once the transporter has
   updated the vehicle the practice portal refuses the supplier (an assumed rule, listed in the guide's box).
-- Driver: "The bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your carrier."
+- Driver: "The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your carrier."
 
 No sentence shows once the shipment is delivered, accepted or refunded, since the bill can no longer change. The
-carrier's truck form starts with the trip's truck, with "Filled in from the truck on this trip. Change it if the bill
-shows a different truck." under the field. A wrong truck is replaced with Change truck; removing a truck is left out
+carrier's truck form starts with the trip's truck, with "Filled in from the truck on this trip. Change it if the
+e-way bill shows a different truck." under the field. A wrong truck is replaced with Change truck; removing a truck is left out
 of the demo.
 
 Truck copy: "Valid until: 16 Oct 2026, 23:59 (India time)". The date button reads "Valid until, date in India: choose

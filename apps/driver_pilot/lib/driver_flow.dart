@@ -1142,7 +1142,9 @@ class _DriverShipmentDetailScreenState
               label: const Text("Shipment conversation"),
             ),
           ],
-          ShipmentPaymentStatus(shipment: s),
+          ShipmentPaymentStatus(
+              shipment: s,
+              showPaymentStatus: AuthorizationSession.can("payment.read")),
         ],
       )),
     );

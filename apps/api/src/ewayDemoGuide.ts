@@ -57,8 +57,8 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>Open ${guideAddress} to come back to this page.</li>
 <li>The demo server is running with the practice site switched on. Restarting it resets everything, including the bills on this practice site.</li>
 <li>Shipper app: <a href="${appAddress}/#/customer/login">${appAddress}/#/customer/login</a>. Sign in as 8000000001.</li>
-<li>Carrier: the Android emulator, or <a href="${appAddress}/#/driver">${appAddress}/#/driver</a>. Sign in as 8000000003 (the owner).</li>
-<li>Driver: the same carrier app. Sign in as 8000000009, who drives the Synthetic Origin to Synthetic Destination trip in truck KA01AB1234, or as 8000000013 (Synthetic Driver B), who drives the Hoskote to Kolar trip in truck KA02XY9999.</li>
+<li>Carrier: the Android emulator, or <a href="${appAddress}/#/driver">${appAddress}/#/driver</a>. Sign in as 8000000003 (the owner, Synthetic Owner A).</li>
+<li>Driver: the same carrier app. Sign in as 8000000009 (Synthetic Driver A), who drives the Synthetic Origin to Synthetic Destination trip in truck KA01AB1234, or as 8000000013 (Synthetic Driver B), who drives the Hoskote to Kolar trip in truck KA02XY9999.</li>
 <li>Ops: <a href="/ops/beta">/ops/beta</a>. Sign in as 8000000005.</li>
 <li>Tap Send code and the code fills in for you.</li>
 <li>On the practice site you choose who you are on <a href="/demo/eway-portal/sign-in">Choose who you are</a>: Supplier (Synthetic Shipper A), Transporter (Synthetic Carrier A, Transporter ID 29TRNSP1234A1Z7) or Someone else. There is no password. Switch user is at the top of every page.</li>
@@ -99,15 +99,15 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>Sign in as 8000000009 and open the shipment.</li>
 <li>The driver's part is read only by design: the bill number in large type, the truck, the valid-until time and the ops line, and once fewer than 12 hours are left, how many hours remain.</li>
 <li>At a check-post the driver quotes the bill number. The driver creates nothing and changes nothing.</li>
-<li>The driver sees no money: no Net to carrier line on the shipment, no amount on the trip screen, and no Earnings &amp; payouts on Profile. The owner, 8000000003, still sees all three.</li>
+<li>The driver sees no money: no Net to carrier line on the shipment and, after delivery, no payment status there; no amount on the trip screen; and no Earnings &amp; payouts on Profile. The owner, 8000000003, still sees all of it.</li>
 </ol>
 <h2>Step 5. Each driver sees only their own trip</h2>
 <ol>
-<li>Signed in as 8000000009, Loads shows one trip, Synthetic Origin to Synthetic Destination, and Shipments shows only the shipments on it. Its Truck and driver card only reads: no lists to choose from and no Save button.</li>
-<li>Still as 8000000009, open Profile and tap Save vehicle: it is refused, because a trip that is not finished names that truck. Only the carrier can change it.</li>
-<li>Sign out and sign in as 8000000013. Loads shows only the Hoskote to Kolar trip, and Shipments only its one shipment, 150 kg.</li>
-<li>Sign in as the owner, 8000000003. Loads shows both trips. Open Synthetic Origin to Synthetic Destination: its Truck and driver card shows KA01AB1234 and the driver. Choose truck KA02XY9999 and tap Save. The card says it saved, that the driver is not sent a message, and that the trip shows on their Loads screen when they pull down to refresh.</li>
-<li>Open load-a-with-truck. Its e-way bill card now says the bill shows KA01AB1234 and the truck on this trip is KA02XY9999, and asks you to check which one is right and, if the bill is wrong, to update it on the practice portal, then here. Change truck opens with KA02XY9999 filled in from the trip.</li>
+<li>Signed in as 8000000009 (Synthetic Driver A), Loads shows one trip, Synthetic Origin to Synthetic Destination, and Shipments shows only the shipments on it. Its Truck and driver card only reads: no lists to choose from and no Save button.</li>
+<li>Still as 8000000009, open Profile and tap Save vehicle: it is refused, because that truck is assigned to a trip that is not finished. Only the carrier can change it.</li>
+<li>Sign out and sign in as 8000000013 (Synthetic Driver B). Loads shows only the Hoskote to Kolar trip, and Shipments only its one shipment, 150 kg.</li>
+<li>Sign in as the owner, 8000000003. Loads shows both trips. Open Synthetic Origin to Synthetic Destination: its Truck and driver card shows KA01AB1234 and Synthetic Driver A. Choose truck KA02XY9999 and tap Save. The card says it saved, that the driver is not sent a message, and that the trip shows on their Loads screen when they pull down to refresh.</li>
+<li>Open load-a-with-truck. Its e-way bill card now says the e-way bill shows KA01AB1234 and the truck on this trip is KA02XY9999, and asks you to check which one is right and, if the e-way bill is wrong, to update it on the practice portal, then here. Change truck opens with KA02XY9999 filled in from the trip.</li>
 <li>Sign in as the shipper, 8000000001, and open load-a-with-truck: the card says your carrier has assigned KA02XY9999 to this trip and to ask your carrier which truck is right. It names no driver. Signed in as 8000000009, the same shipment gives the two numbers and says to tell your carrier.</li>
 <li>As the owner, choose KA01AB1234 again on the trip, and the sentences go away.</li>
 <li>A driver with no trip (invite one from the owner's Profile, then sign in as them): Loads says Your carrier has not assigned you a trip yet. Ask your carrier to assign one.</li>

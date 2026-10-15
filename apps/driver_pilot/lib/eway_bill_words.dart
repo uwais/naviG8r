@@ -73,7 +73,12 @@ List<String> ewayBillTruckLines(Map<String, dynamic> bill, {DateTime? now}) {
   return lines;
 }
 
-/// Who reads the sentence about a bill and a trip that name different trucks. Each is told only what they can do.
+/// A truck number in the one form the e-way bill and the trip keep it in: no spaces or hyphens, upper case.
+String plainTruckNumber(String truck) =>
+    truck.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
+
+/// Who reads the sentence about an e-way bill and a trip that name different trucks. Each is told only what they
+/// can do.
 enum TruckMismatchReader { carrierOffice, shipper, driver }
 
 /// One plain sentence when the truck on the bill is not the truck the carrier assigned to the trip, or null
@@ -85,17 +90,17 @@ String? ewayBillTruckMismatchSentence(
   final onBill = bill['truckNumber'];
   final onTrip = shipment['assignedTruckNumber'];
   if (onBill is! String || onTrip is! String) return null;
-  String plain(String truck) =>
-      truck.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
-  if (plain(onBill).isEmpty || plain(onTrip).isEmpty) return null;
-  if (plain(onBill) == plain(onTrip)) return null;
+  if (plainTruckNumber(onBill).isEmpty || plainTruckNumber(onTrip).isEmpty) {
+    return null;
+  }
+  if (plainTruckNumber(onBill) == plainTruckNumber(onTrip)) return null;
   return switch (reader) {
     TruckMismatchReader.carrierOffice =>
-      'The bill shows $onBill. The truck on this trip is $onTrip. Check which one is right; if the bill is wrong, update it on the $ewayBillPortalName, then here.',
+      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Check which one is right; if the e-way bill is wrong, update it on the $ewayBillPortalName, then here.',
     TruckMismatchReader.shipper =>
       'The e-way bill shows $onBill. Your carrier has assigned $onTrip to this trip. Ask your carrier which truck is right.',
     TruckMismatchReader.driver =>
-      'The bill shows $onBill. The truck on this trip is $onTrip. Tell your carrier.',
+      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Tell your carrier.',
   };
 }
 
