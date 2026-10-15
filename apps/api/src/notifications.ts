@@ -125,15 +125,15 @@ export function captureTerminalConversationWindows(store: Store, now = Date.now(
   }
 }
 
-function notificationRecipients(store: Store, shipment: Shipment): Array<{ userId: string; orgId: string; role: "SHIPPER" | "CARRIER" }> {
+function notificationRecipients(store: Store, shipment: Shipment, eventKey: string): Array<{ userId: string; orgId: string; role: "SHIPPER" | "CARRIER" }> {
   const recipients: Array<{ userId: string; orgId: string; role: "SHIPPER" | "CARRIER" }> = [];
   const orgs: Array<[string | undefined, "SHIPPER" | "CARRIER"]> = [[shipment.customerOrgId, "SHIPPER"], [shipment.carrierId, "CARRIER"]];
   for (const [orgId, role] of orgs) {
     if (!orgId) continue;
     for (const membership of store.memberships.values()) {
-      // A driver hears only about shipments on a trip naming them, push included.
-      const driverElsewhere = membership.role === "DRIVER" && store.anchorTrips.get(shipment.anchorTripId)?.assignedDriverUserId !== membership.userId;
-      if (membership.orgId === orgId && !driverElsewhere && eligibleActor(store, membership.userId, orgId, role)) recipients.push({ userId: membership.userId, orgId, role });
+      // A driver hears only about shipments on their own trip, push included, and never about payments.
+      const mayHear = assignedDriverMaySee(store, { internal: false, subrole: membership.role, userId: membership.userId }, shipment) && !(membership.role === "DRIVER" && eventKey === "payment.status_changed");
+      if (membership.orgId === orgId && mayHear && eligibleActor(store, membership.userId, orgId, role)) recipients.push({ userId: membership.userId, orgId, role });
     }
   }
   return recipients;
@@ -141,7 +141,7 @@ function notificationRecipients(store: Store, shipment: Shipment): Array<{ userI
 
 function createNotifications(store: Store, shipment: Shipment, eventId: string, eventKey: string, createdAtUtcMs: number, messageId?: string): void {
   const conversationId = shipment.id;
-  for (const recipient of notificationRecipients(store, shipment)) {
+  for (const recipient of notificationRecipients(store, shipment, eventKey)) {
     const duplicate = [...store.notifications.values()].some(n => n.eventId === eventId && n.recipientUserId === recipient.userId && n.recipientOrgId === recipient.orgId);
     if (duplicate) continue;
     const notification: Notification = {
@@ -213,7 +213,7 @@ export function resolveNotificationOpenRoute(store: Store, notificationId: strin
   const role = notification.recipientOrgId === shipment.customerOrgId ? "SHIPPER"
     : notification.recipientOrgId === shipment.carrierId ? "CARRIER" : null;
   if (!role || !eligibleActor(store, userId, notification.recipientOrgId, role)) throw new CommunicationError("notification_not_found", 404);
-  if (store.memberships.get(`${userId}:${notification.recipientOrgId}`)?.role === "DRIVER" && store.anchorTrips.get(shipment.anchorTripId)?.assignedDriverUserId !== userId) throw new CommunicationError("notification_not_found", 404);
+  if (!assignedDriverMaySee(store, { internal: false, subrole: store.memberships.get(`${userId}:${notification.recipientOrgId}`)?.role ?? "", userId }, shipment)) throw new CommunicationError("notification_not_found", 404);
   return {
     organizationId: notification.recipientOrgId,
     shipmentId: shipment.id,

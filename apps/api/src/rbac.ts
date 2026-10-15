@@ -51,6 +51,8 @@ export function effectivePermissions(roles: Role[], subrole: string): string[] {
     // Naming a trip's truck and driver is the carrier office's job; a driver only reads it.
     if (p === "trip.assign") return ["OWNER_DRIVER", "OWNER", "DISPATCHER", "CARRIER"].includes(subrole);
     if (p === "bank_account.create_token") return ["OWNER_DRIVER", "OWNER"].includes(subrole);
+    // A driver never sees carrier earnings (owner decision, 15 Oct 2026): no earnings, ledger or payout routes.
+    if (p === "payment.read") return subrole !== "DRIVER";
     return true;
   });
 }

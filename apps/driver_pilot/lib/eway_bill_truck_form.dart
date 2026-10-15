@@ -141,6 +141,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
   @override
   Widget build(BuildContext context) {
     final time = _time;
+    final filledFromTrip = widget.assignedTruckNumber?.isNotEmpty == true;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text(
           'Add the truck to the bill on the $ewayBillPortalName first, then copy the truck number and the valid-until time from it.'),
@@ -150,10 +151,14 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
           enabled: !_busy,
           maxLength: 14,
           textCapitalization: TextCapitalization.characters,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
               labelText: 'Truck number',
+              helperText: filledFromTrip
+                  ? 'Filled in from the truck on this trip. Change it if the bill shows a different truck.'
+                  : null,
+              helperMaxLines: 2,
               counterText: '',
-              border: OutlineInputBorder())),
+              border: const OutlineInputBorder())),
       const SizedBox(height: 12),
       OutlinedButton(
           onPressed: _busy ? null : _chooseDate, child: Text(_dateWords())),

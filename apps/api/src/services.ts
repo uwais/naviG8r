@@ -47,7 +47,7 @@ import {
 } from "./razorpayPayouts.ts";
 import { emitIntegrationEvent } from "./integrationWebhooks.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
-import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay } from "./tripAssignmentRules.ts";
+import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -938,10 +938,13 @@ export function updatePilotDriverVehicle(
 ): { vehicle: Vehicle; driverProfile: DriverProfile } {
   const profile = store.driverProfiles.get(userId);
   if (!profile) throw new Error("driver_profile_missing");
-  requirePermission(store, "load.status_update", { carrierId: profile.orgId }, userId);
+  const caller = requirePermission(store, "load.status_update", { carrierId: profile.orgId }, userId);
 
   const vehicle = store.vehicles.get(profile.primaryVehicleId);
   if (!vehicle) throw new Error("vehicle_missing");
+  if (caller.subrole === "DRIVER" && truckOnUnfinishedTrip(store, vehicle.id)) {
+    throw new ApiError("truck_on_unfinished_trip", { detail: "This truck is on a trip that is not finished. Ask your carrier to change it." }, 409);
+  }
 
   const hasReg = params.vehicleRegistrationNumber !== undefined;
   const hasClass = params.vehicleClass !== undefined;
@@ -955,6 +958,10 @@ export function updatePilotDriverVehicle(
   if (hasReg) {
     const reg = String(params.vehicleRegistrationNumber).trim();
     if (!reg) throw new Error("invalid_vehicleRegistrationNumber");
+    // Length only: existing trucks and test data use forms like TEST-A, so no letters-and-digits rule here.
+    if (reg.length > 20) {
+      throw new ApiError("invalid_vehicleRegistrationNumber", { detail: "A truck number can have at most 20 characters.", field: "vehicleRegistrationNumber" });
+    }
     registrationNumber = reg;
   }
   if (hasClass) {

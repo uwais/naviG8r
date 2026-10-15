@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import 'authorization_session.dart';
@@ -106,10 +107,20 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
         _driverBusy = response.data?['driverBusy'] == true;
       });
     } catch (e) {
-      if (mounted) setState(() => _error = ewayBillErrorSentence(e));
+      if (mounted) setState(() => _error = _saveRefusalSentence(e));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// 403, 404 and 409 mean the trip or the fleet changed since this card loaded, so trying again here
+  /// cannot work; the trip screen reloads both when pulled down.
+  static String _saveRefusalSentence(Object e) {
+    final status = e is DioException ? e.response?.statusCode : null;
+    if (status == 403 || status == 404 || status == 409) {
+      return 'This trip or the list changed. Pull down to reload, then try again.';
+    }
+    return ewayBillErrorSentence(e);
   }
 
   String _assignmentWords() {
@@ -151,10 +162,24 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
                 onPressed: _loadFleet, child: const Text('Try again'))),
       ];
     }
-    if (!_fleetLoaded) return [const LinearProgressIndicator()];
+    if (!_fleetLoaded) {
+      return [
+        const Text('Loading trucks and drivers...'),
+        const SizedBox(height: 4),
+        const LinearProgressIndicator(),
+      ];
+    }
+    // Saving needs both, so with either list empty there is nothing to choose.
+    if (_vehicles.isEmpty || _drivers.isEmpty) {
+      return [const Text('No trucks or drivers are set up for this carrier yet.')];
+    }
+    final assignedDriver = _text(_trip['assignedDriverUserId']);
     final saved = _savedTrip != null &&
         _vehicleId == _text(_trip['assignedVehicleId']) &&
-        _driverUserId == _text(_trip['assignedDriverUserId']);
+        _driverUserId == assignedDriver;
+    final replacingDriver = assignedDriver != null &&
+        _driverUserId != null &&
+        _driverUserId != assignedDriver;
     return [
       _picker(
           label: 'Truck',
@@ -177,16 +202,29 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
                   value: driver['userId']?.toString(),
                   child: Text(driver['displayName']?.toString() ?? ''))
           ],
-          onChanged: (value) => setState(() => _driverUserId = value)),
+          onChanged: (value) => setState(() {
+                _driverUserId = value;
+                // The warning was about the driver chosen before.
+                _driverBusy = false;
+              })),
+      if (replacingDriver)
+        const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text('A driver who is replaced stops seeing this trip.')),
       if (_driverBusy)
         const Padding(
             padding: EdgeInsets.only(top: 8),
-            child: Text('This driver is already on a trip in progress.')),
+            child: Text(
+                'This driver is already on another trip that is in progress.')),
       if (_error != null)
         Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(_error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error))),
+      const SizedBox(height: 8),
+      const Text(
+          'Saving replaces the truck and driver now assigned. Both are needed. You can change them until the trip is complete.',
+          style: TextStyle(color: DriverTheme.muted)),
       const SizedBox(height: 8),
       Align(
           alignment: Alignment.centerLeft,
@@ -196,7 +234,10 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
                   : _save,
               child: Text(_saving ? 'Saving...' : 'Save'))),
       if (saved && !_saving)
-        const Padding(padding: EdgeInsets.only(top: 8), child: Text('Saved.')),
+        const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+                'Saved. The driver is not sent a message. The trip shows on their Loads screen when they pull down to refresh.')),
     ];
   }
 

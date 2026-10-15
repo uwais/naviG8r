@@ -135,10 +135,20 @@ and dispatcher only (not DRIVER). It is an allow-list of subroles, so a new subr
 `POST /v1/pilot/carrier/shipments/:id/eway-bill/truck` (carrier), body `{ truckNumber, validUntilUtcMs }`, only on a
 `BILL`. Audit `EWAY_BILL_TRUCK_ADDED` (state words only). Since 15 Oct 2026 a trip can name its truck
 (`trip-assignment-scope.md`): when the bill's truck and the trip's differ, ignoring spaces, hyphens and case, both
-cards add one plain sentence under the truck lines, "The bill shows KA01AB1234. The truck on this trip is
-KA02XY9999. Update the bill on the portal, then here." (the request only for someone who can change the bill's
-truck), and the carrier's truck form starts with the trip's truck. A wrong truck is replaced with Change truck;
-removing a truck is left out of the demo.
+cards add one plain sentence under the truck lines, worded for who is reading:
+
+- Carrier office (owner, owner-driver, dispatcher): "The bill shows KA01AB1234. The truck on this trip is KA02XY9999.
+  Check which one is right; if the bill is wrong, update it on the portal, then here." ("practice portal" or
+  "government portal", as everywhere else.)
+- Shipper: "The e-way bill shows KA01AB1234. Your carrier has assigned KA02XY9999 to this trip. Ask your carrier which
+  truck is right." The shipper is not sent to the portal: the carrier chose the truck, and once the transporter has
+  updated the vehicle the practice portal refuses the supplier (an assumed rule, listed in the guide's box).
+- Driver: "The bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your carrier."
+
+No sentence shows once the shipment is delivered, accepted or refunded, since the bill can no longer change. The
+carrier's truck form starts with the trip's truck, with "Filled in from the truck on this trip. Change it if the bill
+shows a different truck." under the field. A wrong truck is replaced with Change truck; removing a truck is left out
+of the demo.
 
 Truck copy: "Valid until: 16 Oct 2026, 23:59 (India time)". The date button reads "Valid until, date in India: choose
 the date", then the chosen date; the picker ends 29 days after today in India, so even 23:59 on the last day stays
@@ -175,3 +185,18 @@ build (`--dart-define=EWAY_PORTAL=...`, default the real portal); the ops page g
   Whether it has a page that takes a bill number directly, or needs a captcha, is unknown.
 - Whether the team wants ops to check at all, or the GSTIN and invoice number collected, is the brief's open
   question 4 and the chartered accountant's question 7.
+
+Team answers, 15 Oct 2026 (Uwais, #navig8r-pilot Slack thread, 12:19 EDT). The team's position, not legal or
+accounting advice:
+
+- E-commerce operator (CGST section 52): the team says naviG8r is not one but a carrier matching platform. Still
+  open: the accountant has not confirmed it.
+- Check-post fine: answered. The carrier pays it and may collect it from the shipper in the invoice. So the carrier
+  bears the risk and must see the bill before accepting a booking, which the carrier card already shows; the terms
+  of service must say so.
+- Keeping the bill number, GSTIN and invoice number: answered, not built. Six months for now, and an OpsAdmin may
+  delete them, with an audit row, on a data protection (DPDP) request. Nothing purges them after six months and
+  there is no OpsAdmin delete yet. Still open: when the six months start (booking, delivery or bill date) and
+  exactly what is deleted.
+- Who adds the truck (Part B): answered, the dispatcher or the owner, which is what is built (owner, owner-driver
+  and dispatcher; a driver only reads). Still open: validity extension, which the answer did not cover.

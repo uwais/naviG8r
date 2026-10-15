@@ -235,3 +235,108 @@ test("the assigned truck reaches shipper, carrier and ops responses; finance, ad
   assert.equal(erp.includes("assigned"), false, "ERP responses keep their shape");
   assert.equal(erp.includes(first.userId), false);
 });
+
+test("a trip in progress from before assignment existed stays with the driver who started it, only while in progress", async t => {
+  const { f, first, second, secondTripId } = await fleetWithTwoDrivers(t);
+  const delivered = await bookAndAccept(f, f.trip.id);
+  const refunded = await bookAndAccept(f, f.trip.id);
+  // Written directly: since this change a driver cannot start a trip that names nobody, as one could before it.
+  f.store.anchorTrips.set(f.trip.id, { ...f.store.anchorTrips.get(f.trip.id)!, status: "IN_PROGRESS", startedAtUtcMs: Date.now(), startedByUserId: first.userId });
+  const get = (path: string, token: string) => f.request(path, "GET", undefined, token);
+  const ping = { lat: 12.9, lng: 77.6 };
+
+  assert.deepEqual(ids((await get("/v1/pilot/anchor-trips", first.token)).body.trips), [f.trip.id]);
+  assert.deepEqual(ids((await get("/v1/pilot/carrier/shipments", first.token)).body.shipments), [delivered, refunded].sort());
+  assert.deepEqual(ids((await get("/v1/pilot/anchor-trips", second.token)).body.trips), [], "an open trip that names nobody is no driver's");
+  const hiddenFromOthers: Array<[string, string]> = [
+    ["GET", `/v1/pilot/anchor-trips/${f.trip.id}`],
+    ["POST", `/v1/pilot/anchor-trips/${f.trip.id}/location`],
+    ["POST", `/shipments/${delivered}/driver-pod`],
+    ["POST", `/v1/pilot/anchor-trips/${f.trip.id}/complete`],
+    ["GET", `/v1/pilot/anchor-trips/${secondTripId}`],
+  ];
+  for (const [method, path] of hiddenFromOthers) {
+    assert.equal((await f.request(path, method, method === "POST" ? ping : undefined, second.token)).status, 404, `${method} ${path}`);
+  }
+  assert.equal((await get(`/v1/pilot/anchor-trips/${secondTripId}`, first.token)).status, 404);
+
+  assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/location`, "POST", ping, first.token)).status, 200);
+  const heard = (await get("/v1/notifications", first.token)).body.notifications as Array<{ shipmentId: string }>;
+  assert.deepEqual([...new Set(heard.map((item) => item.shipmentId))].sort(), [delivered, refunded].sort(), "notifications pick up the same rule");
+  assert.deepEqual((await get("/v1/notifications", second.token)).body.notifications, []);
+  assert.equal((await f.request(`/shipments/${delivered}/driver-pod`, "POST", {}, first.token)).status, 200);
+  assert.equal((await f.request(`/shipments/${refunded}/fail-refund`, "POST", {}, f.tokens.finance)).status, 200, "the other booking leaves the trip another way");
+  const completed = await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/complete`, "POST", {}, first.token);
+  assert.deepEqual([completed.status, completed.body.trip?.status], [200, "COMPLETED"]);
+  assert.equal((await get(`/v1/pilot/anchor-trips/${f.trip.id}`, first.token)).status, 404, "a finished trip that names nobody leaves the driver's list");
+
+  // A trip that names a driver goes by that alone, whoever started it.
+  f.store.anchorTrips.set(secondTripId, { ...f.store.anchorTrips.get(secondTripId)!, status: "IN_PROGRESS", startedByUserId: first.userId, assignedVehicleId: second.vehicleId, assignedDriverUserId: second.userId });
+  assert.equal((await get(`/v1/pilot/anchor-trips/${secondTripId}`, first.token)).status, 404);
+  assert.equal((await get(`/v1/pilot/anchor-trips/${secondTripId}`, second.token)).status, 200);
+});
+
+test("a driver cannot change a truck named on a trip that is not finished; the owner can; a truck number has at most 20 characters", async t => {
+  const { f, first, second, secondTripId } = await fleetWithTwoDrivers(t);
+  const editTruck = (vehicleRegistrationNumber: string, token: string) => f.request("/v1/pilot/me/vehicle", "PATCH", { vehicleRegistrationNumber }, token);
+  assert.equal((await editTruck("KA05AA0001", first.token)).status, 200, "a truck on no trip can change");
+
+  // The owner puts the first driver's truck on the second driver's trip, as the demo's Step 5 does.
+  const route = `/v1/pilot/anchor-trips/${secondTripId}/assignment`;
+  assert.equal((await f.request(route, "POST", { vehicleId: first.vehicleId, driverUserId: second.userId }, f.tokens.carrierA)).status, 200);
+  const refused = await editTruck("KA01AB1234", first.token);
+  assert.deepEqual([refused.status, refused.body.error, refused.body.detail],
+    [409, "truck_on_unfinished_trip", "This truck is on a trip that is not finished. Ask your carrier to change it."]);
+  assert.equal(f.store.vehicles.get(first.vehicleId)?.registrationNumber, "KA05AA0001", "the truck the shipper reads stays as it was");
+  assert.equal((await f.request("/v1/pilot/me/vehicle", "PATCH", { vehicleCapacityKg: 900 }, first.token)).status, 409, "any change to that truck");
+
+  // The other direction: a driver cannot rename their own truck to make a bill mismatch go away.
+  assert.equal((await f.request(route, "POST", { vehicleId: second.vehicleId, driverUserId: second.userId }, f.tokens.carrierA)).status, 200);
+  assert.equal((await editTruck("KA01AB1234", second.token)).status, 409);
+  assert.equal((await editTruck("KA05AA0002", first.token)).status, 200, "a truck taken off the trip can change again");
+
+  f.store.anchorTrips.set(secondTripId, { ...f.store.anchorTrips.get(secondTripId)!, status: "COMPLETED" });
+  assert.equal((await editTruck("KA02XY9998", second.token)).status, 200, "once the trip is complete the driver may change it");
+
+  assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/assignment`, "POST", { vehicleId: f.carrierA.vehicle.id, driverUserId: first.userId }, f.tokens.carrierA)).status, 200);
+  assert.equal((await editTruck("TEST-A2", f.tokens.carrierA)).status, 200, "the owner is not refused, and forms like TEST-A still pass");
+  const tooLong = await editTruck(` ${"K".repeat(21)} `, f.tokens.carrierA);
+  assert.deepEqual([tooLong.status, tooLong.body.field, tooLong.body.detail], [400, "vehicleRegistrationNumber", "A truck number can have at most 20 characters."]);
+  assert.equal((await editTruck(` ${"K".repeat(20)} `, f.tokens.carrierA)).status, 200, "20 characters after trimming is allowed");
+});
+
+test("an owner-driver whose carrier became a fleet by inviting a driver publishes a trip that stays unassigned", async t => {
+  const f = await httpFixture(t);
+  registerCustomerUser(f.store, { fullName: "Synthetic Driver One", phone: "8000000013" });
+  inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: f.carrierA.org.id, phone: "8000000013", role: "DRIVER", vehicleRegistrationNumber: "KA02XY9999", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
+  assert.equal(f.store.organizations.get(f.carrierA.org.id)?.kind, "CARRIER_FLEET", "precondition: inviting a driver makes the carrier a fleet");
+  assert.equal(f.store.memberships.get(`${f.carrierA.user.id}:${f.carrierA.org.id}`)?.role, "OWNER_DRIVER", "precondition: the owner keeps their role");
+  const lane = { orgId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2026-10-16", windowEnd: "2026-10-17", vehicleClass: "MEDIUM", capacityKg: 500 };
+  const published = await f.request("/v1/pilot/anchor-trips", "POST", lane, f.tokens.carrierA);
+  assert.equal(published.status, 201);
+  assert.deepEqual([published.body.trip.assignedDriverUserId, published.body.trip.assignedVehicleId], [undefined, undefined]);
+  const audit = [...loadStoreFromDisk(f.dataFilePath!).auditEvents.values()].filter((event) => event.action === "TRIP_ASSIGNED");
+  assert.deepEqual(audit, [], "nothing was assigned");
+});
+
+test("public trip lists and the eligible-trip search carry neither the truck nor the driver", async t => {
+  const f = await httpFixture(t);
+  const lane = {
+    orgId: f.carrierA.org.id, originCity: "Bengaluru", destCity: "Chennai", origin: { lat: 12.97, lng: 77.59 }, destination: { lat: 13.08, lng: 80.27 },
+    windowStart: "2026-10-16", windowEnd: "2026-10-17", vehicleClass: "MEDIUM", capacityKg: 500,
+  };
+  const published = await f.request("/v1/pilot/anchor-trips", "POST", lane, f.tokens.carrierA);
+  assert.equal(published.status, 201);
+  const tripId = published.body.trip.id as string;
+  assert.equal(f.store.anchorTrips.get(tripId)?.assignedDriverUserId, f.carrierA.user.id, "precondition: the solo owner-operator's trip names them");
+  const search = "/v1/customer/eligible-anchor-trips?pickupLat=12.97&pickupLng=77.59&dropLat=13.08&dropLng=80.27&weightKg=10";
+  for (const path of ["/anchor-trips", `/anchor-trips/${tripId}`, search]) {
+    const response = await f.request(path);
+    assert.equal(response.status, 200, path);
+    const text = JSON.stringify(response.body);
+    assert.ok(text.includes(tripId), `${path} lists the trip`);
+    for (const field of ["assignedVehicleId", "assignedDriverUserId", "assignedTruckNumber", "assignedDriverName"]) {
+      assert.equal(text.includes(field), false, `${field} on ${path}`);
+    }
+  }
+});

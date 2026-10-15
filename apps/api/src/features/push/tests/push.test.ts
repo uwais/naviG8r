@@ -14,7 +14,7 @@ import {
   revokePushDevice,
 } from "../push.ts";
 import { HttpV1FcmSender } from "../fcmSender.ts";
-import type { Membership, Notification, Organization, Shipment, User } from "../../../types.ts";
+import type { AnchorTrip, Membership, Notification, Organization, Shipment, User } from "../../../types.ts";
 
 const env = {
   registration: process.env.PUSH_DEVICE_REGISTRATION_ENABLED,
@@ -201,6 +201,40 @@ test("push intent snapshots eligible devices once and delivery retries respect r
   assert.equal(completePushDelivery(store, staleClaim, { kind: "accepted", providerMessageId: "message-1" }, { nowUtcMs: 94_000 }), true);
   assert.equal(store.pushDeliveries.get(staleClaim.delivery.id)?.status, "SUPPRESSED");
   assert.notEqual(store.pushDevices.get(device.id)?.ownershipGeneration, staleClaim.delivery.ownershipGeneration);
+});
+
+test("a push queued for a driver is dropped at send time once the trip names another driver", () => {
+  process.env.PUSH_DEVICE_REGISTRATION_ENABLED = "1";
+  process.env.PUSH_ENQUEUE_ENABLED = "1";
+  process.env.PUSH_ENVIRONMENT = "DEVELOPMENT";
+  process.env.PUSH_TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+  /** One queued push for driver-a about a shipment on trip-1, which by send time names [driverOnTrip]. */
+  function queuedDriverPush(driverOnTrip: string) {
+    const store = createStore();
+    const carrier = { id: "carrier-1", displayName: "Carrier", kind: "CARRIER_FLEET", createdAtUtcMs: 1 } as Organization;
+    store.organizations.set(carrier.id, carrier);
+    store.users.set("driver-a", { id: "driver-a", phone: "8000000013", fullName: "Driver A", createdAtUtcMs: 1 } as User);
+    store.memberships.set(`driver-a:${carrier.id}`, { userId: "driver-a", orgId: carrier.id, role: "DRIVER", createdAtUtcMs: 1 } as Membership);
+    store.anchorTrips.set("trip-1", { id: "trip-1", carrierId: carrier.id, status: "OPEN", assignedDriverUserId: "driver-a" } as AnchorTrip);
+    store.shipments.set("shipment-1", { id: "shipment-1", anchorTripId: "trip-1", customerOrgId: "shipper-1", carrierId: carrier.id, status: "BOOKED", createdAtUtcMs: 1000 } as Shipment);
+    const notification: Notification = {
+      id: "notification-1", recipientSequence: 1, eventId: "event-1", eventKey: "shipment.carrier_accepted",
+      recipientUserId: "driver-a", recipientOrgId: carrier.id, shipmentId: "shipment-1", createdAtUtcMs: 1000, data: {},
+    };
+    store.notifications.set(notification.id, notification);
+    registerPushDevice(store, {
+      userId: "driver-a", installationId: "install-driver-a-0000001", token: "fcm-registration-token-driver-a-1234567890",
+      consented: true, permissionGranted: true, channelEnabled: true, nowUtcMs: 1000,
+    });
+    assert.ok(enqueuePushIntentForNotification(store, notification));
+    store.anchorTrips.set("trip-1", { ...store.anchorTrips.get("trip-1")!, assignedDriverUserId: driverOnTrip });
+    return store;
+  }
+
+  assert.equal(claimPushDeliveries(queuedDriverPush("driver-a"), { nowUtcMs: 1000 }).claims.length, 1, "the driver still on the trip gets it");
+  const reassigned = queuedDriverPush("driver-b");
+  assert.equal(claimPushDeliveries(reassigned, { nowUtcMs: 1000 }).claims.length, 0);
+  assert.deepEqual([...reassigned.pushDeliveries.values()].map((delivery) => delivery.status), ["SUPPRESSED"]);
 });
 
 test("FCM HTTP v1 payload uses generic copy, shipment tag, fixed SDK notification id contract, and remaining TTL", async () => {

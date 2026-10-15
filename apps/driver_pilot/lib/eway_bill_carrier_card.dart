@@ -62,8 +62,11 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
     final number = bill['billNumber'];
     final truckLines = ewayBillTruckLines(bill);
     final canAddTruck = _canAddTruck;
+    // Holding eway_bill.add_truck is what makes a login the carrier office here; a driver does not.
     final mismatch = ewayBillTruckMismatchSentence(widget.shipment, bill,
-        canUpdate: canAddTruck);
+        reader: AuthorizationSession.can('eway_bill.add_truck')
+            ? TruckMismatchReader.carrierOffice
+            : TruckMismatchReader.driver);
     final assignedTruck = widget.shipment['assignedTruckNumber'];
     return [
       if (number is String)

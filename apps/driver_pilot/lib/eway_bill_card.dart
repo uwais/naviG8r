@@ -245,7 +245,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
     final canAddTruck =
         canEdit && AuthorizationSession.can('eway_bill.add_truck');
     final mismatch = ewayBillTruckMismatchSentence(widget.shipment, bill,
-        canUpdate: canAddTruck);
+        reader: TruckMismatchReader.shipper);
     return [
       if (number is String)
         SelectableText(groupedBillNumber(number),

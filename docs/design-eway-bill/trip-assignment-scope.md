@@ -69,15 +69,55 @@ The seed has a second carrier A driver (8000000013, Synthetic Driver B) and a se
 for him, with one shipment; the first trip names 8000000009 and truck KA01AB1234. The guide's Step 5 shows each
 driver seeing only their own trip.
 
+## Decided 15 Oct 2026: a driver never sees carrier earnings
+
+Rishabh's call after the build. It covers every place a driver could see what the carrier earns:
+
+- A `DRIVER` membership has no `payment.read`, so the earnings, ledger and payout-batch routes answer 403 for a driver.
+- No response to a driver carries `netToCarrierPaise`, and payout batches and the earnings summary lose their
+  amounts for one, whatever the route.
+- A driver is never notified of a payment status change.
+- The app shows a driver no "Net to carrier" line and no amount on the trip screen, and Profile has no "Earnings &
+  payouts" for them.
+
+Owners, owner-drivers and dispatchers keep all of it, unchanged.
+
 ## As built: differences and limits
 
 - Assigning needs both a truck and a driver; there is no way to clear an assignment once made.
-- A driver on a trip sees the truck and driver line on the trip screen, read only. The bill's mismatch sentence asks
-  only someone who can change the bill's truck to update it; a driver is told the two numbers and nothing more.
+- A driver on a trip sees the truck and driver line on the trip screen, read only.
+- When the bill's truck and the trip's differ, each reader gets their own sentence: the carrier office is asked to
+  check which is right and, if the bill is wrong, to update it on the portal and then in the app; the shipper is told
+  what the carrier assigned and asked to check with the carrier; a driver is told the two numbers and to tell the
+  carrier. Once the shipment is delivered, accepted or refunded, no sentence shows.
+- A driver with no trip sees "Your carrier has not assigned you a trip yet. Ask your carrier to assign one."
+- Trips in progress at deploy: a trip that is in progress and names no driver stays with the driver who started it
+  until it is completed or assigned to someone else, so nobody mid-route loses it. Open and full trips that name no
+  driver are visible to no driver. Before go-live the carrier office should assign every open trip; in-progress
+  trips started by a driver keep working until assigned.
+- A driver cannot change a truck that a trip which is not finished names, since the shipper reads that truck. A
+  truck number has at most 20 characters, with no letters-and-digits rule.
+- Only a solo owner-operator's trip assigns itself. Once the owner invites a driver or dispatcher, the organization
+  is a fleet and the office assigns each trip.
+- A push queued for a driver is dropped at send time if the trip names someone else by then. The replaced driver and
+  the new one are sent no message; the new trip shows on their Loads screen when they pull down to refresh.
 - Database mode: two nullable columns, `ALTER TABLE "AnchorTripRow" ADD COLUMN "assignedVehicleId" TEXT, ADD
-  COLUMN "assignedDriverUserId" TEXT;`, applied by hand before merge. Not applied.
+  COLUMN "assignedDriverUserId" TEXT;`. Without them the API does not start in database mode at all, so applying them
+  by hand is a merge gate for every database-mode service. Not applied.
 
 ## Open questions for the team
+
+The team answered four e-way bill questions (Uwais, #navig8r-pilot Slack thread, 15 Oct 2026, 12:19 EDT). This is
+the team's position, not legal or accounting advice.
+
+| Question | Team's answer | Status |
+|---|---|---|
+| Is naviG8r an e-commerce operator (CGST section 52)? | No, a carrier matching platform. | Open: the accountant has not confirmed it |
+| Who pays a fine at a check-post? | The carrier, who may collect it from the shipper in the invoice. The carrier bears the risk, so it must see the bill before accepting a booking (the carrier's shipment screen already shows it), and the terms of service must say so. | Answered |
+| How long are the bill number, GSTIN and invoice number kept? | Six months for now; an OpsAdmin may delete them, with an audit row, on a data protection (DPDP) request. | Answered, not built: no purge after six months and no OpsAdmin delete. Open: when the six months start (booking, delivery or bill date) and exactly what is deleted |
+| Who adds the truck (Part B)? | The dispatcher or the owner. | Answered; matches what is built (owner, owner-driver and dispatcher add it, a driver only reads). Validity extension was not answered and stays open |
+
+Still open, on this scope:
 
 - May a dispatcher assign, or only the owner? (This scope says both.)
 - Should starting a trip require a named truck and driver for fleets? (This scope says no for now.)

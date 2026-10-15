@@ -1107,8 +1107,10 @@ class _DriverShipmentDetailScreenState
           const SizedBox(height: 12),
           Text("Pickup: ${s["pickupAddress"]}"),
           Text("Drop: ${s["dropAddress"]}"),
-          Text(
-              "Net to carrier: ${formatInrFromPaise(s["netToCarrierPaise"] as num? ?? 0)}"),
+          // The server leaves it out for a driver; a missing amount is not zero.
+          if (s["netToCarrierPaise"] is num)
+            Text(
+                "Net to carrier: ${formatInrFromPaise(s["netToCarrierPaise"] as num)}"),
           EwayBillCarrierCard(shipment: s),
           const SizedBox(height: 16),
           if (st == "PENDING_CARRIER_ACCEPT")
@@ -1724,13 +1726,16 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
           child: Text(_saving ? "Saving…" : "Save vehicle"),
         ),
         const SizedBox(height: 24),
-        ListTile(
-          leading: const Icon(Icons.payments_outlined, color: DriverTheme.navy),
-          title: const Text("Earnings & payouts"),
-          subtitle: Text("View settlement status and payment history"),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => context.push("/driver/earnings"),
-        ),
+        // A driver never sees carrier earnings (owner decision, 15 Oct 2026).
+        if (AuthorizationSession.can("payment.read"))
+          ListTile(
+            leading:
+                const Icon(Icons.payments_outlined, color: DriverTheme.navy),
+            title: const Text("Earnings & payouts"),
+            subtitle: Text("View settlement status and payment history"),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push("/driver/earnings"),
+          ),
         ListTile(
           leading: const Icon(Icons.add_road, color: DriverTheme.navy),
           title: const Text("Publish anchor trip"),
@@ -2038,7 +2043,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 ),
               ),
               Expanded(
-                child: ListView(
+                // The truck and driver card tells the office to pull down after a refused save. The reload's
+                // spinner replaces this list, so the card comes back with fresh truck and driver lists.
+                child: RefreshIndicator(onRefresh: _load, child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
                   children: [
                     if (_error != null)
@@ -2144,8 +2152,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                         child: ListTile(
                           title: Text(
                               "${s["customerOrgName"]} · ${s["weightKg"]}kg"),
-                          subtitle: Text(
-                              "${shipmentStatusLabel(st)} · ${formatInrFromPaise(s["netToCarrierPaise"] as num? ?? 0)} net"),
+                          subtitle: Text(s["netToCarrierPaise"] is num
+                              ? "${shipmentStatusLabel(st)} · ${formatInrFromPaise(s["netToCarrierPaise"] as num)} net"
+                              : shipmentStatusLabel(st)),
                           trailing: st == "PENDING_CARRIER_ACCEPT"
                               ? TextButton(
                                   onPressed: DriverSession.complianceApproved &&
@@ -2194,7 +2203,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                       ),
                     ],
                   ],
-                ),
+                )),
               ),
             ],
           );

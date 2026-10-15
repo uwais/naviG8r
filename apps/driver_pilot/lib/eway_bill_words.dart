@@ -1,3 +1,4 @@
+import 'eway_bill_closed.dart';
 import 'eway_bill_dates.dart';
 import 'eway_bill_portal_link.dart';
 
@@ -72,11 +73,15 @@ List<String> ewayBillTruckLines(Map<String, dynamic> bill, {DateTime? now}) {
   return lines;
 }
 
-/// One plain sentence when the truck on the bill is not the truck the carrier named for the trip, or null
-/// when they match or either is missing. Only someone who can change the bill's truck is asked to update it.
+/// Who reads the sentence about a bill and a trip that name different trucks. Each is told only what they can do.
+enum TruckMismatchReader { carrierOffice, shipper, driver }
+
+/// One plain sentence when the truck on the bill is not the truck the carrier assigned to the trip, or null
+/// when they match, either is missing, or the shipment is closed and nothing about the bill can change.
 String? ewayBillTruckMismatchSentence(
     Map<String, dynamic> shipment, Map<String, dynamic> bill,
-    {required bool canUpdate}) {
+    {required TruckMismatchReader reader}) {
+  if (ewayBillIsClosed(shipment)) return null;
   final onBill = bill['truckNumber'];
   final onTrip = shipment['assignedTruckNumber'];
   if (onBill is! String || onTrip is! String) return null;
@@ -84,10 +89,14 @@ String? ewayBillTruckMismatchSentence(
       truck.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
   if (plain(onBill).isEmpty || plain(onTrip).isEmpty) return null;
   if (plain(onBill) == plain(onTrip)) return null;
-  final request = canUpdate
-      ? ' Update the bill on the $ewayBillPortalName, then here.'
-      : '';
-  return 'The bill shows $onBill. The truck on this trip is $onTrip.$request';
+  return switch (reader) {
+    TruckMismatchReader.carrierOffice =>
+      'The bill shows $onBill. The truck on this trip is $onTrip. Check which one is right; if the bill is wrong, update it on the $ewayBillPortalName, then here.',
+    TruckMismatchReader.shipper =>
+      'The e-way bill shows $onBill. Your carrier has assigned $onTrip to this trip. Ask your carrier which truck is right.',
+    TruckMismatchReader.driver =>
+      'The bill shows $onBill. The truck on this trip is $onTrip. Tell your carrier.',
+  };
 }
 
 /// The reasons a shipper can give, in the order shown, none chosen to start.
