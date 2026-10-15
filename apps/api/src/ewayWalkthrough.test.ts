@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { once } from "node:events";
+import { connect } from "node:net";
+import type { Socket } from "node:net";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { FORM_BODY_TIMEOUT_MS } from "./ewayDemoPortal.ts";
 import { inviteCarrierDriver, registerCustomerUser } from "./services.ts";
 
 const INDIA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -80,7 +84,7 @@ test("the demo guide's order works end to end over HTTP, and the portal is off w
   // Ops looks the four details up on the portal, then records what it saw.
   const lookup = await portalGet("/demo/eway-portal/check?" + new URLSearchParams({ number: billNumber, billDate, gstin: SAMPLE_GSTIN, invoiceNumber: INVOICE_NUMBER }).toString());
   assert.equal(lookup.status, 200);
-  assert.ok(lookup.text.includes("<h2>Found</h2>"), lookup.text);
+  assert.ok(lookup.text.includes("<h2>Found (practice site)</h2>"), lookup.text);
   assert.ok(lookup.text.includes("KA01AB1234"), "the look-up shows the vehicle");
   const checked = await f.request(`/ops/eway-bills/${id}/check`, "POST", { result: "FOUND", billNumber }, f.tokens.ops);
   assert.equal(checked.status, 200, JSON.stringify(checked.body));
@@ -91,10 +95,43 @@ test("the demo guide's order works end to end over HTTP, and the portal is off w
 
   // The seeded bill from the demo script is known to the portal.
   const seeded = await portalGet("/demo/eway-portal/check?" + new URLSearchParams({ number: "123456789012", billDate: "2026-10-01", gstin: SAMPLE_GSTIN, invoiceNumber: "SYN/2026/001" }).toString());
-  assert.ok(seeded.text.includes("<h2>Found</h2>"), "the seeded bill is found");
+  assert.ok(seeded.text.includes("<h2>Found (practice site)</h2>"), "the seeded bill is found");
 
   delete process.env.EWAY_DEMO_PORTAL;
   for (const path of ["/demo/eway-portal", "/demo/eway-portal/check", "/demo/eway-guide"]) {
     assert.equal((await portalGet(path)).status, 404, `${path} is off without the switch`);
   }
+});
+
+test("a portal form that stalls mid-body does not hold up other requests, and is closed after the timeout", async t => {
+  const originalSwitch = process.env.EWAY_DEMO_PORTAL;
+  const originalTimeout = process.env.EWAY_DEMO_PORTAL_BODY_TIMEOUT_MS;
+  process.env.EWAY_DEMO_PORTAL = "1";
+  process.env.EWAY_DEMO_PORTAL_BODY_TIMEOUT_MS = "1500";
+  const sockets: Socket[] = [];
+  t.after(() => {
+    for (const socket of sockets) socket.destroy();
+    if (originalSwitch === undefined) delete process.env.EWAY_DEMO_PORTAL;
+    else process.env.EWAY_DEMO_PORTAL = originalSwitch;
+    if (originalTimeout === undefined) delete process.env.EWAY_DEMO_PORTAL_BODY_TIMEOUT_MS;
+    else process.env.EWAY_DEMO_PORTAL_BODY_TIMEOUT_MS = originalTimeout;
+  });
+  assert.equal(FORM_BODY_TIMEOUT_MS, 5000, "the real timeout is 5 seconds; this test shortens it");
+  const f = await httpFixture(t);
+
+  const stalled = connect(Number(new URL(f.base).port), "127.0.0.1");
+  sockets.push(stalled);
+  await once(stalled, "connect");
+  const closed = once(stalled, "close");
+  const sentAt = Date.now();
+  stalled.write("POST /demo/eway-portal/generate HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 100\r\n\r\nm");
+  await new Promise(resolve => setTimeout(resolve, 100));
+
+  const otherStartedAt = Date.now();
+  const health = await f.request("/health");
+  assert.equal(health.status, 200);
+  assert.ok(Date.now() - otherStartedAt < 1000, "another route answers while the portal body is still trickling in");
+
+  await closed;
+  assert.ok(Date.now() - sentAt < 1500 + 1000, "the stalled body is closed shortly after the timeout");
 });

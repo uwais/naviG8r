@@ -41,6 +41,14 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
   @override
   void didUpdateWidget(EwayBillCarrierCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // A different shipment in the same spot starts clean; an open truck form for the old one closes.
+    if (widget.shipment['id'] != oldWidget.shipment['id']) {
+      _bill = _billFrom(widget.shipment);
+      _addingTruck = false;
+      _savedAtUtcMs = 0;
+      _error = null;
+      return;
+    }
     // The screen refreshes every 15 seconds. Never overwrite something half typed.
     if (_addingTruck) return;
     // A refresh that started before our own save can arrive after it; the newer server time wins.
@@ -65,8 +73,7 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
       opened = false;
     }
     if (!opened && mounted) {
-      setState(() => _error =
-          'Could not open the portal from here. Its address is ewaybillgst.gov.in.');
+      setState(() => _error = ewayBillPortalOpenFailedSentence);
     }
   }
 
@@ -124,7 +131,7 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
             child: TextButton.icon(
                 onPressed: _openPortal,
                 icon: const Icon(Icons.open_in_new, size: 18),
-                label: const Text('Open the government e-way bill portal'))),
+                label: Text(ewayBillPortalButtonLabel))),
       if (_error != null)
         Text(_error!,
             style: TextStyle(color: Theme.of(context).colorScheme.error)),

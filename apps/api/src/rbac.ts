@@ -45,7 +45,8 @@ export function effectivePermissions(roles: Role[], subrole: string): string[] {
     if (p === "organization.member.invite") return ["CUSTOMER_ADMIN", "OWNER_DRIVER", "OWNER", "DISPATCHER"].includes(subrole);
     if (p === "integration.manage") return subrole === "CUSTOMER_ADMIN";
     // A driver only reads the bill; the owner or dispatcher is the carrier's voice on it.
-    if (p === "eway_bill.add_truck") return subrole !== "DRIVER";
+    // SHIPPER and CARRIER are the legacy role strings legacyRoles still maps.
+    if (p === "eway_bill.add_truck") return ["CUSTOMER_ADMIN", "CUSTOMER_MEMBER", "OWNER_DRIVER", "OWNER", "DISPATCHER", "SHIPPER", "CARRIER"].includes(subrole);
     if (p === "bank_account.create_token") return ["OWNER_DRIVER", "OWNER"].includes(subrole);
     return true;
   });

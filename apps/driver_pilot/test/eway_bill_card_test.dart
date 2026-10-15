@@ -18,10 +18,11 @@ class _RecordingLauncher extends Fake
     with MockPlatformInterfaceMixin
     implements UrlLauncherPlatform {
   final opened = <String>[];
+  bool opens = true;
   @override
   Future<bool> launchUrl(String url, LaunchOptions options) async {
     opened.add(url);
-    return true;
+    return opens;
   }
 }
 
@@ -313,6 +314,16 @@ void main() {
     await tester.pump();
     expect(launcher.opened, ['https://ewaybillgst.gov.in'],
         reason: 'one fixed address');
+    launcher.opens = false;
+    await tester.tap(find.text('Add e-way bill'));
+    await tester.pump();
+    await tester.tap(find.text('Open the government e-way bill portal'));
+    await tester.pump();
+    expect(
+        find.text(
+            'Could not open the portal from here. Its address is ewaybillgst.gov.in.'),
+        findsOneWidget,
+        reason: 'the address shown is the one this build opens');
   });
 
   testWidgets('the carrier card shows each state read only, with no buttons',
@@ -389,7 +400,7 @@ void main() {
   }
 
   Future<void> chooseTodayAtLastMinute(WidgetTester tester) async {
-    await tester.tap(find.text('Valid until: choose the date'));
+    await tester.tap(find.text('Valid until, date in India: choose the date'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
@@ -451,7 +462,8 @@ void main() {
     });
     expect(find.text('Truck: KA01AB1234'), findsOneWidget,
         reason: 'the returned bill shows the truck');
-    expect(find.text('Valid until: 16 Oct 2026, 23:59'), findsOneWidget,
+    expect(find.text('Valid until: 16 Oct 2026, 23:59 (India time)'),
+        findsOneWidget,
         reason: 'and its valid-until time in India');
     expect(find.widgetWithText(OutlinedButton, 'Change truck'), findsOneWidget,
         reason: 'a saved truck can be changed');
@@ -648,7 +660,8 @@ void main() {
         reason: 'the number to quote at a check-post');
     expect(find.text('Truck: KA01AB1234'), findsOneWidget,
         reason: 'the truck on the bill');
-    expect(find.text('Valid until: 16 Oct 2026, 23:59'), findsOneWidget,
+    expect(find.text('Valid until: 16 Oct 2026, 23:59 (India time)'),
+        findsOneWidget,
         reason: 'the valid-until time in India');
     expect(find.textContaining('has not checked it against the portal'),
         findsOneWidget,
@@ -713,8 +726,10 @@ void main() {
         reason: 'the bill shows on the detail screen');
     expect(find.text('Truck: KA01AB1234'), findsOneWidget,
         reason: 'the driver sees the truck');
-    expect(find.text('Expired'), findsOneWidget,
-        reason: 'a valid-until time in the past reads Expired');
+    expect(
+        find.text('The valid-until time entered has passed. Check the portal.'),
+        findsOneWidget,
+        reason: 'a past valid-until time is reported as typed, not as expired');
     expect(find.text('Change truck'), findsNothing,
         reason: 'a driver cannot change the truck');
     expect(find.text('Accept booking'), findsOneWidget,
@@ -778,5 +793,38 @@ void main() {
         reason: 'the accept button is still on screen');
     expect(tester.takeException(), isNull,
         reason: 'no overflow on a small phone');
+  });
+
+  testWidgets('a different shipment in the same place starts clean',
+      (tester) async {
+    await mount(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
+    await tester.tap(find.text('Edit'));
+    await tester.pump();
+    await tester.enterText(field('Invoice number'), 'TYPED-FOR-A');
+    await mount(
+        tester, EwayBillCard(shipment: {...shipment(), 'id': 'shipment-b'}));
+    expect(find.text('No e-way bill added yet.'), findsOneWidget,
+        reason: 'the new shipment\'s own state, form closed');
+    await tester.tap(find.text('Add e-way bill'));
+    await tester.pump();
+    expect(find.text('TYPED-FOR-A'), findsNothing,
+        reason: 'nothing typed for the old shipment carries over');
+
+    signInAsCarrier(canAddTruck: true);
+    await mount(
+        tester, EwayBillCarrierCard(shipment: shipment(bill: savedBill)));
+    await tester.tap(find.text('Add truck'));
+    await tester.pump();
+    expect(find.text('Save truck'), findsOneWidget, reason: 'form open');
+    await mount(
+        tester,
+        EwayBillCarrierCard(shipment: {
+          ...shipment(bill: {'kind': 'BILL', 'billNumber': '999988887777'}),
+          'id': 'shipment-b'
+        }));
+    expect(find.text('Save truck'), findsNothing,
+        reason: 'the old shipment\'s truck form closed');
+    expect(find.text('9999 8888 7777'), findsOneWidget,
+        reason: 'the new shipment\'s bill shows');
   });
 }

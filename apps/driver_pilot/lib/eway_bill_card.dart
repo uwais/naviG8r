@@ -51,6 +51,20 @@ class _EwayBillCardState extends State<EwayBillCard> {
   @override
   void didUpdateWidget(EwayBillCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // A different shipment in the same spot starts clean; nothing typed for the old one may carry over.
+    if (widget.shipment['id'] != oldWidget.shipment['id']) {
+      _mode = _Mode.viewing;
+      _bill = _billFrom(widget.shipment);
+      _savedAtUtcMs = 0;
+      _error = null;
+      _busy = false;
+      _billDate = null;
+      _reason = null;
+      for (final controller in [_number, _gstin, _invoice, _note]) {
+        controller.clear();
+      }
+      return;
+    }
     // The screen refreshes every 15 seconds. Never overwrite something half typed.
     if (_mode != _Mode.viewing || _busy) return;
     // A refresh that started before our own save can arrive after it; the newer server time wins.
@@ -125,8 +139,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       opened = false;
     }
     if (!opened && mounted) {
-      setState(() => _error =
-          'Could not open the portal from here. Its address is ewaybillgst.gov.in.');
+      setState(() => _error = ewayBillPortalOpenFailedSentence);
     }
   }
 
@@ -167,17 +180,24 @@ class _EwayBillCardState extends State<EwayBillCard> {
   Future<void> _submit(String path, Map<String, dynamic>? data) async {
     if (_busy) return;
     final scope = AuthorizationSession.scopeKey;
+    final shipmentId = widget.shipment['id'];
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
       final response = await api.post<Map<String, dynamic>>(path, data: data);
-      if (!mounted || scope != AuthorizationSession.scopeKey) return;
+      if (!mounted ||
+          scope != AuthorizationSession.scopeKey ||
+          shipmentId != widget.shipment['id']) {
+        return;
+      }
       final shipment = response.data?['shipment'];
       _showSaved(shipment is Map<String, dynamic> ? shipment : null);
     } catch (e) {
-      if (mounted) setState(() => _error = ewayBillErrorSentence(e));
+      if (mounted && shipmentId == widget.shipment['id']) {
+        setState(() => _error = ewayBillErrorSentence(e));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -207,7 +227,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       child: TextButton.icon(
           onPressed: _openPortal,
           icon: const Icon(Icons.open_in_new, size: 18),
-          label: const Text('Open the government e-way bill portal')));
+          label: Text(ewayBillPortalButtonLabel)));
 
   List<Widget> _viewing() {
     final bill = _bill;

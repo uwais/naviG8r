@@ -67,7 +67,8 @@ void main() {
         reason: 'early morning in India is the evening before in UTC');
   });
 
-  test('the countdown shows only in the last 12 hours, and past is Expired',
+  test(
+      'the countdown shows only in the last 12 hours, and past says the typed time has passed',
       () {
     final validUntil = DateTime.utc(2026, 10, 16, 18, 29);
     Map<String, dynamic> bill() => {
@@ -78,10 +79,10 @@ void main() {
     List<String> linesAt(Duration before) =>
         ewayBillTruckLines(bill(), now: validUntil.subtract(before));
     expect(linesAt(const Duration(days: 1)),
-        ['Truck: KA01AB1234', 'Valid until: 16 Oct 2026, 23:59'],
+        ['Truck: KA01AB1234', 'Valid until: 16 Oct 2026, 23:59 (India time)'],
         reason: 'a day out: truck and time, no countdown');
     expect(linesAt(const Duration(hours: 12)),
-        ['Truck: KA01AB1234', 'Valid until: 16 Oct 2026, 23:59'],
+        ['Truck: KA01AB1234', 'Valid until: 16 Oct 2026, 23:59 (India time)'],
         reason: 'exactly 12 hours out: still no countdown');
     expect(linesAt(const Duration(hours: 11, minutes: 59)).last,
         'Expires in 11 hours',
@@ -91,9 +92,11 @@ void main() {
     expect(linesAt(const Duration(minutes: 30)).last,
         'Expires in less than an hour',
         reason: 'never "Expires in 0 hours"');
-    expect(linesAt(Duration.zero).last, 'Expired',
-        reason: 'at the valid-until time the bill has run out');
-    expect(linesAt(const Duration(hours: -3)).last, 'Expired',
+    expect(linesAt(Duration.zero).last,
+        'The valid-until time entered has passed. Check the portal.',
+        reason: 'at the valid-until time; naviG8r cannot see the portal');
+    expect(linesAt(const Duration(hours: -3)).last,
+        'The valid-until time entered has passed. Check the portal.',
         reason: 'past the valid-until time');
     expect(ewayBillTruckLines({'kind': 'BILL', 'billNumber': '123456789012'}),
         isEmpty,
@@ -114,7 +117,8 @@ void main() {
         findsOneWidget,
         reason: 'says where the details come from');
     expect(truckField(), findsOneWidget, reason: 'truck number field');
-    expect(find.text('Valid until: choose the date'), findsOneWidget,
+    expect(find.text('Valid until, date in India: choose the date'),
+        findsOneWidget,
         reason: 'date button, nothing chosen');
     expect(find.text('Time in India: choose the time'), findsOneWidget,
         reason: 'time button, nothing chosen');
@@ -153,17 +157,22 @@ void main() {
         find.text('Changing these details clears the check.'), findsOneWidget,
         reason: 'the bill had a check');
     await tester.enterText(truckField(), 'ka 01 ab 1234');
-    await tester.tap(find.text('Valid until: choose the date'));
+    await tester.tap(find.text('Valid until, date in India: choose the date'));
     await tester.pumpAndSettle();
+    // The picker opens on today in India, which can differ from today where the test runs.
+    final india =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    final picker =
+        tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+    expect(picker.lastDate, DateTime(india.year, india.month, india.day + 29),
+        reason:
+            'the last day is 29 ahead, so even 23:59 on it is inside the 30 days');
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Time in India: choose the time'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
-    // The picker opens on today in India, which can differ from today where the test runs.
-    final india =
-        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
     final expected = DateTime.utc(india.year, india.month, india.day, 23, 59)
         .subtract(const Duration(hours: 5, minutes: 30))
         .millisecondsSinceEpoch;
@@ -198,7 +207,8 @@ void main() {
     });
     expect(find.text('KA01AB1234'), findsOneWidget,
         reason: 'the saved truck number is filled in');
-    expect(find.text('Valid until: 16 Oct 2026, 23:59'), findsOneWidget,
+    expect(find.text('Valid until, date in India: 16 Oct 2026, 23:59'),
+        findsOneWidget,
         reason: 'the saved date, read in India');
     expect(find.text('Time in India: 23:59'), findsOneWidget,
         reason: 'the saved time, read in India');

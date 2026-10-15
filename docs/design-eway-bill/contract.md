@@ -86,7 +86,8 @@ Shipper card, title "E-way bill":
   does not make or change e-way bills." Fields: "E-way bill number (12 digits)", "Bill date", "GSTIN of
   whoever made the bill", "Invoice number"; under the last two: "Used only by naviG8r ops to find the bill on
   the portal." Above Save, when the bill had been checked: "Changing these details clears the check." Buttons:
-  "Save e-way bill", "Cancel". Link: "Open the government e-way bill portal".
+  "Save e-way bill", "Cancel". Link: "Open the government e-way bill portal" ("Open the practice e-way bill
+  portal" on a practice build; see Part B).
 - Saved: number in groups of four, then date, GSTIN, invoice number. Check line, one of: "Entered by you. Not
   checked yet." / "Ops saw this bill on the government portal on 14 Oct 2026. It may have changed since." /
   a problem line by reason: "Ops could not find this bill on the portal on 14 Oct 2026." / "Ops saw on the
@@ -128,10 +129,17 @@ link out to and come back from. This brings back, from the cut list, the truck n
 New data on the record: `truckNumber` (6 to 12 letters and digits, spaces and hyphens removed, upper case),
 `validUntilUtcMs`. Both are shown to shipper, ops and carrier logins. Adding or changing them clears the ops check
 (same rule as every other detail). New permission `eway_bill.add_truck`: SHIPPER, and CARRIER for owner, owner-driver
-and dispatcher only (not DRIVER). New routes: `POST /shipments/:id/eway-bill/truck` (shipper) and
+and dispatcher only (not DRIVER). It is an allow-list of subroles, so a new subrole gets nothing until named. New routes: `POST /shipments/:id/eway-bill/truck` (shipper) and
 `POST /v1/pilot/carrier/shipments/:id/eway-bill/truck` (carrier), body `{ truckNumber, validUntilUtcMs }`, only on a
 `BILL`. Audit `EWAY_BILL_TRUCK_ADDED` (state words only). Not compared with any trip's truck: trips still name none
-(question 1).
+(question 1). A wrong truck is replaced with Change truck; removing a truck is left out of the demo.
+
+Truck copy: "Valid until: 16 Oct 2026, 23:59 (India time)". The date button reads "Valid until, date in India: choose
+the date", then the chosen date; the picker ends 29 days after today in India, so even 23:59 on the last day stays
+inside the server's 30 days. Once the typed time has passed the line reads "The valid-until time entered has passed.
+Check the portal." (naviG8r cannot see the portal, so it never says "Expired"). The portal button reads "Open the
+government e-way bill portal" only when the build's address is https://ewaybillgst.gov.in, and "Open the practice
+e-way bill portal" otherwise; the could-not-open sentence names the build's own address.
 
 **Return path (Rishabh's choice): browser tab, copy back.** The app opens the portal in the browser (a new tab on
 web, Chrome on a phone). The user makes or looks up the bill there, copies the details, switches back to the app and
@@ -140,7 +148,11 @@ can. The fake portal says on every page that it is a naviG8r demo and not the go
 
 **The fake portal** is served by the demo server only when `EWAY_DEMO_PORTAL=1` (the demo script sets it), under
 `/demo/eway-portal` (generate a bill, add a vehicle, search by the four details) with a step-by-step guide at
-`/demo/eway-guide`. It keeps its bills in memory and resets on restart. The app's portal address comes from the
+`/demo/eway-guide`. It keeps its bills in memory and resets on restart, holds at most 500 and drops the oldest
+(never the seeded bill) to make room. It is answered before the server's one-at-a-time request queue, since it never
+touches the store, and drops a form whose body is not complete within 5 seconds, so a slow sender cannot stall other
+requests. Its generated bill and look-up result are headed "Practice bill, not a real e-way bill" and "Found (practice
+site)". The guide builds its addresses from the Host the visitor used. The app's portal address comes from the
 build (`--dart-define=EWAY_PORTAL=...`, default the real portal); the ops page gets its link from the server.
 
 ## Open and unchecked

@@ -66,7 +66,9 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
   Future<void> _chooseDate() async {
     final india = DateTime.now().toUtc().add(_indiaOffset);
     final today = DateTime(india.year, india.month, india.day);
-    final last = today.add(const Duration(days: 30));
+    // The server refuses more than 30 days from now, so the last day is 29 ahead: even 23:59 on it stays
+    // inside. Built from the day number, because adding a Duration shifts by an hour across a clock change.
+    final last = DateTime(today.year, today.month, today.day + 29);
     final chosen = _date;
     // A saved date outside the allowed range would make the picker fail, so it opens on today.
     final initial =
@@ -121,13 +123,13 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
 
   String _dateWords() {
     final date = _date;
-    if (date == null) return 'Valid until: choose the date';
+    if (date == null) return 'Valid until, date in India: choose the date';
     final time = _time;
     final dateWords =
         ewayBillDateFromCalendarDate('${date.year}-${date.month}-${date.day}');
     return time == null
-        ? 'Valid until: $dateWords'
-        : 'Valid until: $dateWords, ${ewayBillClockTime(time.hour, time.minute)}';
+        ? 'Valid until, date in India: $dateWords'
+        : 'Valid until, date in India: $dateWords, ${ewayBillClockTime(time.hour, time.minute)}';
   }
 
   @override

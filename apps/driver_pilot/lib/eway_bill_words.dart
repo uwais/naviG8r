@@ -9,6 +9,19 @@ import 'pilot_api.dart';
 const ewayBillPortalAddress = String.fromEnvironment('EWAY_PORTAL',
     defaultValue: 'https://ewaybillgst.gov.in');
 
+/// Says "government" only when the build really opens the government site.
+String get ewayBillPortalButtonLabel =>
+    ewayBillPortalAddress == 'https://ewaybillgst.gov.in'
+        ? 'Open the government e-way bill portal'
+        : 'Open the practice e-way bill portal';
+
+/// Shown when the browser would not open; names the address this build actually uses.
+String get ewayBillPortalOpenFailedSentence {
+  // Authority, not host: the practice site's port is part of its address.
+  final host = Uri.tryParse(ewayBillPortalAddress)?.authority ?? '';
+  return 'Could not open the portal from here. Its address is ${host.isEmpty ? ewayBillPortalAddress : host}.';
+}
+
 const _monthNames = [
   'Jan',
   'Feb',
@@ -50,12 +63,14 @@ List<String> ewayBillTruckLines(Map<String, dynamic> bill, {DateTime? now}) {
   final lines = ['Truck: $truck'];
   final validUntil = bill['validUntilUtcMs'];
   if (validUntil is! num) return lines;
-  lines.add('Valid until: ${ewayBillDateTimeFromUtcMs(validUntil)}');
+  lines.add(
+      'Valid until: ${ewayBillDateTimeFromUtcMs(validUntil)} (India time)');
   final left =
       DateTime.fromMillisecondsSinceEpoch(validUntil.toInt(), isUtc: true)
           .difference(now ?? DateTime.now());
   if (left <= Duration.zero) {
-    lines.add('Expired');
+    // naviG8r cannot see the portal, so it says only that the typed time has passed, not that the bill expired.
+    lines.add('The valid-until time entered has passed. Check the portal.');
   } else if (left < const Duration(hours: 12)) {
     final hours = left.inHours;
     lines.add(switch (hours) {

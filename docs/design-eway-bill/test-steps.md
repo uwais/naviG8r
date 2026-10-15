@@ -15,7 +15,8 @@ only, the guide page the demo server serves, so they cannot drift from what the 
 3. Carrier and driver on the Android emulator (optional), from `apps/driver_pilot`:
    `flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:3139 --dart-define=EWAY_PORTAL=http://10.0.2.2:3139/demo/eway-portal`
    Never run it without `API_BASE_URL`: it would hit production. Without `EWAY_PORTAL` the portal link goes to the
-   real government site.
+   real government site. Right: with `EWAY_PORTAL` set, the button reads "Open the practice e-way bill portal";
+   only a build pointing at https://ewaybillgst.gov.in says "government".
 
 Then open http://127.0.0.1:3139/demo/eway-guide. It has the steps for shipper, carrier, ops and driver, in order.
 
@@ -33,6 +34,8 @@ portal's login, captcha and rules are not shown.
 
 - The carrier on a phone returns to the app by switching apps and pasting. There is no automatic return.
 - A restart wipes the practice portal's bills. Only the seeded bill on load-a-with-bill comes back.
+- The practice portal holds 500 bills; past that, each new bill drops the oldest one (never the seeded bill).
+- A practice-portal form whose body has not fully arrived within 5 seconds is dropped.
 
 ## Stop
 

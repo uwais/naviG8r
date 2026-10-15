@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
@@ -127,6 +127,28 @@ test("guide has the steps and only local links", async () => {
   for (const link of links) {
     assert.ok(link.startsWith("/") || link.startsWith("http://127.0.0.1"), link);
   }
+  assert.ok(!guide.text.includes("Open the government e-way bill portal. It opens this practice site"), "the guide names the practice button");
+});
+
+test("guide addresses follow the Host the visitor used, escaped", async () => {
+  const guideFor = (host: string) => new Promise<string>((resolve, reject) => {
+    const request = httpRequest(baseUrl + "/demo/eway-guide", { headers: { host } }, (response) => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => { text += chunk; });
+      response.on("end", () => resolve(text));
+    });
+    request.on("error", reject);
+    request.end();
+  });
+  const fromLaptop = await guideFor("192.168.1.20:3139");
+  assert.ok(fromLaptop.includes("Open http://192.168.1.20:3139/demo/eway-guide to come back to this page."));
+  assert.ok(fromLaptop.includes('href="http://192.168.1.20:8087/#/customer/login"'));
+  assert.ok(fromLaptop.includes("8000000001"), "the phone numbers stay");
+  assert.ok(!fromLaptop.includes("127.0.0.1"));
+
+  const hostile = await guideFor("a\"><b>x");
+  assert.ok(!hostile.includes('"><b>'), "a hostile Host is never printed raw");
 });
 
 test("generate, add vehicle, then look up works end to end", async () => {
@@ -139,11 +161,12 @@ test("generate, add vehicle, then look up works end to end", async () => {
   assert.ok(generated.text.includes(SAMPLE_GSTIN));
   assert.ok(generated.text.includes("INV-2026-001"));
   assert.ok(generated.text.includes("Copy these four details into the naviG8r app: bill number, bill date, GSTIN, invoice number"));
-  assert.ok(generated.text.includes("Part B is empty. Until a vehicle is added this bill is not valid for movement."));
+  assert.ok(generated.text.includes("<h2>Practice bill, not a real e-way bill</h2>"));
+  assert.ok(generated.text.includes("Part B is empty. Practice rule: Until a vehicle is added this bill is not valid for movement."));
   assert.ok(generated.text.includes("Go back to the naviG8r app tab and paste them there."));
 
   const beforeVehicle = await get(lookupPath(billNumber, today.iso, SAMPLE_GSTIN, "INV-2026-001"));
-  assert.ok(beforeVehicle.text.includes("Found"));
+  assert.ok(beforeVehicle.text.includes("<h2>Found (practice site)</h2>"));
   assert.ok(beforeVehicle.text.includes("No vehicle added yet"));
 
   const vehicle = await post("/demo/eway-portal/vehicle", { billNumber, vehicleNumber: "ka 01-ab 1234", validUntil: "2099-12-31T23:59" });
@@ -248,16 +271,18 @@ test("a form body over 8 KB is refused, one under it is accepted", async () => {
   assert.ok(justUnder.text.includes("The transporter name is up to 60 characters."));
 });
 
-test("the store stops at 500 bills with a plain sentence", async () => {
-  let refusedStatus = 0;
-  let refusedText = "";
-  for (let attempt = 0; attempt < 600 && refusedStatus === 0; attempt += 1) {
-    const result = await post("/demo/eway-portal/generate", { makerGstin: SAMPLE_GSTIN, invoiceNumber: `INV-${attempt}`, invoiceDate: "2026-10-14" });
-    if (result.status === 503) {
-      refusedStatus = result.status;
-      refusedText = result.text;
-    }
+test("past 500 bills the oldest is dropped, never the seeded one, and generating keeps working", async () => {
+  const today = todayInIndia();
+  const oldest = await generateBill({ invoiceNumber: "INV-OLDEST" });
+  let newest = "";
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    newest = (await generateBill({ invoiceNumber: `INV-${attempt}` })).billNumber;
   }
-  assert.equal(refusedStatus, 503);
-  assert.ok(refusedText.includes("holds 500 bills and is full"));
+  const oldestLookup = await get(lookupPath(oldest.billNumber, today.iso, SAMPLE_GSTIN, "INV-OLDEST"));
+  assert.ok(oldestLookup.text.includes("No e-way bill matches these four details."), "the oldest bill was dropped");
+  assert.ok(!oldestLookup.text.includes("The number exists"));
+  const newestLookup = await get(lookupPath(newest, today.iso, SAMPLE_GSTIN, "INV-499"));
+  assert.ok(newestLookup.text.includes("<h2>Found (practice site)</h2>"), "the newest bill is kept");
+  const seeded = await get(lookupPath("123456789012", "2026-10-01", SAMPLE_GSTIN, "SYN/2026/001"));
+  assert.ok(seeded.text.includes("<h2>Found (practice site)</h2>"), "the seeded bill is kept");
 });
