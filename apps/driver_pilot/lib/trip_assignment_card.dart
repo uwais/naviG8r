@@ -196,7 +196,8 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
     final replacingDriver = assignedDriver != null &&
         _driverUserId != null &&
         _driverUserId != assignedDriver;
-    // Started before assignments existed: the driver who started it keeps it only while no one is assigned.
+    // On the road with no driver named: started before assignments existed, or by the office without naming one.
+    // A driver who started it keeps it only while no one is assigned.
     final onTheRoadWithNoDriverAssigned =
         _trip['status'] == 'IN_PROGRESS' && assignedDriver == null;
     return [
@@ -240,7 +241,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
         const Padding(
             padding: EdgeInsets.only(top: 8),
             child: Text(
-                'This trip is already on the road. If you choose a different driver, the driver who started it stops seeing it.')),
+                'This trip is already on the road with no driver assigned. If a driver started it, they stop seeing it once you choose someone else.')),
       if (_driverBusy)
         const Padding(
             padding: EdgeInsets.only(top: 8),

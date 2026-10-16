@@ -79,8 +79,9 @@ Rishabh's call after the build. It covers every place a driver could see what th
   (the field names are in `docs/pilot-api.md`).
 - A driver is never notified of a payment status change.
 - The app shows a driver no "Net to carrier" line, no amount or "Payment pending" on the trip screen, and no payment
-  status after delivery: a delivered shipment reads "Delivery confirmed", and confirming delivery mentions no payment.
-  Profile has no "Earnings & payouts" for them.
+  hold or release line after delivery: a shipment awaiting payment release reads "Delivery confirmed"; once payment is
+  released it reads "Delivered" (see the not-decided item below). Confirming delivery mentions no payment. Profile has
+  no "Earnings & payouts" for them.
 
 Owners, owner-drivers and dispatchers keep all of it, unchanged, as do shippers, finance and ops where they had it.
 

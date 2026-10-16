@@ -204,11 +204,11 @@ class DriverWelcomeScreen extends StatelessWidget {
                 color: DriverTheme.navy),
           ),
           const SizedBox(height: 12),
-          // A signed-in driver never sees carrier earnings, so their copy stops before the pay.
+          // A signed-in driver is past signing in and never sees carrier earnings, so their copy mentions neither.
           Text(
             AuthorizationSession.signedIn &&
                     !AuthorizationSession.can("payment.read")
-                ? "Sign in with your phone, confirm your carrier organization, run trips with live tracking."
+                ? "Run your trips with live tracking and confirm each delivery here."
                 : "Sign in with your phone, confirm your carrier organization, run trips with live tracking, "
                     "and get paid after proof of delivery and cooling-off.",
             style: const TextStyle(color: DriverTheme.muted, height: 1.4),
@@ -1095,8 +1095,9 @@ class _DriverShipmentDetailScreenState
             : _loadNeverAnswered
                 ? "Could not load this shipment. Check your connection and try again."
                 : "Could not load this shipment."),
-        // Trying again would ask the same list, which has already answered without this shipment.
-        if (!_shipmentMissingFromList)
+        // A driver's retry would ask the same list, which has already answered without this shipment; the office
+        // keeps its button as before.
+        if (!_shipmentMissingFromList || DriverSession.carrierRole != "DRIVER")
           TextButton(
               onPressed: () {
                 setState(() => _loadFailed = false);
@@ -1796,7 +1797,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
 
 /// What a driver reads when the office has given their trip to someone else since they opened it.
 const _tripNoLongerAssignedSentence =
-    "This trip is no longer assigned to you. Go back to Loads and pull down to refresh.";
+    "This trip is no longer assigned to you. Pull down on the Loads screen to refresh.";
 
 /// A 404 to a driver: the trip, or the shipment's trip, is no longer assigned to them.
 bool _answeredTripNoLongerAssigned(Object error) =>
@@ -1829,14 +1830,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   bool _starting = false;
   bool _completing = false;
   bool _tripNoLongerAssigned = false;
+  bool _startingLocationSharing = false;
 
   @override
   void initState() {
     super.initState();
-    _load().then((_) {
-      if (!mounted) return;
-      if (_trip?["status"]?.toString() == "IN_PROGRESS") _startLocation();
-    });
+    // The load starts location sharing when it finds the trip in progress.
+    _load();
   }
 
   void _stopLocationSharing() {
@@ -1844,25 +1844,40 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     _posSub = null;
   }
 
+  /// Location may be shared only while the trip on screen is in progress and still this person's to see.
+  bool get _mayShareLocation =>
+      mounted &&
+      !_tripNoLongerAssigned &&
+      _trip?["status"]?.toString() == "IN_PROGRESS";
+
   Future<void> _startLocation() async {
-    if (_posSub != null) return;
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied)
-      perm = await Geolocator.requestPermission();
-    if (perm == LocationPermission.denied ||
-        perm == LocationPermission.deniedForever) return;
+    // One attempt at a time: a load and Start load, or two loads, can both ask while an attempt waits on the phone.
+    if (_posSub != null || _startingLocationSharing) return;
+    _startingLocationSharing = true;
     try {
-      final p = await Geolocator.getCurrentPosition();
-      if (mounted) setState(() => _driverPos = LatLng(p.latitude, p.longitude));
-    } catch (_) {}
-    if (!mounted) return;
-    _posSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(distanceFilter: 25),
-    ).listen((p) {
-      if (!mounted) return;
-      setState(() => _driverPos = LatLng(p.latitude, p.longitude));
-      _maybePostLocation(p);
-    });
+      // Each answer can arrive after the trip was given away or finished, so a check follows each one.
+      var perm = await Geolocator.checkPermission();
+      if (!_mayShareLocation) return;
+      if (perm == LocationPermission.denied)
+        perm = await Geolocator.requestPermission();
+      if (!_mayShareLocation) return;
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) return;
+      try {
+        final p = await Geolocator.getCurrentPosition();
+        if (mounted) setState(() => _driverPos = LatLng(p.latitude, p.longitude));
+      } catch (_) {}
+      if (!_mayShareLocation) return;
+      _posSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(distanceFilter: 25),
+      ).listen((p) {
+        if (!mounted) return;
+        setState(() => _driverPos = LatLng(p.latitude, p.longitude));
+        _maybePostLocation(p);
+      });
+    } finally {
+      _startingLocationSharing = false;
+    }
   }
 
   Future<void> _acceptOnTrip(String shipmentId) async {
@@ -1875,8 +1890,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           .showSnackBar(const SnackBar(content: Text("Booking accepted.")));
     } catch (e) {
       if (!mounted) return;
+      if (_answeredTripNoLongerAssigned(e)) {
+        // The reload's own 404 branch stops location sharing and leaves only the sentence on screen.
+        await _load();
+        return;
+      }
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_driverRefusalSentence(e))));
+          .showSnackBar(SnackBar(content: Text(formatApiError(e))));
     }
   }
 
@@ -1909,8 +1929,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           .showSnackBar(const SnackBar(content: Text("Load marked complete.")));
     } catch (e) {
       if (!mounted) return;
+      if (_answeredTripNoLongerAssigned(e)) {
+        // The reload's own 404 branch stops location sharing and leaves only the sentence on screen.
+        await _load();
+        return;
+      }
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_driverRefusalSentence(e))));
+          .showSnackBar(SnackBar(content: Text(formatApiError(e))));
     } finally {
       if (mounted) setState(() => _completing = false);
     }
@@ -1929,8 +1954,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           .showSnackBar(const SnackBar(content: Text("Load started.")));
     } catch (e) {
       if (!mounted) return;
+      if (_answeredTripNoLongerAssigned(e)) {
+        // The reload's own 404 branch stops location sharing and leaves only the sentence on screen.
+        await _load();
+        return;
+      }
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_driverRefusalSentence(e))));
+          .showSnackBar(SnackBar(content: Text(formatApiError(e))));
     } finally {
       if (mounted) setState(() => _starting = false);
     }
@@ -1971,6 +2001,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           .get<Map<String, dynamic>>("/v1/pilot/anchor-trips/${widget.tripId}");
       final t = r.data?["trip"];
       setState(() => _trip = t is Map<String, dynamic> ? t : null);
+      // Also restarts sharing once the office gives the trip back. Not awaited, so a permission dialog never
+      // holds up the load.
+      if (_trip?["status"]?.toString() == "IN_PROGRESS") _startLocation();
     } catch (e) {
       if (!mounted) return;
       if (_answeredTripNoLongerAssigned(e)) {
@@ -1980,6 +2013,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           _tripNoLongerAssigned = true;
           _trip = null;
           _shipments = [];
+          _geocodedOrigin = null;
+          _geocodedDest = null;
           _loading = false;
         });
         return;

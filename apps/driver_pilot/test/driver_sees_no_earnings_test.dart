@@ -9,7 +9,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-import 'support/eway_bill_fixtures.dart';
+import 'support/carrier_fixtures.dart';
 import 'support/mock_api.dart';
 
 /// Any word about the carrier's pay, whatever its case: a check by exact text passed with payment words on screen.
@@ -22,44 +22,6 @@ String screenWords(WidgetTester tester) => tester
     .widgetList<Text>(find.byType(Text))
     .map((text) => text.data ?? text.textSpan?.toPlainText() ?? '')
     .join('\n');
-
-const carrierOrganization = {
-  'id': 'carrier-a',
-  'kind': 'CARRIER_FLEET',
-  'displayName': 'Synthetic Carrier A',
-  'kycStatus': 'APPROVED',
-};
-
-/// A driver holds no payment.read; the carrier office does.
-Map<String, dynamic> carrierPrincipal({required bool office}) => {
-      'organizationId': 'carrier-a',
-      'roles': ['CARRIER'],
-      'subrole': office ? 'OWNER' : 'DRIVER',
-      'permissions': [
-        'organization.profile.read',
-        'load.read',
-        if (office) 'payment.read',
-      ],
-    };
-
-void signInAsCarrierLogin({required bool office}) {
-  FlutterSecureStorage.setMockInitialValues({'access_token': 'test'});
-  api = Api('http://test');
-  AuthorizationSession.clear();
-  AuthorizationSession.user = {'id': 'carrier-person'};
-  AuthorizationSession.principal = carrierPrincipal(office: office);
-  AuthorizationSession.organizations = [carrierOrganization];
-  api.selectOrganization('carrier-a');
-}
-
-Map<String, dynamic> bookedShipment({int? netToCarrierPaise}) => {
-      ...shipment(),
-      'anchorTripId': 'trip-a',
-      'weightKg': 120,
-      'pickupAddress': 'Peenya, Bengaluru',
-      'dropAddress': 'Hosur',
-      if (netToCarrierPaise != null) 'netToCarrierPaise': netToCarrierPaise,
-    };
 
 Future<void> mountScreen(WidgetTester tester, Widget screen) async {
   tester.view.physicalSize = const Size(800, 3000);
@@ -81,7 +43,7 @@ void main() {
       await mountScreen(tester, const DriverWelcomeScreen());
       expect(
           find.text(
-              'Sign in with your phone, confirm your carrier organization, run trips with live tracking.'),
+              'Run your trips with live tracking and confirm each delivery here.'),
           findsOneWidget);
       final words = screenWords(tester);
       expect(words.contains('paid'), isFalse, reason: words);
@@ -110,7 +72,7 @@ void main() {
         (tester) async {
       signInAsCarrierLogin(office: false);
       api.dio.httpClientAdapter = MockApiAdapter((_) => jsonResponse({
-            'shipments': [bookedShipment()]
+            'shipments': [shipmentOnTripA()]
           }));
       await mountScreen(
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
@@ -124,7 +86,7 @@ void main() {
         (tester) async {
       signInAsCarrierLogin(office: true);
       api.dio.httpClientAdapter = MockApiAdapter((_) => jsonResponse({
-            'shipments': [bookedShipment(netToCarrierPaise: 4500)]
+            'shipments': [shipmentOnTripA(netToCarrierPaise: 4500)]
           }));
       await mountScreen(
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
@@ -133,7 +95,7 @@ void main() {
 
     /// What the server sends after proof of delivery; it leaves the payment hold out for a driver.
     Map<String, dynamic> deliveredShipment({required bool withPaymentHold}) => {
-          ...bookedShipment(),
+          ...shipmentOnTripA(),
           'status': 'PENDING_RELEASE',
           'podAtUtcMs': 1760500000000,
           if (withPaymentHold) ...{
@@ -186,7 +148,7 @@ void main() {
     testWidgets('lists a shipment by its status alone when no amount is sent',
         (tester) async {
       signInAsCarrierLogin(office: false);
-      api.dio.httpClientAdapter = tripServer(bookedShipment());
+      api.dio.httpClientAdapter = tripServer(shipmentOnTripA());
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
       expect(find.text('Accepted'), findsOneWidget);
       expect(find.textContaining('₹'), findsNothing);
@@ -195,7 +157,7 @@ void main() {
     testWidgets('adds the amount for the office', (tester) async {
       signInAsCarrierLogin(office: true);
       api.dio.httpClientAdapter =
-          tripServer(bookedShipment(netToCarrierPaise: 4500));
+          tripServer(shipmentOnTripA(netToCarrierPaise: 4500));
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
       expect(find.text('Accepted · ₹45 net'), findsOneWidget);
     });
@@ -258,7 +220,7 @@ void main() {
   group('No payment word reaches a driver, and the office keeps its wording',
       () {
     final delivered = <String, dynamic>{
-      ...bookedShipment(),
+      ...shipmentOnTripA(),
       'status': 'PENDING_RELEASE',
       'podAtUtcMs': 1760500000000,
     };

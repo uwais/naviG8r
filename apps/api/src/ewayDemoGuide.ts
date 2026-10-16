@@ -99,7 +99,7 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>Sign in as 8000000009 and open the shipment.</li>
 <li>The driver's part is read only by design: the bill number in large type, the truck, the valid-until time and the ops line, and once fewer than 12 hours are left, how many hours remain.</li>
 <li>At a check-post the driver quotes the bill number. The driver creates nothing and changes nothing.</li>
-<li>The driver sees no money: no Net to carrier line on the shipment and, after delivery, no payment status there; no amount on the trip screen; and no Earnings &amp; payouts on Profile. The owner, 8000000003, still sees all of it.</li>
+<li>The driver sees no money: no Net to carrier line on the shipment and, after delivery, no payment hold or release line there (it reads Delivery confirmed while payment awaits release, then Delivered once it is released); no amount on the trip screen; and no Earnings &amp; payouts on Profile. The owner, 8000000003, still sees all of it.</li>
 </ol>
 <h2>Step 5. Each driver sees only their own trip</h2>
 <ol>

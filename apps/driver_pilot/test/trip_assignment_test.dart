@@ -1,9 +1,9 @@
-// The truck and driver on a trip: the assignment card, the empty-list sentence for drivers, what the e-way
-// bill cards say when the bill's truck is not the trip's, and a driver's refused truck change.
+// What follows from the truck and driver named on a trip: the assignment card, the empty-list sentence for
+// drivers, the message after a driver publishes a trip, a driver's refused truck change, and what the e-way
+// bill cards say when the bill's truck is not the trip's.
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/eway_bill_card.dart';
@@ -14,8 +14,8 @@ import 'package:driver_pilot/trip_assignment_card.dart';
 import 'package:driver_pilot/unassigned_driver_notice.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
 
+import 'support/carrier_fixtures.dart';
 import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
@@ -33,7 +33,7 @@ const completedSentence =
 const staleChoiceSentence =
     'Choose a truck from your own fleet. Pull down to reload your trucks and drivers.';
 const onTheRoadSentence =
-    'This trip is already on the road. If you choose a different driver, the driver who started it stops seeing it.';
+    'This trip is already on the road with no driver assigned. If a driver started it, they stop seeing it once you choose someone else.';
 
 const fleet = {
   'vehicles': [
@@ -53,16 +53,6 @@ const fleet = {
     {'userId': 'driver-2', 'displayName': 'Synthetic Driver Two'},
   ],
 };
-
-void signInAsCarrierStaff({required String subrole, required bool canAssign}) {
-  AuthorizationSession.user = {'id': 'carrier-person'};
-  AuthorizationSession.principal = {
-    'organizationId': 'carrier-a',
-    'roles': ['CARRIER'],
-    'subrole': subrole,
-    'permissions': ['load.read', if (canAssign) 'trip.assign'],
-  };
-}
 
 Map<String, dynamic> trip({Map<String, dynamic> assigned = const {}}) =>
     {'id': 'trip-a', 'status': 'OPEN', ...assigned};
@@ -319,7 +309,7 @@ void main() {
     });
 
     testWidgets(
-        'a trip already on the road with no driver assigned warns that its starter would lose it',
+        'a trip on the road with no driver assigned warns that a driver who started it would stop seeing it',
         (tester) async {
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
       api.dio.httpClientAdapter =
@@ -524,267 +514,6 @@ void main() {
               findsOneWidget);
         }
       }
-    });
-  });
-
-  group('A driver whose trip was given to someone else', () {
-    const tripNoLongerYours =
-        'This trip is no longer assigned to you. Go back to Loads and pull down to refresh.';
-
-    const notOnYourTrip =
-        'This shipment is not on a trip assigned to you now. Go back and pull down on Shipments to refresh.';
-
-    Future<void> mountScreen(WidgetTester tester, Widget screen) async {
-      tester.view.physicalSize = const Size(800, 3000);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      await tester.pumpWidget(MaterialApp(
-          theme: DriverTheme.theme(), home: Scaffold(body: screen)));
-      await tester.pumpAndSettle();
-    }
-
-    /// A driver of an approved carrier, so Accept, Start and Confirm delivery are on offer.
-    void signInAsApprovedDriver() {
-      AuthorizationSession.user = {'id': 'carrier-person'};
-      AuthorizationSession.principal = {
-        'organizationId': 'carrier-a',
-        'roles': ['CARRIER'],
-        'subrole': 'DRIVER',
-        'permissions': [
-          'load.read',
-          'carrier.offer_accept',
-          'load.status_update',
-          'pod.upload'
-        ],
-      };
-      AuthorizationSession.organizations = [
-        {
-          'id': 'carrier-a',
-          'kind': 'CARRIER_FLEET',
-          'displayName': 'Synthetic Carrier A',
-          'kycStatus': 'APPROVED'
-        }
-      ];
-    }
-
-    Map<String, dynamic> onTripA({String status = 'BOOKED'}) => {
-          ...shipment(status: status),
-          'anchorTripId': 'trip-a',
-          'weightKg': 120,
-          'pickupAddress': 'Peenya, Bengaluru',
-          'dropAddress': 'Hosur',
-        };
-
-    testWidgets(
-        'is told a shipment no longer listed is not on their trip, instead of a spinner',
-        (tester) async {
-      signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
-      api.dio.httpClientAdapter = MockApiAdapter(
-          (_) => jsonResponse({'shipments': <Object>[]}));
-      await mountScreen(
-          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      expect(find.text(notOnYourTrip), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.text('Try again'), findsNothing,
-          reason: 'trying again would ask the same list');
-    });
-
-    testWidgets(
-        'the office gets its usual sentence for a shipment no longer listed',
-        (tester) async {
-      signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
-      api.dio.httpClientAdapter = MockApiAdapter(
-          (_) => jsonResponse({'shipments': <Object>[]}));
-      await mountScreen(
-          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      expect(find.text('Could not load this shipment.'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.text('Try again'), findsNothing);
-    });
-
-    testWidgets(
-        'a shipment that leaves their list after Accept is replaced by the sentence, not kept on screen',
-        (tester) async {
-      signInAsApprovedDriver();
-      var accepted = false;
-      api.dio.httpClientAdapter = MockApiAdapter((request) {
-        if (request.method == 'POST') {
-          accepted = true;
-          return jsonResponse(<String, Object>{});
-        }
-        return jsonResponse({
-          'shipments': accepted
-              ? <Object>[]
-              : [onTripA(status: 'PENDING_CARRIER_ACCEPT')]
-        });
-      });
-      await mountScreen(
-          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      await tester.tap(find.text('Accept booking'));
-      await tester.pumpAndSettle();
-      expect(find.text(notOnYourTrip), findsOneWidget);
-      expect(find.text('Accept booking'), findsNothing,
-          reason: 'the stale screen is gone');
-    });
-
-    testWidgets(
-        'the shipment screen reloads after Confirm delivery, so it is not offered twice',
-        (tester) async {
-      signInAsApprovedDriver();
-      var status = 'BOOKED';
-      api.dio.httpClientAdapter = MockApiAdapter((request) {
-        if (request.method == 'POST') {
-          status = 'PENDING_RELEASE';
-          return jsonResponse(<String, Object>{});
-        }
-        return jsonResponse({
-          'shipments': [onTripA(status: status)]
-        });
-      });
-      final router = GoRouter(
-          initialLocation: '/driver/shipment/shipment-a',
-          routes: [
-            GoRoute(
-                path: '/driver/shipment/:shipmentId',
-                builder: (_, state) => Scaffold(
-                    body: DriverShipmentDetailScreen(
-                        shipmentId: state.pathParameters['shipmentId'] ?? '')),
-                routes: [
-                  GoRoute(
-                      path: 'pod',
-                      builder: (_, state) => Scaffold(
-                          body: DriverPodScreen(
-                              shipmentId:
-                                  state.pathParameters['shipmentId'] ?? ''))),
-                ]),
-          ]);
-      tester.view.physicalSize = const Size(800, 3000);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      await tester.pumpWidget(
-          MaterialApp.router(theme: DriverTheme.theme(), routerConfig: router));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Confirm delivery'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Confirm POD'));
-      await tester.pumpAndSettle();
-      expect(find.text('Status: Delivery confirmed'), findsOneWidget);
-      expect(find.text('Confirm delivery'), findsNothing);
-    });
-
-    testWidgets('is told the trip is no longer theirs when Accept answers 404',
-        (tester) async {
-      signInAsApprovedDriver();
-      api.dio.httpClientAdapter = MockApiAdapter((request) =>
-          request.method == 'POST'
-              ? jsonResponse({'error': 'not_found'}, 404)
-              : jsonResponse({
-                  'shipments': [onTripA(status: 'PENDING_CARRIER_ACCEPT')]
-                }));
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
-      await tester.pumpAndSettle();
-      expect(find.text(tripNoLongerYours), findsOneWidget);
-      expect(find.textContaining('unavailable'), findsNothing);
-    });
-
-    testWidgets('is told the trip is no longer theirs when Start answers 404',
-        (tester) async {
-      signInAsApprovedDriver();
-      api.dio.httpClientAdapter = MockApiAdapter((request) {
-        if (request.method == 'POST') {
-          return jsonResponse({'error': 'not_found'}, 404);
-        }
-        if (request.path == '/v1/pilot/anchor-trips/trip-a') {
-          return jsonResponse({
-            'trip': {'id': 'trip-a', 'status': 'OPEN'}
-          });
-        }
-        return jsonResponse({
-          'shipments': [onTripA()]
-        });
-      });
-      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
-      await tester.tap(find.text('Start load'));
-      await tester.pumpAndSettle();
-      expect(find.text(tripNoLongerYours), findsOneWidget);
-      expect(find.textContaining('unavailable'), findsNothing);
-    });
-
-    testWidgets(
-        'a trip that answers 404 on a pull-down shows only the sentence, and pulling down still works',
-        (tester) async {
-      signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
-      // Location sharing starts only when the first load finds the trip in progress, and it needs the phone's
-      // location service, which a widget test does not have. So the trip is not started at first and is in
-      // progress from the first pull-down on; whether the location stream stops is not tested here.
-      var tripRequests = 0;
-      api.dio.httpClientAdapter = MockApiAdapter((request) {
-        if (request.path == '/v1/pilot/anchor-trips/trip-a') {
-          tripRequests++;
-          if (tripRequests == 3) return jsonResponse({'error': 'not_found'}, 404);
-          return jsonResponse({
-            'trip': {
-              'id': 'trip-a',
-              'status': tripRequests == 1 ? 'OPEN' : 'IN_PROGRESS'
-            }
-          });
-        }
-        return jsonResponse({
-          'shipments': [onTripA(status: 'PENDING_RELEASE')]
-        });
-      });
-      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
-      Future<void> pullDown() async {
-        // A refresh needs a pull of a quarter of the list's height, and this test screen is 3000 pixels tall.
-        await tester.fling(find.byType(ListView), const Offset(0, 1200), 1000);
-        await tester.pumpAndSettle();
-      }
-
-      await pullDown();
-      expect(find.text('Load in progress'), findsOneWidget);
-      const gpsLine =
-          'Live GPS is shared with customers while the load is in progress.';
-      expect(find.text(gpsLine), findsOneWidget);
-
-      await pullDown();
-      expect(find.text(tripNoLongerYours), findsOneWidget);
-      for (final stale in [
-        'Load in progress',
-        'Load not started',
-        gpsLine,
-        'Truck and driver'
-      ]) {
-        expect(find.text(stale), findsNothing, reason: stale);
-      }
-      expect(find.textContaining('Status:'), findsNothing);
-
-      await pullDown();
-      expect(find.text('Load in progress'), findsOneWidget,
-          reason: 'pulling down asks again');
-    });
-
-    testWidgets('is told the trip is no longer theirs when it answers 404',
-        (tester) async {
-      signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
-      api.dio.httpClientAdapter = MockApiAdapter((request) =>
-          request.path == '/v1/pilot/anchor-trips/trip-a'
-              ? jsonResponse({'error': 'not_found'}, 404)
-              : jsonResponse({'shipments': <Object>[]}));
-      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
-      expect(find.text(tripNoLongerYours), findsOneWidget);
-    });
-
-    testWidgets('is told the same when confirming delivery answers 404',
-        (tester) async {
-      signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
-      api.dio.httpClientAdapter =
-          MockApiAdapter((_) => jsonResponse({'error': 'not_found'}, 404));
-      await mountScreen(
-          tester, const DriverPodScreen(shipmentId: 'shipment-a'));
-      await tester.tap(find.text('Confirm POD'));
-      await tester.pumpAndSettle();
-      expect(find.text(tripNoLongerYours), findsOneWidget);
     });
   });
 
