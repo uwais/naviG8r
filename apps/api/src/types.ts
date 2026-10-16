@@ -114,6 +114,8 @@ export type Organization = {
   payoutContactId?: string;
   /** RazorpayX fund account id; required to send this carrier a real payout. */
   payoutFundAccountId?: string;
+  /** A carrier's GSTIN or TRANSIN, which shippers enter on the e-way bill so the bill is assigned to this carrier. */
+  transporterId?: string;
 } & SoftDeleteFields;
 
 export type User = {

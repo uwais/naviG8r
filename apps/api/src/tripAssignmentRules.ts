@@ -35,14 +35,30 @@ export function truckOnUnfinishedTrip(store: Store, vehicleId: string): boolean 
     trip.assignedVehicleId === vehicleId && trip.status !== "COMPLETED" && isActiveEntity(trip));
 }
 
-/** The same form the e-way bill keeps its truck in, so the two compare as plain strings. */
-export function normalizedTruckNumber(registrationNumber: string): string {
-  return registrationNumber.replace(/[\s-]/g, "").toUpperCase();
+/**
+ * A truck number as the e-way bill portal takes it, the same rule as portalTruckNumber in the app: letters and
+ * digits only, upper case, and in the state, district, series, number shape the district padded to two digits and
+ * the number to four, so UP 1 345 is UP010345 (CBIC e-way bill FAQ, 2019). With no series letters, a space or other
+ * mark typed between the district and the number is where the district ends, so UP 32 345 is UP320345; with none
+ * typed, the district takes as few digits as it can, which is how UP1345 reads as UP 1 345. Any other shape
+ * (temporary, Bharat series, defence, foreign) is only cleaned.
+ */
+export function portalTruckNumber(registrationNumber: string): string {
+  const typedApart = /^[^A-Za-z0-9]*([A-Za-z]{2})[^A-Za-z0-9]*([0-9]{1,2})[^A-Za-z0-9]+([0-9]{1,4})[^A-Za-z0-9]*$/.exec(registrationNumber);
+  if (typedApart) {
+    const [, stateLetters, districtDigits, numberDigits] = typedApart;
+    return `${stateLetters.toUpperCase()}${districtDigits.padStart(2, "0")}${numberDigits.padStart(4, "0")}`;
+  }
+  const cleaned = registrationNumber.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const parts = /^([A-Z]{2})([0-9]{1,2}?)([A-Z]{0,3})([0-9]{1,4})$/.exec(cleaned);
+  if (!parts) return cleaned;
+  const [, stateLetters, districtDigits, seriesLetters, numberDigits] = parts;
+  return `${stateLetters}${districtDigits.padStart(2, "0")}${seriesLetters}${numberDigits.padStart(4, "0")}`;
 }
 
 export function assignedTruckNumber(store: Store, trip: AnchorTrip | undefined): string | undefined {
   const vehicle = trip?.assignedVehicleId ? store.vehicles.get(trip.assignedVehicleId) : undefined;
-  const truckNumber = vehicle ? normalizedTruckNumber(vehicle.registrationNumber) : "";
+  const truckNumber = vehicle ? portalTruckNumber(vehicle.registrationNumber) : "";
   return truckNumber || undefined;
 }
 

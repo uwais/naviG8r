@@ -189,13 +189,15 @@ String formatApiError(Object e) {
       final seconds = retry is num ? (retry / 1000).ceil() : 30;
       return "Too many code requests. Please wait ${seconds > 0 ? seconds : 1} seconds and try again.";
     }
-    // The server writes these errors' detail for the carrier: which bank field is wrong and how, or why
-    // the truck cannot change.
+    // The server writes these errors' detail for the carrier: which bank field is wrong and how, why
+    // the truck cannot change, what a transporter ID looks like, or that a chosen truck is not theirs.
     final detail = body is Map ? body["detail"] : null;
     if (const [
           "invalid_payout_profile",
           "truck_on_unfinished_trip",
-          "invalid_vehicleRegistrationNumber"
+          "invalid_vehicleRegistrationNumber",
+          "invalid_transporter_id",
+          "invalid_trip_assignment"
         ].contains(code) &&
         detail is String &&
         detail.isNotEmpty) {

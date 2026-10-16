@@ -112,9 +112,12 @@ Body:
   "orgDisplayName": "Ravi Transport",
   "vehicleRegistrationNumber": "HR26AB1234",
   "vehicleClass": "MEDIUM",
-  "vehicleCapacityKg": 5000
+  "vehicleCapacityKg": 5000,
+  "transporterId": "29ABCDE1234F1Z5"
 }
 ```
+
+`transporterId` is optional: the carrier's GSTIN, or the TRANSIN the e-way bill portal gives a transporter with no GST registration. Spaces are removed and letters upper-cased; it must then be two digits followed by 13 letters or digits, or the sign-up is refused and nothing is registered: `400 { "error": "invalid_transporter_id", "detail": "A transporter ID is 15 letters and digits, starting with two digits: your GSTIN, or the TRANSIN from the e-way bill portal. Leave it empty if you do not have one.", "field": "transporterId" }`. Left out, `null` or blank means none. See "Carrier transporter ID" below.
 
 #### `POST /v1/pilot/driver/login`
 Legacy demo helper that returns the same “bundle” as register, for a known phone.
@@ -129,7 +132,7 @@ Body:
 Headers:
 - `Authorization: Bearer <accessToken>`
 
-Returns the signed-in user, memberships, organizations, vehicles on those orgs, and `driverProfile` (if any).
+Returns the signed-in user, memberships, organizations, vehicles on those orgs, and `driverProfile` (if any). In a carrier context the carrier office (`OWNER`, `OWNER_DRIVER`, `DISPATCHER`) also gets its own organization's `transporterId` when it has one; a `DRIVER` does not.
 
 #### `PATCH /v1/pilot/me/vehicle`
 Update the signed-in driver's **primary vehicle** (registration, class, and/or capacity). Requires Bearer and an existing driver profile. Partial updates are allowed — omit a field to leave it unchanged.
@@ -182,7 +185,7 @@ Trips are limited to **carrier orgs** your user belongs to (`CARRIER_SOLO`, `CAR
 
 #### Truck and driver per trip
 
-A trip may name one truck and one driver: `assignedVehicleId` and `assignedDriverUserId`, both optional. Carrier and ops responses also carry `assignedTruckNumber` (the truck's registration, upper case, spaces and hyphens removed) and `assignedDriverName`; shippers, public trip lists and ERP responses get none of the four. A trip published by a solo owner-operator (the `OWNER_DRIVER` of a `CARRIER_SOLO` organization) names that person and their primary vehicle by itself. Inviting a driver or dispatcher makes the organization `CARRIER_FLEET`, and from then on trips its owner-driver publishes stay unassigned. Trips from before this change stay unassigned.
+A trip may name one truck and one driver: `assignedVehicleId` and `assignedDriverUserId`, both optional. Carrier and ops responses also carry `assignedTruckNumber` (the truck's registration in the e-way bill portal's form, see "Truck numbers in the portal's form" below) and `assignedDriverName`; shippers, public trip lists and ERP responses get none of the four. A trip published by a solo owner-operator (the `OWNER_DRIVER` of a `CARRIER_SOLO` organization) names that person and their primary vehicle by itself. Inviting a driver or dispatcher makes the organization `CARRIER_FLEET`, and from then on trips its owner-driver publishes stay unassigned. Trips from before this change stay unassigned.
 
 **Who sees what.** Owners, owner-drivers and dispatchers see all of their carrier's trips and shipments. A `DRIVER` sees only trips naming them and the shipments on those trips on these routes: the trip list and detail, start, complete and location, the carrier shipment list (with or without `anchorTripId`), accept, proof of delivery, tracking, the shipment conversation, the notification list, the grouped inbox, mark-read and notification open. A trip or shipment outside that answers `404`, as for another carrier. New notifications go only to the driver named on the trip, and a queued push is dropped at send time if the trip names someone else by then. Not yet limited: `GET /v1/pilot/me`, which lists every truck of the carrier. In database mode the grouped inbox can return a short page, and its `unreadCount` still counts groups hidden from a driver.
 
@@ -196,7 +199,11 @@ A trip may name one truck and one driver: `assignedVehicleId` and `assignedDrive
 
 **Database mode:** two nullable columns on the trip table must exist first, or the API will not start in database mode at all: at boot it loads every trip row with every column, and that load fails without them, so the process exits before serving anything. Applying `ALTER TABLE "AnchorTripRow" ADD COLUMN "assignedVehicleId" TEXT, ADD COLUMN "assignedDriverUserId" TEXT;` by hand is a merge gate for every database-mode service. `render.yaml` sets no `PERSISTENCE` for its API services, so as written they run in file mode and need nothing; a service given `PERSISTENCE=DB` anywhere else does.
 
-Shipments carry a read-only `assignedTruckNumber` (the trip's truck, same form) for shipper, carrier and ops logins, never for finance, admin or ERP callers. The e-way bill cards compare it with the bill's `truckNumber`.
+Shipments carry a read-only `assignedTruckNumber` (the trip's truck, same form) for shipper, carrier and ops logins, never for finance, admin or ERP callers. The e-way bill cards compare it with the bill's `truckNumber`, both sides put through the portal's form first.
+
+**Truck numbers in the portal's form (16 Oct 2026).** One rule, in the API (`portalTruckNumber` in `tripAssignmentRules.ts`) and in the app (`portalTruckNumber` in `eway_bill_words.dart`): upper case, everything but letters and digits removed; then, if it is two letters, one or two digits, zero to three letters and one to four digits, the first digits are padded to two and the last to four. With no letters between the two groups of digits, a space or other mark typed between them is where the first group ends: `UP 32 345` becomes `UP320345`. With none typed, the first digits take as few as they can: `UP 1 345` and `UP1345` both become `UP010345`. `KA01AB1234` stays. Any other shape (temporary numbers, Bharat series, defence, foreign) is only cleaned. The bill's own `truckNumber` is stored as typed (spaces and hyphens removed, upper case); only the comparison goes through the rule. So a bill truck typed as `UP 32 345` is stored as `UP32345`, compared as `UP032345`, and shown as different from a trip truck `UP320345`; the truck forms start with the trip's truck in the portal's form, which avoids it. The practice portal keeps its own cleaner, which removes spaces and hyphens and pads nothing.
+
+**Truck at acceptance (owner decision, 16 Oct 2026).** `POST /v1/pilot/carrier/shipments/:shipmentId/accept` takes an optional body `{ "vehicleId": "..." }`, below.
 
 #### `POST /v1/pilot/anchor-trips/:tripId/location`
 Driver live GPS ping while a trip is in progress (Bearer; trip must belong to your carrier org). The server stores the latest point on the anchor trip (`lastLiveLocation`). The driver app sends pings about every 30s when on the active-trip map screen.
@@ -234,6 +241,18 @@ Carrier marks the load done (`IN_PROGRESS` → `COMPLETED`). Requires every ship
 
 #### `POST /v1/pilot/carrier/shipments/:shipmentId/accept`
 Carrier accepts a customer booking (`PENDING_CARRIER_ACCEPT` → `BOOKED`). Payment must be authorized (or MOCK captured).
+
+Optional body `{ "vehicleId": "..." }` (owner decision, 16 Oct 2026). When the trip names no truck and the caller holds `trip.assign` (owner, owner-driver, dispatcher), the trip's truck is set to that vehicle in the same request, after every other acceptance check and before anything is written; the driver stays as it was. Audit row `TRIP_ASSIGNED` on the trip, state words only, as for the assignment route. The vehicle must be an active truck of the trip's carrier, or `400 { "error": "invalid_trip_assignment", "detail": "Choose a truck from your own fleet.", "field": "vehicleId" }` and nothing is accepted or named. A `vehicleId` is ignored when the trip already names a truck (the office changes it on the trip screen) and when the caller does not hold `trip.assign`. No body, or no `vehicleId`, accepts exactly as before, so older app builds keep working. The app's Accept buttons ask an office login to choose the truck first when the shipment carries no `assignedTruckNumber` (a carrier with no trucks yet is told so and can accept without one); when the reply's `assignedTruckNumber` is a different truck, because the trip got one in the meantime, the app says which truck the trip kept.
+
+#### Carrier transporter ID
+
+One optional field on the carrier organization, `transporterId` (owner decision, 16 Oct 2026): the 15 characters the e-way bill names its transporter by. A shipper who enters it on the bill assigns the bill to this carrier, which lets the carrier change the truck or extend the bill later (CBIC e-way bill FAQ, 2019). Same format rule as at sign-up.
+
+**`PATCH /v1/pilot/carrier/transporter-id`** (permission **`transporter_id.write`**: carrier `OWNER` and `OWNER_DRIVER`, the people who set bank details; `403` for dispatchers, drivers and everyone else). Body `{ "transporterId": "29ABCDE1234F1Z5" }`, or `null` or a blank string to clear it; a missing field is refused. Response `200 { "org": {...} }`. Refusal `400 invalid_transporter_id` with the sentence above and `field: "transporterId"`, nothing changed. Audit row `TRANSPORTER_ID_CHANGED` on the organization, states `ABSENT` or `SET` only, never the value.
+
+Who reads it: the carrier office on `GET /v1/pilot/me`; shippers as `carrierTransporterId` on their own shipments (`GET /shipments`, `GET /shipments/:id`, tracking and the e-way bill routes' replies) when the carrier has one and the shipment is `BOOKED`: from the carrier's acceptance, as the owner approved, until the driver confirms delivery. Not in the booking reply, which comes before acceptance. Never drivers, other carriers, ops, finance or admin, never public trip lists, and not ERP responses (stripped, as their shape is a contract). The shipper's e-way bill card shows it with the trip's truck in a box titled "For the e-way bill" over the same time, until the bill has a truck.
+
+**Database mode:** one nullable column, `ALTER TABLE "Organization" ADD COLUMN "transporterId" TEXT;`. It is in `apps/api/prisma/schema.prisma` and in both load and save. As with the trip columns, the boot-time load reads every organization column, so I expect a database-mode service without it not to start; I have not run it against Postgres. Applying it by hand is a merge gate for every database-mode service; `render.yaml` sets no `PERSISTENCE`, so its services run in file mode and need nothing.
 
 #### `POST /v1/pilot/carrier/drivers/invite`
 Fleet: owner/dispatcher invites an **existing** user (by phone) to the carrier org as `DRIVER` or `DISPATCHER`, provisions a vehicle + driver profile, and upgrades `CARRIER_SOLO` → `CARRIER_FLEET` when applicable.

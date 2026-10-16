@@ -8,6 +8,7 @@ import { carrierRejection } from "./carrierRejection.ts";
 import { addEwayBillTruck, checkEwayBill, listEwayBillsForOps, removeEwayBill, saveEwayBill } from "./ewayBill.ts";
 import { ewayPortalAddress, handleEwayDemoPortal, isEwayDemoPortalPath } from "./ewayDemoPortal.ts";
 import { assignTrip, carrierFleet } from "./tripAssignment.ts";
+import { setCarrierTransporterId } from "./carrierTransporterId.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
 import { URL } from "node:url";
@@ -776,6 +777,7 @@ export async function createApp(options: {
           vehicleRegistrationNumber: String(body?.vehicleRegistrationNumber ?? ""),
           vehicleClass: body?.vehicleClass,
           vehicleCapacityKg: Number(body?.vehicleCapacityKg ?? 0),
+          transporterId: body?.transporterId,
         });
         await persist();
         return json(res, 201, out);
@@ -914,6 +916,11 @@ export async function createApp(options: {
         return json(res, 200, out);
       }
       if (method === "GET" && url.pathname === "/v1/pilot/carrier/fleet") return json(res, 200, carrierFleet(store));
+      if (method === "PATCH" && url.pathname === "/v1/pilot/carrier/transporter-id") {
+        const org = setCarrierTransporterId(store, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, { org });
+      }
 
       if (method === "POST" && url.pathname === "/v1/pilot/rates/estimate") {
         const body = await readJson(req);
@@ -948,8 +955,10 @@ export async function createApp(options: {
         ) {
           const userId = requireUserId(req, store);
           const shipmentId = parts[4] ?? "";
+          // Optional { vehicleId }: older app builds send no body and accept exactly as before.
+          const body = await readJson(req, 8 * 1024);
           try {
-            const shipment = acceptCarrierShipment(store, { shipmentId, userId });
+            const shipment = acceptCarrierShipment(store, { shipmentId, userId, vehicleId: body?.vehicleId });
             await persist();
             return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
           } catch (e) {

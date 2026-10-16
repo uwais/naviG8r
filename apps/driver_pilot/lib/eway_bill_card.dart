@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'authorization_session.dart';
 import 'driver_theme.dart';
 import 'eway_bill_closed.dart';
+import 'eway_bill_copy_box.dart';
 import 'eway_bill_dates.dart';
 import 'eway_bill_error_text.dart';
 import 'eway_bill_portal_link.dart';
@@ -202,12 +203,21 @@ class _EwayBillCardState extends State<EwayBillCard> {
         _mode = _Mode.addingTruck;
       });
 
+  /// The truck the carrier named for the trip, in the portal's form, to fill the truck form with.
+  String? get _tripTruck {
+    final truck = widget.shipment['assignedTruckNumber'];
+    return truck is String && truck.isNotEmpty
+        ? portalTruckNumber(truck)
+        : null;
+  }
+
   List<Widget> _viewing() {
     final bill = _bill;
     final canEdit = _canEdit;
     if (bill == null) {
       return [
         const Text('No e-way bill added yet.'),
+        EwayBillCopyBox(shipment: widget.shipment, bill: bill),
         if (canEdit) ...[
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 8, children: [
@@ -264,6 +274,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
             'Truck not added yet. You or your carrier can add it after the truck is on the bill on the portal.')
       else
         for (final line in truckLines) Text(line),
+      EwayBillCopyBox(shipment: widget.shipment, bill: bill),
       if (mismatch != null) Text(mismatch),
       const SizedBox(height: 8),
       Text(ewayBillCheckLine(bill, forShipper: true)),
@@ -374,6 +385,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
           EwayBillTruckForm(
               path: '/shipments/${widget.shipment['id']}/eway-bill/truck',
               current: _bill,
+              assignedTruckNumber: _tripTruck,
               clearsCheck: _bill?['check'] is Map,
               onSaved: _showSaved,
               onCancel: _cancel),

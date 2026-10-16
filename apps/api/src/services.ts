@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { validatePayoutBankDetails } from "./bankAccountValidation.ts";
-import { assertAdminRemains, authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible } from "./rbac.ts";
+import { checkTransporterId } from "./transporterIdValidation.ts";
+import { assertAdminRemains, authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible, type Principal } from "./rbac.ts";
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
 import {
   COMMISSION_BPS,
@@ -230,12 +231,22 @@ export function tripForPublicListing(
   return rest;
 }
 
+/**
+ * The serializer passes the carrier's transporter ID to shippers only, and ERP responses strip it. It is added only
+ * while BOOKED, acceptance to delivery: the owner approved it from acceptance, for the e-way bill (16 Oct 2026).
+ */
 export function shipmentWithCarrierDisplay(
   store: Store,
   shipment: Shipment,
-): Shipment & { carrierDisplayName: string; assignedTruckNumber?: string } {
+): Shipment & { carrierDisplayName: string; assignedTruckNumber?: string; carrierTransporterId?: string } {
   const truckNumber = assignedTruckNumber(store, store.anchorTrips.get(shipment.anchorTripId));
-  return { ...shipment, carrierDisplayName: carrierDisplayName(store, shipment.carrierId), ...(truckNumber ? { assignedTruckNumber: truckNumber } : {}) };
+  const transporterId = shipment.status === "BOOKED" ? store.organizations.get(shipment.carrierId)?.transporterId : undefined;
+  return {
+    ...shipment,
+    carrierDisplayName: carrierDisplayName(store, shipment.carrierId),
+    ...(truckNumber ? { assignedTruckNumber: truckNumber } : {}),
+    ...(transporterId ? { carrierTransporterId: transporterId } : {}),
+  };
 }
 
 export function createCarrier(store: Store, name: string): Carrier {
@@ -263,6 +274,8 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   vehicleRegistrationNumber: string;
   vehicleClass: VehicleClass;
   vehicleCapacityKg: number;
+  /** Optional at sign-up; checked before anything is written. */
+  transporterId?: unknown;
 }): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
@@ -270,6 +283,8 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   assertTruckNumberLength(String(params.vehicleRegistrationNumber));
   assertVehicleClass(params.vehicleClass);
   if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
+  const transporterIdCheck = checkTransporterId(params.transporterId ?? null);
+  if (!transporterIdCheck.ok) throw new ApiError("invalid_transporter_id", { detail: transporterIdCheck.detail, field: transporterIdCheck.field });
 
   const phone = normalizeInPhone(params.phone);
   const dup = [...store.users.values()].find((u) => u.phone === phone);
@@ -283,6 +298,7 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
     displayName: String(params.orgDisplayName).trim(),
     kycStatus: "NOT_STARTED",
     createdAtUtcMs: now,
+    ...(transporterIdCheck.value ? { transporterId: transporterIdCheck.value } : {}),
   };
   const membership: Membership = {
     userId: user.id,
@@ -1763,10 +1779,25 @@ function paymentAuthorizedForCarrierAccept(pay: Payment): boolean {
   return pay.status === "AUTHORIZED" || (pay.provider === "MOCK" && pay.status === "CAPTURED");
 }
 
-/** Carrier accepts a customer booking (PENDING_CARRIER_ACCEPT → BOOKED). */
+/**
+ * Accepting can also name the trip's truck, in the same request (owner decision, 16 Oct 2026): only when the trip
+ * names none yet and the caller may assign trucks. Otherwise a vehicleId is ignored; the office changes a named
+ * truck on the trip screen. The server answers a refusal without undoing earlier writes, so this runs after every
+ * other acceptance check and before any write: a truck outside the fleet leaves nothing accepted and no truck named.
+ */
+function truckToNameWhileAccepting(store: Store, principal: Principal, trip: AnchorTrip | undefined, vehicleId: unknown): Vehicle | undefined {
+  if (vehicleId == null || !trip || trip.assignedVehicleId || !principal.permissions.includes("trip.assign")) return undefined;
+  const vehicle = typeof vehicleId === "string" ? store.vehicles.get(vehicleId) : undefined;
+  if (!vehicle || !isActiveEntity(vehicle) || vehicle.orgId !== trip.carrierId) {
+    throw new ApiError("invalid_trip_assignment", { detail: "Choose a truck from your own fleet.", field: "vehicleId" });
+  }
+  return vehicle;
+}
+
+/** Carrier accepts a customer booking (PENDING_CARRIER_ACCEPT → BOOKED), naming the trip's truck first when asked. */
 export function acceptCarrierShipment(
   store: Store,
-  params: { shipmentId: string; userId: string },
+  params: { shipmentId: string; userId: string; vehicleId?: unknown },
 ): Shipment {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
@@ -1783,6 +1814,13 @@ export function acceptCarrierShipment(
       detail: "Customer must complete payment authorization before carrier can accept.",
       status: pay.status,
     });
+  }
+  const trip = store.anchorTrips.get(s.anchorTripId);
+  const truck = truckToNameWhileAccepting(store, principal, trip, params.vehicleId);
+  if (trip && truck) {
+    store.anchorTrips.set(trip.id, { ...trip, assignedVehicleId: truck.id });
+    // The same audit row as naming a truck and driver on the trip screen, state words only.
+    auditAsUser(store, params.userId, "TRIP_ASSIGNED", "trip", trip.id, trip.assignedDriverUserId ? "ASSIGNED" : "UNASSIGNED", "ASSIGNED");
   }
   const now = nowUtcMs();
   const updated: Shipment = {

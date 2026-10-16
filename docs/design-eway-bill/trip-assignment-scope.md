@@ -50,7 +50,8 @@ wrong.
    DRIVER sees only trips assigned to them, and only the shipments on those trips. Changes in the carrier shipment
    list, the shipment detail guard, and the trip list. A driver with nothing assigned sees "Your carrier has not
    assigned you a trip yet."
-4. **The truck on the bill:** the bill's truck number is compared with the assigned truck ignoring spaces and case.
+4. **The truck on the bill:** the bill's truck number is compared with the assigned truck, both in the e-way bill
+   portal's form, so UP1345 matches UP010345 (16 Oct 2026; before that, ignoring spaces and case).
    Same: nothing shown. Different: a plain sentence to the carrier and the shipper, not a block. The carrier's "Add
    truck" form is pre-filled with the assigned truck's number.
 5. **Two trucks, one driver:** assignment is per trip, so a driver can drive different trucks on different trips.
@@ -87,7 +88,11 @@ Owners, owner-drivers and dispatchers keep all of it, unchanged, as do shippers,
 
 ## As built: differences and limits
 
-- Assigning needs both a truck and a driver; there is no way to clear an assignment once made.
+- Assigning on the trip screen needs both a truck and a driver; there is no way to clear an assignment once made.
+  Since 16 Oct 2026 accepting a booking on a trip with no truck names the truck alone, the driver as it was (owner
+  decision; `contract.md` Part B and `docs/pilot-api.md`).
+- Since 16 Oct 2026 the bill's truck and the trip's are compared in the e-way bill portal's form, not just without
+  spaces and case: `UP1345` on the bill matches `UP010345` on the trip. `assignedTruckNumber` is sent in that form.
 - A driver on a trip sees the truck and driver line on the trip screen, read only.
 - When the e-way bill's truck and the trip's differ, each reader gets their own sentence: the carrier office is asked
   to check which is right and, if the e-way bill is wrong, to update it on the portal and then in the app; the

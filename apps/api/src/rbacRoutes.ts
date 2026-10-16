@@ -31,6 +31,7 @@ const rules: [string, RegExp, Permission][] = [
   ["POST", /^\/v1\/pilot\/carrier\/drivers\/invite$/, "organization.member.invite"],
   ["GET", /^\/v1\/pilot\/carrier\/(?:earnings|ledger|payout-batches)$/, "payment.read"],
   ["POST", /^\/v1\/pilot\/carrier\/payout-setup$/, "bank_account.create_token"],
+  ["PATCH", /^\/v1\/pilot\/carrier\/transporter-id$/, "transporter_id.write"],
   ["POST", /^\/v1\/pilot\/customer\/members\/invite$/, "organization.member.invite"],
   ["GET", /^\/v1\/pilot\/customer\/members$/, "organization.member.invite"],
   ["*", /^\/v1\/pilot\/customer\/integrations(?:\/.*)?$/, "integration.manage"],
