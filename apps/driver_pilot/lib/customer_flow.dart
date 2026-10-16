@@ -124,7 +124,8 @@ class CustomerScaffold extends StatelessWidget {
               bottom: CustomerSession.isSignedIn
                   ? const PreferredSize(
                       preferredSize: Size.fromHeight(48),
-                      child: OrganizationToolbar())
+                      // The app bar's actions already hold a Sign out icon, so this bar hides its own.
+                      child: OrganizationToolbar(showSignOut: false))
                   : null,
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
