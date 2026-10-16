@@ -12,6 +12,7 @@ import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
 import { URL } from "node:url";
 import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
+import { registerMutationCheckpointer } from "./mutationCheckpoint.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import { FixedWindowRateLimiter } from "./http/rateLimit.ts";
 import {
@@ -316,6 +317,13 @@ export async function createApp(options: {
     eventSnapshot: typeof eventSnapshot;
   };
   let activeMutationSnapshot: MutationSnapshot | null = null;
+  registerMutationCheckpointer(store, () => {
+    if (!activeMutationSnapshot) return;
+    activeMutationSnapshot = {
+      store: structuredClone(store),
+      eventSnapshot: structuredClone(eventSnapshot),
+    };
+  });
   persist = async () => {
     try {
       await options.beforePersist?.();
@@ -340,9 +348,9 @@ export async function createApp(options: {
       try {
         return await operation();
       } catch (error) {
-        if (snapshot) {
-          restoreStoreSnapshot(store, snapshot.store);
-          restoreMutableObject(eventSnapshot, snapshot.eventSnapshot);
+        if (activeMutationSnapshot) {
+          restoreStoreSnapshot(store, activeMutationSnapshot.store);
+          restoreMutableObject(eventSnapshot, activeMutationSnapshot.eventSnapshot);
         }
         throw error;
       } finally {
