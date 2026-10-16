@@ -1,5 +1,6 @@
-// Size note: load and save stay in one file because both list the same tables and fields, so a field added to one
-// and not the other is dropped on the next save. They also share the row mappers and the one database client.
+// Size note: load and save list the same tables and fields (not role, permission or rolePermission: save fills those from
+// fixed lists, load never reads them), so a field on one side only is dropped or blanked on the next save. All use the one
+// Prisma client made near the top; the server imports this file once, only if PERSISTENCE=DB, for load, save and the two paged readers.
 import { migrateAuthorization, ROLES, ROLE_PERMISSIONS, PERMISSIONS, type Role, type AuditEvent } from "./rbac.ts";
 import { dumpStore } from "./persistence.ts";
 import { Prisma, PrismaClient } from "@prisma/client";

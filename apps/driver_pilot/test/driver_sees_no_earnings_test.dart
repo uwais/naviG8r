@@ -71,6 +71,40 @@ Future<void> mountScreen(WidgetTester tester, Widget screen) async {
 }
 
 void main() {
+  group('The home screen', () {
+    const everyonesText =
+        'Sign in with your phone, confirm your carrier organization, run trips with live tracking, '
+        'and get paid after proof of delivery and cooling-off.';
+
+    testWidgets('promises a signed-in driver no pay', (tester) async {
+      signInAsCarrierLogin(office: false);
+      await mountScreen(tester, const DriverWelcomeScreen());
+      expect(
+          find.text(
+              'Sign in with your phone, confirm your carrier organization, run trips with live tracking.'),
+          findsOneWidget);
+      final words = screenWords(tester);
+      expect(words.contains('paid'), isFalse, reason: words);
+      expect(words.contains('cooling-off'), isFalse, reason: words);
+    });
+
+    testWidgets(
+        'keeps its text for a visitor who is signed out, and for the office',
+        (tester) async {
+      FlutterSecureStorage.setMockInitialValues({});
+      api = Api('http://test');
+      AuthorizationSession.clear();
+      await mountScreen(
+          tester, const DriverWelcomeScreen(key: ValueKey('signed out')));
+      expect(find.text(everyonesText), findsOneWidget);
+
+      signInAsCarrierLogin(office: true);
+      await mountScreen(
+          tester, const DriverWelcomeScreen(key: ValueKey('office')));
+      expect(find.text(everyonesText), findsOneWidget);
+    });
+  });
+
   group('The shipment screen', () {
     testWidgets('shows no net line at all when the amount is not sent',
         (tester) async {

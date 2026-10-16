@@ -12,8 +12,9 @@ class ShipmentPaymentStatus extends StatefulWidget {
   final Map<String, dynamic> shipment;
   final Future<void> Function()? onAccepted;
 
-  /// False for a driver: when the carrier's payment is held or released is part of carrier earnings, which a
-  /// driver never sees (owner decision, 15 Oct 2026). The delivery line still shows.
+  /// False for a driver: the card's held and released payment lines never show, the delivery line does. The
+  /// shipment's status label still moves to "Delivered" when payment is released, which the owner has not
+  /// decided to hide.
   final bool showPaymentStatus;
 
   @override

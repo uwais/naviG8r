@@ -109,13 +109,18 @@ Owners, owner-drivers and dispatchers keep all of it, unchanged, as do shippers,
   the new one are sent no message; the new trip shows on their Loads screen when they pull down to refresh. A
   replaced driver who still has the trip or one of its shipments open is told it is no longer assigned to them and
   to pull down to refresh.
-- A trip a driver publishes is assigned to no one, so the app tells them the owner or dispatcher must assign it
-  before it shows under Loads. Whether drivers should publish at all is the owner's open decision.
+- A trip a driver publishes is assigned to no one, so the app tells them, for ten seconds, that their carrier must
+  assign it and that it shows under their Loads only if it is assigned to them. Whether drivers should publish at
+  all is the owner's open decision.
 - Database mode: two nullable columns, `ALTER TABLE "AnchorTripRow" ADD COLUMN "assignedVehicleId" TEXT, ADD
   COLUMN "assignedDriverUserId" TEXT;`. Without them the API does not start in database mode at all, so applying them
   by hand is a merge gate for every database-mode service. Not applied.
 - Not decided: payment-status notices a driver already received stay in their list (there is no amount in them).
   The owner may want them hidden.
+- Not decided: a driver can still tell when payment is released, because the shipment's status moves from "Delivery
+  confirmed" to "Delivered" then. The owner has not decided whether that counts as payment state.
+- Not decided: an unapproved carrier's banner tells every driver "Ask the carrier owner to add bank details.", which
+  the owner may count as payment text.
 - In database mode the unread number and the paging marker of the grouped notification list can still count
   notifications on trips a driver no longer sees (counts and ids only, no content or money). Fixing it needs a SQL
   join and cannot be tested without Postgres.
@@ -125,8 +130,8 @@ Owners, owner-drivers and dispatchers keep all of it, unchanged, as do shippers,
   app build before or with the API.
 - The public price quote and the rate estimate return the shipper's price to anyone, drivers included, so taking
   publish away from drivers would not hide the price. The commission rate is in no driver response.
-- Refusals of accept and confirm delivery on an unpaid booking carry the shipper's checkout state, and the app prints
-  the raw reply. This existed before this branch and affects every carrier role.
+- Refusals of accept, confirm delivery and start on an unpaid booking can carry the shipper's checkout state or a raw
+  status, and the app prints the raw reply. This existed before this branch and affects every carrier role.
 
 ## Open questions for the team
 

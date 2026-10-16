@@ -165,7 +165,7 @@ function assertVehicleClass(v: any): asserts v is VehicleClass {
   if (v !== "SMALL" && v !== "MEDIUM" && v !== "LARGE") throw new Error("invalid_vehicleClass");
 }
 
-/** Length only: existing trucks and test data use forms like TEST-A, so no letters-and-digits rule here. */
+/** Length after trimming only: existing trucks and test data use forms like TEST-A, so no letters-and-digits rule here. */
 function assertTruckNumberLength(registrationNumber: string): void {
   if (registrationNumber.trim().length > 20) {
     throw new ApiError("invalid_vehicleRegistrationNumber", { detail: "A truck number can have at most 20 characters.", field: "vehicleRegistrationNumber" });

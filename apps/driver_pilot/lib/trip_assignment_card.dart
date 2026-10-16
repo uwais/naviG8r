@@ -26,8 +26,8 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
   bool _fleetFailed = false;
   bool _saving = false;
   bool _driverBusy = false;
-  // True from a successful save until a choice changes or the next save starts, so a refused save never
-  // shows "Saved." (starting the save already cleared it).
+  // True from a successful save until a choice changes, the next save starts or the card shows a different
+  // trip, so a refused save never shows "Saved." (starting the save already cleared it).
   bool _justSaved = false;
   String? _error;
 
@@ -121,13 +121,21 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
     }
   }
 
-  /// 403 and 404 mean the trip or the fleet changed since this card loaded, so trying again here cannot
-  /// work; the trip screen reloads both when pulled down. Any other refusal, a completed trip say, is the
-  /// server's own sentence.
+  /// 403 means this login may no longer assign trips and 404 that it can no longer see this one; trying
+  /// again here fixes neither, while the trip screen reloads when pulled down. A truck or driver that stopped
+  /// being valid is refused with the server's sentence while the stale lists still offer it, so a reload is
+  /// asked for there too. Any other refusal, a completed trip say, is the server's own sentence.
   static String _saveRefusalSentence(Object e) {
-    final status = e is DioException ? e.response?.statusCode : null;
+    final response = e is DioException ? e.response : null;
+    final status = response?.statusCode;
     if (status == 403 || status == 404) {
       return 'This trip, or your trucks and drivers, changed. Pull down to reload this screen.';
+    }
+    final body = response?.data;
+    if (status == 400 &&
+        body is Map &&
+        body['error'] == 'invalid_trip_assignment') {
+      return '${ewayBillErrorSentence(e)} Pull down to reload your trucks and drivers.';
     }
     return ewayBillErrorSentence(e);
   }
@@ -188,6 +196,9 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
     final replacingDriver = assignedDriver != null &&
         _driverUserId != null &&
         _driverUserId != assignedDriver;
+    // Started before assignments existed: the driver who started it keeps it only while no one is assigned.
+    final onTheRoadWithNoDriverAssigned =
+        _trip['status'] == 'IN_PROGRESS' && assignedDriver == null;
     return [
       _picker(
           label: 'Truck',
@@ -225,6 +236,11 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
         const Padding(
             padding: EdgeInsets.only(top: 8),
             child: Text('A driver who is replaced stops seeing this trip.')),
+      if (onTheRoadWithNoDriverAssigned)
+        const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+                'This trip is already on the road. If you choose a different driver, the driver who started it stops seeing it.')),
       if (_driverBusy)
         const Padding(
             padding: EdgeInsets.only(top: 8),
