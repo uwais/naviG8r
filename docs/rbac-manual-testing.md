@@ -41,6 +41,7 @@ Enter the phone, click **Send code**, then enter the generated `debugCode` retur
 | Dual membership | 8000000008 | user-dual | shipper-a / platform | SHIPPER / FINANCE |
 | Carrier A driver | 8000000009 | user-driver | carrier-a | CARRIER, DRIVER subrole |
 | Shipper A member | 8000000010 | user-member | shipper-a | SHIPPER, CUSTOMER_MEMBER subrole |
+| Carrier A second driver | 8000000013 | user-driver-b | carrier-a | CARRIER, DRIVER subrole |
 
 Seeded shipments:
 
@@ -242,7 +243,7 @@ Open <http://localhost:8080/#/customer/login>. Enable Chrome's device toolbar an
 1. Sign in as Shipper A (`8000000001`). The top selector displays Synthetic Shipper A. Open Shipments and a pending-release shipment. The screen shows the hold deadline; Accept delivery requires confirmation. Accepting changes the status to Delivery accepted and makes the shipment ready for Finance review, without releasing funds automatically. Booking and delivery acceptance never grant Finance permissions.
 2. Open <http://localhost:8080/#/customer/shipments/load-b-pending> while still Shipper A. The app must show an unavailable-record message and no other customer's shipment data.
 3. Sign out using the top toolbar. Sign in as dual membership (`8000000008`). Select an organization explicitly. Synthetic Shipper A opens the shipper workspace. Switch to Synthetic NaviG8r Internal: the shipper screens disappear and the app directs Finance work to the operations portal. Switch back to restore only shipper permissions. A page reload requires choosing the organization again; the selection is intentionally kept in memory, not shared between browser tabs.
-4. Sign in as carrier owner (`8000000003`). Open Profile > Earnings & payouts. Manage payout method is available. Sign out and repeat with driver (`8000000009`): that button is absent. Opening <http://localhost:8080/#/driver/payout-setup> as the driver redirects away without rendering bank fields.
+4. Sign in as carrier owner (`8000000003`). Open Profile > Earnings & payouts. Manage payout method is available. Sign out and repeat with driver (`8000000009`): Profile has no Earnings & payouts at all, because a driver never sees carrier earnings. Opening <http://localhost:8080/#/driver/earnings> or <http://localhost:8080/#/driver/payout-setup> as the driver redirects away without rendering amounts or bank fields.
 5. Sign in as Carrier B (`8000000004`). The compliance banner explains that Operations approval is pending. Accept and Start controls are unavailable. Approve Carrier B with the Operations account in `/ops`, then tap Refresh access in the mobile toolbar; the compliance block clears. Bank setup is separate from compliance approval.
 6. In another browser context, sign in as Admin in `/ops` and remove a mobile user's roles. Tap Refresh access in the mobile app. Existing data and actions disappear. Restore the roles and refresh again. API denials also trigger a session refresh; returning the app from the background refreshes access.
 
@@ -252,7 +253,7 @@ For an Android emulator, replace the launch command with:
 flutter run -d <emulator-id> --dart-define=API_BASE_URL=http://10.0.2.2:3139
 ```
 
-The synthetic data does not include complete vehicle/driver profiles. Vehicle editing and full GPS trips require additional synthetic registration fixtures. The operations portal uses its own login; mobile tokens are not copied into portal URLs.
+The seed has vehicle and driver profiles for the two carrier A drivers only: 8000000009 with truck KA01AB1234 and 8000000013 with KA02XY9999. Each truck is named on an open trip, so either driver's Save vehicle on Profile is refused until that trip completes or the owner names another truck on it. The owner (8000000003) has no driver profile, so vehicle editing as an owner needs a solo carrier registered in the app. The seeded trips have no map pins. The operations portal uses its own login; mobile tokens are not copied into portal URLs.
 
 ## 11. Automated mobile checks
 

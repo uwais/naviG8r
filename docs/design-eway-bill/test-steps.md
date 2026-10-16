@@ -7,7 +7,8 @@ only, the guide page the demo server serves, so they cannot drift from what the 
 
 1. Server, with the practice portal switched on:
    `EWAY_DEMO_PORTAL=1 OTP_PHONE_START_LIMIT=1000 OTP_IP_START_LIMIT=1000 RBAC_MANUAL_PORT=3139 node --experimental-strip-types scripts/rbac-manual.mjs`
-   Right: a table of 12 accounts, then "Open http://127.0.0.1:3139/ops".
+   Right: a table of 13 accounts (the last is 8000000013, a second carrier A driver), then
+   "Open http://127.0.0.1:3139/ops".
 2. Web app (shipper, and the carrier stand-in), from `apps/driver_pilot`:
    `flutter build web --release --no-web-resources-cdn --dart-define=API_BASE_URL=http://127.0.0.1:3139 --dart-define=EWAY_PORTAL=http://127.0.0.1:3139/demo/eway-portal`
    then, from the repo folder, `node scripts/serve-mobile-rbac.mjs`. Right: the app opens at
@@ -19,6 +20,8 @@ only, the guide page the demo server serves, so they cannot drift from what the 
    only a build pointing at https://ewaybillgst.gov.in says "government".
 
 Then open http://127.0.0.1:3139/demo/eway-guide. It has the steps for shipper, carrier, ops and driver, in order.
+The truck and driver per trip (scope: `trip-assignment-scope.md`) is its Step 5, and what a driver must not see is
+at the end of its Step 4.
 
 Restarting the server resets everything: shipments, sign-ins and the practice portal's bills.
 

@@ -1,3 +1,6 @@
+// Size note: load and save list the same tables and fields (not role, permission or rolePermission: save fills those from
+// fixed lists, load never reads them), so a field on one side only is dropped or blanked on the next save. All use the one
+// Prisma client made near the top; the server imports this file once, only if PERSISTENCE=DB, for load, save and the two paged readers.
 import { migrateAuthorization, ROLES, ROLE_PERMISSIONS, PERMISSIONS, type Role, type AuditEvent } from "./rbac.ts";
 import { dumpStore } from "./persistence.ts";
 import { Prisma, PrismaClient } from "@prisma/client";
@@ -228,6 +231,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       startedByUserId: t.startedByUserId ?? undefined,
       completedAtUtcMs: t.completedAtUtcMs == null ? undefined : Number(t.completedAtUtcMs),
       completedByUserId: t.completedByUserId ?? undefined,
+      assignedVehicleId: t.assignedVehicleId ?? undefined,
+      assignedDriverUserId: t.assignedDriverUserId ?? undefined,
       carrierId: t.carrierId,
       originCity: t.originCity,
       destCity: t.destCity,
@@ -626,6 +631,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           startedByUserId: t.startedByUserId ?? null,
           completedAtUtcMs: t.completedAtUtcMs == null ? null : BigInt(t.completedAtUtcMs),
           completedByUserId: t.completedByUserId ?? null,
+          assignedVehicleId: t.assignedVehicleId ?? null,
+          assignedDriverUserId: t.assignedDriverUserId ?? null,
           carrierId: t.carrierId,
           originCity: t.originCity,
           destCity: t.destCity,

@@ -47,6 +47,7 @@ import {
 } from "./razorpayPayouts.ts";
 import { emitIntegrationEvent } from "./integrationWebhooks.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
+import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -164,6 +165,13 @@ function assertVehicleClass(v: any): asserts v is VehicleClass {
   if (v !== "SMALL" && v !== "MEDIUM" && v !== "LARGE") throw new Error("invalid_vehicleClass");
 }
 
+/** Length after trimming only: existing trucks and test data use forms like TEST-A, so no letters-and-digits rule here. */
+function assertTruckNumberLength(registrationNumber: string): void {
+  if (registrationNumber.trim().length > 20) {
+    throw new ApiError("invalid_vehicleRegistrationNumber", { detail: "A truck number can have at most 20 characters.", field: "vehicleRegistrationNumber" });
+  }
+}
+
 function getOrgOrThrow(store: Store, orgId: string): Organization {
   const org = store.organizations.get(orgId);
   if (!org) throw new Error("org_not_found");
@@ -190,8 +198,8 @@ export function carrierDisplayName(store: Store, carrierId: string): string {
   return store.organizations.get(carrierId)?.displayName ?? carrierId;
 }
 
-export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTrip & { carrierDisplayName: string } {
-  return { ...trip, carrierDisplayName: carrierDisplayName(store, trip.carrierId) };
+export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTrip & { carrierDisplayName: string } & ReturnType<typeof tripAssignmentDisplay> {
+  return { ...trip, carrierDisplayName: carrierDisplayName(store, trip.carrierId), ...tripAssignmentDisplay(store, trip) };
 }
 
 /**
@@ -204,14 +212,19 @@ export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTr
 export function tripForPublicListing(
   store: Store,
   trip: AnchorTrip,
-): Omit<AnchorTrip, "lastLiveLocation" | "startedByUserId" | "completedByUserId"> & { carrierDisplayName: string } {
-  // These three never reach an unauthenticated caller. lastLiveLocation is where the
-  // driver is right now; the two user ids are stable per driver, so collecting them
+): Omit<AnchorTrip, "lastLiveLocation" | "startedByUserId" | "completedByUserId" | "assignedVehicleId" | "assignedDriverUserId"> & { carrierDisplayName: string } {
+  // None of these reach an unauthenticated caller. lastLiveLocation is where the
+  // driver is right now; the user ids are stable per driver, so collecting them
   // across trips maps which driver runs which lanes without ever needing a token.
+  // The assigned truck and driver name the same driver.
   const {
     lastLiveLocation: _location,
     startedByUserId: _startedBy,
     completedByUserId: _completedBy,
+    assignedVehicleId: _vehicle,
+    assignedDriverUserId: _driver,
+    assignedTruckNumber: _truckNumber,
+    assignedDriverName: _driverName,
     ...rest
   } = tripWithCarrierDisplay(store, trip);
   return rest;
@@ -220,8 +233,9 @@ export function tripForPublicListing(
 export function shipmentWithCarrierDisplay(
   store: Store,
   shipment: Shipment,
-): Shipment & { carrierDisplayName: string } {
-  return { ...shipment, carrierDisplayName: carrierDisplayName(store, shipment.carrierId) };
+): Shipment & { carrierDisplayName: string; assignedTruckNumber?: string } {
+  const truckNumber = assignedTruckNumber(store, store.anchorTrips.get(shipment.anchorTripId));
+  return { ...shipment, carrierDisplayName: carrierDisplayName(store, shipment.carrierId), ...(truckNumber ? { assignedTruckNumber: truckNumber } : {}) };
 }
 
 export function createCarrier(store: Store, name: string): Carrier {
@@ -253,6 +267,7 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
   if (!String(params.vehicleRegistrationNumber ?? "").trim()) throw new Error("invalid_vehicleRegistrationNumber");
+  assertTruckNumberLength(String(params.vehicleRegistrationNumber));
   assertVehicleClass(params.vehicleClass);
   if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
 
@@ -931,10 +946,13 @@ export function updatePilotDriverVehicle(
 ): { vehicle: Vehicle; driverProfile: DriverProfile } {
   const profile = store.driverProfiles.get(userId);
   if (!profile) throw new Error("driver_profile_missing");
-  requirePermission(store, "load.status_update", { carrierId: profile.orgId }, userId);
+  const caller = requirePermission(store, "load.status_update", { carrierId: profile.orgId }, userId);
 
   const vehicle = store.vehicles.get(profile.primaryVehicleId);
   if (!vehicle) throw new Error("vehicle_missing");
+  if (caller.subrole === "DRIVER" && truckOnUnfinishedTrip(store, vehicle.id)) {
+    throw new ApiError("truck_on_unfinished_trip", { detail: "This truck is on a trip that is not finished. Ask your carrier to change it." }, 409);
+  }
 
   const hasReg = params.vehicleRegistrationNumber !== undefined;
   const hasClass = params.vehicleClass !== undefined;
@@ -948,6 +966,7 @@ export function updatePilotDriverVehicle(
   if (hasReg) {
     const reg = String(params.vehicleRegistrationNumber).trim();
     if (!reg) throw new Error("invalid_vehicleRegistrationNumber");
+    assertTruckNumberLength(reg);
     registrationNumber = reg;
   }
   if (hasClass) {
@@ -975,17 +994,17 @@ export function updatePilotDriverVehicle(
  */
 export function pilotListMyAnchorTrips(store: Store, userId: string): AnchorTrip[] {
   const p = principalFor(store, userId);
-  return [...store.anchorTrips.values()].filter(t => visible(p, t)).sort((a,b) => b.createdAtUtcMs - a.createdAtUtcMs);
+  return [...store.anchorTrips.values()].filter(t => visible(p, t) && assignedDriverMaySee(store, p, t)).sort((a,b) => b.createdAtUtcMs - a.createdAtUtcMs);
 }
 
 export function pilotCarrierOrgIds(store: Store, userId: string): string[] {
   try { const p = principalFor(store, userId); return p.roles.includes("CARRIER") ? [p.organizationId] : []; } catch { return []; }
 }
 
-/** Driver can act on shipments for orgs they belong to as carrier staff. */
+/** Carrier staff can act on their organization's shipments; a DRIVER only on those of trips naming them. */
 export function shipmentVisibleToCarrierPilot(store: Store, shipment: Shipment, userId: string): boolean {
   const ids = new Set(pilotCarrierOrgIds(store, userId));
-  return isActiveEntity(shipment) && ids.has(shipment.carrierId);
+  return isActiveEntity(shipment) && ids.has(shipment.carrierId) && assignedDriverMaySee(store, principalFor(store, userId), shipment);
 }
 
 export function pilotListCarrierShipments(
@@ -994,7 +1013,8 @@ export function pilotListCarrierShipments(
   params?: { anchorTripId?: string },
 ): Shipment[] {
   const ids = new Set(pilotCarrierOrgIds(store, userId));
-  let list = [...store.shipments.values()].filter((s) => isActiveEntity(s) && ids.has(s.carrierId));
+  const caller = ids.size > 0 ? principalFor(store, userId) : undefined;
+  let list = [...store.shipments.values()].filter((s) => isActiveEntity(s) && ids.has(s.carrierId) && caller !== undefined && assignedDriverMaySee(store, caller, s));
   const tripId = params?.anchorTripId?.trim();
   if (tripId) list = list.filter((s) => s.anchorTripId === tripId);
   list.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
@@ -1273,7 +1293,11 @@ export function publishAnchorTripAsPilotDriver(store: Store, params: {
     capacityKg: params.capacityKg,
   });
   auditAsUser(store, params.userId, "TRIP_PUBLISHED", "trip", published.id, "ABSENT", "OPEN");
-  return published;
+  const assigned = soloOwnerOperatorAssignment(store, published, params.userId);
+  if (!assigned) return published;
+  store.anchorTrips.set(assigned.id, assigned);
+  auditAsUser(store, params.userId, "TRIP_ASSIGNED", "trip", assigned.id, "UNASSIGNED", "ASSIGNED");
+  return assigned;
 }
 
 export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
@@ -1913,6 +1937,7 @@ export function inviteCarrierDriver(
     if (!String(params.vehicleRegistrationNumber ?? "").trim()) {
       throw new Error("invalid_vehicleRegistrationNumber");
     }
+    assertTruckNumberLength(String(params.vehicleRegistrationNumber));
     vehicle = {
       id: id("veh"),
       orgId: params.orgId,
@@ -2000,7 +2025,7 @@ export function opsShipmentDetail(store: Store, shipmentId: string): {
     shipment.podSubmittedByUserId != null
       ? store.users.get(shipment.podSubmittedByUserId) ?? null
       : null;
-  return { shipment, payment, carrierOrgName, podSubmittedBy };
+  return { shipment: shipmentWithCarrierDisplay(store, shipment), payment, carrierOrgName, podSubmittedBy };
 }
 
 /** Legacy/admin instant POD: BOOKED + payment already captured (or MOCK). */

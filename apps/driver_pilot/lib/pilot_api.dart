@@ -189,9 +189,14 @@ String formatApiError(Object e) {
       final seconds = retry is num ? (retry / 1000).ceil() : 30;
       return "Too many code requests. Please wait ${seconds > 0 ? seconds : 1} seconds and try again.";
     }
-    // The server writes this error's detail for the carrier (which bank field is wrong, and how).
+    // The server writes these errors' detail for the carrier: which bank field is wrong and how, or why
+    // the truck cannot change.
     final detail = body is Map ? body["detail"] : null;
-    if (code == "invalid_payout_profile" &&
+    if (const [
+          "invalid_payout_profile",
+          "truck_on_unfinished_trip",
+          "invalid_vehicleRegistrationNumber"
+        ].contains(code) &&
         detail is String &&
         detail.isNotEmpty) {
       return detail;
@@ -240,6 +245,10 @@ String formatApiError(Object e) {
 
 /// The request failed before any answer came back: a dropped connection, a timeout, no signal.
 bool serverNeverAnswered(Object e) => e is DioException && e.response == null;
+
+/// The server answered that this login cannot see the record, as it does when a trip is no longer a driver's.
+bool serverAnsweredNotFound(Object e) =>
+    e is DioException && e.response?.statusCode == 404;
 
 /// The server writes a plain sentence for each e-way bill refusal; show it instead of "HTTP 400".
 String ewayBillErrorSentence(Object e) {
@@ -349,16 +358,20 @@ void defaultAnchorTripWindow(
   w2.text = formatIstIsoFromUtc(endUtc);
 }
 
-String shipmentStatusLabel(String status) {
+/// [seesPayment] is false for a driver, who never sees carrier earnings or their status (owner decision,
+/// 15 Oct 2026), so those two statuses are worded without payment.
+String shipmentStatusLabel(String status, {bool seesPayment = true}) {
   switch (status) {
     case "PENDING_CARRIER_ACCEPT":
       return "Awaiting carrier acceptance";
     case "BOOKED":
       return "Accepted";
     case "PENDING_RELEASE":
-      return "Awaiting payment release";
+      return seesPayment ? "Awaiting payment release" : "Delivery confirmed";
     case "DELIVERED":
       return "Delivered";
+    case "FAILED_CARRIER_REFUNDED":
+      return seesPayment ? status : "Cancelled";
     default:
       return status;
   }

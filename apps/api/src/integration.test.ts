@@ -18,6 +18,7 @@ import {
 } from "./integrationServices.ts";
 import { buildIntegrationEventPayload } from "./integrationWebhooks.ts";
 import { hashIntegrationSecret, resolveIntegrationAuth } from "./integrationAuth.ts";
+import type { Vehicle } from "./types.ts";
 
 const GURGAON = { lat: 28.4595, lng: 77.0266, label: "Gurugram" };
 const JAIPUR = { lat: 26.9124, lng: 75.7873, label: "Jaipur" };
@@ -159,6 +160,47 @@ test("integration webhook payload includes trip start and carrier ops fields", (
   assert.equal(carrier.name, driver.org.displayName);
   assert.equal(carrier.vehicleNumber, "HR26AB9999");
   assert.equal(carrier.driverName, driver.user.fullName);
+});
+
+test("integration webhook names the truck the trip is assigned, not the starter's own truck", () => {
+  process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  const store = createStore();
+  const { trip, driver } = seedOpenTrip(store);
+  // A second truck of the same carrier is assigned to the trip; the owner who starts it keeps HR26AB9999 as their own.
+  const assignedTruck: Vehicle = { id: "veh_assigned", orgId: driver.org.id, registrationNumber: "KA02XY9999", vehicleClass: "MEDIUM", capacityKg: 5000, createdAtUtcMs: 1 };
+  store.vehicles.set(assignedTruck.id, assignedTruck);
+  store.anchorTrips.set(trip.id, { ...store.anchorTrips.get(trip.id)!, assignedVehicleId: assignedTruck.id });
+  const admin = registerCustomerOrgAdmin(store, {
+    fullName: "ERP Admin",
+    phone: "9111001195",
+    orgDisplayName: "ERP Shipper 4",
+  });
+
+  const shipment = bookTestShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: admin.org.displayName,
+    customerOrg: { id: admin.org.id, displayName: admin.org.displayName },
+    weightKg: 50,
+    pickupAddress: "Gurugram",
+    dropAddress: "Jaipur",
+    pickup: GURGAON,
+    drop: JAIPUR,
+    externalLoadId: "ERP-004",
+  });
+
+  acceptCarrierShipment(store, { shipmentId: shipment.id, userId: driver.user.id });
+  startAnchorTripAsPilot(store, { userId: driver.user.id, tripId: trip.id });
+
+  const updated = store.shipments.get(shipment.id)!;
+  const payload = buildIntegrationEventPayload(store, {
+    eventType: "load.in_transit",
+    shipment: updated,
+    sequence: updated.integrationSequence ?? 1,
+  });
+
+  const carrier = payload.carrier as Record<string, unknown>;
+  assert.equal(carrier.vehicleNumber, "KA02XY9999");
+  assert.equal(carrier.driverName, driver.user.fullName, "the driver is still whoever started the trip");
 });
 
 test("resolveIntegrationAuth accepts X-Api-Key headers", () => {

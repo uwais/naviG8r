@@ -95,6 +95,8 @@ model AnchorTripRow {
   startedByUserId String?
   completedAtUtcMs BigInt?
   completedByUserId String?
+  assignedVehicleId String?
+  assignedDriverUserId String?
   @@index([carrierId])
   id               String  @id
   carrierId        String

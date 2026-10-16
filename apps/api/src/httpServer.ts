@@ -7,6 +7,7 @@ import { guardRequest, requestContext } from "./rbacRoutes.ts";
 import { carrierRejection } from "./carrierRejection.ts";
 import { addEwayBillTruck, checkEwayBill, listEwayBillsForOps, removeEwayBill, saveEwayBill } from "./ewayBill.ts";
 import { ewayPortalAddress, handleEwayDemoPortal, isEwayDemoPortalPath } from "./ewayDemoPortal.ts";
+import { assignTrip, carrierFleet } from "./tripAssignment.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
 import { URL } from "node:url";
@@ -906,6 +907,13 @@ export async function createApp(options: {
         await persist();
         return json(res, 201, { trip: tripWithCarrierDisplay(store, trip) });
       }
+
+      if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/assignment$/.test(url.pathname)) {
+        const out = assignTrip(store, url.pathname.split("/")[4]!, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, out);
+      }
+      if (method === "GET" && url.pathname === "/v1/pilot/carrier/fleet") return json(res, 200, carrierFleet(store));
 
       if (method === "POST" && url.pathname === "/v1/pilot/rates/estimate") {
         const body = await readJson(req);

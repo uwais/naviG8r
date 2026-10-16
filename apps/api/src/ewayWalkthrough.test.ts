@@ -84,10 +84,12 @@ test("the demo guide's order works end to end over HTTP, and the portal is off w
   const truck = await f.request(`/v1/pilot/carrier/shipments/${id}/eway-bill/truck`, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs }, f.tokens.carrierA);
   assert.equal(truck.status, 200, JSON.stringify(truck.body));
 
-  // The driver reads the bill, truck and valid-until, and cannot add a truck.
+  // The owner names the driver for the trip; the driver then reads the bill, truck and valid-until, and cannot add a truck.
   registerCustomerUser(f.store, { fullName: "Synthetic Driver", phone: "8000000013" });
-  inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: f.carrierA.org.id, phone: "8000000013", role: "DRIVER", vehicleRegistrationNumber: "TEST-D", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
+  const driver = inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: f.carrierA.org.id, phone: "8000000013", role: "DRIVER", vehicleRegistrationNumber: "TEST-D", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
   const driverToken = await f.login("8000000013");
+  assert.equal((await f.request("/v1/pilot/carrier/shipments", "GET", undefined, driverToken)).body.shipments.length, 0, "a driver on no trip sees nothing");
+  assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/assignment`, "POST", { vehicleId: driver.vehicle.id, driverUserId: driver.user.id }, f.tokens.carrierA)).status, 200);
   const driverList = await f.request("/v1/pilot/carrier/shipments", "GET", undefined, driverToken);
   const driverSees = (driverList.body.shipments as Array<{ id: string; ewayBill?: Record<string, unknown> }>).find(s => s.id === id)!.ewayBill!;
   assert.deepEqual([driverSees.billNumber, driverSees.truckNumber, driverSees.validUntilUtcMs], [billNumber, "KA01AB1234", validUntilUtcMs]);

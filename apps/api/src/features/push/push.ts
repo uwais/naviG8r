@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import type { Store } from "../../store.ts";
 import { effectivePermissions, legacyRoles } from "../../rbac.ts";
 import { isActiveEntity } from "../../softDelete.ts";
+import { assignedDriverMaySee } from "../../tripAssignmentRules.ts";
 import type { Notification, PushDevice, PushDelivery, PushIntent } from "../../types.ts";
 import type { FcmDeliveryMessage, FcmSendResult } from "./fcmSender.ts";
 
@@ -270,7 +271,9 @@ function eligibleCurrentRecipient(store: Store, notification: Notification, devi
     : notification.recipientOrgId === shipment.carrierId ? "CARRIER" : null;
   if (!role) return false;
   const roles = store.membershipRoles.get(`${notification.recipientUserId}:${notification.recipientOrgId}`) ?? legacyRoles(membership!, organization!);
-  return roles.includes(role) && effectivePermissions(roles, membership!.role).includes("notification.read");
+  // The trip may have been given to another driver since the push was queued.
+  const stillOnTrip = assignedDriverMaySee(store, { internal: false, subrole: membership!.role, userId: notification.recipientUserId }, shipment);
+  return stillOnTrip && roles.includes(role) && effectivePermissions(roles, membership!.role).includes("notification.read");
 }
 
 export function pushFcmMessage(claim: PushDeliveryClaim, token: string, now = Date.now()): FcmDeliveryMessage {

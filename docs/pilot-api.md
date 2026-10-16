@@ -151,6 +151,8 @@ Response:
 }
 ```
 
+A `DRIVER` cannot change a truck while a trip that is not `COMPLETED` names it (`assignedVehicleId`), because that is the truck the trip's shippers read: `409 { "error": "truck_on_unfinished_trip", "detail": "This truck is on a trip that is not finished. Ask your carrier to change it." }`, whichever field is sent. Owners, owner-drivers and dispatchers are not refused. The registration number is trimmed and can have at most 20 characters, here and when a carrier registers (`POST /v1/pilot/driver/register`) or invites a driver (`POST /v1/pilot/carrier/drivers/invite`): `400 { "error": "invalid_vehicleRegistrationNumber", "detail": "A truck number can have at most 20 characters.", "field": "vehicleRegistrationNumber" }`. There is no letters-and-digits rule, so forms like `TEST-A` stay valid.
+
 #### `GET /v1/pilot/anchor-trips`
 Headers:
 - `Authorization: Bearer <accessToken>`
@@ -176,7 +178,25 @@ Response:
 }
 ```
 
-Trips are limited to **carrier orgs** your user belongs to (`CARRIER_SOLO`, `CARRIER_FLEET`, `CARRIER_LEGACY`), newest first.
+Trips are limited to **carrier orgs** your user belongs to (`CARRIER_SOLO`, `CARRIER_FLEET`, `CARRIER_LEGACY`), newest first. A login whose membership is **`DRIVER`** gets only the trips whose `assignedDriverUserId` is them, and for now a trip that names no driver and that they started (see "Truck and driver per trip" below); with neither the list is empty.
+
+#### Truck and driver per trip
+
+A trip may name one truck and one driver: `assignedVehicleId` and `assignedDriverUserId`, both optional. Carrier and ops responses also carry `assignedTruckNumber` (the truck's registration, upper case, spaces and hyphens removed) and `assignedDriverName`; shippers, public trip lists and ERP responses get none of the four. A trip published by a solo owner-operator (the `OWNER_DRIVER` of a `CARRIER_SOLO` organization) names that person and their primary vehicle by itself. Inviting a driver or dispatcher makes the organization `CARRIER_FLEET`, and from then on trips its owner-driver publishes stay unassigned. Trips from before this change stay unassigned.
+
+**Who sees what.** Owners, owner-drivers and dispatchers see all of their carrier's trips and shipments. A `DRIVER` sees only trips naming them and the shipments on those trips on these routes: the trip list and detail, start, complete and location, the carrier shipment list (with or without `anchorTripId`), accept, proof of delivery, tracking, the shipment conversation, the notification list, the grouped inbox, mark-read and notification open. A trip or shipment outside that answers `404`, as for another carrier. New notifications go only to the driver named on the trip, and a queued push is dropped at send time if the trip names someone else by then. Not yet limited: `GET /v1/pilot/me`, which lists every truck of the carrier. In database mode the grouped inbox can return a short page, and its `unreadCount` still counts groups hidden from a driver.
+
+**Trips from before this change.** A trip that names no driver stays with the `DRIVER` who started it (`startedByUserId`) on every route above, in any status, so a driver mid-route at deploy keeps sending location, confirming delivery and completing, and still sees the trip and its shipments once it is complete. It leaves their list only if the office assigns it to someone else, which is possible until it is complete; a completed one cannot be assigned, so it stays with its driver. A trip that was never started has no starter, so one that is `OPEN` or `FULL` and names no driver is visible to no driver. Trips started before assignments existed name nobody; the driver who started one keeps it. Before go-live the carrier office should assign every open trip; in-progress trips started by a driver keep working until assigned.
+
+**A driver never sees carrier earnings (owner decision, 15 Oct 2026).** A `DRIVER` membership does not hold `payment.read`, so `GET /v1/pilot/carrier/earnings`, `/ledger` and `/payout-batches` answer `403` for a driver; owners, owner-drivers and dispatchers keep them. No response to a `DRIVER` carries what the carrier earns or when it is paid: `netToCarrierPaise`, `totalNetToCarrierPaise`, `pendingAccruedPaise`, `paidPaise`, the payout dates `firstPayoutEligibleAtUtcMs`, `payoutBatchCutoffUtcMs`, `paidAtUtcMs` and `cutoffUtcMs`, and the payment hold `paymentReady` and `paymentHoldUntilUtcMs`, whatever the route. Owners, owner-drivers, dispatchers, shippers, finance and ops keep the ones they had. A driver is never notified of a payment status change (`payment.status_changed`).
+
+**`POST /v1/pilot/anchor-trips/:tripId/assignment`** (permission **`trip.assign`**: carrier `OWNER_DRIVER`, `OWNER`, `DISPATCHER`, never `DRIVER`). Body `{ "vehicleId": "...", "driverUserId": "..." }`. Both must belong to the trip's carrier: the vehicle's `orgId` is the trip's `carrierId`, and the driver is an active member with role `DRIVER`, `OWNER_DRIVER` or `OWNER`. Replaces any earlier assignment. Response `200 { "trip": {...}, "driverBusy": false }`; `driverBusy` is `true` when that driver is already named on another trip that is `IN_PROGRESS` (a warning, the assignment is saved). Refusals: `400 { "error": "invalid_trip_assignment", "detail": "a sentence", "field": "vehicleId" | "driverUserId" }`, `409 trip_completed`, `403` for a driver, `404` for another carrier's trip. Audit row `TRIP_ASSIGNED` on the trip, states `UNASSIGNED` or `ASSIGNED` only.
+
+**`GET /v1/pilot/carrier/fleet`** (permission `trip.assign`). The pickers' choices for the caller's own carrier: `{ "vehicles": [{ "id", "registrationNumber", "vehicleClass" }], "drivers": [{ "userId", "displayName" }] }`. No phone numbers. `GET /v1/pilot/me` already lists the carrier's vehicles but not its people, so this route was added.
+
+**Database mode:** two nullable columns on the trip table must exist first, or the API will not start in database mode at all: at boot it loads every trip row with every column, and that load fails without them, so the process exits before serving anything. Applying `ALTER TABLE "AnchorTripRow" ADD COLUMN "assignedVehicleId" TEXT, ADD COLUMN "assignedDriverUserId" TEXT;` by hand is a merge gate for every database-mode service. `render.yaml` sets no `PERSISTENCE` for its API services, so as written they run in file mode and need nothing; a service given `PERSISTENCE=DB` anywhere else does.
+
+Shipments carry a read-only `assignedTruckNumber` (the trip's truck, same form) for shipper, carrier and ops logins, never for finance, admin or ERP callers. The e-way bill cards compare it with the bill's `truckNumber`.
 
 #### `POST /v1/pilot/anchor-trips/:tripId/location`
 Driver live GPS ping while a trip is in progress (Bearer; trip must belong to your carrier org). The server stores the latest point on the anchor trip (`lastLiveLocation`). The driver app sends pings about every 30s when on the active-trip map screen.
