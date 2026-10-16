@@ -547,6 +547,8 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   }
 
   Future<void> _submit() async {
+    // A refusal from the last try is out of date once a new one starts, and would follow onto the code screen.
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() => _busy = true);
     try {
       final phone = digitsOnly(_phone.text.trim());
@@ -584,9 +586,12 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       );
       context.go("/driver/onboarding/otp?phone=$phone");
     } catch (e) {
+      // Ten seconds because the server's sentence (what a transporter ID looks like, say) is too long to read in four.
       if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(label: "Close", onPressed: () {}),
+            content: Text(formatApiError(e))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -635,8 +640,8 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
               decoration: const InputDecoration(
                   labelText: "Transporter ID (optional)",
                   helperText: transporterIdHelperText,
-                  // Room for large text: the second sentence says who sees the ID.
-                  helperMaxLines: 5)),
+                  // Room for large text: the second sentence says shippers use the ID.
+                  helperMaxLines: 10)),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _busy ? null : _submit,

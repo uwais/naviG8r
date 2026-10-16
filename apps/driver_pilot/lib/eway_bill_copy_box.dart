@@ -28,7 +28,7 @@ class EwayBillCopyBox extends StatelessWidget {
   Widget build(BuildContext context) {
     final tripTruck = shipment['assignedTruckNumber'];
     final truck = tripTruck is String ? portalTruckNumber(tripTruck) : '';
-    // After delivery, "enter it on loading day" is too late: a bill made then covers no journey.
+    // After delivery, entering the truck is too late: a bill made then covers no journey.
     if (truck.isEmpty || shipment['status'] != 'BOOKED' || !_billNeedsTruck) {
       return const SizedBox.shrink();
     }
@@ -54,8 +54,8 @@ class EwayBillCopyBox extends StatelessWidget {
                     value: transporterId,
                     copiedWords: 'transporter ID'),
               Text(transporterId != null
-                  ? 'On the portal, enter this transporter ID so your carrier can change the truck later. Validity starts when the truck is entered, so enter it on loading day.'
-                  : 'Your carrier has not added its transporter ID yet. Without one on the bill, only you can change the truck later. Validity starts when the truck is entered, so enter it on loading day.'),
+                  ? 'On the portal, enter this transporter ID so your carrier can change the truck later. Validity starts when the first truck is entered, so enter the truck on loading day, before the goods move. If the goods are already on the way, enter the truck now.'
+                  : 'Your carrier has not added a transporter ID yet; ask them for one. Without a transporter ID on the bill, only whoever made the bill can change the truck. Validity starts when the first truck is entered, so enter the truck on loading day, before the goods move. If the goods are already on the way, enter the truck now.'),
             ]));
   }
 }

@@ -7,11 +7,11 @@ import 'pilot_api.dart';
 /// Accepts [shipment], as every Accept button on the carrier screens does. When the carrier office (a login that
 /// may assign trips) accepts a booking whose trip names no truck, it chooses the truck first, so the shipper has
 /// it for the e-way bill from acceptance (owner decision, 16 Oct 2026). A driver, or a trip that already names its
-/// truck, accepts with one tap as before, and so can a carrier with no trucks set up yet. [onSending] runs just
-/// before the request, after any truck choice, so a screen shows it is busy only while the request is out. False
-/// when the office cancelled and nothing was sent; a refusal throws. A trip given a truck since the screen loaded
-/// (on the trip screen, or by another login) keeps it, as the server ignores the choice then; the office is told
-/// which truck that is.
+/// truck, accepts with one tap as before; for a carrier with no trucks set up yet the sheet says so and offers to
+/// accept without one. [onSending] runs just before the request, after any truck choice, so a screen shows it is
+/// busy only while the request is out. False when the office cancelled and nothing was sent; a refusal throws. A
+/// trip given a truck since the screen loaded (on the trip screen, or by another login) keeps it, as the server
+/// ignores the choice then; the office is told which truck that is.
 Future<bool> acceptBooking(BuildContext context, Map<String, dynamic> shipment,
     {VoidCallback? onSending}) async {
   final path = '/v1/pilot/carrier/shipments/${shipment['id']}/accept';
@@ -22,8 +22,12 @@ Future<bool> acceptBooking(BuildContext context, Map<String, dynamic> shipment,
     await api.post<Map<String, dynamic>>(path);
     return true;
   }
+  // Up to full height, so large text does not squeeze the trucks or the no-trucks sentence into a small scroll.
   final choice = await showModalBottomSheet<_TruckChoice>(
-      context: context, builder: (_) => const _TruckChoiceSheet());
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => const _TruckChoiceSheet());
   if (choice == null) return false;
   onSending?.call();
   final chosenTruck = choice.truck;
@@ -33,8 +37,10 @@ Future<bool> acceptBooking(BuildContext context, Map<String, dynamic> shipment,
   }
   final response = await api.post<Map<String, dynamic>>(path,
       data: {'vehicleId': chosenTruck['id']});
-  final accepted = response.data?['shipment'];
-  final keptTruck = accepted is Map ? accepted['assignedTruckNumber'] : null;
+  final acceptedShipment = response.data?['shipment'];
+  final keptTruck = acceptedShipment is Map
+      ? acceptedShipment['assignedTruckNumber']
+      : null;
   final chosenNumber =
       portalTruckNumber(chosenTruck['registrationNumber']?.toString() ?? '');
   if (keptTruck is! String ||

@@ -77,7 +77,148 @@ void main() {
       await tester.pumpAndSettle();
       expect(sent, {'transporterId': null});
       expect(DriverSession.transporterId, isNull);
-      expect(find.text('Transporter ID removed.'), findsOneWidget);
+      expect(find.text('No transporter ID is saved now.'), findsOneWidget);
+    });
+
+    testWidgets(
+        'clearing the field after a refusal sends the clear, drops the old refusal and says none is saved',
+        (tester) async {
+      DriverSession.transporterId = null;
+      signInAsCarrierLogin(
+          office: true, alsoAllowed: ['trip.assign', 'transporter_id.write']);
+      final sent = <Object?>[];
+      api.dio.httpClientAdapter = MockApiAdapter((request) {
+        sent.add(request.data);
+        final body = request.data;
+        return body is Map && body['transporterId'] != null
+            ? jsonResponse({
+                'error': 'invalid_transporter_id',
+                'detail': transporterIdRule,
+                'field': 'transporterId'
+              }, 400)
+            : jsonResponse({'org': carrierOrganization});
+      });
+      await mountSection(tester);
+      await tester.enterText(transporterIdField(), '12345');
+      await tester.tap(find.text('Save transporter ID'));
+      await tester.pumpAndSettle();
+      expect(find.text(transporterIdRule), findsOneWidget);
+      await tester.enterText(transporterIdField(), '');
+      await tester.tap(find.text('Save transporter ID'));
+      await tester.pumpAndSettle();
+      expect(sent, [
+        {'transporterId': '12345'},
+        {'transporterId': null}
+      ]);
+      expect(find.text(transporterIdRule), findsNothing);
+      expect(find.text('No transporter ID is saved now.'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a successful save replaces the message from the save before it',
+        (tester) async {
+      DriverSession.transporterId = null;
+      signInAsCarrierLogin(
+          office: true, alsoAllowed: ['trip.assign', 'transporter_id.write']);
+      api.dio.httpClientAdapter = MockApiAdapter((request) {
+        final body = request.data;
+        return jsonResponse({
+          'org': {
+            ...carrierOrganization,
+            if (body is Map && body['transporterId'] != null)
+              'transporterId': '27AAAAA0000A1Z5'
+          }
+        });
+      });
+      await mountSection(tester);
+      await tester.enterText(transporterIdField(), '27AAAAA0000A1Z5');
+      await tester.tap(find.text('Save transporter ID'));
+      await tester.pumpAndSettle();
+      expect(find.text('Transporter ID saved.'), findsOneWidget);
+      await tester.enterText(transporterIdField(), '');
+      await tester.tap(find.text('Save transporter ID'));
+      await tester.pumpAndSettle();
+      expect(find.text('Transporter ID saved.'), findsNothing,
+          reason:
+              'a successful save must clear it too, not only a refused one');
+      expect(find.text('No transporter ID is saved now.'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a refused save clears the earlier "Transporter ID saved." message',
+        (tester) async {
+      DriverSession.transporterId = null;
+      signInAsCarrierLogin(
+          office: true, alsoAllowed: ['trip.assign', 'transporter_id.write']);
+      api.dio.httpClientAdapter = MockApiAdapter((request) {
+        final body = request.data;
+        return body is Map && body['transporterId'] == '12345'
+            ? jsonResponse({
+                'error': 'invalid_transporter_id',
+                'detail': transporterIdRule,
+                'field': 'transporterId'
+              }, 400)
+            : jsonResponse({
+                'org': {
+                  ...carrierOrganization,
+                  'transporterId': '27AAAAA0000A1Z5'
+                }
+              });
+      });
+      await mountSection(tester);
+      await tester.enterText(transporterIdField(), '27AAAAA0000A1Z5');
+      await tester.tap(find.text('Save transporter ID'));
+      await tester.pumpAndSettle();
+      expect(find.text('Transporter ID saved.'), findsOneWidget);
+      await tester.enterText(transporterIdField(), '12345');
+      await tester.tap(find.text('Save transporter ID'));
+      await tester.pumpAndSettle();
+      expect(find.text('Transporter ID saved.'), findsNothing,
+          reason:
+              'a refused save must clear it too, not only a successful one');
+      expect(find.text(transporterIdRule), findsOneWidget);
+    });
+
+    testWidgets(
+        'a refused save during a refresh started elsewhere on Profile keeps the field and the typed ID',
+        (tester) async {
+      signInAsCarrierLogin(
+          office: true, alsoAllowed: ['trip.assign', 'transporter_id.write']);
+      api.dio.httpClientAdapter = MockApiAdapter(
+          (request) => jsonResponse({'error': 'unavailable'}, 500));
+      await mountSection(tester);
+      // What Save vehicle's refresh does first, before /v1/pilot/me answers.
+      DriverSession.clearCarrierCache();
+      await tester.enterText(transporterIdField(), '27aaaaa0000a1z5');
+      await tester.tap(find.text('Save transporter ID'));
+      await tester.pumpAndSettle();
+      expect(transporterIdField(), findsOneWidget,
+          reason: 'the section read its state when it opened');
+      expect(
+          tester.widget<TextField>(transporterIdField()).controller!.text,
+          '27aaaaa0000a1z5');
+      expect(find.textContaining('Could not load'), findsNothing);
+    });
+
+    testWidgets(
+        'a refresh started elsewhere on Profile does not swap the field out mid-edit',
+        (tester) async {
+      signInAsCarrierLogin(
+          office: true, alsoAllowed: ['trip.assign', 'transporter_id.write']);
+      api.dio.httpClientAdapter = MockApiAdapter((request) => jsonResponse({
+            'org': {...carrierOrganization, 'transporterId': '27AAAAA0000A1Z5'}
+          }));
+      await mountSection(tester);
+      // What Save vehicle's refresh does first, before /v1/pilot/me answers.
+      DriverSession.clearCarrierCache();
+      await tester.enterText(transporterIdField(), '27aaaaa0000a1z5');
+      await tester.tap(find.text('Save transporter ID'));
+      await tester.pumpAndSettle();
+      expect(transporterIdField(), findsOneWidget);
+      expect(find.textContaining('Could not load'), findsNothing);
+      expect(find.text('Transporter ID saved.'), findsOneWidget);
+      expect(DriverSession.transporterIdLoaded, isTrue,
+          reason: 'the save told the app what is saved');
     });
 
     testWidgets("a wrong one shows the server's sentence, never HTTP 400",
@@ -240,6 +381,24 @@ void main() {
       await signUp(tester, transporterId: '12345', status: 400);
       expect(find.text(transporterIdRule), findsOneWidget);
       expect(find.text('Code screen'), findsNothing);
+    });
+
+    testWidgets(
+        'after a refusal, a successful try leaves no refusal on the code screen',
+        (tester) async {
+      await signUp(tester, transporterId: '12345', status: 400);
+      expect(find.text(transporterIdRule), findsOneWidget);
+      api.dio.httpClientAdapter = MockApiAdapter((request) => jsonResponse({
+            'org': {'id': 'carrier-c'}
+          }, 201));
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Transporter ID (optional)'),
+          '27AAAAA0000A1Z5');
+      await tester.tap(find.text('Create carrier & continue'));
+      await tester.pumpAndSettle();
+      expect(find.text('Code screen'), findsOneWidget);
+      expect(find.text(transporterIdRule), findsNothing,
+          reason: 'the 10-second refusal is hidden when the next try starts');
     });
   });
 }

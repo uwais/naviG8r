@@ -25,8 +25,8 @@ export function serializeResponse(value: unknown): unknown {
     out = pick(v, ["id", "shipmentId", "status", "provider", "createdAtUtcMs", "updatedAtUtcMs", ...(p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r)) ? ["amountPaise", "razorpayOrderId"] : [])]);
   } else if ("kind" in v && "kycStatus" in v) {
     out = pick(v, ["id", "kind", "displayName", "kycStatus", "createdAtUtcMs", "inactiveAtUtcMs", "rejectionReasonCode", "approvalTakenBack",
-      // The carrier office reads its own transporter ID; its drivers have no use for it.
-      ...(p !== undefined && p.roles.includes("CARRIER") && p.subrole !== "DRIVER" && v.id === p.organizationId ? ["transporterId"] : [])]);
+      // The carrier office (whoever may assign trips) reads its own transporter ID; its drivers have no use for it.
+      ...(p !== undefined && p.roles.includes("CARRIER") && p.permissions.includes("trip.assign") && v.id === p.organizationId ? ["transporterId"] : [])]);
   } else if ("originCity" in v && "reservedKg" in v) {
     out = pick(v, ["id", "carrierId", "carrierDisplayName", "originCity", "destCity", "origin", "destination", "windowStart", "windowEnd", "vehicleClass", "capacityKg", "reservedKg", "status", "createdAtUtcMs", "startedAtUtcMs", "completedAtUtcMs",
       // Who drives is the carrier's own business, and ops'. Shippers and public trip lists never get it.

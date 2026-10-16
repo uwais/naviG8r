@@ -73,26 +73,32 @@ one that does not. 29TRNSP1234A1Z7 is the transporter ID the practice portal's T
    truck carries this trip?" listing KA01AB1234 and KA02XY9999, neither chosen, with Accept with this truck greyed
    out. Tap Cancel. Right: the sheet closes and the booking still shows Accept. Wrong: "Booking accepted."
 7. **Owner accepts with a truck.** Tap Accept again, choose KA02XY9999, tap Accept with this truck. Right: "Booking
-   accepted."; in Loads the trip's card says "Truck: KA02XY9999. Driver: not assigned." Wrong: no truck on the trip.
+   accepted."; open the trip from Loads, and its Truck and driver card says "Truck: KA02XY9999. Driver: not
+   assigned." Wrong: no truck on the trip.
 8. **Shipper sees the box.** Shipper app, open the shipment (pull down to refresh). Right: under "No e-way bill added
    yet." a box "For the e-way bill" with "Truck: KA02XY9999" and "Transporter ID: 29TRNSP1234A1Z7", each with Copy,
-   and "On the portal, enter this transporter ID so your carrier can change the truck later. Validity starts when
-   the truck is entered, so enter it on loading day." Tap Copy beside the transporter ID and paste into any text field.
-   Right: exactly 29TRNSP1234A1Z7, and "Copied transporter ID". Wrong: no box, or the label pasted with the value.
+   and "On the portal, enter this transporter ID so your carrier can change the truck later. Validity starts when the
+   first truck is entered, so enter the truck on loading day, before the goods move. If the goods are already on the
+   way, enter the truck now." Tap Copy beside the transporter ID and paste into any text field. Right: exactly 29TRNSP1234A1Z7, and "Copied transporter ID". Wrong:
+   no box, or the label pasted with the value.
 9. **Both parts in one portal visit.** Tap Open the practice e-way bill portal, choose Supplier, then Generate a new
-   e-way bill. Fill Part A as in the guide's Step 1, paste KA02XY9999 into B.1 Vehicle Number and 29TRNSP1234A1Z7 into
-   Transporter ID, and generate. Back in the app tap Add e-way bill, enter the four details, Save e-way bill. Right:
+   e-way bill. Fill Part A as in the guide's Step 1, type 350 into "Approximate distance (km)", paste KA02XY9999 into
+   "B.1 Vehicle Number for Road (optional if a transporter is named)" and 29TRNSP1234A1Z7 into "Transporter ID
+   (optional)", and generate. Back in the app tap Add e-way bill, enter the four details, Save e-way bill. Right:
    the box is still there. Tap Add truck. Right: Truck number already reads KA02XY9999, with "Filled in from the truck
    on this trip. Change it if the e-way bill shows a different truck." Choose the valid-until the portal showed and
    tap Save truck. Right: the box goes, the bill shows Truck: KA02XY9999, and no sentence says the trucks differ.
 10. **The next booking is one tap.** As the shipper, book the same lane again; as the owner, tap Accept on it. Right:
     no sheet, "Booking accepted." at once, because the trip now names its truck. (A driver login never gets the sheet;
     the seeded drivers only see trips that already name a truck, so the widget tests cover that case. They also cover
-    a carrier with no trucks, which the seed does not have: its sheet says so and offers Accept without a truck.)
-11. **No transporter ID.** As the owner, clear the field on Profile and tap Save transporter ID ("Transporter ID
-    removed."). As the shipper, open the booking from step 10. Right: the box shows the truck only, and "Your carrier
-    has not added its transporter ID yet. Without one on the bill, only you can change the truck later. Validity
-    starts when the truck is entered, so enter it on loading day." Wrong: an empty Transporter ID line.
+    a carrier with no trucks, whose sheet says so and offers Accept without a truck: the seed's Carrier B has no
+    trucks but is not approved, so it cannot accept.)
+11. **No transporter ID.** As the owner, clear the field on Profile and tap Save transporter ID ("No transporter ID
+    is saved now."). As the shipper, open the booking from step 10. Right: the box shows the truck only, and "Your
+    carrier has not added a transporter ID yet; ask them for one. Without a transporter ID on the bill, only whoever
+    made the bill can change the truck. Validity starts when the first truck is entered, so enter the truck on loading
+    day, before the goods move. If the goods are already on the way, enter the truck now." Wrong: an empty Transporter
+    ID line.
 12. **Sign-up and the portal's truck form.** Sign out of the carrier app, tap Register as new carrier, fill it in with
     a new 10-digit phone, vehicle registration `up 1 345` and Transporter ID (optional) `12345`, tap Create carrier &
     continue. Right: the sentence from step 2 and no code screen. Change the ID to `27AAAAA0000A1Z5`, tap again,
@@ -109,5 +115,4 @@ one that does not. 29TRNSP1234A1Z7 is the transporter ID the practice portal's T
     KA02XY9999 on the card.
 15. **The box goes once the driver confirms delivery.** As 8000000003, open the trip from step 4 in Loads and, for
     each booking on it, tap Confirm delivery, then Confirm POD. As the shipper, open the booking from step 10 and pull
-    down to refresh. Right: no "For the e-way bill" box. Wrong: the box, or "enter it on loading day" anywhere on the
-    card.
+    down to refresh. Right: no "For the e-way bill" box. Wrong: the box, or "on loading day" anywhere on the card.

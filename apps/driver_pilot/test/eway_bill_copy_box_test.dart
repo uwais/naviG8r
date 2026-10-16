@@ -9,9 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/eway_bill_fixtures.dart';
 
 const withTransporterIdLine =
-    'On the portal, enter this transporter ID so your carrier can change the truck later. Validity starts when the truck is entered, so enter it on loading day.';
+    'On the portal, enter this transporter ID so your carrier can change the truck later. Validity starts when the first truck is entered, so enter the truck on loading day, before the goods move. If the goods are already on the way, enter the truck now.';
 const withoutTransporterIdLine =
-    'Your carrier has not added its transporter ID yet. Without one on the bill, only you can change the truck later. Validity starts when the truck is entered, so enter it on loading day.';
+    'Your carrier has not added a transporter ID yet; ask them for one. Without a transporter ID on the bill, only whoever made the bill can change the truck. Validity starts when the first truck is entered, so enter the truck on loading day, before the goods move. If the goods are already on the way, enter the truck now.';
 
 /// An accepted shipment whose trip names a truck, written as a carrier might have typed it.
 Map<String, dynamic> acceptedShipment(

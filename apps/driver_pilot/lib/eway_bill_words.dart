@@ -75,22 +75,24 @@ List<String> ewayBillTruckLines(Map<String, dynamic> bill, {DateTime? now}) {
 
 /// A truck number as the e-way bill portal takes it, the same rule as portalTruckNumber in the API: letters and
 /// digits only, upper case, and in the state, district, series, number shape the district padded to two digits
-/// and the number to four, so UP 1 345 is UP010345 (CBIC e-way bill FAQ, 2019). With no series letters, a space
-/// or other mark typed between the district and the number is where the district ends, so UP 32 345 is UP320345;
-/// with none typed, the district takes as few digits as it can, which is how UP1345 reads as UP 1 345. Any other
-/// shape (temporary, Bharat series, defence, foreign) is only cleaned.
+/// and the number to four, so UP 1 345 is UP010345 (CBIC e-way bill FAQ, 2019). No district is 0: one starting
+/// with 0 has two digits. With no series letters, a space or other mark typed between the district and the number
+/// is where the district ends, so UP 32 345 is UP320345; with none typed, a district from 1 to 9 takes one digit,
+/// which is how UP1345 reads as UP 1 345 and KA01123 as KA 01 123. Any other shape (temporary, Bharat series,
+/// defence, foreign) is only cleaned.
 String portalTruckNumber(String truck) {
   final typedApart = RegExp(
-          r'^[^A-Za-z0-9]*([A-Za-z]{2})[^A-Za-z0-9]*([0-9]{1,2})[^A-Za-z0-9]+([0-9]{1,4})[^A-Za-z0-9]*$')
+          r'^[^A-Za-z0-9]*([A-Za-z]{2})[^A-Za-z0-9]*(0[1-9]|[1-9][0-9]?)[^A-Za-z0-9]+([0-9]{1,4})[^A-Za-z0-9]*$')
       .firstMatch(truck);
   if (typedApart != null) {
     return '${typedApart[1]!.toUpperCase()}${typedApart[2]!.padLeft(2, '0')}${typedApart[3]!.padLeft(4, '0')}';
   }
   final cleaned = truck.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
-  final parts = RegExp(r'^([A-Z]{2})([0-9]{1,2}?)([A-Z]{0,3})([0-9]{1,4})$')
-      .firstMatch(cleaned);
-  if (parts == null) return cleaned;
-  return '${parts[1]}${parts[2]!.padLeft(2, '0')}${parts[3]}${parts[4]!.padLeft(4, '0')}';
+  final standardForm =
+      RegExp(r'^([A-Z]{2})(0[1-9]|[1-9][0-9]??)([A-Z]{0,3})([0-9]{1,4})$')
+          .firstMatch(cleaned);
+  if (standardForm == null) return cleaned;
+  return '${standardForm[1]}${standardForm[2]!.padLeft(2, '0')}${standardForm[3]}${standardForm[4]!.padLeft(4, '0')}';
 }
 
 /// Who reads the sentence about an e-way bill and a trip that name different trucks. Each is told only what they

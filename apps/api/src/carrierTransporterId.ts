@@ -1,7 +1,8 @@
 /**
  * The carrier's transporter ID after sign-up: its owner changes or clears it, and shippers read it on their
  * shipments so they can name the carrier on the e-way bill (owner decision, 16 Oct 2026). The format check is in
- * transporterIdValidation.ts; who reads it is in the serializer, rbacResponses.ts.
+ * transporterIdValidation.ts; who reads it is in the serializer, rbacResponses.ts, except for ERP replies, which skip
+ * the serializer and are stripped here.
  */
 import { AuthorizationError, recordAudit, requirePermission } from "./rbac.ts";
 import { ApiError } from "./services.ts";

@@ -19,8 +19,12 @@ class TransporterIdSection extends StatefulWidget {
 }
 
 class _TransporterIdSectionState extends State<TransporterIdSection> {
+  // Read once, when Profile opens the section: a refresh started elsewhere on Profile (Save vehicle) empties the
+  // session's copy while it runs, and must not swap the field out mid-edit.
+  final _loadedWhenOpened = DriverSession.transporterIdLoaded;
+  String? _savedTransporterId = DriverSession.transporterId;
   late final _transporterId =
-      TextEditingController(text: DriverSession.transporterId ?? '');
+      TextEditingController(text: _savedTransporterId ?? '');
   bool _saving = false;
   String? _error;
 
@@ -34,6 +38,8 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
     if (_saving) return;
     final typed = _transporterId.text.trim();
     final scope = AuthorizationSession.scopeKey;
+    // A message on screen is out of date once a new save starts, whatever its answer turns out to be.
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
     setState(() {
       _saving = true;
       _error = null;
@@ -46,13 +52,15 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
       if (!mounted || scope != AuthorizationSession.scopeKey) return;
       final org = response.data?['org'];
       final saved = org is Map ? org['transporterId'] : null;
-      DriverSession.transporterId =
-          saved is String && saved.isNotEmpty ? saved : null;
-      _transporterId.text = DriverSession.transporterId ?? '';
+      _savedTransporterId = saved is String && saved.isNotEmpty ? saved : null;
+      DriverSession.transporterId = _savedTransporterId;
+      DriverSession.transporterIdLoaded = true;
+      _transporterId.text = _savedTransporterId ?? '';
+      // The reply does not say whether one was there before, so an empty save states what is true now.
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-          content: Text(DriverSession.transporterId == null
-              ? 'Transporter ID removed.'
-              : 'Transporter ID saved.')));
+          content: Text(_savedTransporterId != null
+              ? 'Transporter ID saved.'
+              : 'No transporter ID is saved now.')));
     } catch (e) {
       if (mounted) setState(() => _error = formatApiError(e));
     } finally {
@@ -64,7 +72,7 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
   Widget build(BuildContext context) {
     // Holding trip.assign is what makes a login the carrier office: owner, owner-driver or dispatcher.
     if (!AuthorizationSession.can('trip.assign')) return const SizedBox.shrink();
-    final saved = DriverSession.transporterId;
+    final saved = _savedTransporterId;
     return Padding(
         padding: const EdgeInsets.only(top: 24),
         child: Column(
@@ -77,7 +85,7 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
                   style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 12),
               // No field until the saved ID has loaded: an empty one would let Save clear it.
-              if (!DriverSession.transporterIdLoaded)
+              if (!_loadedWhenOpened)
                 const Text(
                     'Could not load the transporter ID. Leave Profile and open it again to retry.')
               else if (AuthorizationSession.can('transporter_id.write')) ...[

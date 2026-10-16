@@ -184,6 +184,19 @@ test("a truck outside the carrier's active fleet is refused and nothing is accep
   assert.equal(f.store.shipments.get(id)?.status, "PENDING_CARRIER_ACCEPT", "nothing was accepted");
   assert.equal(f.store.anchorTrips.get(f.trip.id)?.assignedVehicleId, undefined, "and no truck was named");
 
+  // The carrier's approval and the shipper's payment are checked before the truck, so neither refusal names one.
+  const carrierOrg = f.store.organizations.get(f.carrierA.org.id)!;
+  f.store.organizations.set(carrierOrg.id, { ...carrierOrg, kycStatus: "SUBMITTED" });
+  const notApproved = await accept(f, id, { vehicleId: staff.driverTruckId }, f.tokens.carrierA);
+  assert.deepEqual([notApproved.status, notApproved.body.error], [409, "carrier_compliance_required"]);
+  f.store.organizations.set(carrierOrg.id, carrierOrg);
+  const payment = f.store.payments.get(f.store.shipments.get(id)!.paymentId)!;
+  f.store.payments.set(payment.id, { ...payment, status: "CREATED" });
+  const unpaid = await accept(f, id, { vehicleId: staff.driverTruckId }, f.tokens.carrierA);
+  assert.deepEqual([unpaid.status, unpaid.body.error], [400, "checkout_not_completed_for_accept"]);
+  f.store.payments.set(payment.id, payment);
+  assert.equal(f.store.anchorTrips.get(f.trip.id)?.assignedVehicleId, undefined, "a refusal before the truck check names no truck");
+
   const asBefore = await accept(f, id, undefined, f.tokens.carrierA);
   assert.deepEqual([asBefore.status, asBefore.body.shipment.status], [200, "BOOKED"], "an older app build sends no body");
   assert.equal(f.store.anchorTrips.get(f.trip.id)?.assignedVehicleId, undefined, "and names no truck");
@@ -224,6 +237,9 @@ test("truck numbers in the portal's form: the district padded to two digits and 
     ["DL3CAB1234", "DL03CAB1234"],
     ["KA011234", "KA011234"],
     ["UP010345", "UP010345"],
+    ["KA01123", "KA010123"],
+    ["KA 01 123", "KA010123"],
+    ["UP01345", "UP010345"],
     ["22 BH 1234 AA", "22BH1234AA"],
     ["KA01AB12345", "KA01AB12345"],
     ["TEST-A", "TESTA"],

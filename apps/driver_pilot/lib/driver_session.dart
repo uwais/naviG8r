@@ -38,8 +38,8 @@ abstract final class DriverSession {
   /// The carrier's GSTIN or TRANSIN; the server sends it to the carrier office only, never to a driver.
   static String? transporterId;
 
-  /// False until /v1/pilot/me has answered for this carrier, so a failed load is not taken for "none saved",
-  /// which an owner's Save would then send as a clear.
+  /// False until the server has said what is saved (/v1/pilot/me for this carrier, or a save), so a failed load
+  /// is not taken for "none saved", which an owner's Save would then send as a clear.
   static bool transporterIdLoaded = false;
   static bool get hasCarrierOrg => AuthorizationSession.hasRole("CARRIER");
   static bool get canInviteDrivers =>
