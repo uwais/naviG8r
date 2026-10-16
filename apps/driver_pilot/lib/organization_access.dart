@@ -153,7 +153,12 @@ String? mobileAccessRedirect(String path) {
 
 /// Placed inside each route's app bar so screen readers can reach the selector.
 class OrganizationToolbar extends StatelessWidget {
-  const OrganizationToolbar({super.key});
+  const OrganizationToolbar({this.showSignOut = true, super.key});
+
+  /// False hides this bar's 'Sign out of all organizations' icon; use it only where the app bar above already has a
+  /// Sign out icon, so the top right shows one.
+  final bool showSignOut;
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: AuthorizationSession.revision,
@@ -190,10 +195,11 @@ class OrganizationToolbar extends StatelessWidget {
                         tooltip: 'Refresh access',
                         onPressed: AuthorizationSession.refresh,
                         icon: Icon(Icons.refresh)),
-                    const IconButton(
-                        tooltip: 'Sign out of all organizations',
-                        onPressed: AuthorizationSession.signOut,
-                        icon: Icon(Icons.logout)),
+                    if (showSignOut)
+                      const IconButton(
+                          tooltip: 'Sign out of all organizations',
+                          onPressed: AuthorizationSession.signOut,
+                          icon: Icon(Icons.logout)),
                   ]),
                 ),
               ),
