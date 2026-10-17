@@ -1,6 +1,7 @@
 import "organization_access.dart";
 import "dart:async";
 
+import "package:dio/dio.dart" show DioException;
 import "package:flutter/foundation.dart" show kIsWeb;
 import "package:flutter/material.dart";
 import "package:go_router/go_router.dart";
@@ -1916,6 +1917,14 @@ class _CustomerBookShipmentScreenState
       if (mounted)
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+      // The room shown is from when the screen opened; after a room refusal, show what is left now.
+      final code = e is DioException ? e.response?.data : null;
+      if (mounted &&
+          code is Map &&
+          const ["insufficient_capacity", "anchor_trip_not_open"]
+              .contains(code["error"])) {
+        unawaited(_loadAnchorTrip());
+      }
     } finally {
       if (mounted) setState(() => _booking = false);
     }
@@ -1974,7 +1983,7 @@ class _CustomerBookShipmentScreenState
                     if (_anchorTrip!["capacityKg"] is num &&
                         _anchorTrip!["reservedKg"] is num)
                       Text(
-                          "Room left: ${(_anchorTrip!["capacityKg"] as num) - (_anchorTrip!["reservedKg"] as num)} kg",
+                          "Room left: ${((_anchorTrip!["capacityKg"] as num) - (_anchorTrip!["reservedKg"] as num)).clamp(0, double.infinity).round()} kg",
                           style: const TextStyle(fontSize: 12)),
                   ],
                 ),
