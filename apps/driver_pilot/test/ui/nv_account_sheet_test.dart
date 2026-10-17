@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/ui/nv_account_sheet.dart';
+import 'package:driver_pilot/ui/nv_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -95,6 +96,9 @@ void main() {
     expect(find.text('Sign out'), findsOneWidget,
         reason: 'the menu is the only place to sign out');
     expect(find.text('Close'), findsOneWidget, reason: 'copy.md: Close');
+    expect(tester.widget<NvButton>(find.widgetWithText(NvButton, 'Close')).kind,
+        NvButtonKind.secondary,
+        reason: 'Close is the shared secondary button, not the primary look');
     semantics.dispose();
   });
 

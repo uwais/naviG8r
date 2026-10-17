@@ -1,6 +1,7 @@
 // The list card's states from spec/components.md: default, needs you, unavailable (Full),
 // loading, empty and error, and the rule that the whole card is its only tap target.
 import 'package:driver_pilot/driver_theme.dart';
+import 'package:driver_pilot/ui/nv_button.dart';
 import 'package:driver_pilot/ui/nv_list_card.dart';
 import 'package:driver_pilot/ui/tokens.dart';
 import 'package:flutter/material.dart';
@@ -202,6 +203,8 @@ void main() {
         reason: 'copy.md: the error says what failed');
     expect(find.text('Check your connection, then try again.'), findsOneWidget,
         reason: 'copy.md: the error says what to do');
+    expect(find.widgetWithText(NvButton, 'Try again'), findsOneWidget,
+        reason: 'Try again is the shared secondary button, like every other');
     await tester.tap(find.text('Try again'));
     expect(retried, isTrue, reason: 'Try again reloads the list');
   });

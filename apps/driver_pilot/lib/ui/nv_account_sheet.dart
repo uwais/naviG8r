@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 
+import "nv_button.dart";
 import "nv_sheet.dart";
 import "tokens.dart";
 
@@ -174,11 +175,11 @@ class _NvAccountSheetState extends State<NvAccountSheet> {
             ]),
           ),
           const SizedBox(height: NvSpace.s4),
-          OutlinedButton(
-            style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(NvSpace.targetMin)),
+          NvButton(
+            label: "Close",
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Close"),
+            kind: NvButtonKind.secondary,
+            fullWidth: true,
           ),
         ],
       ),

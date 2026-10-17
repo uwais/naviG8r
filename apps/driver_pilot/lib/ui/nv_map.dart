@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 
+import "nv_button.dart";
 import "tokens.dart";
 
 enum NvMapState { ready, loading, locationOff, failed }
@@ -84,9 +85,10 @@ class NvMap extends StatelessWidget {
                 style: NvText.caption.copyWith(color: NvColors.ink)),
             if (onTurnOnLocation != null) ...[
               const SizedBox(height: NvSpace.s3),
-              OutlinedButton(
+              NvButton(
+                  label: "Turn on location",
                   onPressed: onTurnOnLocation,
-                  child: const Text("Turn on location")),
+                  kind: NvButtonKind.secondary),
             ],
           ]),
         NvMapState.failed => _MapPanel(children: [

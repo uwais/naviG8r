@@ -1,6 +1,7 @@
 // The map's states from spec/components.md: default, loading, location off and failed. A
 // plain box stands in for the Google map, which cannot draw under flutter test.
 import 'package:driver_pilot/driver_theme.dart';
+import 'package:driver_pilot/ui/nv_button.dart';
 import 'package:driver_pilot/ui/nv_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -76,6 +77,8 @@ void main() {
             'Type the pickup place above, or turn on location to use where you are.'),
         findsOneWidget,
         reason: 'the map is never the only way to set a place');
+    expect(find.widgetWithText(NvButton, 'Turn on location'), findsOneWidget,
+        reason: 'Turn on location is the shared secondary button');
     await tester.tap(find.text('Turn on location'));
     expect(asked, isTrue, reason: 'the button calls the screen');
 

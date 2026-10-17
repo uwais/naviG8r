@@ -1,6 +1,7 @@
 // The bottom sheet's states from spec/components.md: nothing chosen, chosen, loading, error
 // (stays open, choice kept), success (closes and announces) and empty.
 import 'package:driver_pilot/driver_theme.dart';
+import 'package:driver_pilot/ui/nv_button.dart';
 import 'package:driver_pilot/ui/nv_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -131,6 +132,10 @@ void main() {
         reason: 'the primary waits for a choice');
     expect(find.text('Choose a truck first.'), findsOneWidget,
         reason: 'a disabled action always says why');
+    expect(
+        find.widgetWithText(NvButton, 'Accept with this truck'), findsOneWidget,
+        reason:
+            'the primary is the shared NvButton, so its reason line matches');
     expect(find.text('Cancel'), findsOneWidget, reason: 'a neutral way out');
     expect(tester.getSize(find.bySubtype<FilledButton>()).width, 360 - 2 * 16,
         reason: 'the primary spans the sheet inside the 16 dp gutters');
@@ -168,6 +173,13 @@ void main() {
 
     expect(find.text('Accepting'), findsOneWidget,
         reason: 'loading keeps words on the button');
+    expect(
+        find.descendant(
+            of: find.byType(NvButton),
+            matching: find.byType(CircularProgressIndicator)),
+        findsOneWidget,
+        reason:
+            'spec/components.md: loading adds a progress ring to the label');
     expect(buttonWithText(tester, 'Cancel').onPressed, isNull,
         reason: 'Cancel waits while the action runs');
     expect(

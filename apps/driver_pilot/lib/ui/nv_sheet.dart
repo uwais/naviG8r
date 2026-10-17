@@ -1,6 +1,7 @@
 import "package:flutter/material.dart";
 import "package:flutter/semantics.dart";
 
+import "nv_button.dart";
 import "tokens.dart";
 
 /// Opens [builder]'s sheet over the screen. Focus moves into the sheet and returns to
@@ -71,7 +72,6 @@ class NvSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     const fullWidth = Size.fromHeight(NvSpace.targetMin);
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(
@@ -116,29 +116,17 @@ class NvSheet extends StatelessWidget {
             AbsorbPointer(absorbing: loading, child: choice),
           ],
           const SizedBox(height: NvSpace.s4),
-          FilledButton(
-            style: FilledButton.styleFrom(minimumSize: fullWidth),
-            onPressed: loading ? null : onPrimary,
-            child: loading
-                ? Row(mainAxisSize: MainAxisSize.min, children: [
-                    if (!reduceMotion) ...[
-                      const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: NvColors.slate)),
-                      const SizedBox(width: NvSpace.s2),
-                    ],
-                    Flexible(child: Text(loadingLabel ?? primaryLabel)),
-                  ])
-                : Text(primaryLabel, textAlign: TextAlign.center),
+          NvButton(
+            label: primaryLabel,
+            onPressed: onPrimary,
+            disabledReason: disabledReason,
+            loading: loading,
+            loadingLabel: loadingLabel,
+            fullWidth: true,
           ),
-          if (onPrimary == null && !loading && disabledReason != null) ...[
-            const SizedBox(height: NvSpace.s2),
-            Text(disabledReason!,
-                textAlign: TextAlign.center, style: NvText.caption),
-          ],
           const SizedBox(height: NvSpace.s3),
+          // Not an NvButton: Cancel is held while the action runs, and NvButton requires a
+          // reason line for every disabled state, which copy.md does not give for this one.
           OutlinedButton(
             style: OutlinedButton.styleFrom(minimumSize: fullWidth),
             onPressed: loading

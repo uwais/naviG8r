@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 
+import "nv_button.dart";
 import "tokens.dart";
 
 /// A short label over its value on a list card, for example "Room left" over "105 kg".
@@ -219,7 +220,10 @@ class NvListError extends StatelessWidget {
               Text(help!, style: NvText.caption.copyWith(color: NvColors.ink)),
             ],
             const SizedBox(height: NvSpace.s3),
-            OutlinedButton(onPressed: onRetry, child: const Text("Try again")),
+            NvButton(
+                label: "Try again",
+                onPressed: onRetry,
+                kind: NvButtonKind.secondary),
           ],
         ),
       );
