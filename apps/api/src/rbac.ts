@@ -9,7 +9,7 @@ export const ROLES = ["SHIPPER", "CARRIER", "OPS", "FINANCE", "ADMIN"] as const;
 export type Role = typeof ROLES[number];
 export const ROLE_PERMISSIONS = {
   SHIPPER: ["organization.profile.read", "organization.member.invite", "load.create", "load.read", "pod.accept", "payment.read", "payment.checkout", "kyc.status_read", "audit.read", "integration.manage", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request", "eway_bill.write", "eway_bill.add_truck"],
-  CARRIER: ["organization.profile.read", "organization.member.invite", "load.read", "trip.publish", "load.status_update", "carrier.offer_accept", "pod.upload", "payment.read", "bank_account.create_token", "kyc.status_read", "audit.read", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request", "eway_bill.add_truck", "trip.assign"],
+  CARRIER: ["organization.profile.read", "organization.member.invite", "load.read", "trip.publish", "load.status_update", "carrier.offer_accept", "pod.upload", "payment.read", "bank_account.create_token", "kyc.status_read", "audit.read", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request", "eway_bill.add_truck", "trip.assign", "transporter_id.write"],
   OPS: ["directory.read", "fleet.read", "carrier.onboard", "organization.profile.read", "load.create", "load.read", "trip.publish", "load.status_update", "pod.upload", "payment.read", "kyc.status_read", "kyc.verify", "audit.read", "conversation.support_read", "conversation.support_send", "eway_bill.check"],
   FINANCE: ["directory.read", "organization.profile.read", "load.read", "payment.read", "payment.capture", "payment.refund", "settlement.release", "kyc.status_read", "audit.read"],
   ADMIN: ["directory.read", "fleet.read", "organization.profile.read", "load.read", "payment.read", "user.role_manage", "kyc.status_read", "audit.read", "conversation.escalation_approve"],
@@ -51,6 +51,8 @@ export function effectivePermissions(roles: Role[], subrole: string): string[] {
     // Naming a trip's truck and driver is the carrier office's job; a driver only reads it.
     if (p === "trip.assign") return ["OWNER_DRIVER", "OWNER", "DISPATCHER", "CARRIER"].includes(subrole);
     if (p === "bank_account.create_token") return ["OWNER_DRIVER", "OWNER"].includes(subrole);
+    // The people who set bank details also set the transporter ID shippers put on the e-way bill (16 Oct 2026).
+    if (p === "transporter_id.write") return ["OWNER_DRIVER", "OWNER"].includes(subrole);
     // A driver never sees carrier earnings (owner decision, 15 Oct 2026): no earnings, ledger or payout routes.
     if (p === "payment.read") return subrole !== "DRIVER";
     return true;

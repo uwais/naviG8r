@@ -128,14 +128,17 @@ link out to and come back from. This brings back, from the cut list, the truck n
 | Driver | Read only: the number in large type, truck, valid-until, the ops line, and "Expires in N hours" only under 12 hours. Quotes the number at a check-post. |
 | Ops | Looks the bill up on the portal's search page with the four details, then records found or problem. |
 
+**Changed 16 Oct 2026 (owner decision): Part A and Part B in one shipper visit.** When an office login accepts a booking whose trip names no truck, it chooses the trip's truck first (a carrier with no trucks yet accepts without one); from acceptance until the bill has a truck or the driver confirms delivery, the shipper's card shows "For the e-way bill" with that truck in the portal's form and, once the carrier has added it, the carrier's transporter ID, each with Copy. Entering the transporter ID assigns the bill to the carrier, which can then change the truck or extend the bill itself, so the carrier office needs the portal only for those two (CBIC e-way bill FAQ, 2019). Routes and fields: `docs/pilot-api.md`.
+
 New data on the record: `truckNumber` (6 to 12 letters and digits, spaces and hyphens removed, upper case),
 `validUntilUtcMs`. Both are shown to shipper, ops and carrier logins. Adding or changing them clears the ops check
 (same rule as every other detail). New permission `eway_bill.add_truck`: SHIPPER, and CARRIER for owner, owner-driver
 and dispatcher only (not DRIVER). It is an allow-list of subroles, so a new subrole gets nothing until named. New routes: `POST /shipments/:id/eway-bill/truck` (shipper) and
 `POST /v1/pilot/carrier/shipments/:id/eway-bill/truck` (carrier), body `{ truckNumber, validUntilUtcMs }`, only on a
 `BILL`. Audit `EWAY_BILL_TRUCK_ADDED` (state words only). Since 15 Oct 2026 a trip can name its truck
-(`trip-assignment-scope.md`): when the bill's truck and the trip's differ, ignoring spaces, hyphens and case, both
-cards add one plain sentence under the truck lines, worded for who is reading:
+(`trip-assignment-scope.md`): when the bill's truck and the trip's differ once both are in the portal's form
+(`UP1345` and `UP010345` match; the rule is in `docs/pilot-api.md`), both cards add one plain sentence under the truck
+lines, worded for who is reading:
 
 - Carrier office (owner, owner-driver, dispatcher): "The e-way bill shows KA01AB1234. The truck on this trip is
   KA02XY9999. Check which one is right; if the e-way bill is wrong, update it on the portal, then here." ("practice
@@ -146,8 +149,8 @@ cards add one plain sentence under the truck lines, worded for who is reading:
 - Driver: "The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your carrier."
 
 No sentence shows once the shipment is delivered, accepted or refunded, since the bill can no longer change. The
-carrier's truck form starts with the trip's truck, with "Filled in from the truck on this trip. Change it if the
-e-way bill shows a different truck." under the field. A wrong truck is replaced with Change truck; removing a truck is left out
+carrier's truck form, and since 16 Oct 2026 the shipper's, starts with the trip's truck in the portal's form, with
+"Filled in from the truck on this trip. Change it if the e-way bill shows a different truck." under the field. A wrong truck is replaced with Change truck; removing a truck is left out
 of the demo.
 
 Truck copy: "Valid until: 16 Oct 2026, 23:59 (India time)". The date button reads "Valid until, date in India: choose

@@ -145,6 +145,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       createdAtUtcMs: Number(o.createdAtUtcMs),
       payoutContactId: o.payoutContactId ?? undefined,
       payoutFundAccountId: o.payoutFundAccountId ?? undefined,
+      transporterId: o.transporterId ?? undefined,
       inactiveAtUtcMs: o.inactiveAtUtcMs != null ? Number(o.inactiveAtUtcMs) : null,
       inactiveReason: o.inactiveReason ?? null,
     };
@@ -544,6 +545,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
         createdAtUtcMs: BigInt(o.createdAtUtcMs),
         payoutContactId: o.payoutContactId ?? null,
         payoutFundAccountId: o.payoutFundAccountId ?? null,
+        transporterId: o.transporterId ?? null,
         ...softToDb(o),
       };
       await tx.organization.upsert({

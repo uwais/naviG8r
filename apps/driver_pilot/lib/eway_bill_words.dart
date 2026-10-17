@@ -73,16 +73,35 @@ List<String> ewayBillTruckLines(Map<String, dynamic> bill, {DateTime? now}) {
   return lines;
 }
 
-/// A truck number in the one form the e-way bill and the trip keep it in: no spaces or hyphens, upper case.
-String plainTruckNumber(String truck) =>
-    truck.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
+/// A truck number as the e-way bill portal takes it, the same rule as portalTruckNumber in the API: letters and
+/// digits only, upper case, and in the state, district, series, number shape the district padded to two digits
+/// and the number to four, so UP 1 345 is UP010345 (CBIC e-way bill FAQ, 2019). No district is 0: one starting
+/// with 0 has two digits. With no series letters, a space or other mark typed between the district and the number
+/// is where the district ends, so UP 32 345 is UP320345; with none typed, a district from 1 to 9 takes one digit,
+/// which is how UP1345 reads as UP 1 345 and KA01123 as KA 01 123. Any other shape (temporary, Bharat series,
+/// defence, foreign) is only cleaned.
+String portalTruckNumber(String truck) {
+  final typedApart = RegExp(
+          r'^[^A-Za-z0-9]*([A-Za-z]{2})[^A-Za-z0-9]*(0[1-9]|[1-9][0-9]?)[^A-Za-z0-9]+([0-9]{1,4})[^A-Za-z0-9]*$')
+      .firstMatch(truck);
+  if (typedApart != null) {
+    return '${typedApart[1]!.toUpperCase()}${typedApart[2]!.padLeft(2, '0')}${typedApart[3]!.padLeft(4, '0')}';
+  }
+  final cleaned = truck.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+  final standardForm =
+      RegExp(r'^([A-Z]{2})(0[1-9]|[1-9][0-9]??)([A-Z]{0,3})([0-9]{1,4})$')
+          .firstMatch(cleaned);
+  if (standardForm == null) return cleaned;
+  return '${standardForm[1]}${standardForm[2]!.padLeft(2, '0')}${standardForm[3]}${standardForm[4]!.padLeft(4, '0')}';
+}
 
 /// Who reads the sentence about an e-way bill and a trip that name different trucks. Each is told only what they
 /// can do.
 enum TruckMismatchReader { carrierOffice, shipper, driver }
 
 /// One plain sentence when the truck on the bill is not the truck the carrier assigned to the trip, or null
-/// when they match, either is missing, or the shipment is closed and nothing about the bill can change.
+/// when they match, either is missing, or the shipment is closed and nothing about the bill can change. Both
+/// go through the portal's form first, so UP1345 on the bill matches UP010345 on the trip.
 String? ewayBillTruckMismatchSentence(
     Map<String, dynamic> shipment, Map<String, dynamic> bill,
     {required TruckMismatchReader reader}) {
@@ -90,10 +109,10 @@ String? ewayBillTruckMismatchSentence(
   final onBill = bill['truckNumber'];
   final onTrip = shipment['assignedTruckNumber'];
   if (onBill is! String || onTrip is! String) return null;
-  if (plainTruckNumber(onBill).isEmpty || plainTruckNumber(onTrip).isEmpty) {
+  if (portalTruckNumber(onBill).isEmpty || portalTruckNumber(onTrip).isEmpty) {
     return null;
   }
-  if (plainTruckNumber(onBill) == plainTruckNumber(onTrip)) return null;
+  if (portalTruckNumber(onBill) == portalTruckNumber(onTrip)) return null;
   return switch (reader) {
     TruckMismatchReader.carrierOffice =>
       'The e-way bill shows $onBill. The truck on this trip is $onTrip. Check which one is right; if the e-way bill is wrong, update it on the $ewayBillPortalName, then here.',

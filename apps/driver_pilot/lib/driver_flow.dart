@@ -8,6 +8,7 @@ import "package:geolocator/geolocator.dart";
 import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
+import "accept_booking.dart";
 import "authorization_session.dart";
 import "carrier_approval_banner.dart";
 import "eway_bill_carrier_card.dart";
@@ -20,6 +21,7 @@ import "location_editor.dart";
 import "maps_config.dart";
 import "pilot_api.dart";
 import "notification_center.dart";
+import "transporter_id_section.dart";
 import "trip_assignment_card.dart";
 import "unassigned_driver_notice.dart";
 
@@ -529,6 +531,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   final _reg = TextEditingController();
   final _vehClass = TextEditingController(text: "MEDIUM");
   final _cap = TextEditingController(text: "1000");
+  final _transporterId = TextEditingController();
   bool _busy = false;
 
   @override
@@ -539,10 +542,13 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
     _reg.dispose();
     _vehClass.dispose();
     _cap.dispose();
+    _transporterId.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
+    // A refusal from the last try is out of date once a new one starts, and would follow onto the code screen.
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() => _busy = true);
     try {
       final phone = digitsOnly(_phone.text.trim());
@@ -567,6 +573,8 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
           "vehicleRegistrationNumber": _reg.text.trim(),
           "vehicleClass": vc,
           "vehicleCapacityKg": cap,
+          if (_transporterId.text.trim().isNotEmpty)
+            "transporterId": _transporterId.text.trim(),
         },
       );
       final orgId = orgIdFromRegisterResponse(r.data);
@@ -578,9 +586,12 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       );
       context.go("/driver/onboarding/otp?phone=$phone");
     } catch (e) {
+      // Ten seconds because the server's sentence (what a transporter ID looks like, say) is too long to read in four.
       if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(label: "Close", onPressed: () {}),
+            content: Text(formatApiError(e))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -623,6 +634,14 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
               keyboardType: TextInputType.number,
               decoration:
                   const InputDecoration(labelText: "Vehicle capacity (kg)")),
+          TextField(
+              controller: _transporterId,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                  labelText: "Transporter ID (optional)",
+                  helperText: transporterIdHelperText,
+                  // Room for large text: the second sentence says shippers use the ID.
+                  helperMaxLines: 10)),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _busy ? null : _submit,
@@ -935,10 +954,9 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
     }
   }
 
-  Future<void> _acceptShipment(String shipmentId) async {
+  Future<void> _acceptShipment(Map<String, dynamic> shipment) async {
     try {
-      await api.post<Map<String, dynamic>>(
-          "/v1/pilot/carrier/shipments/$shipmentId/accept");
+      if (!await acceptBooking(context, shipment)) return;
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text("Booking accepted.")));
@@ -988,7 +1006,7 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
                     ? FilledButton(
                         onPressed: DriverSession.complianceApproved &&
                                 AuthorizationSession.can("carrier.offer_accept")
-                            ? () => _acceptShipment(id)
+                            ? () => _acceptShipment(s)
                             : null,
                         child: const Text("Accept"),
                       )
@@ -1034,10 +1052,14 @@ class _DriverShipmentDetailScreenState
   }
 
   Future<void> _accept() async {
-    setState(() => _accepting = true);
+    final shipment = _shipment;
+    if (shipment == null) return;
     try {
-      await api.post<Map<String, dynamic>>(
-          "/v1/pilot/carrier/shipments/${widget.shipmentId}/accept");
+      // Busy only once the request goes out, not while the office is choosing a truck.
+      final sent = await acceptBooking(context, shipment, onSending: () {
+        if (mounted) setState(() => _accepting = true);
+      });
+      if (!sent) return;
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -1756,6 +1778,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
           onPressed: _saving ? null : _saveVehicle,
           child: Text(_saving ? "Saving…" : "Save vehicle"),
         ),
+        const TransporterIdSection(),
         const SizedBox(height: 24),
         // A driver never sees carrier earnings (owner decision, 15 Oct 2026).
         if (AuthorizationSession.can("payment.read"))
@@ -1880,10 +1903,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     }
   }
 
-  Future<void> _acceptOnTrip(String shipmentId) async {
+  Future<void> _acceptOnTrip(Map<String, dynamic> shipment) async {
     try {
-      await api.post<Map<String, dynamic>>(
-          "/v1/pilot/carrier/shipments/$shipmentId/accept");
+      if (!await acceptBooking(context, shipment)) return;
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -2171,7 +2193,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                       style: const TextStyle(
                           color: DriverTheme.muted, fontSize: 13),
                     ),
-                    if (trip != null) TripAssignmentCard(trip: trip),
+                    // Keyed by the truck, so one named while accepting shows in the card's picker after the reload.
+                    if (trip != null)
+                      TripAssignmentCard(
+                          key: ValueKey(trip["assignedVehicleId"]), trip: trip),
                     if (tripComplete)
                       const Padding(
                         padding: EdgeInsets.only(top: 6),
@@ -2267,7 +2292,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                                   onPressed: DriverSession.complianceApproved &&
                                           AuthorizationSession.can(
                                               "carrier.offer_accept")
-                                      ? () => _acceptOnTrip(id)
+                                      ? () => _acceptOnTrip(s)
                                       : null,
                                   child: const Text("Accept"))
                               : st == "BOOKED"

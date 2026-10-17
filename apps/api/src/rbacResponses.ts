@@ -15,6 +15,8 @@ export function serializeResponse(value: unknown): unknown {
     const keys = ["id", "anchorTripId", "carrierId", "carrierDisplayName", "customerOrgId", "customerOrgName", "status", "weightKg", "createdAtUtcMs", "updatedAtUtcMs", "podAtUtcMs", "podAcceptedAtUtcMs", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs", "externalLoadId"];
     if (p?.roles.some(r => ["SHIPPER", "CARRIER", "OPS"].includes(r))) keys.push("pickupAddress", "dropAddress", "pickup", "drop", "assignedTruckNumber");
     if (p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r))) keys.push("grossPaise");
+    // The shipper enters it on the e-way bill (owner decision, 16 Oct 2026); no other role needs it on a shipment.
+    if (p?.roles.includes("SHIPPER")) keys.push("carrierTransporterId");
     if (p?.roles.some(r => ["CARRIER", "FINANCE"].includes(r))) keys.push("netToCarrierPaise");
     if (p?.roles.includes("FINANCE")) keys.push("commissionPaise", "paymentId");
     const ewayBill = ewayBillForRoles(v.ewayBill as EwayBill | undefined, p?.roles ?? []);
@@ -22,7 +24,9 @@ export function serializeResponse(value: unknown): unknown {
   } else if ("providerRef" in v && "amountPaise" in v) {
     out = pick(v, ["id", "shipmentId", "status", "provider", "createdAtUtcMs", "updatedAtUtcMs", ...(p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r)) ? ["amountPaise", "razorpayOrderId"] : [])]);
   } else if ("kind" in v && "kycStatus" in v) {
-    out = pick(v, ["id", "kind", "displayName", "kycStatus", "createdAtUtcMs", "inactiveAtUtcMs", "rejectionReasonCode", "approvalTakenBack"]);
+    out = pick(v, ["id", "kind", "displayName", "kycStatus", "createdAtUtcMs", "inactiveAtUtcMs", "rejectionReasonCode", "approvalTakenBack",
+      // The carrier office (whoever may assign trips) reads its own transporter ID; its drivers have no use for it.
+      ...(p !== undefined && p.roles.includes("CARRIER") && p.permissions.includes("trip.assign") && v.id === p.organizationId ? ["transporterId"] : [])]);
   } else if ("originCity" in v && "reservedKg" in v) {
     out = pick(v, ["id", "carrierId", "carrierDisplayName", "originCity", "destCity", "origin", "destination", "windowStart", "windowEnd", "vehicleClass", "capacityKg", "reservedKg", "status", "createdAtUtcMs", "startedAtUtcMs", "completedAtUtcMs",
       // Who drives is the carrier's own business, and ops'. Shippers and public trip lists never get it.

@@ -156,7 +156,8 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
               helperText: filledFromTrip
                   ? 'Filled in from the truck on this trip. Change it if the e-way bill shows a different truck.'
                   : null,
-              helperMaxLines: 2,
+              // Room for large text: the warning to change it is the part that matters.
+              helperMaxLines: 10,
               counterText: '',
               border: const OutlineInputBorder())),
       const SizedBox(height: 12),

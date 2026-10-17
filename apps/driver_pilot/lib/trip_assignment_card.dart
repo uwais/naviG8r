@@ -210,7 +210,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
               DropdownMenuItem(
                   value: vehicle['id']?.toString(),
                   // The same form as the Truck line above, however the number was typed.
-                  child: Text(plainTruckNumber(
+                  child: Text(portalTruckNumber(
                       vehicle['registrationNumber']?.toString() ?? '')))
           ],
           onChanged: (value) => setState(() {
