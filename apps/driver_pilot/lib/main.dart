@@ -1,6 +1,6 @@
 import "dart:async";
 
-import "package:flutter/foundation.dart" show kIsWeb;
+import "package:flutter/foundation.dart" show kIsWeb, kReleaseMode;
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
@@ -109,7 +109,9 @@ class _DriverPilotAppState extends State<DriverPilotApp>
             path: "/workspace", builder: (_, __) => const SizedBox.shrink()),
         ...driverFlowRoutes(),
         ...customerFlowRoutes(),
-        GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
+        // The developer lab is left out of release builds; its link is hidden there too.
+        if (!kReleaseMode)
+          GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
         GoRoute(
             path: "/", redirect: (_, __) => kIsWeb ? "/customer" : "/driver"),
         GoRoute(path: "/register", builder: (_, __) => const RegisterScreen()),

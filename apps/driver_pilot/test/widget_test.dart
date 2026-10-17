@@ -38,8 +38,8 @@ void main() {
     AuthorizationSession.clear();
     await tester.pumpWidget(const DriverPilotApp());
     await pumpAuthorizationFrames(tester);
-    expect(find.text('Sign in with phone'), findsOneWidget);
-    expect(find.text('Driver & carrier'), findsOneWidget);
+    expect(find.text('How do you use NaviG8r?'), findsOneWidget,
+        reason: 'PR 3: signed out, the app opens on the start screen');
     expect(find.text('Manage payout method'), findsNothing);
   });
   testWidgets(
@@ -95,8 +95,8 @@ void main() {
     AuthorizationSession.initialized = false;
     await tester.pumpWidget(const DriverPilotApp());
     await pumpAuthorizationFrames(tester);
-    expect(find.text('Sign in with phone'), findsOneWidget,
-        reason: 'a logged-out launch has to reach the driver welcome screen');
+    expect(find.text('How do you use NaviG8r?'), findsOneWidget,
+        reason: 'a logged-out launch has to reach the start screen');
     expect(AuthorizationSession.signedIn, isFalse);
     expect(tester.takeException(), isNull);
   });

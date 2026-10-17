@@ -167,6 +167,21 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets(
+      "the sign-in screens' bar is Back alone, with no title or account button",
+      (tester) async {
+    var wentBack = false;
+    await mountHeader(tester,
+        NvHeader.task(backLabel: 'Back', onBack: () => wentBack = true));
+
+    expect(find.text('Back'), findsOneWidget,
+        reason: 'c-signin: the signed-out bar holds only Back');
+    expect(find.textContaining('Switch company'), findsNothing,
+        reason: 'signed out there is no account to switch');
+    await tester.tap(find.text('Back'));
+    expect(wentBack, isTrue, reason: 'Back leaves the sign-in step');
+  });
+
   testWidgets('fits 360 dp at 200% text with no overflow', (tester) async {
     tester.platformDispatcher.textScaleFactorTestValue = 2;
     addTearDown(tester.platformDispatcher.clearAllTestValues);

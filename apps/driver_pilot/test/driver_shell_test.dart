@@ -1,13 +1,15 @@
-import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'support/carrier_fixtures.dart';
+
 void main() {
   // Nested under /driver like driverFlowRoutes(), so Home is always underneath.
+  // Signed in as the office: signed out the shell shows no header, so no Back either.
   Future<GoRouter> showShell(WidgetTester tester, String at) async {
-    AuthorizationSession.clear();
+    signInAsCarrierLogin(office: true);
     Widget page(String path) => Text('Page $path');
     final router = GoRouter(initialLocation: at, routes: [
       ShellRoute(
@@ -35,7 +37,7 @@ void main() {
     return router;
   }
 
-  final backArrow = find.byIcon(Icons.arrow_back);
+  final backArrow = find.text('Back');
 
   testWidgets('tab roots have no back arrow', (tester) async {
     for (final at in ['/driver', '/driver/loads', '/driver/profile']) {

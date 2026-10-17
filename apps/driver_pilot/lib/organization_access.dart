@@ -151,13 +151,10 @@ String? mobileAccessRedirect(String path) {
   return null;
 }
 
-/// Placed inside each route's app bar so screen readers can reach the selector.
+/// Only on the access gate (no company chosen yet, or access could not load), where no app
+/// screen and so no header shows; app screens switch company and sign out from its menu.
 class OrganizationToolbar extends StatelessWidget {
-  const OrganizationToolbar({this.showSignOut = true, super.key});
-
-  /// False hides this bar's 'Sign out of all organizations' icon; use it only where the app bar above already has a
-  /// Sign out icon, so the top right shows one.
-  final bool showSignOut;
+  const OrganizationToolbar({super.key});
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -195,11 +192,10 @@ class OrganizationToolbar extends StatelessWidget {
                         tooltip: 'Refresh access',
                         onPressed: AuthorizationSession.refresh,
                         icon: Icon(Icons.refresh)),
-                    if (showSignOut)
-                      const IconButton(
-                          tooltip: 'Sign out of all organizations',
-                          onPressed: AuthorizationSession.signOut,
-                          icon: Icon(Icons.logout)),
+                    const IconButton(
+                        tooltip: 'Sign out of all organizations',
+                        onPressed: AuthorizationSession.signOut,
+                        icon: Icon(Icons.logout)),
                   ]),
                 ),
               ),

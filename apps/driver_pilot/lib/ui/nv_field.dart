@@ -12,6 +12,7 @@ class NvField extends StatelessWidget {
     this.help,
     this.hint,
     this.unit,
+    this.prefix,
     this.optional = false,
     this.errorText,
     this.disabledReason,
@@ -20,6 +21,7 @@ class NvField extends StatelessWidget {
     this.savedMessage,
     this.identifier = false,
     this.keyboardType,
+    this.autofillHints,
     this.onChanged,
   });
 
@@ -34,6 +36,9 @@ class NvField extends StatelessWidget {
 
   /// Shown at the end of the field, such as "kg".
   final String? unit;
+
+  /// Fixed text at the start of the field that is not typed, such as "+91".
+  final String? prefix;
 
   /// Adds "(optional)" after the label.
   final bool optional;
@@ -56,6 +61,7 @@ class NvField extends StatelessWidget {
   /// IDs and numbers people copy (bill numbers, GSTINs) are set in the mono face.
   final bool identifier;
   final TextInputType? keyboardType;
+  final Iterable<String>? autofillHints;
   final ValueChanged<String>? onChanged;
 
   @override
@@ -93,11 +99,20 @@ class NvField extends StatelessWidget {
           enabled: !disabled,
           readOnly: readOnly,
           keyboardType: keyboardType,
+          autofillHints: autofillHints,
           onChanged: onChanged,
           style: valueStyle,
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: valueStyle.copyWith(color: NvColors.slate),
+            prefixIcon: prefix == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(left: 14, right: NvSpace.s2),
+                    child: Text(prefix!,
+                        style: valueStyle.copyWith(color: NvColors.slate)),
+                  ),
+            prefixIconConstraints: const BoxConstraints(),
             fillColor: sunken ? NvColors.sunken : NvColors.card,
             enabledBorder: readOnly ? noBorder : null,
             focusedBorder: readOnly ? noBorder : null,

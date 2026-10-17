@@ -49,6 +49,23 @@ void main() {
     handle.dispose();
   });
 
+  testWidgets('prefix: fixed text sits at the start even when empty',
+      (tester) async {
+    await showField(
+        tester,
+        const NvField(
+            label: 'Mobile number',
+            prefix: '+91',
+            autofillHints: [AutofillHints.telephoneNumberNational]));
+
+    expect(find.text('+91'), findsOneWidget,
+        reason:
+            'c-signin: +91 is a fixed prefix, shown before anything is typed');
+    expect(tester.widget<TextField>(find.byType(TextField)).autofillHints,
+        [AutofillHints.telephoneNumberNational],
+        reason: 'screens.md: the phone can offer its own number');
+  });
+
   testWidgets('focus: the border turns navy and 2 dp, label stays put',
       (tester) async {
     final handle = tester.ensureSemantics();

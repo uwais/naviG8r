@@ -133,4 +133,19 @@ void main() {
           reason: 'copy.md Formats: route plus date, never SHP_4135');
     });
   });
+
+  group('Phone', () {
+    test('a mobile number reads "+91 98450 12345"', () {
+      expect(formatPhone('9845012345'), '+91 98450 12345',
+          reason:
+              'copy.md: the account menu and code screen show the full phone');
+      expect(formatPhone('+91 98450-12345'), '+91 98450 12345',
+          reason: 'a number already carrying 91 is not given it twice');
+    });
+
+    test('anything that is not a mobile number is left as it was', () {
+      expect(formatPhone('12345'), '12345',
+          reason: 'a number we cannot read is shown, not guessed at');
+    });
+  });
 }

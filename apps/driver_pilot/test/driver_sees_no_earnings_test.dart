@@ -51,14 +51,17 @@ void main() {
     });
 
     testWidgets(
-        'keeps its text for a visitor who is signed out, and for the office',
+        'shows a signed-out visitor the start screen, and keeps the office text',
         (tester) async {
       FlutterSecureStorage.setMockInitialValues({});
       api = Api('http://test');
       AuthorizationSession.clear();
       await mountScreen(
           tester, const DriverWelcomeScreen(key: ValueKey('signed out')));
-      expect(find.text(everyonesText), findsOneWidget);
+      expect(find.text('How do you use NaviG8r?'), findsOneWidget,
+          reason: 'PR 3: signed out, Home is the start screen');
+      expect(paymentWords.hasMatch(screenWords(tester)), isFalse,
+          reason: 'the start screen promises no pay');
 
       signInAsCarrierLogin(office: true);
       await mountScreen(

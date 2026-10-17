@@ -109,3 +109,14 @@ String shipmentName(
     DateTime? now}) {
   return "$from to $to, ${formatDate(date, now: now)}";
 }
+
+/// "+91 98450 12345" for an Indian mobile number, with or without the 91 in front. Any other
+/// number comes back as it was given.
+String formatPhone(String phone) {
+  var digits = phone.replaceAll(RegExp(r"\D"), "");
+  if (digits.length == 12 && digits.startsWith("91")) {
+    digits = digits.substring(2);
+  }
+  if (digits.length != 10) return phone;
+  return "+91 ${digits.substring(0, 5)} ${digits.substring(5)}";
+}

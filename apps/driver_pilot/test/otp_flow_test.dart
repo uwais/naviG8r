@@ -11,6 +11,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/mock_api.dart';
 
+OutlinedButton sendNewCodeButton(WidgetTester tester) =>
+    tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, 'Send a new code'));
+
 void main() {
   test('OTP API errors are actionable', () {
     api = Api('http://test');
@@ -23,7 +27,12 @@ void main() {
           ),
         );
     expect(formatApiError(error('otp_expired')), contains('expired'));
-    expect(formatApiError(error('otp_incorrect')), contains('incorrect'));
+    expect(formatApiError(error('otp_expired')),
+        'This code has expired. Send a new code.',
+        reason: 'copy.md: code errors, verbatim');
+    expect(formatApiError(error('otp_incorrect')),
+        'That code is not right. Check the SMS and type it again, or send a new code.',
+        reason: 'copy.md: code errors, verbatim');
     expect(formatApiError(error('otp_challenge_invalid')),
         contains('Request a new code'));
     expect(formatApiError(error('otp_challenge_not_found')),
@@ -74,19 +83,15 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
     expect(starts, 1);
-    expect(find.text('Resend code (2s)'), findsOneWidget);
-    expect(
-        tester
-            .widget<OutlinedButton>(find.byType(OutlinedButton).last)
-            .onPressed,
-        isNull);
+    expect(find.text('No SMS yet? You can ask for a new code in 0:02.'),
+        findsOneWidget,
+        reason: 'copy.md: the wait is the server\'s, shown as a real timer');
+    expect(sendNewCodeButton(tester).onPressed, isNull,
+        reason: 'no new code until the server allows one');
     await tester.pump(const Duration(seconds: 2));
-    expect(find.text('Resend code'), findsOneWidget);
-    expect(
-        tester
-            .widget<OutlinedButton>(find.byType(OutlinedButton).last)
-            .onPressed,
-        isNotNull);
+    expect(find.textContaining('No SMS yet?'), findsNothing);
+    expect(sendNewCodeButton(tester).onPressed, isNotNull,
+        reason: 'the new-code button opens once the wait is over');
   });
 
   testWidgets('customer resend clears the previous code when debug is absent',
@@ -121,7 +126,7 @@ void main() {
     expect(
         tester.widget<TextField>(find.byType(TextField).last).controller!.text,
         '000042');
-    await tester.tap(find.text('Resend code'));
+    await tester.tap(find.text('Send a new code'));
     await tester.pumpAndSettle();
     expect(starts, 2);
     expect(find.text('Debug OTP: 000042'), findsNothing);
@@ -158,7 +163,7 @@ void main() {
     await tester.tap(find.text('Send code'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, '123456');
-    await tester.tap(find.text('Resend code'));
+    await tester.tap(find.text('Send a new code'));
     await tester.pumpAndSettle();
     expect(
         tester.widget<TextField>(find.byType(TextField).last).controller!.text,
@@ -176,12 +181,14 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
     api = Api('http://test');
     var starts = 0;
+    Object? verified;
     api.dio.httpClientAdapter = MockApiAdapter((request) {
       if (request.uri.path == '/v1/auth/otp/start') {
         starts++;
         return jsonResponse(
             {'challengeId': 'fallback-1', 'expiresAtUtcMs': 2000000});
       }
+      if (request.uri.path == '/v1/auth/otp/verify') verified = request.data;
       return jsonResponse({});
     });
     final router = testRouter();
@@ -189,7 +196,13 @@ void main() {
     router.go('/driver/onboarding/otp?phone=9876543210');
     await tester.pumpAndSettle();
     expect(starts, 1);
-    expect(find.text('fallback-1'), findsOneWidget);
+    expect(find.text('fallback-1'), findsNothing,
+        reason: 'PR 3: the code request id stays in state, never on screen');
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect((verified as Map)['challengeId'], 'fallback-1',
+        reason: 'the hidden id is still the one sent with the code');
   });
 
   testWidgets('driver resend countdown disables the resend action',
@@ -218,13 +231,15 @@ void main() {
     for (var i = 0; i < 10; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
-    expect(find.text('Resend code (2s)'), findsOneWidget);
-    expect(tester.widget<TextButton>(find.byType(TextButton).first).onPressed,
-        isNull);
+    expect(find.text('No SMS yet? You can ask for a new code in 0:02.'),
+        findsOneWidget,
+        reason: 'copy.md: the wait is the server\'s, shown as a real timer');
+    expect(sendNewCodeButton(tester).onPressed, isNull,
+        reason: 'no new code until the server allows one');
     await tester.pump(const Duration(seconds: 2));
-    expect(find.text('Resend code'), findsOneWidget);
-    expect(tester.widget<TextButton>(find.byType(TextButton).first).onPressed,
-        isNotNull);
+    expect(find.textContaining('No SMS yet?'), findsNothing);
+    expect(sendNewCodeButton(tester).onPressed, isNotNull,
+        reason: 'the new-code button opens once the wait is over');
   });
 
   testWidgets('driver same-challenge retry preserves entered OTP without debug',
@@ -251,11 +266,11 @@ void main() {
     addTearDown(router.dispose);
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).at(1), '123456');
-    await tester.tap(find.text('Resend code'));
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Send a new code'));
     await tester.pumpAndSettle();
     expect(
-        tester.widget<TextField>(find.byType(TextField).at(1)).controller!.text,
+        tester.widget<TextField>(find.byType(TextField).last).controller!.text,
         '123456');
   });
 
@@ -264,6 +279,7 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
     api = Api('http://test');
     var starts = 0;
+    Object? verified;
     api.dio.httpClientAdapter = MockApiAdapter((request) {
       if (request.uri.path == '/v1/auth/otp/start') {
         starts++;
@@ -275,6 +291,7 @@ void main() {
               }
             : {'challengeId': 'new', 'expiresAtUtcMs': 3000000});
       }
+      if (request.uri.path == '/v1/auth/otp/verify') verified = request.data;
       return jsonResponse({});
     });
     final router = testRouter();
@@ -282,14 +299,17 @@ void main() {
     router.go('/driver/onboarding/otp?phone=9876543210');
     await tester.pumpAndSettle();
     expect(find.text('Debug OTP: 001122'), findsOneWidget);
-    await tester.tap(find.text('Resend code'));
+    await tester.tap(find.text('Send a new code'));
     await tester.pumpAndSettle();
     expect(starts, 2);
     expect(find.text('Debug OTP: 001122'), findsNothing);
-    expect(find.text('new'), findsOneWidget);
-    expect(find.textContaining('Expires at'), findsOneWidget);
-    final codeField = tester.widget<TextField>(find.byType(TextField).at(1));
+    final codeField = tester.widget<TextField>(find.byType(TextField).last);
     expect(codeField.controller?.text, isEmpty);
+    await tester.enterText(find.byType(TextField).last, '654321');
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect((verified as Map)['challengeId'], 'new',
+        reason: 'the newest code request is the one verified');
   });
 
   testWidgets('driver login carries the first OTP challenge to verification',
@@ -297,6 +317,7 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
     api = Api('http://test');
     var starts = 0;
+    Object? verified;
     api.dio.httpClientAdapter = MockApiAdapter((request) {
       if (request.uri.path == '/v1/auth/me') return jsonResponse({}, 401);
       if (request.uri.path == '/v1/auth/otp/start') {
@@ -307,6 +328,7 @@ void main() {
           'debugCode': '004201',
         });
       }
+      if (request.uri.path == '/v1/auth/otp/verify') verified = request.data;
       return jsonResponse({});
     });
     AuthorizationSession.clear();
@@ -315,14 +337,23 @@ void main() {
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
-    await tester.tap(find.text('Sign in with phone'));
+    await tester.tap(find.text('I carry goods'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '9876543210');
     await tester.tap(find.text('Send code'));
     await tester.pumpAndSettle();
     expect(starts, 1);
     expect(find.text('Debug OTP: 004201'), findsOneWidget);
-    expect(find.text('challenge-first'), findsOneWidget);
-    expect(find.text('Code sent to 9876543210'), findsOneWidget);
+    expect(find.text('Challenge id'), findsNothing,
+        reason: 'PR 3: no "Challenge id" field; the id stays in state');
+    expect(find.text('challenge-first'), findsNothing,
+        reason: 'PR 3: the code request id is never shown');
+    expect(
+        find.text('We sent a 6-digit code to +91 98765 43210.'), findsOneWidget,
+        reason: 'copy.md: the code screen names the full number');
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect((verified as Map)['challengeId'], 'challenge-first',
+        reason: 'the first code request is carried to verification');
   });
 }

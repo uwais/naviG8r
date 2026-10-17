@@ -1,14 +1,16 @@
 // Size note: this file stays whole on purpose (owner decision, 12 Oct 2026). Splitting the screens waits until after
 // go-live and stability, and an unrelated change should not start it.
-import "organization_access.dart";
 import "dart:async";
 
+import "package:flutter/foundation.dart" show kReleaseMode;
 import "package:flutter/material.dart";
+import "package:flutter/semantics.dart";
 import "package:geolocator/geolocator.dart";
 import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "accept_booking.dart";
+import "access_refresh.dart";
 import "authorization_session.dart";
 import "carrier_approval_banner.dart";
 import "eway_bill_carrier_card.dart";
@@ -21,19 +23,25 @@ import "location_editor.dart";
 import "maps_config.dart";
 import "pilot_api.dart";
 import "notification_center.dart";
+import "signed_in_header.dart";
+import "start_screen.dart";
 import "transporter_id_section.dart";
 import "trip_assignment_card.dart";
+import "ui/format.dart";
+import "ui/sign_in_code_page.dart";
+import "ui/sign_in_phone_page.dart";
+import "ui/tokens.dart";
 import "unassigned_driver_notice.dart";
 
 /// Nested navigator for the driver shell (tabs + pushed detail routes).
 final GlobalKey<NavigatorState> driverShellNavigatorKey =
     GlobalKey<NavigatorState>();
 
-/// App bar title from the current driver route.
-String driverShellTitle(String path) {
-  if (path == "/driver") return "NaviG8r";
-  if (path.startsWith("/driver/shipments")) return "Shipments";
-  if (path.startsWith("/driver/loads")) return "Loads";
+/// Screen title from the current driver route. A driver's home is "Today", the office's "Home".
+String driverShellTitle(String path, {bool forDriver = false}) {
+  if (path == "/driver") return forDriver ? "Today" : "Home";
+  if (path.startsWith("/driver/shipments")) return "Bookings";
+  if (path.startsWith("/driver/loads")) return "Trips";
   if (path.startsWith("/driver/publish")) return "Publish trip";
   if (path.startsWith("/driver/track")) return "Track";
   if (path.startsWith("/driver/profile")) return "Profile";
@@ -52,7 +60,6 @@ class DriverShell extends StatelessWidget {
     required this.title,
     required this.currentPath,
     required this.child,
-    this.actions,
     this.showBottomNav = true,
     super.key,
   });
@@ -60,10 +67,79 @@ class DriverShell extends StatelessWidget {
   final String title;
   final String currentPath;
   final Widget child;
-  final List<Widget>? actions;
   final bool showBottomNav;
 
+  // Drivers do not publish or manage bookings, so they get three tabs; the office gets five.
+  static bool get _forDriver => DriverSession.carrierRole == "DRIVER";
+
+  static const _officeTabPaths = [
+    "/driver",
+    "/driver/shipments",
+    "/driver/loads",
+    "/driver/publish",
+    "/driver/profile",
+  ];
+  static const _driverTabPaths = [
+    "/driver",
+    "/driver/loads",
+    "/driver/profile"
+  ];
+
+  static const _officeTabs = [
+    NavigationDestination(
+        icon: Icon(Icons.home_outlined),
+        selectedIcon: Icon(Icons.home),
+        label: "Home"),
+    NavigationDestination(
+        icon: Icon(Icons.inventory_2_outlined),
+        selectedIcon: Icon(Icons.inventory_2),
+        label: "Bookings"),
+    NavigationDestination(
+        icon: Icon(Icons.local_shipping_outlined),
+        selectedIcon: Icon(Icons.local_shipping),
+        label: "Trips"),
+    NavigationDestination(
+        icon: Icon(Icons.add_road_outlined),
+        selectedIcon: Icon(Icons.add_road),
+        label: "Publish"),
+    NavigationDestination(
+        icon: Icon(Icons.person_outline),
+        selectedIcon: Icon(Icons.person),
+        label: "Profile"),
+  ];
+  static const _driverTabs = [
+    NavigationDestination(
+        icon: Icon(Icons.home_outlined),
+        selectedIcon: Icon(Icons.home),
+        label: "Today"),
+    NavigationDestination(
+        icon: Icon(Icons.local_shipping_outlined),
+        selectedIcon: Icon(Icons.local_shipping),
+        label: "Trips"),
+    NavigationDestination(
+        icon: Icon(Icons.person_outline),
+        selectedIcon: Icon(Icons.person),
+        label: "Profile"),
+  ];
+
   int _indexForPath(String path) {
+    if (_forDriver) {
+      // A driver opens shipments from a trip, and publish and fleet from Profile.
+      if (path.startsWith("/driver/loads") ||
+          path.startsWith("/driver/trip/") ||
+          path.startsWith("/driver/shipment") ||
+          path.startsWith("/driver/track")) {
+        return 1;
+      }
+      if (path.startsWith("/driver/profile") ||
+          path.startsWith("/driver/publish") ||
+          path.startsWith("/driver/fleet") ||
+          path.startsWith("/driver/earnings") ||
+          path.startsWith("/driver/payout")) {
+        return 2;
+      }
+      return 0;
+    }
     if (path.startsWith("/driver/shipments") ||
         path.startsWith("/driver/shipment/")) {
       return 1;
@@ -81,27 +157,23 @@ class DriverShell extends StatelessWidget {
     return 0;
   }
 
-  String _pathForIndex(int index) {
-    switch (index) {
-      case 1:
-        return "/driver/shipments";
-      case 2:
-        return "/driver/loads";
-      case 3:
-        return "/driver/publish";
-      case 4:
-        return "/driver/profile";
-      case 0:
-      default:
-        return "/driver";
-    }
-  }
-
+  // The router keeps this page when only the session changes (sign-in, sign-out or a company
+  // switch at the same address), so it listens to the session itself.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: AuthorizationSession.revision,
+      builder: (context, _) => _shell(context));
+
+  Widget _shell(BuildContext context) {
     final selected = _indexForPath(currentPath);
+    final tabPaths = _forDriver ? _driverTabPaths : _officeTabPaths;
     final shellNav = Navigator.of(context);
     final canPop = shellNav.canPop();
+    // Pages pushed inside the shell never show up in canPop above (that is the outer
+    // navigator), so any page that is not its tab's own root gets Back. Not the
+    // live trip: leaving it mid-load stops location sharing, so no one-tap exit there.
+    final showBack =
+        currentPath != tabPaths[selected] && !currentPath.endsWith("/active");
 
     return PopScope(
       canPop: canPop,
@@ -112,78 +184,45 @@ class DriverShell extends StatelessWidget {
           context.go("/driver");
         }
       },
-      child: Scaffold(
-        appBar: AppBar(
-          bottom: AuthorizationSession.signedIn
-              ? const PreferredSize(
-                  preferredSize: Size.fromHeight(48),
-                  child: OrganizationToolbar())
-              : null,
-          // Pages pushed inside the shell never show up in canPop above (that is the outer
-          // navigator), so any page that is not its tab's own root gets the arrow. Not the
-          // live trip: leaving it mid-load stops location sharing, so no one-tap exit there.
-          leading: currentPath != _pathForIndex(selected) &&
-                  !currentPath.endsWith("/active")
-              ? IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => context.pop(),
-                )
-              : null,
-          title: Text(title,
-              style:
-                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 26)),
-          actions: [
-            if (actions != null) ...actions!,
-            if (AuthorizationSession.signedIn &&
-                AuthorizationSession.can("notification.read"))
-              const NotificationBell(),
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child:
-                  CircleAvatar(backgroundColor: DriverTheme.navy, radius: 18),
+      child: !AuthorizationSession.signedIn
+          // Signed out there is only the start screen: no header and no tabs.
+          ? Scaffold(body: SafeArea(child: child))
+          : Scaffold(
+              appBar: signedInHeader(context,
+                  backLabel: showBack ? "Back" : null,
+                  onBack: showBack ? () => context.pop() : null),
+              body: SafeArea(
+                  child: AccessRefresh(
+                child: Column(children: [
+                  CarrierApprovalBanner(currentPath: currentPath),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                        NvSpace.gutter, NvSpace.s4, NvSpace.s2, NvSpace.s2),
+                    child: Row(children: [
+                      Expanded(
+                        child: Semantics(
+                            header: true,
+                            child: Text(title, style: NvText.title)),
+                      ),
+                      // Stays until Home's "Updates" row replaces it (spec/screens.md).
+                      if (AuthorizationSession.can("notification.read"))
+                        const NotificationBell(),
+                    ]),
+                  ),
+                  Expanded(child: child),
+                ]),
+              )),
+              bottomNavigationBar: showBottomNav
+                  ? NavigationBar(
+                      selectedIndex: selected,
+                      onDestinationSelected: (index) {
+                        final target = tabPaths[index];
+                        if (target != currentPath) context.go(target);
+                      },
+                      destinations: _forDriver ? _driverTabs : _officeTabs,
+                    )
+                  : null,
             ),
-          ],
-        ),
-        body: SafeArea(
-            child: Column(children: [
-          CarrierApprovalBanner(currentPath: currentPath),
-          Expanded(child: child),
-        ])),
-        bottomNavigationBar: showBottomNav
-            ? NavigationBar(
-                selectedIndex: selected,
-                onDestinationSelected: (index) {
-                  final target = _pathForIndex(index);
-                  if (target != currentPath) context.go(target);
-                },
-                destinations: const [
-                  NavigationDestination(
-                      icon: Icon(Icons.home_outlined),
-                      selectedIcon: Icon(Icons.home),
-                      label: "Home"),
-                  NavigationDestination(
-                    icon: Icon(Icons.inventory_2_outlined),
-                    selectedIcon: Icon(Icons.inventory_2),
-                    label: "Shipments",
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.local_shipping_outlined),
-                    selectedIcon: Icon(Icons.local_shipping),
-                    label: "Loads",
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.add_road_outlined),
-                    selectedIcon: Icon(Icons.add_road),
-                    label: "Publish",
-                  ),
-                  NavigationDestination(
-                      icon: Icon(Icons.person_outline),
-                      selectedIcon: Icon(Icons.person),
-                      label: "Profile"),
-                ],
-              )
-            : null,
-      ),
     );
   }
 }
@@ -191,31 +230,40 @@ class DriverShell extends StatelessWidget {
 class DriverWelcomeScreen extends StatelessWidget {
   const DriverWelcomeScreen({super.key});
 
+  // Listens to the session for the same reason as DriverShell: the page stays across sign-out.
   @override
-  Widget build(BuildContext context) {
-    return Padding(
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: AuthorizationSession.revision,
+      builder: (context, _) => _home(context));
+
+  Widget _home(BuildContext context) {
+    if (!AuthorizationSession.signedIn) return const StartScreen();
+    // Scrolls even when short, so pulling down reloads access here as on every other tab.
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            "Driver & carrier",
-            style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                color: DriverTheme.navy),
-          ),
-          const SizedBox(height: 12),
-          // A signed-in driver is past signing in and never sees carrier earnings, so their copy mentions neither.
-          Text(
-            AuthorizationSession.signedIn &&
-                    !AuthorizationSession.can("payment.read")
-                ? "Run your trips with live tracking and confirm each delivery here."
-                : "Sign in with your phone, confirm your carrier organization, run trips with live tracking, "
-                    "and get paid after proof of delivery and cooling-off.",
-            style: const TextStyle(color: DriverTheme.muted, height: 1.4),
-          ),
-          const Spacer(),
+      children: [
+        const Text(
+          "Driver & carrier",
+          style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: DriverTheme.navy),
+        ),
+        const SizedBox(height: 12),
+        // A signed-in driver is past signing in and never sees carrier earnings, so their copy mentions neither.
+        Text(
+          AuthorizationSession.signedIn &&
+                  !AuthorizationSession.can("payment.read")
+              ? "Run your trips with live tracking and confirm each delivery here."
+              : "Sign in with your phone, confirm your carrier organization, run trips with live tracking, "
+                  "and get paid after proof of delivery and cooling-off.",
+          style: const TextStyle(color: DriverTheme.muted, height: 1.4),
+        ),
+        // Signing in, registering and the developer lab are for people still signing in;
+        // release builds leave them off the signed-in home.
+        if (!kReleaseMode) ...[
+          const SizedBox(height: 24),
           FilledButton(
             onPressed: () => context.go("/driver/onboarding/phone"),
             child: const Text("Sign in with phone"),
@@ -251,7 +299,7 @@ class DriverWelcomeScreen extends StatelessWidget {
               onPressed: () => context.go("/pilot-lab"),
               child: const Text("Developer lab")),
         ],
-      ),
+      ],
     );
   }
 }
@@ -266,6 +314,7 @@ class DriverPhoneScreen extends StatefulWidget {
 class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
   final _phone = TextEditingController();
   bool _busy = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -274,18 +323,24 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
   }
 
   Future<void> _send() async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     final phone = digitsOnly(_phone.text.trim());
     if (phone.length != 10) {
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Enter a 10-digit mobile number.")));
+      setState(() {
+        _busy = false;
+        _error = "Enter a 10-digit mobile number.";
+      });
       return;
     }
     try {
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": phone});
       if (!mounted) return;
+      SemanticsService.announce(
+          "Code sent to ${formatPhone(phone)}.", Directionality.of(context));
       context.go("/driver/onboarding/otp?phone=$phone", extra: {
         "challengeId": r.data?["challengeId"],
         "expiresAtUtcMs": r.data?["expiresAtUtcMs"],
@@ -293,8 +348,7 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+      setState(() => _error = formatApiError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -302,35 +356,19 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Sign in")),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                  labelText: "Mobile number", hintText: "+91 …"),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _busy ? null : _send,
-              child: _busy
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text("Send code"),
-            ),
-            TextButton(
-                onPressed: () => context.go("/driver"),
-                child: const Text("Back")),
-          ],
-        ),
-      ),
+    return SignInPhonePage(
+      phone: _phone,
+      sending: _busy,
+      errorText: _error,
+      onSend: _send,
+      onBack: () => context.go("/driver"),
+      shipping: false,
+      onOtherSide: () => context.go("/customer/login"),
+      newAccountLinks: {
+        "Register as new carrier": () =>
+            context.go("/driver/onboarding/register"),
+        "Join a carrier fleet": () => context.go("/driver/onboarding/join"),
+      },
     );
   }
 }
@@ -343,13 +381,13 @@ class DriverOtpScreen extends StatefulWidget {
 }
 
 class _DriverOtpScreenState extends State<DriverOtpScreen> {
-  final _challengeId = TextEditingController();
+  String _challengeId = "";
   final _code = TextEditingController();
   bool _starting = false;
   bool _verifying = false;
   String? _debugCode;
+  String? _error;
   String _phone = "";
-  int? _expiresAtUtcMs;
   bool _receivedChallenge = false;
   Timer? _cooldownTimer;
   int _cooldownSeconds = 0;
@@ -376,10 +414,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
     final extra = GoRouterState.of(context).extra;
     if (extra is Map && !_receivedChallenge && extra["challengeId"] is String) {
       _phone = p;
-      _challengeId.text = (extra["challengeId"] as String).trim();
-      _expiresAtUtcMs = extra["expiresAtUtcMs"] is num
-          ? (extra["expiresAtUtcMs"] as num).toInt()
-          : null;
+      _challengeId = (extra["challengeId"] as String).trim();
       final dc = extra["debugCode"];
       if (dc is String && dc.isNotEmpty) {
         _debugCode = dc;
@@ -394,17 +429,17 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   }
 
   Future<void> _resend() async {
-    setState(() => _starting = true);
+    setState(() {
+      _starting = true;
+      _error = null;
+    });
     try {
-      final previousChallengeId = _challengeId.text.trim();
+      final previousChallengeId = _challengeId;
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": _phone});
       if (!mounted) return;
       final id = r.data?["challengeId"] as String?;
-      if (id != null) _challengeId.text = id;
-      _expiresAtUtcMs = r.data?["expiresAtUtcMs"] is num
-          ? (r.data?["expiresAtUtcMs"] as num).toInt()
-          : null;
+      if (id != null) _challengeId = id;
       final dc = r.data?["debugCode"];
       if (dc is String && dc.isNotEmpty) {
         _debugCode = dc;
@@ -414,12 +449,13 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         _code.clear();
       }
       _startCooldown(r.data?["retryAfterMs"]);
+      SemanticsService.announce(
+          "Code sent to ${formatPhone(_phone)}.", Directionality.of(context));
     } catch (e) {
       if (mounted) {
         final retry = otpRetryAfterMs(e);
         if (retry != null) _startCooldown(retry);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+        setState(() => _error = formatApiError(e));
       }
     } finally {
       if (mounted) setState(() => _starting = false);
@@ -427,13 +463,16 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   }
 
   Future<void> _verify() async {
-    setState(() => _verifying = true);
+    setState(() {
+      _verifying = true;
+      _error = null;
+    });
     try {
       final r = await api.post<Map<String, dynamic>>(
         "/v1/auth/otp/verify",
         data: {
           "phone": _phone,
-          "challengeId": _challengeId.text.trim(),
+          "challengeId": _challengeId.trim(),
           "code": _code.text.trim()
         },
       );
@@ -447,15 +486,18 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-                "No carrier org for this phone. Use Register as new carrier on the welcome screen."),
+                "No carrier org for this phone. Use Register as new carrier on the sign-in screen."),
           ),
         );
-        context.go("/driver");
+        context.go("/driver/onboarding/phone");
       }
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+      if (mounted) {
+        final error = formatApiError(e);
+        setState(() => _error = error);
+        SemanticsService.announce(error, Directionality.of(context),
+            assertiveness: Assertiveness.assertive);
+      }
     } finally {
       if (mounted) setState(() => _verifying = false);
     }
@@ -464,55 +506,24 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   @override
   void dispose() {
     _cooldownTimer?.cancel();
-    _challengeId.dispose();
     _code.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Verify code")),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Text("Code sent to $_phone",
-              style: const TextStyle(color: DriverTheme.muted)),
-          if (_expiresAtUtcMs != null)
-            Text(
-                "Expires at ${DateTime.fromMillisecondsSinceEpoch(_expiresAtUtcMs!).toLocal()}",
-                style: const TextStyle(color: DriverTheme.muted)),
-          const Text("If the code expires or is incorrect, request a new code.",
-              style: TextStyle(color: DriverTheme.muted)),
-          if (_debugCode != null) ...[
-            const SizedBox(height: 8),
-            Text("Debug OTP: $_debugCode",
-                style: const TextStyle(fontSize: 12, color: DriverTheme.muted)),
-          ],
-          const SizedBox(height: 16),
-          TextField(
-              controller: _challengeId,
-              decoration: const InputDecoration(labelText: "Challenge id")),
-          TextField(
-              controller: _code,
-              decoration: const InputDecoration(labelText: "6-digit code")),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _verifying ? null : _verify,
-            child: _verifying
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text("Verify"),
-          ),
-          TextButton(
-              onPressed: _starting || _cooldownSeconds > 0 ? null : _resend,
-              child: Text(_cooldownSeconds > 0
-                  ? "Resend code (${_cooldownSeconds}s)"
-                  : "Resend code")),
-        ],
-      ),
+    return SignInCodePage(
+      phone: formatPhone(_phone),
+      code: _code,
+      verifying: _verifying,
+      sendingNewCode: _starting,
+      secondsUntilNewCode: _cooldownSeconds,
+      errorText: _error,
+      debugCode: _debugCode,
+      onSignIn: _verify,
+      onSendNewCode: _resend,
+      onChangeNumber: () => context.go("/driver/onboarding/phone"),
+      onBack: () => context.go("/driver/onboarding/phone"),
     );
   }
 }
@@ -2948,7 +2959,8 @@ List<RouteBase> driverFlowRoutes() {
       builder: (context, state, child) {
         final path = state.uri.path;
         return DriverShell(
-          title: driverShellTitle(path),
+          title: driverShellTitle(path,
+              forDriver: DriverSession.carrierRole == "DRIVER"),
           currentPath: path,
           child: child,
         );

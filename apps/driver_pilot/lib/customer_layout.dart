@@ -84,10 +84,18 @@ class CustomerResponsiveRow extends StatelessWidget {
 }
 
 const List<NavigationDestination> kCustomerNavDestinations = [
-  NavigationDestination(icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: "Home"),
-  NavigationDestination(icon: Icon(Icons.travel_explore_outlined), selectedIcon: Icon(Icons.travel_explore), label: "Trips"),
-  NavigationDestination(icon: Icon(Icons.shopping_cart_outlined), selectedIcon: Icon(Icons.shopping_cart), label: "Book"),
-  NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: "Shipments"),
+  NavigationDestination(
+      icon: Icon(Icons.home_outlined),
+      selectedIcon: Icon(Icons.home),
+      label: "Home"),
+  NavigationDestination(
+      icon: Icon(Icons.travel_explore_outlined),
+      selectedIcon: Icon(Icons.travel_explore),
+      label: "Find a lane"),
+  NavigationDestination(
+      icon: Icon(Icons.receipt_long_outlined),
+      selectedIcon: Icon(Icons.receipt_long),
+      label: "Shipments"),
 ];
 
 List<NavigationRailDestination> customerRailDestinations() {

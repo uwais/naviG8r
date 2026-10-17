@@ -1,12 +1,12 @@
-import "organization_access.dart";
 import "dart:async";
 
 import "package:dio/dio.dart" show DioException;
-import "package:flutter/foundation.dart" show kIsWeb;
 import "package:flutter/material.dart";
+import "package:flutter/semantics.dart";
 import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
+import "access_refresh.dart";
 import "authorization_session.dart";
 import "shipment_payment_status.dart";
 import "eway_bill_card.dart";
@@ -19,6 +19,13 @@ import "driver_theme.dart";
 import "location_editor.dart";
 import "pilot_api.dart";
 import "notification_center.dart";
+import "signed_in_header.dart";
+import "start_screen.dart";
+import "ui/format.dart";
+import "ui/nv_header.dart";
+import "ui/sign_in_code_page.dart";
+import "ui/sign_in_phone_page.dart";
+import "ui/tokens.dart";
 
 String? lastBookedShipmentId;
 
@@ -80,27 +87,20 @@ class CustomerScaffold extends StatelessWidget {
   final String currentPath;
   final WidgetBuilder bodyBuilder;
 
+  // Book has no tab: it opens from a lane card, so it sits under Find a lane.
   int _indexForPath(String path) {
     if (path.startsWith("/customer/trips") ||
-        path.startsWith("/customer/eligible")) return 1;
-    if (path.startsWith("/customer/book")) return 2;
-    if (path.startsWith("/customer/shipments")) return 3;
+        path.startsWith("/customer/eligible") ||
+        path.startsWith("/customer/book")) return 1;
+    if (path.startsWith("/customer/shipments")) return 2;
     return 0;
   }
 
-  String _pathForIndex(int index) {
-    switch (index) {
-      case 1:
-        return "/customer/trips";
-      case 2:
-        return "/customer/book";
-      case 3:
-        return "/customer/shipments";
-      case 0:
-      default:
-        return "/customer";
-    }
-  }
+  static const _tabPaths = [
+    "/customer",
+    "/customer/trips",
+    "/customer/shipments"
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -110,55 +110,53 @@ class CustomerScaffold extends StatelessWidget {
         return LayoutBuilder(
           builder: (context, constraints) {
             final selected = _indexForPath(currentPath);
-            final session = CustomerSession.isSignedIn
-                ? "${CustomerSession.userFullName ?? "Signed in"} · ${CustomerSession.userPhone ?? ""}"
-                : null;
+            final tabRoot = _tabPaths[selected];
             final useRail = customerUseRail(constraints.maxWidth);
-            final page = CustomerPageFrame(child: bodyBuilder(context));
+            final page = CustomerPageFrame(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(
+                        top: NvSpace.s4, bottom: NvSpace.s2),
+                    child: Row(children: [
+                      Expanded(
+                        child: Semantics(
+                            header: true,
+                            child: Text(title, style: NvText.title)),
+                      ),
+                      // Stays until Home's "Updates" row replaces it (spec/screens.md).
+                      if (CustomerSession.isSignedIn &&
+                          AuthorizationSession.can("notification.read"))
+                        const NotificationBell(),
+                    ]),
+                  ),
+                  Expanded(child: bodyBuilder(context)),
+                ],
+              ),
+            );
 
             void goToIndex(int index) {
-              final target = _pathForIndex(index);
+              final target = _tabPaths[index];
               if (target != currentPath) context.go(target);
             }
 
-            final appBar = AppBar(
-              bottom: CustomerSession.isSignedIn
-                  ? const PreferredSize(
-                      preferredSize: Size.fromHeight(48),
-                      // The app bar's actions already hold a Sign out icon, so this bar hides its own.
-                      child: OrganizationToolbar(showSignOut: false))
-                  : null,
-              title: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 20)),
-                  if (session != null)
-                    Text(session,
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: DriverTheme.muted,
-                            fontWeight: FontWeight.w400)),
-                ],
-              ),
-              actions: [
-                if (CustomerSession.isSignedIn &&
-                    AuthorizationSession.can("notification.read"))
-                  const NotificationBell(),
-                if (CustomerSession.isSignedIn)
-                  IconButton(
-                    tooltip: "Sign out",
-                    onPressed: () => signOutCustomer(context),
-                    icon: const Icon(Icons.logout),
-                  ),
-                if (!kIsWeb)
-                  IconButton(
-                    tooltip: "Switch to driver",
-                    onPressed: () => context.go("/driver"),
-                    icon: const Icon(Icons.local_shipping_outlined),
-                  ),
-              ],
+            if (!CustomerSession.isSignedIn) {
+              // Signed out: no account header and no tabs, only a way back to the start screen.
+              return Scaffold(
+                backgroundColor: DriverTheme.background,
+                appBar: NvHeader.task(
+                    backLabel: "Back", onBack: () => context.go("/customer")),
+                body: SafeArea(child: page),
+              );
+            }
+
+            final appBar = signedInHeader(
+              context,
+              backLabel: currentPath == tabRoot
+                  ? null
+                  : kCustomerNavDestinations[selected].label,
+              onBack: currentPath == tabRoot ? null : () => context.go(tabRoot),
             );
 
             if (useRail) {
@@ -179,7 +177,9 @@ class CustomerScaffold extends StatelessWidget {
                           : NavigationRailLabelType.all,
                     ),
                     const VerticalDivider(width: 1),
-                    Expanded(child: SafeArea(left: false, child: page)),
+                    Expanded(
+                        child: SafeArea(
+                            left: false, child: AccessRefresh(child: page))),
                   ],
                 ),
               );
@@ -188,7 +188,7 @@ class CustomerScaffold extends StatelessWidget {
             return Scaffold(
               backgroundColor: DriverTheme.background,
               appBar: appBar,
-              body: SafeArea(child: page),
+              body: SafeArea(child: AccessRefresh(child: page)),
               bottomNavigationBar: NavigationBar(
                 selectedIndex: selected,
                 onDestinationSelected: goToIndex,
@@ -218,12 +218,22 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     });
   }
 
+  // Listens to the session: the router keeps this page when only the session changes.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: CustomerSession.listenable,
+      builder: (context, _) => _home(context));
+
+  Widget _home(BuildContext context) {
+    if (!CustomerSession.isSignedIn) {
+      return const Scaffold(body: SafeArea(child: StartScreen()));
+    }
     return CustomerScaffold(
       title: "Book freight",
       currentPath: "/customer",
       bodyBuilder: (_) => ListView(
+        // Scrolls even when short, so pulling down reloads access here too.
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(vertical: 16),
         children: [
           const Text(
@@ -237,34 +247,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             primary: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (!CustomerSession.isSignedIn)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Text(
-                              "Sign in to view your shipments and book with your org.",
-                              style: TextStyle(color: DriverTheme.muted)),
-                          const SizedBox(height: 12),
-                          FilledButton(
-                              onPressed: () => context.go("/customer/login"),
-                              child: const Text("Sign in with phone")),
-                          const SizedBox(height: 8),
-                          OutlinedButton(
-                              onPressed: () => context.go("/customer/register"),
-                              child: const Text("Register business")),
-                          const SizedBox(height: 8),
-                          OutlinedButton(
-                              onPressed: () =>
-                                  context.go("/customer/register-user"),
-                              child: const Text("Register as teammate")),
-                        ],
-                      ),
-                    ),
-                  )
-                else if (CustomerSession.isOrgAdmin)
+                if (CustomerSession.isOrgAdmin)
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -456,6 +439,8 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
       _challengeId = r.data?["challengeId"] as String?;
       _challengePhone = phone;
       _startOtpCooldown(r.data?["retryAfterMs"]);
+      SemanticsService.announce(
+          "Code sent to ${formatPhone(phone)}.", Directionality.of(context));
       final dc = r.data?["debugCode"];
       if (dc is String && dc.isNotEmpty) {
         _debugCode = dc;
@@ -499,99 +484,57 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
           ? "/customer/shipments"
           : AuthorizationSession.home);
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        final error = formatApiError(e);
+        setState(() => _error = error);
+        SemanticsService.announce(error, Directionality.of(context),
+            assertiveness: Assertiveness.assertive);
+      }
     } finally {
       if (mounted) setState(() => _verifying = false);
     }
   }
 
+  // Back to the phone step; the code request for the old number no longer applies.
+  void _changeNumber() => setState(() {
+        _challengeId = null;
+        _challengePhone = null;
+        _debugCode = null;
+        _error = null;
+        _code.clear();
+      });
+
   @override
   Widget build(BuildContext context) {
-    return CustomerScaffold(
-      title: "Sign in",
-      currentPath: "/customer/login",
-      bodyBuilder: (_) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (CustomerSession.isSignedIn) ...[
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        "Signed in as ${CustomerSession.userFullName ?? CustomerSession.userPhone ?? "this account"}.",
-                        style: const TextStyle(
-                            color: DriverTheme.muted, height: 1.4),
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton(
-                        onPressed: () => signOutCustomer(context,
-                            redirectTo: "/customer/login"),
-                        child: const Text("Sign out to use another account"),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-            const Text("Use the phone number you registered with.",
-                style: TextStyle(color: DriverTheme.muted)),
-            if (_debugCode != null) ...[
-              const SizedBox(height: 8),
-              Text("Debug OTP: $_debugCode",
-                  style:
-                      const TextStyle(fontSize: 12, color: DriverTheme.muted)),
-            ],
-            const SizedBox(height: 16),
-            TextField(
-              controller: _phone,
-              keyboardType: TextInputType.phone,
-              onChanged: _phoneChanged,
-              decoration: const InputDecoration(labelText: "Mobile number"),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: _sending || _otpCooldownSeconds > 0 ? null : _sendOtp,
-              child: _sending
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : Text(_otpCooldownSeconds > 0
-                      ? "Resend code (${_otpCooldownSeconds}s)"
-                      : _challengeId == null
-                          ? "Send code"
-                          : "Resend code"),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _code,
-              decoration: const InputDecoration(labelText: "6-digit code"),
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 8),
-              Text(_error!, style: const TextStyle(color: Colors.red)),
-            ],
-            const Spacer(),
-            FilledButton(
-              onPressed: _verifying ? null : _verify,
-              child: _verifying
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text("Verify and continue"),
-            ),
-          ],
-        ),
-      ),
+    final challengePhone = _challengePhone;
+    if (_challengeId == null || challengePhone == null) {
+      return SignInPhonePage(
+        phone: _phone,
+        sending: _sending,
+        errorText: _error,
+        onSend: _sendOtp,
+        onPhoneChanged: _phoneChanged,
+        onBack: () => context.go("/customer"),
+        shipping: true,
+        onOtherSide: () => context.go("/driver/onboarding/phone"),
+        newAccountLinks: {
+          "Register business": () => context.go("/customer/register"),
+          "Register as teammate": () => context.go("/customer/register-user"),
+        },
+      );
+    }
+    return SignInCodePage(
+      phone: formatPhone(challengePhone),
+      code: _code,
+      verifying: _verifying,
+      sendingNewCode: _sending,
+      secondsUntilNewCode: _otpCooldownSeconds,
+      errorText: _error,
+      debugCode: _debugCode,
+      onSignIn: _verify,
+      onSendNewCode: _sendOtp,
+      onChangeNumber: _changeNumber,
+      onBack: _changeNumber,
     );
   }
 }

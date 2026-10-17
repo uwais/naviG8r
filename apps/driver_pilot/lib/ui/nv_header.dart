@@ -22,11 +22,12 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
     super.key,
   }) : taskTitle = null;
 
-  /// A driver's task screen, for example Back to "Trip" with the title "E-way bills".
+  /// A driver's task screen, for example Back to "Trip" with the title "E-way bills". With no
+  /// title it is the Back bar of the signed-out sign-in screens.
   const NvHeader.task({
     required String this.backLabel,
     required VoidCallback this.onBack,
-    required String this.taskTitle,
+    this.taskTitle,
     super.key,
   })  : company = null,
         person = null,
@@ -97,7 +98,9 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
                         padding: const EdgeInsets.only(
                             left: NvSpace.s1, right: NvSpace.s2)),
                   ),
-                if (taskTitle != null)
+                if (company != null)
+                  Flexible(child: _accountButton(context))
+                else if (taskTitle != null)
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.only(left: NvSpace.s2),
@@ -110,9 +113,7 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
                                 .copyWith(color: NvColors.navyInk)),
                       ),
                     ),
-                  )
-                else
-                  Flexible(child: _accountButton(context)),
+                  ),
               ]),
             ),
           ),
