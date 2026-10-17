@@ -30,8 +30,16 @@ Finder transporterIdField() => find.widgetWithText(TextField, 'Transporter ID');
 
 Future<void> tapChange(WidgetTester tester) async {
   await tester.tap(find.text('Change transporter ID'));
+  // Two frames: one shows the field, the next moves the cursor into it.
+  await tester.pump();
   await tester.pump();
 }
+
+bool transporterIdFieldHasCursor(WidgetTester tester) => tester
+    .widget<EditableText>(find.descendant(
+        of: transporterIdField(), matching: find.byType(EditableText)))
+    .focusNode
+    .hasFocus;
 
 void main() {
   setUp(() {
@@ -84,6 +92,8 @@ void main() {
       expect(find.text('29ABCDE1234F1Z5'), findsOneWidget);
       expect(find.text('Save transporter ID'), findsNothing);
       await tapChange(tester);
+      expect(transporterIdFieldHasCursor(tester), isTrue,
+          reason: 'Change puts the cursor in the field');
       await tester.enterText(transporterIdField(), '12345');
       await tester.tap(find.text('Cancel'));
       await tester.pump();

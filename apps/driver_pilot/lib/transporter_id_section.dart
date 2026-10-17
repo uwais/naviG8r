@@ -25,6 +25,7 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
   String? _savedTransporterId = DriverSession.transporterId;
   late final _transporterId =
       TextEditingController(text: _savedTransporterId ?? '');
+  final _transporterIdFocus = FocusNode();
   // A saved ID shows as text with a Change button, so it is not edited by accident; with none saved, the field is open.
   late bool _editing = _savedTransporterId == null;
   bool _saving = false;
@@ -33,6 +34,7 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
   @override
   void dispose() {
     _transporterId.dispose();
+    _transporterIdFocus.dispose();
     super.dispose();
   }
 
@@ -103,14 +105,18 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
                     style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 12),
                 OutlinedButton(
-                    onPressed: () => setState(() => _editing = true),
+                    onPressed: () {
+                      setState(() => _editing = true);
+                      // Explicit, not autofocus: autofocus is skipped while another Profile field has the cursor.
+                      WidgetsBinding.instance.addPostFrameCallback(
+                          (_) => _transporterIdFocus.requestFocus());
+                    },
                     child: const Text('Change transporter ID')),
               ] else if (AuthorizationSession.can('transporter_id.write')) ...[
                 TextField(
                     controller: _transporterId,
                     enabled: !_saving,
-                    // Open with a saved ID only after Change, so the cursor goes where the owner just asked to type.
-                    autofocus: saved != null,
+                    focusNode: _transporterIdFocus,
                     textCapitalization: TextCapitalization.characters,
                     decoration:
                         const InputDecoration(labelText: 'Transporter ID')),

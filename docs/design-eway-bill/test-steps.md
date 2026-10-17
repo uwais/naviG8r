@@ -84,8 +84,8 @@ one that does not. 29TRNSP1234A1Z7 is the transporter ID the practice portal's T
    way, enter the truck now." Tap Copy beside the transporter ID and paste into any text field. Right: exactly 29TRNSP1234A1Z7, and "Copied transporter ID". Wrong:
    no box, or the label pasted with the value.
 9. **Both parts in one portal visit.** Tap Open the practice e-way bill portal, choose Supplier, then Generate a new
-   e-way bill. Fill every field with these values. Test before 14:30 Eastern (midnight in India): the practice portal dates the
-   bill in India time, and after that hour the app's date picker cannot reach that date on a phone set to US time.
+   e-way bill. Fill every field with these values. Test before midnight India time (14:30 Eastern through 31 Oct, 13:30 from 1 Nov): the practice
+   portal dates the bill in India time, and after that hour the app's date picker cannot reach that date on a phone set to US time.
    A.1 GSTIN of Supplier `29ABCDE1234F1Z5` (already filled in: the shipper's own, and the practice portal refuses
    any other while you are signed in as Supplier); A.2 `560099`; A.3 GSTIN of Recipient `33AAACT5678L1Z2`; A.4 `600032`; A.5 Document
    Number `SYN/2026/102`; A.6 today; A.7 `75000`; A.8 HSN `8471`; A.9 Supply; Approximate distance (km) `350`;
