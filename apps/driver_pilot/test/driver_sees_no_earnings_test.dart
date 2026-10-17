@@ -167,18 +167,24 @@ void main() {
       expect(find.textContaining('₹'), findsNothing);
     });
 
-    testWidgets('adds the amount for the office', (tester) async {
-      signInAsCarrierLogin(office: true);
+    testWidgets(
+        'shows the office each booking by its status word, with no amount (PR 7, ca-trip)',
+        (tester) async {
+      signInAsCarrierOwner();
       api.dio.httpClientAdapter =
           tripServer(shipmentOnTripA(netToCarrierPaise: 4500));
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
-      expect(find.text('Accepted · ₹45 net'), findsOneWidget);
+      expect(find.text('Accepted'), findsOneWidget,
+          reason: 'ca-trip: a status word on each booking');
+      expect(find.textContaining('₹'), findsNothing,
+          reason: 'ca-trip shows no amounts; the booking screen has them');
     });
   });
 
   group('The Profile screen', () {
     /// The screen refreshes the session first, so the server answers with the same login.
-    MockApiAdapter profileServer({required bool office}) =>
+    MockApiAdapter profileServer(
+            {required bool office, List<String> alsoAllowed = const []}) =>
         MockApiAdapter((request) => request.path == '/v1/auth/me'
             ? jsonResponse({
                 'user': {
@@ -186,7 +192,8 @@ void main() {
                   'fullName': 'Synthetic Person'
                 },
                 'organizations': [carrierOrganization],
-                'principal': carrierPrincipal(office: office),
+                'principal':
+                    carrierPrincipal(office: office, alsoAllowed: alsoAllowed),
               })
             : jsonResponse({
                 'driverProfile': {'primaryVehicleId': 'vehicle-1'},
@@ -205,16 +212,26 @@ void main() {
       signInAsCarrierLogin(office: false);
       api.dio.httpClientAdapter = profileServer(office: false);
       await mountScreen(tester, const DriverProfileScreen());
-      expect(find.text('Your vehicle'), findsOneWidget,
+      expect(find.text('Your truck'), findsOneWidget,
           reason: 'the screen loaded');
       expect(find.text('Earnings & payouts'), findsNothing);
     });
 
-    testWidgets('keeps it for the office', (tester) async {
-      signInAsCarrierLogin(office: true);
-      api.dio.httpClientAdapter = profileServer(office: true);
-      await mountScreen(tester, const DriverProfileScreen());
-      expect(find.text('Earnings & payouts'), findsOneWidget);
+    testWidgets(
+        'keeps it for the owner only, beside the bank details (PR 7: dispatchers do not see payments)',
+        (tester) async {
+      const office = ['trip.assign'];
+      const owner = [...office, 'bank_account.create_token'];
+      for (final allowed in [owner, office]) {
+        signInAsCarrierLogin(office: true, alsoAllowed: allowed);
+        api.dio.httpClientAdapter =
+            profileServer(office: true, alsoAllowed: allowed);
+        await mountScreen(
+            tester, DriverProfileScreen(key: ValueKey(allowed.length)));
+        expect(find.text('Earnings & payouts'),
+            allowed == owner ? findsOneWidget : findsNothing,
+            reason: allowed == owner ? 'owner' : 'dispatcher');
+      }
     });
   });
 
@@ -290,7 +307,8 @@ void main() {
 
     testWidgets('on the trip screen', (tester) async {
       for (final office in [false, true]) {
-        signInAsCarrierLogin(office: office);
+        // The owner, since PR 6 words the status for owners only (ca-booking-owner).
+        office ? signInAsCarrierOwner() : signInAsCarrierLogin(office: false);
         api.dio.httpClientAdapter = MockApiAdapter(
             (request) => request.path == '/v1/pilot/anchor-trips/trip-a'
                 ? jsonResponse({
@@ -304,7 +322,6 @@ void main() {
         final words = screenWords(tester);
         if (office) {
           expect(words, contains('Awaiting payment release'));
-          expect(words, contains('Payment pending'));
         } else {
           expect(words, contains('Delivery confirmed'));
           expect(paymentWords.hasMatch(words), isFalse, reason: words);

@@ -23,6 +23,8 @@ class NvField extends StatelessWidget {
     this.keyboardType,
     this.autofillHints,
     this.onChanged,
+    this.focusNode,
+    this.textCapitalization = TextCapitalization.none,
   });
 
   final String label;
@@ -64,6 +66,12 @@ class NvField extends StatelessWidget {
   final Iterable<String>? autofillHints;
   final ValueChanged<String>? onChanged;
 
+  /// For a screen that moves the cursor into the field itself.
+  final FocusNode? focusNode;
+
+  /// Characters for IDs typed in capitals, such as a transporter ID.
+  final TextCapitalization textCapitalization;
+
   @override
   Widget build(BuildContext context) {
     final disabled = disabledReason != null;
@@ -101,6 +109,8 @@ class NvField extends StatelessWidget {
           keyboardType: keyboardType,
           autofillHints: autofillHints,
           onChanged: onChanged,
+          focusNode: focusNode,
+          textCapitalization: textCapitalization,
           style: valueStyle,
           decoration: InputDecoration(
             hintText: hint,

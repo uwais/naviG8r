@@ -29,11 +29,17 @@ import "start_screen.dart";
 import "transporter_id_section.dart";
 import "trip_assignment_card.dart";
 import "ui/format.dart";
+import "ui/nv_action_bar.dart";
 import "ui/nv_button.dart";
 import "ui/nv_choice.dart";
+import "ui/nv_field.dart";
 import "ui/nv_list_card.dart";
+import "ui/nv_message.dart";
+import "ui/nv_section_card.dart";
+import "ui/nv_sheet.dart";
 import "ui/nv_status_label.dart";
 import "ui/nv_step_list.dart";
+import "ui/pending_copy.dart";
 import "ui/sign_in_code_page.dart";
 import "ui/sign_in_phone_page.dart";
 import "ui/tokens.dart";
@@ -48,11 +54,12 @@ String driverShellTitle(String path, {bool forDriver = false}) {
   if (path == "/driver") return forDriver ? "Today" : "Home";
   if (path.startsWith("/driver/shipments")) return "Bookings";
   if (path.startsWith("/driver/loads")) return "Trips";
-  if (path.startsWith("/driver/publish")) return "Publish trip";
+  if (path.startsWith("/driver/publish")) return "Publish a trip";
   if (path.startsWith("/driver/track")) return "Track";
-  if (path.startsWith("/driver/profile")) return "Profile";
+  if (path.startsWith("/driver/profile")) return forDriver ? "Profile" : "Company";
   if (path.startsWith("/driver/fleet")) return "Fleet";
-  if (path.startsWith("/driver/trip/")) return "Active trip";
+  // The office's trip screen names itself ("TRIP" over the route).
+  if (path.startsWith("/driver/trip/")) return forDriver ? "Active trip" : "";
   if (path.startsWith("/driver/shipment/")) {
     // The booking screen names itself ("BOOKING" over the shipper), so the shell adds no title there.
     return path.endsWith("/pod") ? "Confirm delivery" : "";
@@ -535,6 +542,15 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   }
 }
 
+/// The API's truck sizes in words. A typed size field once showed the codes themselves.
+const _truckSizes = [
+  NvChoice("SMALL", "Small"),
+  NvChoice("MEDIUM", "Medium"),
+  NvChoice("LARGE", "Large"),
+];
+
+const _chooseTruckSizeSentence = "Choose a truck size.";
+
 class DriverRegisterScreen extends StatefulWidget {
   const DriverRegisterScreen({super.key});
 
@@ -547,7 +563,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   final _phone = TextEditingController();
   final _org = TextEditingController();
   final _reg = TextEditingController();
-  final _vehClass = TextEditingController(text: "MEDIUM");
+  String? _truckSize;
   final _cap = TextEditingController(text: "1000");
   final _transporterId = TextEditingController();
   bool _busy = false;
@@ -558,7 +574,6 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
     _phone.dispose();
     _org.dispose();
     _reg.dispose();
-    _vehClass.dispose();
     _cap.dispose();
     _transporterId.dispose();
     super.dispose();
@@ -581,7 +596,12 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
             content: Text("Enter a positive vehicle capacity.")));
         return;
       }
-      final vc = _vehClass.text.trim().toUpperCase();
+      final vc = _truckSize;
+      if (vc == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text(_chooseTruckSizeSentence)));
+        return;
+      }
       final r = await api.post<Map<String, dynamic>>(
         "/v1/pilot/driver/register",
         data: {
@@ -643,10 +663,13 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
               controller: _reg,
               decoration: const InputDecoration(
                   labelText: "Your vehicle registration")),
-          TextField(
-              controller: _vehClass,
-              decoration: const InputDecoration(
-                  labelText: "Vehicle class (SMALL|MEDIUM|LARGE)")),
+          const SizedBox(height: NvSpace.s3),
+          NvChoiceChips<String>(
+            label: "Truck size",
+            options: _truckSizes,
+            selected: _truckSize,
+            onChanged: (size) => setState(() => _truckSize = size),
+          ),
           TextField(
               controller: _cap,
               keyboardType: TextInputType.number,
@@ -772,7 +795,7 @@ class DriverFleetInviteScreen extends StatefulWidget {
 class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
   final _phone = TextEditingController();
   final _reg = TextEditingController();
-  final _vehClass = TextEditingController(text: "MEDIUM");
+  String? _truckSize;
   final _cap = TextEditingController(text: "1000");
   String _role = "DRIVER";
   bool _loading = true;
@@ -789,7 +812,6 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
   void dispose() {
     _phone.dispose();
     _reg.dispose();
-    _vehClass.dispose();
     _cap.dispose();
     super.dispose();
   }
@@ -810,6 +832,10 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
   Future<void> _invite() async {
     final orgId = DriverSession.carrierOrgId;
     if (orgId == null) return;
+    if (_role == "DRIVER" && _truckSize == null) {
+      setState(() => _error = _chooseTruckSizeSentence);
+      return;
+    }
     setState(() {
       _inviting = true;
       _error = null;
@@ -823,7 +849,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
       if (_role == "DRIVER") {
         final cap = int.tryParse(_cap.text.trim()) ?? 0;
         payload["vehicleRegistrationNumber"] = _reg.text.trim();
-        payload["vehicleClass"] = _vehClass.text.trim().toUpperCase();
+        payload["vehicleClass"] = _truckSize;
         payload["vehicleCapacityKg"] = cap;
       }
       await api.post<Map<String, dynamic>>(
@@ -896,10 +922,13 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
                 controller: _reg,
                 decoration:
                     const InputDecoration(labelText: "Vehicle registration")),
-            TextField(
-                controller: _vehClass,
-                decoration: const InputDecoration(
-                    labelText: "Vehicle class (SMALL|MEDIUM|LARGE)")),
+            const SizedBox(height: NvSpace.s3),
+            NvChoiceChips<String>(
+              label: "Truck size",
+              options: _truckSizes,
+              selected: _truckSize,
+              onChanged: (size) => setState(() => _truckSize = size),
+            ),
             TextField(
                 controller: _cap,
                 keyboardType: TextInputType.number,
@@ -2074,6 +2103,46 @@ class _DriverShipmentDetailScreenState
       );
 }
 
+String? _nonEmpty(Object? value) =>
+    value is String && value.isNotEmpty ? value : null;
+
+enum _TripGroup { open, inTransit, done }
+
+_TripGroup? _tripGroup(Map<String, dynamic> trip) => switch (trip["status"]) {
+      "OPEN" || "FULL" => _TripGroup.open,
+      "IN_PROGRESS" => _TripGroup.inTransit,
+      "COMPLETED" => _TripGroup.done,
+      _ => null,
+    };
+
+/// The status word for a trip, or null for a status the app has no word for (never the code itself).
+NvStatusLabel? _tripStatusLabel(Map<String, dynamic>? trip) =>
+    switch (trip?["status"]) {
+      "OPEN" => const NvStatusLabel("Open", tone: NvStatusTone.good),
+      "FULL" => const NvStatusLabel("Full", tone: NvStatusTone.ended),
+      "IN_PROGRESS" =>
+        const NvStatusLabel("In transit", tone: NvStatusTone.info),
+      "COMPLETED" => const NvStatusLabel("Done", tone: NvStatusTone.ended),
+      _ => null,
+    };
+
+/// Kilograms the trip can still take, or null when the trip does not say its capacity.
+num? _roomLeftKg(Map<String, dynamic>? trip) {
+  final capacity = trip?["capacityKg"];
+  if (capacity is! num) return null;
+  final reserved = trip?["reservedKg"];
+  final room = capacity - (reserved is num ? reserved : 0);
+  return room < 0 ? 0 : room;
+}
+
+/// "Medium truck", or null for a size the app has no word for.
+String? _truckSizeWords(Object? size) =>
+    const ["SMALL", "MEDIUM", "LARGE"].contains(size)
+        ? vehicleClassLabel(size as String)
+        : null;
+
+/// ca-trips: the carrier's trips under Open, In transit and Done. A card opens its trip; Start is on the trip
+/// screen only, behind a confirm sheet, since a slip on the list once started trips.
 class DriverLoadsScreen extends StatefulWidget {
   const DriverLoadsScreen({super.key});
 
@@ -2083,14 +2152,18 @@ class DriverLoadsScreen extends StatefulWidget {
 
 class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   List<Map<String, dynamic>> _trips = [];
+  // Null when the bookings could not load: the cards then leave the count out rather than show 0.
+  Map<String, int>? _bookingCounts;
   bool _loading = false;
+  bool _loaded = false;
   String? _error;
+  _TripGroup _shown = _TripGroup.open;
 
-  /// API `vehicleClass`: All | SMALL | MEDIUM | LARGE
-  String _vehicleClass = "All";
-
-  /// API `status`: All | OPEN | FULL | IN_PROGRESS | COMPLETED
-  String _status = "All";
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   Future<void> _load() async {
     setState(() {
@@ -2099,358 +2172,141 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
     });
     try {
       await DriverSession.refresh();
-      final r = await api.get<Map<String, dynamic>>("/v1/pilot/anchor-trips");
-      final raw = r.data?["trips"];
-      final list = <Map<String, dynamic>>[];
-      if (raw is List) {
-        for (final item in raw) {
-          if (item is Map<String, dynamic>) list.add(item);
-        }
+      final response =
+          await api.get<Map<String, dynamic>>("/v1/pilot/anchor-trips");
+      final raw = response.data?["trips"];
+      final trips = raw is List
+          ? raw.whereType<Map<String, dynamic>>().toList()
+          : <Map<String, dynamic>>[];
+      // Newest first, as before.
+      trips.sort((a, b) {
+        final first = a["createdAtUtcMs"];
+        final second = b["createdAtUtcMs"];
+        return first is num && second is num ? second.compareTo(first) : 0;
+      });
+      final counts = await _bookingCountsByTrip();
+      if (mounted) {
+        setState(() {
+          _trips = trips;
+          _bookingCounts = counts;
+          _loaded = true;
+        });
       }
-      setState(() => _trips = list);
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = _listLoadFailedWords("trips", e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  int _statusRank(String status) {
-    switch (status) {
-      case "IN_PROGRESS":
-        return 0;
-      case "OPEN":
-        return 1;
-      case "FULL":
-        return 2;
-      case "COMPLETED":
-        return 3;
-      default:
-        return 4;
-    }
-  }
-
-  Future<void> _startTrip(String tripId) async {
+  static Future<Map<String, int>?> _bookingCountsByTrip() async {
     try {
-      await api
-          .post<Map<String, dynamic>>("/v1/pilot/anchor-trips/$tripId/start");
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Load started — live tracking enabled.")));
-      await _load();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_driverRefusalSentence(e))));
+      final response =
+          await api.get<Map<String, dynamic>>("/v1/pilot/carrier/shipments");
+      final raw = response.data?["shipments"];
+      if (raw is! List) return null;
+      final counts = <String, int>{};
+      for (final booking in raw.whereType<Map<String, dynamic>>()) {
+        final tripId = booking["anchorTripId"];
+        if (tripId is String &&
+            _bookingStatusesShown.contains(booking["status"])) {
+          counts[tripId] = (counts[tripId] ?? 0) + 1;
+        }
+      }
+      return counts;
+    } catch (_) {
+      return null;
     }
   }
 
-  List<Map<String, dynamic>> get _filtered {
-    var list = List<Map<String, dynamic>>.from(_trips);
-    if (_vehicleClass != "All") {
-      list = list
-          .where((t) => (t["vehicleClass"]?.toString() ?? "") == _vehicleClass)
-          .toList();
-    }
-    if (_status != "All") {
-      list = list
-          .where((t) => (t["status"]?.toString() ?? "") == _status)
-          .toList();
-    }
-    list.sort((a, b) {
-      final sa = a["status"]?.toString() ?? "";
-      final sb = b["status"]?.toString() ?? "";
-      final ra = _statusRank(sa);
-      final rb = _statusRank(sb);
-      if (ra != rb) return ra.compareTo(rb);
-      final ca = a["createdAtUtcMs"];
-      final cb = b["createdAtUtcMs"];
-      if (ca is num && cb is num) return cb.compareTo(ca);
-      return 0;
-    });
-    return list;
+  Future<void> _open(Map<String, dynamic> trip) async {
+    await context.push("/driver/trip/${trip["id"]}/active");
+    // Assigning or starting there moves the trip between groups.
+    if (mounted) _load();
   }
 
-  String _vehicleChipLabel(String apiValue) {
-    switch (apiValue) {
-      case "SMALL":
-        return "Small";
-      case "MEDIUM":
-        return "Medium";
-      case "LARGE":
-        return "Large";
-      default:
-        return apiValue;
+  String? _truckAndDriverWords(Map<String, dynamic> trip) {
+    final truck = _nonEmpty(trip["assignedTruckNumber"]);
+    final driver = _nonEmpty(trip["assignedDriverName"]);
+    if (truck != null) {
+      return "${portalTruckNumber(truck)} · ${driver ?? "No driver yet"}";
     }
+    if (_tripGroup(trip) == _TripGroup.open) {
+      return "Truck chosen when you accept the first booking";
+    }
+    return driver;
   }
 
-  String _statusChipLabel(String apiValue) {
-    return tripStatusLabel(apiValue);
+  Widget _card(Map<String, dynamic> trip) {
+    final status = _tripStatusLabel(trip);
+    final dates = _tripDates(trip);
+    final room = _roomLeftKg(trip);
+    final counts = _bookingCounts;
+    return NvListCard(
+      title: _tripRoute(trip) ?? "Trip",
+      status: status == null ? null : _cardStatus(context, status),
+      facts: [
+        if (dates != null) NvFact("Dates", dates),
+        if (room != null)
+          NvFact("Room left", room == 0 ? "None" : formatKg(room)),
+        if (counts != null) NvFact("Bookings", "${counts[trip["id"]] ?? 0}"),
+      ],
+      footnote: _truckAndDriverWords(trip),
+      onOpen: () => _open(trip),
+    );
   }
 
-  String _loadsSummary() {
-    final org = DriverSession.carrierOrgName ?? "Your carrier";
-    if (_trips.isEmpty) {
-      // On a loaded, empty list, a driver's notice under the list says what to do.
-      return DriverSession.carrierRole == "DRIVER"
-          ? org
-          : "$org · No anchor trips · tap Publish to add a lane";
-    }
-    final open = _trips.where((t) => t["status"] == "OPEN").length;
-    final full = _trips.where((t) => t["status"] == "FULL").length;
-    final active =
-        _trips.where((t) => (t["reservedKg"] as num? ?? 0) > 0).length;
-    return "$org · $open open · $full full · $active with bookings";
-  }
+  Widget _empty() => switch (_shown) {
+        _TripGroup.open => NvListEmpty(
+            title: "No open trips.",
+            help: AuthorizationSession.can("trip.publish") &&
+                    DriverSession.carrierRole != "DRIVER"
+                ? "Shippers can book space on a trip once it is published."
+                : null),
+        _TripGroup.inTransit => const NvListEmpty(title: "No trips in transit."),
+        _TripGroup.done => const NvListEmpty(title: "No finished trips yet."),
+      };
 
   @override
   Widget build(BuildContext context) {
-    final summary = _loadsSummary();
-
+    final shown = _trips.where((trip) => _tripGroup(trip) == _shown).toList();
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.fromLTRB(
+            NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: DriverTheme.border),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.search, size: 20, color: DriverTheme.muted),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: Text(summary,
-                        style: const TextStyle(
-                            color: DriverTheme.muted, fontSize: 13))),
-              ],
-            ),
+          NvChoiceChips<_TripGroup>(
+            options: const [
+              NvChoice(_TripGroup.open, "Open"),
+              NvChoice(_TripGroup.inTransit, "In transit"),
+              NvChoice(_TripGroup.done, "Done"),
+            ],
+            selected: _shown,
+            onChanged: (group) => setState(() => _shown = group),
           ),
-          const SizedBox(height: 12),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Text("Vehicle",
-                style: TextStyle(
-                    fontSize: 12,
-                    color: DriverTheme.muted,
-                    fontWeight: FontWeight.w600)),
-          ),
-          const SizedBox(height: 6),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: ["All", "SMALL", "MEDIUM", "LARGE"].map((value) {
-                final active = _vehicleClass == value;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label:
-                        Text(value == "All" ? "All" : _vehicleChipLabel(value)),
-                    selected: active,
-                    onSelected: (_) => setState(() => _vehicleClass = value),
-                    selectedColor: DriverTheme.navy,
-                    labelStyle: TextStyle(
-                        color: active ? Colors.white : DriverTheme.navy),
-                    showCheckmark: false,
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Text("Trip status",
-                style: TextStyle(
-                    fontSize: 12,
-                    color: DriverTheme.muted,
-                    fontWeight: FontWeight.w600)),
-          ),
-          const SizedBox(height: 6),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: ["All", "IN_PROGRESS", "OPEN", "FULL", "COMPLETED"]
-                  .map((value) {
-                final active = _status == value;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label:
-                        Text(value == "All" ? "All" : _statusChipLabel(value)),
-                    selected: active,
-                    onSelected: (_) => setState(() => _status = value),
-                    selectedColor: DriverTheme.navy,
-                    labelStyle: TextStyle(
-                        color: active ? Colors.white : DriverTheme.navy),
-                    showCheckmark: false,
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: Colors.red)),
+          const SizedBox(height: NvSpace.s4),
+          if (_loading && !_loaded) ...[
+            Semantics(
+                liveRegion: true,
+                child: const Text("Loading trips.", style: NvText.caption)),
+            const SizedBox(height: NvSpace.s2),
+            const NvListLoadingCard(),
+          ] else if (_error != null)
+            NvListError(title: _error!, onRetry: _load)
+          // The server shows a driver only their own trips, so for a driver none at all means none assigned yet.
+          else if (_trips.isEmpty && DriverSession.carrierRole == "DRIVER")
+            const UnassignedDriverNotice()
+          else if (shown.isEmpty)
+            _empty(),
+          for (final trip in shown) ...[
+            _card(trip),
+            const SizedBox(height: NvSpace.s3),
           ],
-          if (_loading)
-            const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator())),
-          if (!_loading && _trips.isNotEmpty && _filtered.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 24),
-              child: Text("No trips match these filters.",
-                  style: TextStyle(color: DriverTheme.muted)),
-            ),
-          if (!_loading && _error == null && _trips.isEmpty) const UnassignedDriverNotice(),
-          ..._filtered.map(
-            (t) => _LoadCard(
-              trip: t,
-              onView: () => context.push("/driver/trip/${t["id"]}/active"),
-              onStart: () => _startTrip(t["id"]?.toString() ?? ""),
-            ),
-          ),
-          const SizedBox(height: 24),
         ],
       ),
     );
-  }
-}
-
-class _LoadCard extends StatelessWidget {
-  const _LoadCard(
-      {required this.trip, required this.onView, required this.onStart});
-
-  final Map<String, dynamic> trip;
-  final VoidCallback onView;
-  final VoidCallback onStart;
-
-  @override
-  Widget build(BuildContext context) {
-    final route = "${trip["originCity"]} → ${trip["destCity"]}";
-    final cap = (trip["capacityKg"] as num?)?.toInt() ?? 0;
-    final res = (trip["reservedKg"] as num?)?.toInt() ?? 0;
-    final available = cap - res;
-    final status = trip["status"]?.toString() ?? "";
-    final vClass = trip["vehicleClass"]?.toString() ?? "";
-    final hasBookings = res > 0;
-
-    final statusLabel = tripStatusLabel(status);
-    final canStart = DriverSession.complianceApproved &&
-        AuthorizationSession.can("load.status_update") &&
-        hasBookings &&
-        status != "IN_PROGRESS" &&
-        status != "COMPLETED";
-
-    final tags = <Widget>[
-      Chip(label: Text(statusLabel), visualDensity: VisualDensity.compact),
-      Chip(label: Text(vClass), visualDensity: VisualDensity.compact),
-      if (status == "OPEN" && available > 0)
-        Chip(
-            label: Text("$available kg available"),
-            visualDensity: VisualDensity.compact),
-      if (hasBookings)
-        const Chip(
-            label: Text("Has bookings"), visualDensity: VisualDensity.compact),
-    ];
-
-    return Card(
-      margin: const EdgeInsets.only(top: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(route,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: DriverTheme.navy)),
-                ),
-                Text("$res / $cap kg",
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: DriverTheme.navy,
-                        fontSize: 13)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "${_formatVehicle(vClass)} vehicle · $res kg booked on this lane",
-              style: const TextStyle(fontSize: 12, color: DriverTheme.muted),
-            ),
-            const SizedBox(height: 8),
-            Wrap(spacing: 6, runSpacing: 6, children: tags),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _formatWindow(trip["windowStart"]?.toString()),
-                    style:
-                        const TextStyle(fontSize: 11, color: DriverTheme.muted),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (canStart) ...[
-                  OutlinedButton(
-                      onPressed: onStart, child: const Text("Start")),
-                  const SizedBox(width: 8),
-                ],
-                FilledButton(
-                  onPressed: onView,
-                  child: Text(
-                    status == "IN_PROGRESS"
-                        ? "Track"
-                        : status == "COMPLETED"
-                            ? "Summary"
-                            : hasBookings
-                                ? "View"
-                                : "View",
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  static String _formatVehicle(String v) {
-    switch (v) {
-      case "SMALL":
-        return "Small";
-      case "MEDIUM":
-        return "Medium";
-      case "LARGE":
-        return "Large";
-      default:
-        return v;
-    }
-  }
-
-  static String _formatWindow(String? iso) {
-    if (iso == null || iso.isEmpty) return "Pickup window not set";
-    // Show date portion for IST-style strings e.g. 2026-05-12T00:00:00+05:30
-    final t = iso.indexOf("T");
-    if (t > 0) return "Window from ${iso.substring(0, t)}";
-    return "Window $iso";
   }
 }
 
@@ -2528,6 +2384,8 @@ class _DriverTrackScreenState extends State<DriverTrackScreen> {
   }
 }
 
+/// ca-profile: the company's transporter ID, trucks, drivers, bank details (owner only) and team. A driver sees
+/// their name and their own truck. Signing out is in the account menu under the header.
 class DriverProfileScreen extends StatefulWidget {
   const DriverProfileScreen({super.key});
 
@@ -2536,11 +2394,13 @@ class DriverProfileScreen extends StatefulWidget {
 }
 
 class _DriverProfileScreenState extends State<DriverProfileScreen> {
-  final _reg = TextEditingController();
-  final _vehClass = TextEditingController(text: "MEDIUM");
-  final _capacity = TextEditingController();
-  bool _saving = false;
-  bool _loading = true;
+  bool _loaded = false;
+  List<Map<String, dynamic>> _fleetTrucks = [];
+  List<Map<String, dynamic>> _fleetDrivers = [];
+  bool _fleetLoaded = false;
+
+  // Holding trip.assign is what makes a login the carrier office, and what lets it read the fleet.
+  bool get _office => AuthorizationSession.can("trip.assign");
 
   @override
   void initState() {
@@ -2549,148 +2409,341 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
     await DriverSession.refresh();
     if (!mounted) return;
-    _reg.text = DriverSession.vehicleRegistrationNumber ?? "";
-    _vehClass.text = DriverSession.vehicleClass ?? "MEDIUM";
-    final cap = DriverSession.vehicleCapacityKg;
-    _capacity.text = cap != null
-        ? (cap == cap.roundToDouble() ? "${cap.round()}" : "$cap")
-        : "";
-    setState(() => _loading = false);
+    var fleetLoaded = false;
+    var trucks = <Map<String, dynamic>>[];
+    var drivers = <Map<String, dynamic>>[];
+    if (_office) {
+      try {
+        final response =
+            await api.get<Map<String, dynamic>>("/v1/pilot/carrier/fleet");
+        final rawTrucks = response.data?["vehicles"];
+        final rawDrivers = response.data?["drivers"];
+        trucks = rawTrucks is List
+            ? rawTrucks.whereType<Map<String, dynamic>>().toList()
+            : trucks;
+        drivers = rawDrivers is List
+            ? rawDrivers.whereType<Map<String, dynamic>>().toList()
+            : drivers;
+        fleetLoaded = true;
+      } catch (_) {
+        // The page reads without the fleet: the person's own truck still shows.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _fleetTrucks = trucks;
+      _fleetDrivers = drivers;
+      _fleetLoaded = fleetLoaded;
+      _loaded = true;
+    });
   }
 
-  @override
-  void dispose() {
-    _reg.dispose();
-    _vehClass.dispose();
-    _capacity.dispose();
-    super.dispose();
+  Future<void> _editOwnTruck() async {
+    final saved = await showNvSheet<bool>(
+        context: context, builder: (_) => const _TruckSheet());
+    if (saved == true && mounted) await _load();
   }
 
-  Future<void> _saveVehicle() async {
-    final reg = _reg.text.trim();
-    final vc = _vehClass.text.trim().toUpperCase();
-    final cap = double.tryParse(_capacity.text.trim());
-    if (reg.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Enter a vehicle registration number.")));
-      return;
-    }
-    if (vc != "SMALL" && vc != "MEDIUM" && vc != "LARGE") {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("vehicleClass must be SMALL, MEDIUM, or LARGE.")));
-      return;
-    }
-    if (cap == null || cap <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Enter a positive vehicle capacity.")));
-      return;
-    }
-    setState(() => _saving = true);
-    try {
-      await api.patch<Map<String, dynamic>>(
-        "/v1/pilot/me/vehicle",
-        data: {
-          "vehicleRegistrationNumber": reg,
-          "vehicleClass": vc,
-          "vehicleCapacityKg": cap,
-        },
-      );
-      await DriverSession.refresh();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Vehicle updated.")));
-      setState(() {});
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+  /// One truck: its number in the mono face and its size. Only the person's own truck opens, because the one
+  /// truck the app can change is their own (PATCH /v1/pilot/me/vehicle).
+  Widget _truckRow(String registration, Object? size, {VoidCallback? onOpen}) {
+    final sizeWords = _truckSizeWords(size);
+    final row = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: NvSpace.targetMin),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: NvSpace.s2),
+        child: Row(children: [
+          Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(portalTruckNumber(registration),
+                  style: NvText.id.copyWith(fontWeight: FontWeight.w600)),
+              if (sizeWords != null) Text(sizeWords, style: NvText.caption),
+            ]),
+          ),
+          if (onOpen != null)
+            const ExcludeSemantics(
+                child: Icon(Icons.chevron_right, color: NvColors.slate)),
+        ]),
+      ),
+    );
+    if (onOpen == null) return MergeSemantics(child: row);
+    return MergeSemantics(
+        child: Semantics(
+            button: true, child: InkWell(onTap: onOpen, child: row)));
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+  Widget _trucks() {
+    final ownId = DriverSession.vehicleId;
+    final ownRegistration = DriverSession.vehicleRegistrationNumber;
+    final rows = <Widget>[];
+    if (_fleetLoaded) {
+      for (final truck in _fleetTrucks) {
+        final registration = _nonEmpty(truck["registrationNumber"]);
+        if (registration == null) continue;
+        final own = ownId != null && truck["id"] == ownId;
+        rows.add(_truckRow(registration, truck["vehicleClass"],
+            onOpen: own ? _editOwnTruck : null));
+      }
+    } else if (ownRegistration != null && ownRegistration.isNotEmpty) {
+      rows.add(_truckRow(ownRegistration, DriverSession.vehicleClass,
+          onOpen: _editOwnTruck));
     }
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return NvSectionCard(
+      title: _office ? "Trucks (${rows.length})" : "Your truck",
       children: [
-        Card(
-          child: ListTile(
-            title: Text(DriverSession.carrierOrgName ?? "Carrier"),
-            subtitle: Text(
-                "${DriverSession.userFullName ?? "—"} · ${DriverSession.userPhone ?? "—"}"),
+        const SizedBox(height: NvSpace.s2),
+        if (rows.isEmpty) ...[
+          const Text("You have no trucks yet.", style: NvText.body),
+          if (DriverSession.canInviteDrivers)
+            const Text("A truck is added with its driver: use Add driver.",
+                style: NvText.caption),
+        ],
+        for (final (index, row) in rows.indexed) ...[
+          if (index > 0) const Divider(height: 1, color: NvColors.line),
+          row,
+        ],
+        if (_office && !_fleetLoaded) ...[
+          const SizedBox(height: NvSpace.s2),
+          const Text("Could not load your trucks and drivers.",
+              style: NvText.caption),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: NvButton(
+                label: "Try again", kind: NvButtonKind.quiet, onPressed: _load),
           ),
-        ),
-        const SizedBox(height: 16),
-        Text("Your vehicle", style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        Text(
-          "Update registration, class, or capacity for your primary truck. Changes apply to new trips and ERP writebacks.",
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        const SizedBox(height: 12),
-        TextField(
-            controller: _reg,
-            decoration:
-                const InputDecoration(labelText: "Vehicle registration")),
-        TextField(
-            controller: _vehClass,
-            decoration: const InputDecoration(
-                labelText: "Vehicle class (SMALL|MEDIUM|LARGE)")),
-        TextField(
-          controller: _capacity,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: "Vehicle capacity (kg)"),
-        ),
-        const SizedBox(height: 12),
-        FilledButton(
-          onPressed: _saving ? null : _saveVehicle,
-          child: Text(_saving ? "Saving…" : "Save vehicle"),
-        ),
-        const TransporterIdSection(),
-        const SizedBox(height: 24),
-        // A driver never sees carrier earnings (owner decision, 15 Oct 2026).
-        if (AuthorizationSession.can("payment.read"))
-          ListTile(
-            leading:
-                const Icon(Icons.payments_outlined, color: DriverTheme.navy),
-            title: const Text("Earnings & payouts"),
-            subtitle: Text("View settlement status and payment history"),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push("/driver/earnings"),
-          ),
-        ListTile(
-          leading: const Icon(Icons.add_road, color: DriverTheme.navy),
-          title: const Text("Publish anchor trip"),
-          onTap: () => context.go("/driver/publish"),
-        ),
-        if (DriverSession.canInviteDrivers)
-          ListTile(
-            leading: const Icon(Icons.groups_outlined, color: DriverTheme.navy),
-            title: const Text("Fleet — invite drivers"),
-            subtitle:
-                const Text("Add drivers or dispatchers to your carrier org"),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push("/driver/fleet"),
-          ),
-        ListTile(
-          leading: const Icon(Icons.logout, color: DriverTheme.navy),
-          title: const Text("Sign out"),
-          onTap: () async {
-            await AuthorizationSession.signOut();
-            DriverSession.clear();
-            if (context.mounted) context.go("/driver");
-          },
+        ],
+      ],
+    );
+  }
+
+  Widget _drivers() {
+    final names = _fleetDrivers
+        .map((driver) => _nonEmpty(driver["displayName"]))
+        .whereType<String>()
+        .toList();
+    return NvSectionCard(
+      title: "Drivers (${names.length})",
+      action: DriverSession.canInviteDrivers
+          ? NvButton(
+              label: "Add driver",
+              kind: NvButtonKind.secondary,
+              onPressed: () => context.push("/driver/fleet"))
+          : null,
+      children: [
+        const SizedBox(height: NvSpace.s2),
+        Text(names.isEmpty ? "No drivers yet." : names.join(" · "),
+            style: NvText.body),
+      ],
+    );
+  }
+
+  Widget _bankDetails() {
+    // The status says whether the owner has sent bank details for review (approvalStatusInWords).
+    final sent = const {"SUBMITTED", "APPROVED", "REJECTED"}
+        .contains(DriverSession.kycStatus);
+    return NvSectionCard(
+      title: "Bank details",
+      action: NvButton(
+          label: sent ? "Change bank details" : "Add bank details",
+          kind: NvButtonKind.secondary,
+          onPressed: () => context.push("/driver/payout-setup")),
+      children: [
+        const SizedBox(height: NvSpace.s2),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: NvButton(
+              label: "Earnings & payouts",
+              kind: NvButtonKind.quiet,
+              onPressed: () => context.push("/driver/earnings")),
         ),
       ],
     );
   }
+
+  Widget _team() => NvSectionCard(
+        title: "Team",
+        action: NvButton(
+            label: "Invite",
+            kind: NvButtonKind.secondary,
+            onPressed: () => context.push("/driver/fleet")),
+        children: const [
+          SizedBox(height: NvSpace.s2),
+          Text(
+              "Dispatchers accept bookings and assign drivers. They do not see payments.",
+              style: NvText.caption),
+        ],
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_loaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final phone = DriverSession.userPhone;
+    const gap = SizedBox(height: NvSpace.s4);
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(
+            NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
+        children: [
+          if (_office) ...[
+            if (DriverSession.complianceApproved)
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: NvStatusLabel("Approved by NaviG8r",
+                    tone: NvStatusTone.good),
+              ),
+            gap,
+            const TransporterIdSection(),
+            gap,
+            _trucks(),
+            gap,
+            _drivers(),
+            // Owners only: dispatchers and drivers never see bank details or payments (spec: ca-profile).
+            if (_seesPaymentAmounts) ...[gap, _bankDetails()],
+            if (DriverSession.canInviteDrivers) ...[gap, _team()],
+          ] else ...[
+            NvSectionCard(title: DriverSession.userFullName ?? "You", children: [
+              if (phone != null && phone.isNotEmpty)
+                Text(formatPhone(phone), style: NvText.body),
+              if (DriverSession.carrierOrgName != null)
+                Text(DriverSession.carrierOrgName!, style: NvText.caption),
+            ]),
+            gap,
+            _trucks(),
+            gap,
+            // Drivers have no Publish tab; this was, and stays, their way to it.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: NvButton(
+                  label: "Publish a trip",
+                  kind: NvButtonKind.secondary,
+                  onPressed: () => context.go("/driver/publish")),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// ca-vehicle-sheet: the person's own truck. The size is a choice, not a typed code. Removing a truck is not
+/// offered: the API has no way to do it.
+class _TruckSheet extends StatefulWidget {
+  const _TruckSheet();
+
+  @override
+  State<_TruckSheet> createState() => _TruckSheetState();
+}
+
+class _TruckSheetState extends State<_TruckSheet> {
+  final _registration =
+      TextEditingController(text: DriverSession.vehicleRegistrationNumber ?? "");
+  // The saved size, so the sheet shows the truck as it is.
+  String? _size = const ["SMALL", "MEDIUM", "LARGE"]
+          .contains(DriverSession.vehicleClass)
+      ? DriverSession.vehicleClass
+      : null;
+  final _capacity = TextEditingController(text: switch (DriverSession.vehicleCapacityKg) {
+    null => "",
+    final kg => kg == kg.roundToDouble() ? "${kg.round()}" : "$kg",
+  });
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _registration.dispose();
+    _capacity.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final registration = _registration.text.trim();
+    final capacity = double.tryParse(_capacity.text.trim());
+    final size = _size;
+    final String? problem;
+    if (registration.isEmpty) {
+      problem = "Enter the registration number.";
+    } else if (size == null) {
+      problem = _chooseTruckSizeSentence;
+    } else if (capacity == null || capacity <= 0) {
+      problem = "Enter the capacity in kg.";
+    } else {
+      problem = null;
+    }
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await api.patch<Map<String, dynamic>>(
+        "/v1/pilot/me/vehicle",
+        data: {
+          "vehicleRegistrationNumber": registration,
+          "vehicleClass": size,
+          "vehicleCapacityKg": capacity,
+        },
+      );
+      if (!mounted) return;
+      closeNvSheetAfterSuccess<bool>(context,
+          announcement: "Truck saved.", result: true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = ewayBillErrorSentence(e);
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => NvSheet(
+        title: "Truck",
+        errorText: _error,
+        choices: [
+          NvField(
+            label: "Registration number",
+            controller: _registration,
+            identifier: true,
+            textCapitalization: TextCapitalization.characters,
+            help:
+                "As on the registration certificate. Spaces are removed for the e-way bill.",
+          ),
+          const SizedBox(height: NvSpace.s2),
+          NvChoiceRows<String>(
+            label: "Truck size",
+            options: [
+              for (final size in _truckSizes)
+                NvChoice(size.value, size.label,
+                    caption: PendingCopy.truckSizeGuide),
+            ],
+            selected: _size,
+            onChanged: (size) => setState(() => _size = size),
+          ),
+          const SizedBox(height: NvSpace.s2),
+          NvField(
+            label: "Capacity",
+            controller: _capacity,
+            unit: "kg",
+            keyboardType: TextInputType.number,
+          ),
+        ],
+        primaryLabel: "Save truck",
+        onPrimary: _save,
+        loading: _saving,
+        loadingLabel: "Saving",
+      );
 }
 
 /// What a driver reads when the office has given their trip to someone else since they opened it.
@@ -2850,8 +2903,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       if (t is Map<String, dynamic>) setState(() => _trip = t);
       if (!mounted) return;
       if (_posSub == null) await _startLocation();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Load started.")));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              "Trip started. Shippers are told their goods are on the way.")));
     } catch (e) {
       if (!mounted) return;
       if (_answeredTripNoLongerAssigned(e)) {
@@ -2863,6 +2918,33 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           .showSnackBar(SnackBar(content: Text(formatApiError(e))));
     } finally {
       if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  List<Map<String, dynamic>> get _acceptedBookings => _shipments
+      .where((shipment) => shipment["status"] == "BOOKED")
+      .toList();
+
+  /// ca-start: nothing is sent until the sheet's Start trip, since a slip on the old list started trips.
+  Future<void> _confirmStart() async {
+    final trip = _trip;
+    if (trip == null) return;
+    final missingTruck = _acceptedBookings.where(_truckMissingFromBill).toList();
+    final choice = await showNvSheet<_StartChoice>(
+        context: context,
+        builder: (_) => _StartTripSheet(
+            trip: trip,
+            accepted: _acceptedBookings,
+            missingTruck: missingTruck));
+    if (!mounted) return;
+    switch (choice) {
+      case _StartChoice.start:
+        await _startTrip();
+      case _StartChoice.addTruck:
+        await context.push("/driver/shipment/${missingTruck.first["id"]}");
+        if (mounted) await _load();
+      case null:
+        return;
     }
   }
 
@@ -2919,7 +3001,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         });
         return;
       }
-      setState(() => _error = formatApiError(e));
+      setState(() => _error = _listLoadFailedWords("this trip", e));
     }
 
     try {
@@ -2936,13 +3018,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       }
       if (mounted) setState(() => _shipments = ships);
     } catch (e) {
-      final msg = formatApiError(e);
       if (mounted) {
         setState(() {
           _shipments = [];
-          _error = _error == null
-              ? "$msg\n(Shipment list needs API deploy — merge driver-onboarding PR.)"
-              : _error;
+          _error ??= _listLoadFailedWords("the bookings on this trip", e);
         });
       }
     } finally {
@@ -2951,8 +3030,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     if (mounted && _trip?["status"]?.toString() == "COMPLETED") {
       _stopLocationSharing();
     }
-    await _geocodeTripCitiesIfNeeded();
+    // Only the driver's view has the map these places are for.
+    if (_forDriver) await _geocodeTripCitiesIfNeeded();
   }
+
+  bool get _forDriver => DriverSession.carrierRole == "DRIVER";
 
   bool get _hasActiveShipments => _shipments.any((s) {
         final st = s["status"]?.toString() ?? "";
@@ -3021,6 +3103,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         _shipments.any((s) => s["status"]?.toString() == "BOOKED");
     final canCompleteLoad =
         tripStarted && _shipments.isNotEmpty && !_hasActiveShipments;
+    if (!_forDriver) {
+      return _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _officeView(trip, canComplete: canCompleteLoad);
+    }
     final pts = _resolvedMapPoints();
     Map<String, dynamic>? next;
     for (final s in _shipments) {
@@ -3100,7 +3187,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                                 !DriverSession.complianceApproved ||
                                 !AuthorizationSession.can("load.status_update")
                             ? null
-                            : _startTrip,
+                            : _confirmStart,
                         child: _starting
                             ? const SizedBox(
                                 width: 22,
@@ -3219,6 +3306,236 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               ),
             ],
           );
+  }
+
+  /// Why the office cannot start the trip yet, or null when it can (copy.md, "Start (disabled)").
+  String? _startBlockedReason(Map<String, dynamic> trip) {
+    if (!DriverSession.complianceApproved) {
+      return "NaviG8r has not approved this carrier yet.";
+    }
+    if (_acceptedBookings.isEmpty) return "Accept a booking on this trip first.";
+    if (_nonEmpty(trip["assignedDriverUserId"]) == null) {
+      return "Assign a driver first. Then start on loading day.";
+    }
+    return null;
+  }
+
+  Widget _tripSummary(Map<String, dynamic> trip) {
+    final status = _tripStatusLabel(trip);
+    final details = [
+      if (_tripDates(trip) != null) _tripDates(trip)!,
+      if (_truckSizeWords(trip["vehicleClass"]) != null)
+        _truckSizeWords(trip["vehicleClass"])!,
+    ];
+    final room = _roomLeftKg(trip);
+    final capacity = trip["capacityKg"];
+    return Container(
+      padding: const EdgeInsets.all(NvSpace.s4),
+      decoration: BoxDecoration(
+        color: NvColors.card,
+        borderRadius: BorderRadius.circular(NvRadius.card),
+        border: Border.all(color: NvColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("TRIP", style: NvText.label),
+          const SizedBox(height: NvSpace.s1),
+          Semantics(
+              header: true,
+              child: Text(_tripRoute(trip) ?? "Trip", style: NvText.title)),
+          const SizedBox(height: NvSpace.s2),
+          Wrap(
+            spacing: NvSpace.s2,
+            runSpacing: NvSpace.s1,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (status != null) status,
+              if (details.isNotEmpty)
+                Text(details.join(" · "), style: NvText.caption),
+            ],
+          ),
+          if (room != null && capacity is num) ...[
+            const SizedBox(height: NvSpace.s2),
+            Text.rich(
+              TextSpan(children: [
+                TextSpan(
+                    text: "Room left: ${formatKg(room)}",
+                    style: NvText.bodyStrong),
+                TextSpan(text: " of ${formatKg(capacity)}"),
+              ]),
+              style: NvText.body,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _bookingOnTrip(
+      Map<String, dynamic> booking, Map<String, dynamic>? trip) {
+    final status = _bookingStatus(booking, trip);
+    final pickup = booking["pickupAddress"]?.toString() ?? "";
+    final drop = booking["dropAddress"]?.toString() ?? "";
+    final weight = _weightWords(booking);
+    return NvListCard(
+      title: [_shipperName(booking), if (weight != null) weight].join(" · "),
+      subtitle: pickup.isEmpty || drop.isEmpty ? null : "$pickup to $drop",
+      status: status == null
+          ? null
+          : _cardStatus(context, NvStatusLabel(status.$1, tone: status.$2)),
+      onOpen: () async {
+        await context.push("/driver/shipment/${booking["id"]}");
+        if (mounted) await _load();
+      },
+    );
+  }
+
+  /// ca-trip: the trip, its truck and driver, its bookings, and Start (or Complete) held at the bottom so it is
+  /// visible without scrolling. No map: on the office's phone the map's own dot is the office, not the truck.
+  Widget _officeView(Map<String, dynamic>? trip, {required bool canComplete}) {
+    final status = trip?["status"];
+    final bookings = _shipments
+        .where((booking) => _bookingStatusesShown.contains(booking["status"]))
+        .toList();
+    final mayStart = trip != null &&
+        (status == "OPEN" || status == "FULL") &&
+        AuthorizationSession.can("load.status_update");
+    final startBlocked = trip == null ? null : _startBlockedReason(trip);
+    const gap = SizedBox(height: NvSpace.s4);
+    return Column(children: [
+      Expanded(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(
+                NvSpace.gutter, NvSpace.s2, NvSpace.gutter, NvSpace.s6),
+            children: [
+              if (_error != null) ...[
+                NvMessage(_error!, tone: NvMessageTone.problem),
+                gap,
+              ],
+              if (trip != null) ...[
+                _tripSummary(trip),
+                gap,
+                TripAssignmentCard(
+                  key: ValueKey(trip["id"]),
+                  trip: trip,
+                  tripInWords: _tripInWords(trip),
+                  onAssigned: (saved) => setState(() => _trip = saved),
+                  onAddDriver: DriverSession.canInviteDrivers
+                      ? () => context.push("/driver/fleet")
+                      : null,
+                ),
+                gap,
+              ],
+              if (bookings.isNotEmpty) ...[
+                Semantics(
+                    header: true,
+                    child: Text("Bookings on this trip (${bookings.length})",
+                        style: NvText.heading)),
+                const SizedBox(height: NvSpace.s3),
+                for (final booking in bookings) ...[
+                  _bookingOnTrip(booking, trip),
+                  const SizedBox(height: NvSpace.s3),
+                ],
+              ],
+              if (status == "COMPLETED")
+                const NvMessage(
+                    "All deliveries confirmed. GPS sharing has stopped.",
+                    tone: NvMessageTone.good),
+            ],
+          ),
+        ),
+      ),
+      if (mayStart)
+        NvActionBar(
+          child: NvButton(
+            label: "Start trip",
+            onPressed: startBlocked == null ? _confirmStart : null,
+            disabledReason: startBlocked,
+            loading: _starting,
+            loadingLabel: "Starting",
+            fullWidth: true,
+          ),
+        )
+      else if (canComplete && AuthorizationSession.can("load.status_update"))
+        NvActionBar(
+          child: NvButton(
+            label: "Complete trip",
+            onPressed: _completeLoad,
+            loading: _completing,
+            loadingLabel: "Completing",
+            fullWidth: true,
+          ),
+        ),
+    ]);
+  }
+}
+
+enum _StartChoice { start, addTruck }
+
+/// "Start [route] now?": what starting the trip takes on the road, and a warning for each accepted booking whose
+/// e-way bill does not have the truck yet. Closes with the choice; the screen then starts the trip.
+class _StartTripSheet extends StatelessWidget {
+  const _StartTripSheet(
+      {required this.trip, required this.accepted, required this.missingTruck});
+  final Map<String, dynamic> trip;
+  final List<Map<String, dynamic>> accepted;
+  final List<Map<String, dynamic>> missingTruck;
+
+  Widget _fact(String label, String value, {bool identifier = false}) =>
+      MergeSemantics(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: NvSpace.s2),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: NvText.body.copyWith(color: NvColors.slate)),
+            const SizedBox(width: NvSpace.s3),
+            Expanded(
+                child: Text(value,
+                    textAlign: TextAlign.end,
+                    style: identifier
+                        ? NvText.id.copyWith(fontWeight: FontWeight.w600)
+                        : NvText.bodyStrong)),
+          ]),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final truck = _nonEmpty(trip["assignedTruckNumber"]);
+    final totalKg = accepted
+        .map((booking) => booking["weightKg"])
+        .whereType<num>()
+        .fold<num>(0, (sum, kg) => sum + kg);
+    final canAddTruck = missingTruck.isNotEmpty &&
+        AuthorizationSession.can("eway_bill.add_truck");
+    return NvSheet(
+      title: "Start ${_tripRoute(trip) ?? "this trip"} now?",
+      choices: [
+        _fact("Truck", truck == null ? "Not assigned" : portalTruckNumber(truck),
+            identifier: truck != null),
+        const Divider(height: 1, color: NvColors.line),
+        _fact("Driver", _nonEmpty(trip["assignedDriverName"]) ?? "Not assigned"),
+        const Divider(height: 1, color: NvColors.line),
+        _fact("Bookings", "${accepted.length} · ${formatKg(totalKg)}"),
+        for (final booking in missingTruck)
+          NvMessage("Add it on the portal before these goods move.",
+              title:
+                  "${_shipperName(booking)}'s e-way bill does not have the truck yet.",
+              tone: NvMessageTone.attention),
+      ],
+      primaryLabel: "Start trip",
+      onPrimary: () => Navigator.of(context).pop(_StartChoice.start),
+      secondaryLabel: canAddTruck ? "Add the truck first" : null,
+      onSecondary: canAddTruck
+          ? () => Navigator.of(context).pop(_StartChoice.addTruck)
+          : null,
+      cancelLabel: "Not yet",
+      footer: const Text("Starting tells each shipper their goods are on the way.",
+          style: NvText.caption),
+    );
   }
 }
 
@@ -3637,6 +3954,17 @@ SnackBar tripPublishedMessage() => DriverSession.carrierRole == "DRIVER"
             "Trip published. Your carrier must assign it to a driver. You will see it under Loads only if it is assigned to you."))
     : const SnackBar(content: Text("Trip published."));
 
+/// Where a pin starts before the place is known: the map needs a starting point, and Publish refuses until the
+/// person has searched for the place or dragged its pin.
+const _pinNotPlacedYet = LatLng(22.5, 79.0);
+
+/// The calendar day in India today.
+DateTime _todayInIndia() {
+  final india = DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+  return DateTime.utc(india.year, india.month, india.day);
+}
+
+/// ca-publish: every field starts empty, the truck size is a choice, and Publish stays visible at the bottom.
 class DriverPublishTripScreen extends StatefulWidget {
   const DriverPublishTripScreen({super.key});
 
@@ -3646,21 +3974,21 @@ class DriverPublishTripScreen extends StatefulWidget {
 }
 
 class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
-  final _origin = TextEditingController(text: "Gurugram, Haryana");
-  final _dest = TextEditingController(text: "Jaipur, Rajasthan");
-  LatLng _originPos = const LatLng(28.4595, 77.0266);
-  LatLng _destPos = const LatLng(26.9124, 75.7873);
-  final _w1 = TextEditingController();
-  final _w2 = TextEditingController();
-  final _vehClass = TextEditingController(text: "MEDIUM");
-  final _cap = TextEditingController(text: "1000");
+  final _origin = TextEditingController();
+  final _dest = TextEditingController();
+  LatLng? _originPos;
+  LatLng? _destPos;
+  // Calendar days in India, held as midnight UTC.
+  DateTime? _leaves;
+  DateTime? _arrivesBy;
+  String? _truckSize;
+  final _room = TextEditingController();
   bool _submitting = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    defaultAnchorTripWindow(_w1, _w2);
     DriverSession.refresh();
   }
 
@@ -3668,14 +3996,56 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   void dispose() {
     _origin.dispose();
     _dest.dispose();
-    _w1.dispose();
-    _w2.dispose();
-    _vehClass.dispose();
-    _cap.dispose();
+    _room.dispose();
     super.dispose();
   }
 
+  Future<void> _chooseDay({required bool leaves}) async {
+    final today = _todayInIndia();
+    final earliest = leaves ? today : (_leaves ?? today);
+    final current = leaves ? _leaves : _arrivesBy;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate:
+          current != null && !current.isBefore(earliest) ? current : earliest,
+      firstDate: earliest,
+      lastDate: today.add(const Duration(days: 365)),
+    );
+    if (picked == null || !mounted) return;
+    final day = DateTime.utc(picked.year, picked.month, picked.day);
+    setState(() {
+      if (leaves) {
+        _leaves = day;
+        // An arrival before the new departure no longer makes sense.
+        if (_arrivesBy != null && _arrivesBy!.isBefore(day)) _arrivesBy = null;
+      } else {
+        _arrivesBy = day;
+      }
+    });
+  }
+
+  /// What is missing before the trip can be published, or null.
+  String? _missing() {
+    if (_origin.text.trim().isEmpty || _originPos == null) {
+      return "Search for the From place, or drag its pin, so shippers can find this trip.";
+    }
+    if (_dest.text.trim().isEmpty || _destPos == null) {
+      return "Search for the To place, or drag its pin, so shippers can find this trip.";
+    }
+    if (_leaves == null) return "Choose the day the trip leaves.";
+    if (_arrivesBy == null) return "Choose the day the trip arrives by.";
+    if (_truckSize == null) return _chooseTruckSizeSentence;
+    final room = int.tryParse(_room.text.trim()) ?? 0;
+    if (room <= 0) return "Enter the room for shippers in kg.";
+    return null;
+  }
+
   Future<void> _submit() async {
+    final missing = _missing();
+    if (missing != null) {
+      setState(() => _error = missing);
+      return;
+    }
     setState(() {
       _submitting = true;
       _error = null;
@@ -3689,17 +4059,13 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
             () => _error = "Sign in and complete carrier registration first.");
         return;
       }
-      final cap = int.tryParse(_cap.text.trim()) ?? 0;
-      if (cap <= 0) {
-        setState(() => _error = "capacityKg must be a positive number.");
-        return;
-      }
-      final vc = _vehClass.text.trim().toUpperCase();
-      if (vc != "SMALL" && vc != "MEDIUM" && vc != "LARGE") {
-        setState(
-            () => _error = "vehicleClass must be SMALL, MEDIUM, or LARGE.");
-        return;
-      }
+      const india = Duration(hours: 5, minutes: 30);
+      // The whole of both days, in India time, as the pickup window always was.
+      final windowStart = _leaves!.subtract(india);
+      final windowEnd = _arrivesBy!
+          .add(const Duration(days: 1))
+          .subtract(india)
+          .subtract(const Duration(seconds: 1));
       await api.post<Map<String, dynamic>>(
         "/v1/pilot/anchor-trips",
         data: {
@@ -3707,105 +4073,129 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
           "originCity": _origin.text.trim(),
           "destCity": _dest.text.trim(),
           "origin": {
-            "lat": _originPos.latitude,
-            "lng": _originPos.longitude,
+            "lat": _originPos!.latitude,
+            "lng": _originPos!.longitude,
             "label": _origin.text.trim()
           },
           "destination": {
-            "lat": _destPos.latitude,
-            "lng": _destPos.longitude,
+            "lat": _destPos!.latitude,
+            "lng": _destPos!.longitude,
             "label": _dest.text.trim()
           },
-          "windowStart": _w1.text.trim(),
-          "windowEnd": _w2.text.trim(),
-          "vehicleClass": vc,
-          "capacityKg": cap,
+          "windowStart": formatIstIsoFromUtc(windowStart),
+          "windowEnd": formatIstIsoFromUtc(windowEnd),
+          "vehicleClass": _truckSize,
+          "capacityKg": int.parse(_room.text.trim()),
         },
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(tripPublishedMessage());
       context.go("/driver/loads");
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = ewayBillErrorSentence(e));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
 
+  Widget _day(String label, DateTime? day, {required bool leaves}) =>
+      MergeSemantics(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(label, style: NvText.bodyStrong),
+            const SizedBox(height: 6),
+            NvButton(
+              label: day == null
+                  ? "Choose a date"
+                  : formatDate(day, withYear: true),
+              kind: NvButtonKind.secondary,
+              onPressed: () => _chooseDay(leaves: leaves),
+              fullWidth: true,
+            ),
+          ],
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text(
-          DriverSession.carrierOrgName ?? "Your carrier",
-          style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              color: DriverTheme.navy,
-              fontSize: 18),
+    const gap = SizedBox(height: NvSpace.s4);
+    return Column(children: [
+      Expanded(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+              NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
+          children: [
+            const Text("Shippers can book space on it once it is published.",
+                style: NvText.body),
+            gap,
+            LocationEndpointEditor(
+              title: "From",
+              hint: "City or area",
+              labelController: _origin,
+              markerId: "pub_origin",
+              markerHue: BitmapDescriptor.hueOrange,
+              position: _originPos ?? _pinNotPlacedYet,
+              onPositionChanged: (p) => setState(() => _originPos = p),
+            ),
+            gap,
+            LocationEndpointEditor(
+              title: "To",
+              hint: "City or area",
+              labelController: _dest,
+              markerId: "pub_dest",
+              markerHue: BitmapDescriptor.hueAzure,
+              position: _destPos ?? _pinNotPlacedYet,
+              onPositionChanged: (p) => setState(() => _destPos = p),
+            ),
+            gap,
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(child: _day("Leaves", _leaves, leaves: true)),
+              const SizedBox(width: NvSpace.s3),
+              Expanded(
+                  child: _day("Arrives by", _arrivesBy, leaves: false)),
+            ]),
+            gap,
+            NvChoiceChips<String>(
+              label: "Truck size",
+              options: _truckSizes,
+              selected: _truckSize,
+              onChanged: (size) => setState(() => _truckSize = size),
+            ),
+            gap,
+            NvField(
+              label: "Room for shippers",
+              controller: _room,
+              unit: "kg",
+              keyboardType: TextInputType.number,
+              help: "The weight you can carry for shippers on this trip.",
+            ),
+            const SizedBox(height: NvSpace.s3),
+            const Text("You choose the truck when you accept the first booking.",
+                style: NvText.caption),
+          ],
         ),
-        const SizedBox(height: 8),
-        const Text(
-          "Publish an anchor lane customers can book against. Set origin and destination on the map.",
-          style: TextStyle(color: DriverTheme.muted, height: 1.35),
+      ),
+      NvActionBar(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_error != null) ...[
+              NvMessage(_error!, tone: NvMessageTone.problem),
+              const SizedBox(height: NvSpace.s3),
+            ],
+            NvButton(
+              label: "Publish trip",
+              onPressed: _submit,
+              loading: _submitting,
+              loadingLabel: "Publishing",
+              fullWidth: true,
+            ),
+          ],
         ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: () => setState(() => defaultAnchorTripWindow(_w1, _w2)),
-          icon: const Icon(Icons.schedule),
-          label: const Text("Reset pickup window (today–tomorrow, IST)"),
-        ),
-        const SizedBox(height: 12),
-        LocationEndpointEditor(
-          title: "Origin",
-          hint: "Origin city or area",
-          labelController: _origin,
-          markerId: "pub_origin",
-          markerHue: BitmapDescriptor.hueOrange,
-          position: _originPos,
-          onPositionChanged: (p) => setState(() => _originPos = p),
-        ),
-        const SizedBox(height: 16),
-        LocationEndpointEditor(
-          title: "Destination",
-          hint: "Destination city or area",
-          labelController: _dest,
-          markerId: "pub_dest",
-          markerHue: BitmapDescriptor.hueAzure,
-          position: _destPos,
-          onPositionChanged: (p) => setState(() => _destPos = p),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-            controller: _w1,
-            decoration: const InputDecoration(labelText: "windowStart (ISO)")),
-        TextField(
-            controller: _w2,
-            decoration: const InputDecoration(labelText: "windowEnd (ISO)")),
-        TextField(
-            controller: _vehClass,
-            decoration: const InputDecoration(
-                labelText: "vehicleClass (SMALL|MEDIUM|LARGE)")),
-        TextField(
-            controller: _cap,
-            decoration: const InputDecoration(labelText: "capacityKg"),
-            keyboardType: TextInputType.number),
-        if (_error != null) ...[
-          const SizedBox(height: 8),
-          Text(_error!, style: const TextStyle(color: Colors.red)),
-        ],
-        const SizedBox(height: 16),
-        FilledButton(
-          onPressed: _submitting ? null : _submit,
-          child: _submitting
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2))
-              : const Text("Publish trip"),
-        ),
-      ],
-    );
+      ),
+    ]);
   }
 }
 

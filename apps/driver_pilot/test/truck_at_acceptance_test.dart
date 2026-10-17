@@ -297,7 +297,7 @@ void main() {
     });
 
     testWidgets(
-        'and so does the trip screen, whose Truck and driver card then shows that truck',
+        'but not on the trip screen, which since PR 7 lists the booking by its status and opens it there',
         (tester) async {
       signInAs(office: true);
       final requests = answer(fleet: {
@@ -307,21 +307,11 @@ void main() {
         ],
       });
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
-      await tester.tap(find.widgetWithText(TextButton, 'Accept'));
-      await tester.pumpAndSettle();
-      expect(find.text(sheetTitle), findsOneWidget);
-      await tester.tap(inSheet(find.text('KA02XY9999')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Accept with KA02XY9999'));
-      await tester.pumpAndSettle();
-      expect(requests.acceptBodies, [
-        {'vehicleId': 'vehicle-2'}
-      ]);
-      final truckPicker = tester.widget<DropdownButton<String>>(find.descendant(
-          of: find.widgetWithText(InputDecorator, 'Truck'),
-          matching: find.byType(DropdownButton<String>)));
-      expect(truckPicker.value, 'vehicle-2',
-          reason: 'the reloaded trip names the truck, so the picker shows it');
+      expect(find.text('Accept'), findsNothing,
+          reason: 'ca-trip: booking rows carry no buttons');
+      expect(find.text('Waiting for you'), findsOneWidget,
+          reason: 'the booking row says it waits for the office');
+      expect(requests.acceptBodies, isEmpty);
     });
   });
 

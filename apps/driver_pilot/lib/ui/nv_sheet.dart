@@ -47,6 +47,9 @@ class NvSheet extends StatelessWidget {
       this.loadingLabel,
       this.cancelLabel = "Cancel",
       this.onCancel,
+      this.secondaryLabel,
+      this.onSecondary,
+      this.footer,
       super.key});
 
   /// A question, for example "Which truck carries this trip?"
@@ -69,6 +72,14 @@ class NvSheet extends StatelessWidget {
 
   /// Defaults to closing the sheet.
   final VoidCallback? onCancel;
+
+  /// A second way forward between the primary and Cancel, for example "Add the truck first".
+  /// Shown only with [onSecondary].
+  final String? secondaryLabel;
+  final VoidCallback? onSecondary;
+
+  /// Under Cancel: a closing note or a quiet side path, for example "Add a driver to your company".
+  final Widget? footer;
 
   @override
   Widget build(BuildContext context) {
@@ -124,6 +135,15 @@ class NvSheet extends StatelessWidget {
             loadingLabel: loadingLabel,
             fullWidth: true,
           ),
+          if (secondaryLabel != null && onSecondary != null) ...[
+            const SizedBox(height: NvSpace.s3),
+            // An OutlinedButton for the same reason as Cancel below: it is held while the action runs.
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(minimumSize: fullWidth),
+              onPressed: loading ? null : onSecondary,
+              child: Text(secondaryLabel!, textAlign: TextAlign.center),
+            ),
+          ],
           const SizedBox(height: NvSpace.s3),
           // Not an NvButton: Cancel is held while the action runs, and NvButton requires a
           // reason line for every disabled state, which copy.md does not give for this one.
@@ -134,6 +154,10 @@ class NvSheet extends StatelessWidget {
                 : (onCancel ?? () => Navigator.of(context).maybePop()),
             child: Text(cancelLabel, textAlign: TextAlign.center),
           ),
+          if (footer != null) ...[
+            const SizedBox(height: NvSpace.s4),
+            footer!,
+          ],
         ],
       ),
     );

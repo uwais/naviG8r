@@ -180,6 +180,11 @@ void main() {
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
       await tester.tap(find.text('Start load'));
       await tester.pumpAndSettle();
+      // PR 7: Start opens the confirm sheet first; its Start trip sends the request.
+      expect(refused, isFalse, reason: 'nothing is sent before the sheet');
+      await tester.tap(find.descendant(
+          of: find.byType(BottomSheet), matching: find.text('Start trip')));
+      await tester.pumpAndSettle();
       expect(find.text(tripNoLongerYours), findsOneWidget,
           reason: 'on screen, with no snack bar repeating it');
       for (final stale in ['Load not started', 'Start load']) {
