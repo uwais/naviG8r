@@ -10,8 +10,7 @@ import "access_refresh.dart";
 import "authorization_session.dart";
 import "shipment_payment_status.dart";
 import "eway_bill_card.dart";
-import "eway_bill_dates.dart";
-import "eway_bill_words.dart";
+import "eway_bill_portal_link.dart";
 import "google_geocoding.dart";
 import "customer_checkout.dart";
 import "customer_layout.dart";
@@ -33,6 +32,7 @@ import "ui/nv_map.dart";
 import "ui/nv_message.dart";
 import "ui/nv_sheet.dart";
 import "ui/nv_status_label.dart";
+import "ui/nv_step_list.dart";
 import "ui/pending_copy.dart";
 import "ui/sign_in_code_page.dart";
 import "ui/sign_in_phone_page.dart";
@@ -235,6 +235,7 @@ class CustomerHomeScreen extends StatefulWidget {
 
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   List<Map<String, dynamic>> _shipments = [];
+  Map<String, Map<String, dynamic>> _lanesById = {};
   bool _shipmentsFailed = false;
   int _unreadUpdates = 0;
 
@@ -248,7 +249,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
   Future<void> _load() async {
     if (!CustomerSession.isSignedIn) return;
-    await Future.wait([_loadShipments(), _loadUnreadUpdates()]);
+    await Future.wait([_loadShipments(), _loadUnreadUpdates(), _loadLanes()]);
   }
 
   Future<void> _loadShipments() async {
@@ -265,6 +266,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     } catch (_) {
       if (mounted) setState(() => _shipmentsFailed = true);
     }
+  }
+
+  Future<void> _loadLanes() async {
+    final lanesById = await loadLanesById();
+    if (mounted) setState(() => _lanesById = lanesById);
   }
 
   Future<void> _loadUnreadUpdates() async {
@@ -297,7 +303,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     String? task;
     for (final shipment in _shipments) {
       task = shipperTaskFor(shipment,
-          canWriteBill: canWriteBill, canAddTruck: canAddTruck);
+          canWriteBill: canWriteBill,
+          canAddTruck: canAddTruck,
+          tripStatus:
+              laneOfShipment(shipment, _lanesById)?["status"]?.toString());
       if (task != null && (shipment["id"]?.toString() ?? "").isNotEmpty) {
         taskShipment = shipment;
         break;
@@ -319,7 +328,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           padding: const EdgeInsets.symmetric(vertical: NvSpace.s2),
           children: [
             if (taskShipment != null) ...[
-              _NeedsYouCard(task: task!, shipment: taskShipment),
+              _NeedsYouCard(
+                  task: task!,
+                  shipment: taskShipment,
+                  lane: laneOfShipment(taskShipment, _lanesById)),
               const SizedBox(height: NvSpace.s6),
             ],
             if (_shipmentsFailed) ...[
@@ -401,14 +413,16 @@ String _shipmentCount(int count) =>
 
 /// The one task waiting on the shipper, with the button that opens its shipment.
 class _NeedsYouCard extends StatelessWidget {
-  const _NeedsYouCard({required this.task, required this.shipment});
+  const _NeedsYouCard(
+      {required this.task, required this.shipment, required this.lane});
   final String task;
   final Map<String, dynamic> shipment;
+  final Map<String, dynamic>? lane;
 
   // Who did what, in the shipment step's own words (spec/copy.md).
   String get _whatHappened {
     final bill = shipment["ewayBill"];
-    final carrier = shipment["carrierDisplayName"]?.toString() ?? "The carrier";
+    final carrier = _carrierOf(shipment);
     if (task == "Fix the e-way bill") return "NaviG8r staff found a difference.";
     if (bill is Map && bill["billNumber"] is String) {
       return "Bill ${formatBillNumber(bill["billNumber"] as String)} saved. The truck is not on it yet.";
@@ -421,9 +435,8 @@ class _NeedsYouCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final from = shipment["pickupAddress"]?.toString() ?? "";
-    final to = shipment["dropAddress"]?.toString() ?? "";
-    final route = from.isEmpty || to.isEmpty ? "" : "$from to $to. ";
+    final name = shipmentRouteName(shipment, lane: lane);
+    final route = name == null ? "" : "$name. ";
     final id = shipment["id"]?.toString() ?? "";
     return Container(
       padding: const EdgeInsets.all(NvSpace.s4),
@@ -2628,6 +2641,68 @@ class _ConfirmBookingSheet extends StatelessWidget {
   }
 }
 
+/// Every lane the trips list returns, by id, so a list of shipments can name each by its lane's
+/// route and date and tell a started trip apart: one request, not one per shipment. A lane the
+/// list no longer has leaves its shipment named by the pickup and drop as typed.
+Future<Map<String, Map<String, dynamic>>> loadLanesById() async {
+  try {
+    final r = await api.get<Map<String, dynamic>>("/anchor-trips");
+    final raw = r.data?["trips"];
+    return {
+      if (raw is List)
+        for (final lane in raw.whereType<Map<String, dynamic>>())
+          if ((lane["id"]?.toString() ?? "").isNotEmpty)
+            lane["id"].toString(): lane,
+    };
+  } catch (_) {
+    return {};
+  }
+}
+
+Map<String, dynamic>? laneOfShipment(Map<String, dynamic> shipment,
+        Map<String, Map<String, dynamic>> lanesById) =>
+    lanesById[shipment["anchorTripId"]?.toString()];
+
+/// "Bengaluru to Chennai, 18 Oct" from the shipment's lane, else its pickup and drop as typed;
+/// never its ID (spec/copy.md, "Shipment name"). Null when neither is known.
+String? shipmentRouteName(Map<String, dynamic> shipment,
+    {Map<String, dynamic>? lane, bool withDate = true}) {
+  final from = lane?["originCity"]?.toString() ?? "";
+  final to = lane?["destCity"]?.toString() ?? "";
+  if (from.isNotEmpty && to.isNotEmpty) {
+    final start = DateTime.tryParse(lane?["windowStart"]?.toString() ?? "");
+    return withDate && start != null
+        ? shipmentName(from: from, to: to, date: start)
+        : "$from to $to";
+  }
+  final pickup = shipment["pickupAddress"]?.toString() ?? "";
+  final drop = shipment["dropAddress"]?.toString() ?? "";
+  return pickup.isEmpty || drop.isEmpty ? null : "$pickup to $drop";
+}
+
+String? _laneStartWords(Map<String, dynamic>? lane) {
+  final start = DateTime.tryParse(lane?["windowStart"]?.toString() ?? "");
+  return start == null ? null : formatDate(start);
+}
+
+String? _weightWords(Map<String, dynamic> shipment) {
+  final weight = shipment["weightKg"];
+  return weight is num ? formatKg(weight) : null;
+}
+
+String _carrierOf(Map<String, dynamic> shipment) {
+  final name = shipment["carrierDisplayName"]?.toString() ?? "";
+  return name.trim().isEmpty ? "The carrier" : name;
+}
+
+DateTime? _momentFromUtcMs(Object? value) => value is num
+    ? DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true)
+    : null;
+
+/// "18 Oct, 06:10 IST".
+String _dateAndTime(DateTime moment) =>
+    "${formatDate(moment)}, ${formatTimeIst(moment)}";
+
 class CustomerShipmentsScreen extends StatefulWidget {
   const CustomerShipmentsScreen({super.key});
 
@@ -2637,36 +2712,42 @@ class CustomerShipmentsScreen extends StatefulWidget {
 }
 
 class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
-  bool _loading = false;
-  String? _error;
+  bool _loading = true;
+  bool _failed = false;
   bool _needsAuth = false;
   List<Map<String, dynamic>> _shipments = [];
+  Map<String, Map<String, dynamic>> _lanesById = {};
 
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
       _needsAuth = false;
     });
+    _announce(context, "Loading shipments.");
     await CustomerSession.refresh();
     if (!mounted) return;
+    final lanes = loadLanesById();
     try {
       final r = await api.get<Map<String, dynamic>>("/shipments");
       final raw = r.data?["shipments"];
-      final list = <Map<String, dynamic>>[];
-      if (raw is List) {
-        for (final item in raw) {
-          if (item is Map<String, dynamic>) list.add(item);
-        }
-      }
-      if (!mounted) return;
-      setState(() => _shipments = list);
-    } catch (e) {
-      final msg = formatApiError(e);
+      final list = raw is List
+          ? raw.whereType<Map<String, dynamic>>().toList()
+          : <Map<String, dynamic>>[];
+      final lanesById = await lanes;
       if (!mounted) return;
       setState(() {
-        _error = msg;
-        _needsAuth = msg.contains("401") || !CustomerSession.isSignedIn;
+        _shipments = list;
+        _lanesById = lanesById;
+      });
+      _announce(context, _shipmentCount(list.length));
+    } catch (e) {
+      await lanes;
+      if (!mounted) return;
+      setState(() {
+        _failed = true;
+        _needsAuth = !CustomerSession.isSignedIn ||
+            (e is DioException && e.response?.statusCode == 401);
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -2676,81 +2757,123 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
+  }
+
+  Widget _card(Map<String, dynamic> shipment) {
+    final lane = laneOfShipment(shipment, _lanesById);
+    final tripStatus = lane?["status"]?.toString();
+    final progress = shipmentProgress(shipment, tripStatus: tripStatus);
+    final needsYou = shipperTaskFor(shipment,
+            canWriteBill: AuthorizationSession.can("eway_bill.write"),
+            canAddTruck: AuthorizationSession.can("eway_bill.add_truck"),
+            tripStatus: tripStatus) !=
+        null;
+    final id = shipment["id"]?.toString() ?? "";
+    final next = progress.next;
+    return Padding(
+      padding: const EdgeInsets.only(top: NvSpace.s3),
+      child: NvListCard(
+        title: shipmentRouteName(shipment, lane: lane, withDate: false) ??
+            "Shipment",
+        status: needsYou
+            ? const NvStatusLabel("Needs you", tone: NvStatusTone.attention)
+            : NvStatusLabel(progress.statusWord, tone: progress.statusTone),
+        subtitle: [
+          _laneStartWords(lane),
+          _weightWords(shipment),
+          _carrierOf(shipment),
+        ].whereType<String>().join(" · "),
+        next: next == null ? null : "$next.",
+        needsYou: needsYou,
+        onOpen: () {
+          if (id.isNotEmpty) context.go("/customer/shipments/$id");
+        },
+      ),
+    );
+  }
+
+  List<Widget> _list() {
+    if (_needsAuth) {
+      return [
+        const NvListEmpty(
+            title:
+                "Sign in and select your organization to see its shipments."),
+        const SizedBox(height: NvSpace.s3),
+        NvButton(
+            label: "Sign in",
+            fullWidth: true,
+            onPressed: () => context.go("/customer/login")),
+      ];
+    }
+    if (_failed) {
+      return [
+        NvListError(
+            title: "Could not load your shipments.",
+            help: "Check your connection, then try again.",
+            onRetry: _load),
+      ];
+    }
+    if (_loading && _shipments.isEmpty) {
+      return const [
+        NvListLoadingCard(),
+        SizedBox(height: NvSpace.s3),
+        NvListLoadingCard(),
+      ];
+    }
+    if (_shipments.isEmpty) {
+      return [
+        const NvListEmpty(
+            title: "No shipments yet.",
+            help: "Browse carrier lanes and book your first shipment."),
+        const SizedBox(height: NvSpace.s3),
+        NvButton(
+            label: "Find a lane",
+            fullWidth: true,
+            onPressed: () => context.go("/customer/trips")),
+      ];
+    }
+    bool isDone(Map<String, dynamic> shipment) {
+      final status = shipment["status"];
+      return status == "DELIVERED" ||
+          status == "PENDING_RELEASE" ||
+          status == "FAILED_CARRIER_REFUNDED";
+    }
+
+    final active = _shipments.where((s) => !isDone(s)).toList();
+    final done = _shipments.where(isDone).toList();
+    Widget heading(String words) => Padding(
+          padding: const EdgeInsets.only(top: NvSpace.s4),
+          child: Semantics(
+              header: true,
+              child: Text(words,
+                  style: NvText.heading.copyWith(color: NvColors.ink))),
+        );
+    return [
+      if (active.isNotEmpty) ...[
+        heading("Active (${active.length})"),
+        for (final shipment in active) _card(shipment),
+      ],
+      if (done.isNotEmpty) ...[
+        heading("Done"),
+        for (final shipment in done) _card(shipment),
+      ],
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
     return CustomerScaffold(
-      title: "My shipments",
+      title: "Shipments",
       currentPath: "/customer/shipments",
       bodyBuilder: (_) => RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (_needsAuth)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text(
-                          "Sign in and select your organization to see its shipments."),
-                      const SizedBox(height: 10),
-                      FilledButton(
-                          onPressed: () => context.go("/customer/login"),
-                          child: const Text("Sign in")),
-                    ],
-                  ),
-                ),
-              ),
-            if (_error != null && !_needsAuth)
-              Text(_error!, style: const TextStyle(color: Colors.red)),
-            if (_loading) const Center(child: CircularProgressIndicator()),
-            if (!_loading && !_needsAuth && _shipments.isEmpty)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text("No shipments yet.",
-                          style: TextStyle(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
-                      const Text(
-                          "Browse carrier lanes and book your first shipment.",
-                          style: TextStyle(color: DriverTheme.muted)),
-                      const SizedBox(height: 12),
-                      FilledButton(
-                          onPressed: () => context.go("/customer/trips"),
-                          child: const Text("Browse trips")),
-                    ],
-                  ),
-                ),
-              ),
-            ..._shipments.map((s) {
-              final id = s["id"]?.toString() ?? "";
-              final status = shipmentStatusLabel(s["status"]?.toString() ?? "");
-              final carrier = s["carrierDisplayName"]?.toString() ?? "Carrier";
-              return Card(
-                margin: const EdgeInsets.only(top: 12),
-                child: ListTile(
-                  title: Text(carrier),
-                  subtitle: Text(
-                      "$status · ${s["weightKg"]} kg\n${s["pickupAddress"]} → ${s["dropAddress"]}"
-                      "${ewayBillRowSummary(s).isEmpty ? "" : "\n${ewayBillRowSummary(s)}"}"),
-                  isThreeLine: true,
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: id.isEmpty
-                      ? null
-                      : () => context.go("/customer/shipments/$id"),
-                ),
-              );
-            }),
-          ],
+          padding: const EdgeInsets.only(bottom: NvSpace.s6),
+          children: _list(),
         ),
       ),
     );
@@ -2779,6 +2902,7 @@ class _CustomerShipmentDetailScreenState
   bool _isLive = false;
   bool _refreshFailed = false;
   DateTime? _lastLoadedAt;
+  num _savedAtUtcMs = 0;
   Timer? _poll;
 
   // Only a refresh the server never answered keeps what was loaded, so a half-typed e-way bill form
@@ -2793,9 +2917,8 @@ class _CustomerShipmentDetailScreenState
     _payment = null;
     _trip = null;
     _liveLocation = null;
-    _error = serverNeverAnswered(e)
-        ? "Could not load this shipment. Check your connection and pull down to try again."
-        : formatApiError(e);
+    _error = _plainError(e,
+        "Could not load this shipment. Check your connection and pull down to try again.");
   }
 
   String get _refreshFailedLine {
@@ -2803,7 +2926,7 @@ class _CustomerShipmentDetailScreenState
         "Could not refresh, so this may be out of date. Pull down to try again.";
     final at = _lastLoadedAt;
     if (at == null) return sentence;
-    return "$sentence Last updated ${ewayBillClockTime(at.hour, at.minute)}";
+    return "$sentence Last updated ${formatTimeIst(at)}";
   }
 
   String _signedInIdentity() =>
@@ -2818,6 +2941,26 @@ class _CustomerShipmentDetailScreenState
     _refreshFailed = false;
     _error = null;
   }
+
+  // A refresh that started before an e-way bill save can land after it; the saved shipment wins.
+  void _takeShipment(Map<String, dynamic>? data) {
+    final shipment = data?["shipment"];
+    final payment = data?["payment"];
+    final time =
+        shipment is Map<String, dynamic> ? shipment["updatedAtUtcMs"] : null;
+    if (!(time is num && time < _savedAtUtcMs && _shipment != null)) {
+      _shipment = shipment is Map<String, dynamic> ? shipment : null;
+    }
+    _payment = payment is Map<String, dynamic> ? payment : null;
+    _refreshFailed = false;
+    _lastLoadedAt = DateTime.now();
+  }
+
+  void _takeSavedShipment(Map<String, dynamic> shipment) => setState(() {
+        _shipment = shipment;
+        final time = shipment["updatedAtUtcMs"];
+        if (time is num) _savedAtUtcMs = time;
+      });
 
   Future<void> _load({bool showSpinner = true}) async {
     if (showSpinner) {
@@ -2835,16 +2978,7 @@ class _CustomerShipmentDetailScreenState
         setState(_forgetEarlierIdentity);
         return;
       }
-      setState(() {
-        _shipment = r.data?["shipment"] is Map<String, dynamic>
-            ? r.data!["shipment"] as Map<String, dynamic>
-            : null;
-        _payment = r.data?["payment"] is Map<String, dynamic>
-            ? r.data!["payment"] as Map<String, dynamic>
-            : null;
-        _refreshFailed = false;
-        _lastLoadedAt = DateTime.now();
-      });
+      setState(() => _takeShipment(r.data));
       await _loadTracking();
     } catch (e) {
       if (!mounted) return;
@@ -2876,24 +3010,8 @@ class _CustomerShipmentDetailScreenState
       });
     } catch (e) {
       if (!mounted || identity != _signedInIdentity()) return;
-      setState(() => _trackingError = serverNeverAnswered(e)
-          ? "Could not reach the server. Check your connection."
-          : formatApiError(e));
-    }
-  }
-
-  Future<void> _refreshTracking() async {
-    if (_refreshing) return;
-    setState(() => _refreshing = true);
-    try {
-      await _loadTracking();
-      if (!mounted) return;
-      if (_trackingError == null) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text("Tracking updated.")));
-      }
-    } finally {
-      if (mounted) setState(() => _refreshing = false);
+      setState(() => _trackingError = _plainError(e,
+          "Could not load the trip. Check your connection and pull down to try again."));
     }
   }
 
@@ -2910,15 +3028,8 @@ class _CustomerShipmentDetailScreenState
         return;
       }
       setState(() {
-        _shipment = r.data?["shipment"] is Map<String, dynamic>
-            ? r.data!["shipment"] as Map<String, dynamic>
-            : null;
-        _payment = r.data?["payment"] is Map<String, dynamic>
-            ? r.data!["payment"] as Map<String, dynamic>
-            : null;
+        _takeShipment(r.data);
         _error = null;
-        _refreshFailed = false;
-        _lastLoadedAt = DateTime.now();
       });
       await _loadTracking();
     } catch (e) {
@@ -2942,13 +3053,8 @@ class _CustomerShipmentDetailScreenState
     });
   }
 
-  bool get _canTrack {
-    final st = _shipment?["status"]?.toString() ?? "";
-    return st != "DELIVERED" && st != "FAILED_CARRIER_REFUNDED";
-  }
-
-  LatLng? _latLngFromGeo(Map<String, dynamic>? g) {
-    if (g == null) return null;
+  LatLng? _latLngFromGeo(Object? g) {
+    if (g is! Map) return null;
     final lat = g["lat"];
     final lng = g["lng"];
     if (lat is num && lng is num) return LatLng(lat.toDouble(), lng.toDouble());
@@ -2969,232 +3075,331 @@ class _CustomerShipmentDetailScreenState
     super.dispose();
   }
 
+  String get _title {
+    final shipment = _shipment;
+    if (shipment == null) return "Shipment";
+    return shipmentRouteName(shipment, lane: _trip, withDate: false) ??
+        "Shipment";
+  }
+
+  /// The amount the shipper paid: the payment's own amount, else the booking's price.
+  num? get _paidPaise {
+    final amount = _payment?["amountPaise"] ?? _shipment?["grossPaise"];
+    return amount is num ? amount : null;
+  }
+
+  NvStep _step(ShipmentStep step, Map<String, dynamic> shipment,
+      ShipmentProgress progress) {
+    final carrier = _carrierOf(shipment);
+    switch (step.name) {
+      case ShipmentStepName.booked:
+        final booked = _momentFromUtcMs(shipment["createdAtUtcMs"]);
+        final paid = _paidPaise;
+        final facts = [
+          if (booked != null) formatDate(booked),
+          if (paid != null && !progress.delivered)
+            "${formatRupees(paid)} held until delivery",
+        ];
+        return NvStep(
+            title: step.title,
+            state: step.state,
+            who: facts.isEmpty ? null : facts.join(" · "));
+      case ShipmentStepName.carrierAccepts:
+        final truck = shipment["assignedTruckNumber"]?.toString() ?? "";
+        return NvStep(
+            title: step.title,
+            state: step.state,
+            who: step.state == NvStepState.done && truck.isNotEmpty
+                ? "$carrier · Truck $truck"
+                : step.who,
+            panel: Text(
+                "Waiting for $carrier to accept. Your payment is on hold; it is collected after delivery.",
+                style: NvText.body));
+      case ShipmentStepName.ewayBill:
+        final partOne = step.state == NvStepState.yours &&
+            progress.ewayBill == EwayBillStage.none;
+        return NvStep(
+            title: step.title,
+            state: step.state,
+            who: partOne ? "You · Part 1 of 2" : step.who,
+            panelAlwaysShown: true,
+            panel: EwayBillCard(
+                key: const ValueKey("eway-bill-card"),
+                shipment: shipment,
+                onSaved: _takeSavedShipment));
+      case ShipmentStepName.billCheck:
+        return NvStep(
+            title: step.title,
+            state: step.state,
+            who: step.who,
+            panel: const Text(
+                "NaviG8r staff check the bill on the portal by hand. We will tell you if anything needs fixing.",
+                style: NvText.body));
+      case ShipmentStepName.onTheWay:
+        final started = _momentFromUtcMs(_trip?["startedAtUtcMs"]);
+        final laneStart = _laneStartWords(_trip);
+        final pickup = shipment["pickupAddress"]?.toString() ?? "";
+        final String sentence;
+        if (progress.inTransit) {
+          sentence = started == null || pickup.isEmpty
+              ? "$carrier confirms when it is delivered."
+              : "Left $pickup on ${formatDate(started)} at ${formatTimeIst(started)}. $carrier confirms when it is delivered.";
+        } else {
+          sentence = laneStart == null
+              ? "Nothing for you to do now. $carrier starts the trip."
+              : "Nothing for you to do now. $carrier starts the trip on $laneStart.";
+        }
+        return NvStep(
+            title: step.title,
+            state: step.state,
+            who: step.state == NvStepState.done && started != null
+                ? _dateAndTime(started)
+                : step.who,
+            panel: Text(sentence, style: NvText.body));
+      case ShipmentStepName.delivered:
+        final deliveredAt = _momentFromUtcMs(shipment["podAtUtcMs"]);
+        return NvStep(
+            title: step.title,
+            state: step.state,
+            who: step.state == NvStepState.done && deliveredAt != null
+                ? _dateAndTime(deliveredAt)
+                : step.who);
+    }
+  }
+
+  Widget _summary(Map<String, dynamic> shipment, ShipmentProgress progress) {
+    final facts = [
+      shipmentRouteName(shipment, withDate: false),
+      _weightWords(shipment),
+      if (_trip != null) _laneDates(_trip!),
+      _carrierOf(shipment),
+    ].whereType<String>().join(" · ");
+    final externalId = shipment["externalLoadId"]?.toString() ?? "";
+    final open = !progress.delivered && !progress.cancelled;
+    return Container(
+      padding: const EdgeInsets.all(NvSpace.s4),
+      decoration: BoxDecoration(
+          color: NvColors.card,
+          borderRadius: BorderRadius.circular(NvRadius.card),
+          border: Border.all(color: NvColors.line)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          NvStatusLabel(progress.statusWord, tone: progress.statusTone),
+          const SizedBox(height: NvSpace.s2),
+          Text(facts, style: NvText.caption),
+          if (externalId.isNotEmpty)
+            Text("Synced from ERP · $externalId", style: NvText.caption),
+          if (AuthorizationSession.can("conversation.read")) ...[
+            const SizedBox(height: NvSpace.s3),
+            NvButton(
+                label: "Messages",
+                kind: NvButtonKind.secondary,
+                onPressed: () =>
+                    openShipmentConversation(context, widget.shipmentId)),
+          ],
+          // Shippers cannot cancel in the app (owner decision); the contact is the way to change one.
+          if (open) ...[
+            const SizedBox(height: NvSpace.s3),
+            const Text(
+                "Booked shipments cannot be cancelled in the app; to change one, contact ${PendingCopy.changeOrCancelContact}.",
+                style: NvText.caption),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _delivered(Map<String, dynamic> shipment) {
+    final paid = _paidPaise;
+    final released = shipment["status"] == "DELIVERED";
+    return Container(
+      padding: const EdgeInsets.all(NvSpace.s4),
+      decoration: BoxDecoration(
+          color: NvColors.card,
+          borderRadius: BorderRadius.circular(NvRadius.card),
+          border: Border.all(color: NvColors.line)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+              "${_carrierOf(shipment)} confirmed delivery and added proof of delivery."
+              // Until the payment is released the hold line below says what happens to it.
+              "${released && paid != null ? " Your payment of ${formatRupees(paid)} is collected now." : ""}",
+              style: NvText.body),
+          const SizedBox(height: NvSpace.s3),
+          NvButton(
+              label: "Book another shipment",
+              kind: NvButtonKind.secondary,
+              fullWidth: true,
+              onPressed: () => context.go("/customer/trips")),
+        ],
+      ),
+    );
+  }
+
+  Widget _cancelled() {
+    final paid = _paidPaise;
+    final refunded = _payment?["status"] == "REFUNDED";
+    Widget row(String label, String value) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: NvSpace.s1),
+          child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              spacing: NvSpace.s3,
+              children: [
+                Text(label, style: NvText.caption),
+                Text(value,
+                    style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
+              ]),
+        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(NvSpace.s4),
+          decoration: BoxDecoration(
+              color: NvColors.card,
+              borderRadius: BorderRadius.circular(NvRadius.card),
+              border: Border.all(color: NvColors.line)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Semantics(
+                header: true,
+                child: Text("This shipment was cancelled",
+                    style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
+              ),
+              if (paid != null) ...[
+                const SizedBox(height: NvSpace.s2),
+                row("You paid", formatRupees(paid)),
+                if (refunded) row("Refunded", formatRupees(paid)),
+              ],
+              const SizedBox(height: NvSpace.s2),
+              const Text(
+                  "Refunds reach your account in the time your bank or payment app takes.",
+                  style: NvText.caption),
+            ],
+          ),
+        ),
+        const SizedBox(height: NvSpace.s3),
+        Container(
+          padding: const EdgeInsets.all(NvSpace.s4),
+          decoration: BoxDecoration(
+              color: NvColors.sunken,
+              borderRadius: BorderRadius.circular(NvRadius.card)),
+          child: Text.rich(
+            TextSpan(children: [
+              TextSpan(
+                  text: "Questions about this refund? ",
+                  style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
+              const TextSpan(
+                  text: "Contact ${PendingCopy.changeOrCancelContact}."),
+            ]),
+            style: NvText.body,
+          ),
+        ),
+        const SizedBox(height: NvSpace.s4),
+        NvButton(
+            label: "Find a lane",
+            fullWidth: true,
+            onPressed: () => context.go("/customer/trips")),
+      ],
+    );
+  }
+
+  Widget? _trackingMap(Map<String, dynamic> shipment) {
+    final origin = _latLngFromGeo(_trip?["origin"]);
+    final destination = _latLngFromGeo(_trip?["destination"]);
+    if (origin == null || destination == null) return null;
+    return NvMap(
+      map: tripTrackingMap(
+        origin: origin,
+        destination: destination,
+        pickup: _latLngFromGeo(shipment["pickup"]),
+        drop: _latLngFromGeo(shipment["drop"]),
+        driver: _isLive ? _latLngFromGeo(_liveLocation) : null,
+      ),
+    );
+  }
+
+  List<Widget> _content(Map<String, dynamic> shipment) {
+    final progress =
+        shipmentProgress(shipment, tripStatus: _trip?["status"]?.toString());
+    final map = progress.cancelled ? null : _trackingMap(shipment);
+    return [
+      _summary(shipment, progress),
+      const SizedBox(height: NvSpace.s5),
+      if (progress.cancelled)
+        _cancelled()
+      else ...[
+        NvStepList(listName: "Steps for this shipment", steps: [
+          for (final step in progress.steps) _step(step, shipment, progress),
+        ]),
+        const SizedBox(height: NvSpace.s4),
+        if (progress.delivered) ...[
+          _delivered(shipment),
+          const SizedBox(height: NvSpace.s3),
+        ],
+        ShipmentPaymentStatus(shipment: shipment, onAccepted: () => _load()),
+        if (map != null) ...[
+          const SizedBox(height: NvSpace.s3),
+          map,
+          if (_isLive)
+            const Padding(
+              padding: EdgeInsets.only(top: NvSpace.s1),
+              child: Text("Live tracking — updates every ~30 seconds.",
+                  style: NvText.caption),
+            ),
+        ],
+        if (_trackingError != null) ...[
+          const SizedBox(height: NvSpace.s2),
+          Text(_trackingError!, style: NvText.caption),
+        ],
+      ],
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final shipment = _shipment;
-    final tripStatus = _trip?["status"]?.toString();
-    final steps = shipment != null
-        ? shipmentTimelineSteps(
-            shipmentStatus: shipment["status"]?.toString() ?? "",
-            tripStatus: tripStatus,
-            isLive: _isLive)
-        : <ShipmentTimelineStep>[];
-
-    final trackingMessage = shipment != null
-        ? customerTrackingStatusMessage(
-            shipmentStatus: shipment["status"]?.toString() ?? "",
-            tripStatus: tripStatus,
-            isLive: _isLive,
-            hasDriverPing: _liveLocation != null,
-            carrierDisplayName: shipment["carrierDisplayName"]?.toString(),
-          )
-        : "";
-
+    // Part 1 of the e-way bill: the portal is the shipper's one primary action, kept in view.
+    final portalIsPrimary = shipment != null &&
+        shipment["status"] == "BOOKED" &&
+        ewayBillStageOf(shipment) == EwayBillStage.none &&
+        shipperCanWriteEwayBill(shipment);
     return CustomerScaffold(
-      title: shipment?["carrierDisplayName"]?.toString() ?? "Shipment",
+      title: _title,
       currentPath: "/customer/shipments/${widget.shipmentId}",
+      actionBar: portalIsPrimary
+          ? const NvActionBar(
+              child: EwayBillPortalButton(
+                  label: "Open the e-way bill portal",
+                  kind: NvButtonKind.primary))
+          : null,
       bodyBuilder: (_) => _loading && shipment == null
-          ? const Center(child: CircularProgressIndicator())
+          ? const NvStepList(
+              listName: "Steps for this shipment",
+              steps: [],
+              loading: true,
+              loadingWords: "Loading this shipment's steps.")
           : RefreshIndicator(
               onRefresh: _refreshAll,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
+                padding:
+                    const EdgeInsets.only(top: NvSpace.s2, bottom: NvSpace.s6),
                 children: [
-                  // Always one child here, so the cards below keep their place and their state.
+                  // Always one child here, so the steps below keep their place and their state.
                   if (_error != null)
-                    Text(_error!, style: const TextStyle(color: Colors.red))
+                    NvMessage(_error!, tone: NvMessageTone.problem)
                   else if (_refreshFailed)
-                    Text(_refreshFailedLine,
-                        style: const TextStyle(color: DriverTheme.muted))
+                    Text(_refreshFailedLine, style: NvText.caption)
                   else
                     const SizedBox.shrink(),
-                  if (shipment != null) ...[
-                    if ((shipment["externalLoadId"]?.toString() ?? "")
-                        .isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Row(
-                          children: [
-                            Chip(
-                              avatar: const Icon(Icons.sync,
-                                  size: 16, color: DriverTheme.navy),
-                              label: Text(
-                                  "Synced from ERP · ${shipment["externalLoadId"]}"),
-                              backgroundColor:
-                                  DriverTheme.navy.withOpacity(0.08),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ShipmentPaymentStatus(
-                        shipment: shipment, onAccepted: () => _load()),
-                    _ShipmentTimeline(steps: steps),
-                    EwayBillCard(
-                        key: const ValueKey("eway-bill-card"),
-                        shipment: shipment),
-                    const SizedBox(height: 12),
-                    if (AuthorizationSession.can("conversation.read"))
-                      FilledButton.icon(
-                        onPressed: () => openShipmentConversation(
-                            context, widget.shipmentId),
-                        icon: const Icon(Icons.chat_bubble_outline),
-                        label: const Text("Shipment conversation"),
-                      ),
-                    const SizedBox(height: 12),
-                    if (_canTrack)
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _refreshing ? null : _refreshTracking,
-                              icon: _refreshing
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2))
-                                  : const Icon(Icons.refresh, size: 18),
-                              label: const Text("Refresh tracking"),
-                            ),
-                          ),
-                        ],
-                      ),
-                    if (_canTrack) const SizedBox(height: 12),
-                    if (_trip != null &&
-                        _latLngFromGeo(
-                                _trip!["origin"] as Map<String, dynamic>?) !=
-                            null &&
-                        _latLngFromGeo(_trip!["destination"]
-                                as Map<String, dynamic>?) !=
-                            null)
-                      tripTrackingMap(
-                        origin: _latLngFromGeo(
-                            _trip!["origin"] as Map<String, dynamic>?)!,
-                        destination: _latLngFromGeo(
-                            _trip!["destination"] as Map<String, dynamic>?)!,
-                        pickup: _latLngFromGeo(
-                            shipment["pickup"] as Map<String, dynamic>?),
-                        drop: _latLngFromGeo(
-                            shipment["drop"] as Map<String, dynamic>?),
-                        driver: _isLive ? _latLngFromGeo(_liveLocation) : null,
-                      )
-                    else
-                      const Text(
-                          "Map will appear when the carrier lane has map coordinates.",
-                          style: TextStyle(
-                              color: DriverTheme.muted, fontSize: 12)),
-                    const SizedBox(height: 8),
-                    Text(trackingMessage,
-                        style: const TextStyle(
-                            fontSize: 12,
-                            color: DriverTheme.muted,
-                            height: 1.4)),
-                    if (_trackingError != null) ...[
-                      const SizedBox(height: 6),
-                      Text("Tracking error: $_trackingError",
-                          style: const TextStyle(
-                              fontSize: 12, color: Colors.red, height: 1.35)),
-                    ],
-                    if (_canTrack && !_isLive) ...[
-                      const SizedBox(height: 4),
-                      const Text("Pull down to refresh shipment and tracking.",
-                          style: TextStyle(
-                              fontSize: 11, color: DriverTheme.muted)),
-                    ],
-                    const SizedBox(height: 12),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                                "${shipment["pickupAddress"]} → ${shipment["dropAddress"]}",
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 6),
-                            Text(
-                                "${shipment["weightKg"]} kg · ${formatInrFromPaise(shipment["grossPaise"] as num? ?? 0)}"),
-                            if (_trip != null)
-                              Text(
-                                "Lane: ${_trip!["originCity"]} → ${_trip!["destCity"]}",
-                                style: const TextStyle(
-                                    fontSize: 12, color: DriverTheme.muted),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    if (_payment != null) ...[
-                      const SizedBox(height: 12),
-                      Card(
-                        child: ListTile(
-                          title: Text(paymentStatusLabel(
-                              _payment!["status"]?.toString() ?? "")),
-                          subtitle: Text(formatInrFromPaise(
-                              _payment!["amountPaise"] as num? ?? 0)),
-                        ),
-                      ),
-                    ],
-                  ],
+                  if (shipment != null) ..._content(shipment),
                 ],
               ),
             ),
-    );
-  }
-}
-
-class _ShipmentTimeline extends StatelessWidget {
-  const _ShipmentTimeline({required this.steps});
-  final List<ShipmentTimelineStep> steps;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-        child: Column(
-          children: [
-            for (var i = 0; i < steps.length; i++) ...[
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    steps[i].complete
-                        ? Icons.check_circle
-                        : steps[i].current
-                            ? Icons.radio_button_checked
-                            : Icons.radio_button_off,
-                    size: 20,
-                    color: steps[i].complete || steps[i].current
-                        ? DriverTheme.navy
-                        : DriverTheme.muted,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(steps[i].label,
-                            style: TextStyle(
-                                fontWeight: steps[i].current
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                                color: DriverTheme.navy)),
-                        Text(steps[i].subtitle,
-                            style: const TextStyle(
-                                fontSize: 11, color: DriverTheme.muted)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              if (i < steps.length - 1) const SizedBox(height: 10),
-            ],
-          ],
-        ),
-      ),
     );
   }
 }

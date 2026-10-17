@@ -303,20 +303,24 @@ void main() {
       await mountCard(
           tester, EwayBillCard(shipment: shipment(bill: savedBill)));
       expect(
-          find.text(
-              'Truck not added yet. You or your carrier can add it after the truck is on the bill on the portal.'),
+          find.text('Bill 1234 5678 9012 saved. The truck is not on it yet.'),
           findsOneWidget,
-          reason: 'says who can add the truck, and when');
-      expect(find.widgetWithText(OutlinedButton, 'Add truck'), findsOneWidget,
-          reason: 'a shipper with eway_bill.add_truck can add it');
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Add truck'));
+          reason: 'copy.md step 3: the bill is saved, the truck is not on it');
+      expect(
+          find.text(
+              'Add the truck on the portal before the goods move, then enter it here.'),
+          findsOneWidget,
+          reason: 'copy.md step 3: what to do, and when');
+      expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget,
+          reason: 'sh-ewb-truck: Add truck is the step\'s primary');
+      await tester.tap(find.widgetWithText(FilledButton, 'Add truck'));
       await tester.pump();
       expect(find.widgetWithText(TextField, 'Truck number'), findsOneWidget,
           reason: 'the truck form opens');
       expect(
           find.text('Changing these details clears the check.'), findsNothing,
           reason: 'the bill has no check to clear');
-      expect(find.text('Open the government e-way bill portal'), findsOneWidget,
+      expect(find.text('Open the e-way bill portal'), findsOneWidget,
           reason: 'the portal is one tap from the form');
       await tester.enterText(
           find.widgetWithText(TextField, 'Truck number'), 'KA01AB1234');
@@ -333,13 +337,12 @@ void main() {
                 .subtract(const Duration(hours: 5, minutes: 30))
                 .millisecondsSinceEpoch
       });
-      expect(find.text('Truck: KA01AB1234'), findsOneWidget,
+      expect(find.text('KA01AB1234'), findsOneWidget,
           reason: 'the returned bill shows the truck');
-      expect(find.text('Valid until: 16 Oct 2026, 23:59 (India time)'),
+      expect(find.textContaining(RegExp(r'^16 Oct( 2026)?, 23:59 IST$')),
           findsOneWidget,
           reason: 'and its valid-until time in India');
-      expect(
-          find.widgetWithText(OutlinedButton, 'Change truck'), findsOneWidget,
+      expect(find.widgetWithText(TextButton, 'Change truck'), findsOneWidget,
           reason: 'a saved truck can be changed');
       expect(find.text('Save truck'), findsNothing, reason: 'the form closed');
     });
@@ -359,7 +362,7 @@ void main() {
             ...withTruck(savedBill),
             'check': {'result': 'FOUND', 'checkedAtUtcMs': 1792000000000}
           })));
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Change truck'));
+      await tester.tap(find.widgetWithText(TextButton, 'Change truck'));
       await tester.pump();
       expect(find.text('KA01AB1234'), findsOneWidget,
           reason: 'the saved truck is filled in');
@@ -382,7 +385,7 @@ void main() {
       signInAsShipper();
       await mountCard(
           tester, EwayBillCard(shipment: shipment(bill: savedBill)));
-      expect(find.textContaining('Truck not added yet.'), findsOneWidget,
+      expect(find.textContaining('The truck is not on it yet.'), findsOneWidget,
           reason: 'the missing truck is still said');
       expect(find.text('Add truck'), findsNothing,
           reason: 'no eway_bill.add_truck, no button');

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'authorization_session.dart';
 import 'pilot_api.dart';
+import 'ui/format.dart';
 
 class ShipmentPaymentStatus extends StatefulWidget {
   const ShipmentPaymentStatus(
@@ -78,9 +79,12 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
     final accepted = shipment['podAcceptedAtUtcMs'] != null;
     final ready = shipment['paymentReady'] == true;
     final hold = shipment['paymentHoldUntilUtcMs'];
-    final until = hold is num
-        ? DateTime.fromMillisecondsSinceEpoch(hold.toInt()).toLocal().toString()
+    final holdEnds = hold is num
+        ? DateTime.fromMillisecondsSinceEpoch(hold.toInt(), isUtc: true)
         : null;
+    final until = holdEnds == null
+        ? null
+        : '${formatDate(holdEnds)}, ${formatTimeIst(holdEnds)}';
     return Card(
         child: Padding(
             padding: const EdgeInsets.all(16),
