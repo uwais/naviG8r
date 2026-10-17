@@ -147,8 +147,10 @@ void main() {
                     shipmentOnTripA(status: 'PENDING_CARRIER_ACCEPT')
                   ]
                 }));
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+      // Accept is on the booking screen since the redesign (PR 6), not on the list.
+      await mountScreen(
+          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Accept booking'));
       await tester.pumpAndSettle();
       expect(find.text(tripNoLongerYours), findsOneWidget);
       expect(find.textContaining('unavailable'), findsNothing);

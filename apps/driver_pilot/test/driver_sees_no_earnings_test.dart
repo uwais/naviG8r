@@ -34,10 +34,6 @@ Future<void> mountScreen(WidgetTester tester, Widget screen) async {
 
 void main() {
   group('The home screen', () {
-    const everyonesText =
-        'Sign in with your phone, confirm your carrier organization, run trips with live tracking, '
-        'and get paid after proof of delivery and cooling-off.';
-
     testWidgets('promises a signed-in driver no pay', (tester) async {
       signInAsCarrierLogin(office: false);
       await mountScreen(tester, const DriverWelcomeScreen());
@@ -51,7 +47,7 @@ void main() {
     });
 
     testWidgets(
-        'shows a signed-out visitor the start screen, and keeps the office text',
+        'shows a signed-out visitor the start screen, and the office its Home',
         (tester) async {
       FlutterSecureStorage.setMockInitialValues({});
       api = Api('http://test');
@@ -64,9 +60,14 @@ void main() {
           reason: 'the start screen promises no pay');
 
       signInAsCarrierLogin(office: true);
+      api.dio.httpClientAdapter = MockApiAdapter(
+          (_) => jsonResponse({'shipments': <Object>[], 'trips': <Object>[]}));
       await mountScreen(
           tester, const DriverWelcomeScreen(key: ValueKey('office')));
-      expect(find.text(everyonesText), findsOneWidget);
+      expect(find.text('Nothing needs you right now.'), findsOneWidget,
+          reason: 'ca-home: signed in, the office gets its Home');
+      expect(find.text('Sign in with phone'), findsNothing,
+          reason: 'copy.md: the signed-in home has no sign-in links');
     });
   });
 
@@ -85,15 +86,17 @@ void main() {
       expect(find.textContaining('₹'), findsNothing);
     });
 
-    testWidgets('shows the amount to the office, who is sent it',
+    testWidgets('shows the amount to the owner, who is sent it',
         (tester) async {
-      signInAsCarrierLogin(office: true);
+      signInAsCarrierOwner();
       api.dio.httpClientAdapter = MockApiAdapter((_) => jsonResponse({
             'shipments': [shipmentOnTripA(netToCarrierPaise: 4500)]
           }));
       await mountScreen(
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      expect(find.text('Net to carrier: ₹45'), findsOneWidget);
+      expect(find.text('You receive'), findsOneWidget,
+          reason: 'ca-booking-owner: the amount the carrier API sends');
+      expect(find.text('₹45'), findsOneWidget);
     });
 
     /// What the server sends after proof of delivery; it leaves the payment hold out for a driver.
@@ -126,15 +129,22 @@ void main() {
       }
     });
 
-    testWidgets('tells the office when the payment is held', (tester) async {
-      signInAsCarrierLogin(office: true);
+    testWidgets('tells the owner the payment waits for release',
+        (tester) async {
+      signInAsCarrierOwner();
       api.dio.httpClientAdapter = MockApiAdapter((_) => jsonResponse({
             'shipments': [deliveredShipment(withPaymentHold: true)]
           }));
       await mountScreen(
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      expect(find.text('Proof of delivery submitted'), findsOneWidget);
-      expect(find.textContaining('Payment on hold until'), findsOneWidget);
+      expect(find.text('Delivery confirmed'), findsOneWidget,
+          reason: 'the delivery step is done');
+      expect(
+          find.text(
+              'NaviG8r operations check the proof of delivery, then release the payment to your bank account.'),
+          findsOneWidget,
+          reason:
+              'copy.md payment (owner only), without the bank digits the API does not send');
     });
   });
 
@@ -230,7 +240,7 @@ void main() {
 
     testWidgets('on the shipment screen', (tester) async {
       for (final office in [false, true]) {
-        signInAsCarrierLogin(office: office);
+        office ? signInAsCarrierOwner() : signInAsCarrierLogin(office: false);
         api.dio.httpClientAdapter = MockApiAdapter((_) => jsonResponse({
               'shipments': [
                 {
@@ -248,8 +258,8 @@ void main() {
                 key: ValueKey(office), shipmentId: 'shipment-a'));
         final words = screenWords(tester);
         if (office) {
-          expect(words, contains('Status: Awaiting payment release'));
-          expect(words, contains('Payment on hold until'));
+          expect(words, contains('Awaiting payment release'));
+          expect(words, contains('release the payment to your bank account'));
         } else {
           expect(words, contains('Status: Delivery confirmed'));
           expect(paymentWords.hasMatch(words), isFalse, reason: words);
@@ -257,19 +267,22 @@ void main() {
       }
     });
 
-    testWidgets('on the Shipments list', (tester) async {
+    testWidgets('on the Bookings list', (tester) async {
       for (final office in [false, true]) {
-        signInAsCarrierLogin(office: office);
+        office ? signInAsCarrierOwner() : signInAsCarrierLogin(office: false);
         api.dio.httpClientAdapter = MockApiAdapter((_) => jsonResponse({
               'shipments': [delivered]
             }));
         await mountScreen(tester, DriverShipmentsScreen(key: ValueKey(office)));
+        await tester.tap(find.text('Done'));
+        await tester.pumpAndSettle();
         final words = screenWords(tester);
+        expect(words, contains('Peenya, Bengaluru to Hosur'),
+            reason: 'the delivered booking is under Done');
         if (office) {
-          expect(
-              words, contains('Awaiting payment release · Peenya, Bengaluru'));
+          expect(words, contains('Awaiting payment release'));
         } else {
-          expect(words, contains('Delivery confirmed · Peenya, Bengaluru'));
+          expect(words, contains('Delivery confirmed'));
           expect(paymentWords.hasMatch(words), isFalse, reason: words);
         }
       }

@@ -14,6 +14,7 @@ import "access_refresh.dart";
 import "authorization_session.dart";
 import "carrier_approval_banner.dart";
 import "eway_bill_carrier_card.dart";
+import "eway_bill_closed.dart";
 import "eway_bill_words.dart";
 import "shipment_payment_status.dart";
 import "driver_session.dart";
@@ -28,6 +29,11 @@ import "start_screen.dart";
 import "transporter_id_section.dart";
 import "trip_assignment_card.dart";
 import "ui/format.dart";
+import "ui/nv_button.dart";
+import "ui/nv_choice.dart";
+import "ui/nv_list_card.dart";
+import "ui/nv_status_label.dart";
+import "ui/nv_step_list.dart";
 import "ui/sign_in_code_page.dart";
 import "ui/sign_in_phone_page.dart";
 import "ui/tokens.dart";
@@ -47,7 +53,10 @@ String driverShellTitle(String path, {bool forDriver = false}) {
   if (path.startsWith("/driver/profile")) return "Profile";
   if (path.startsWith("/driver/fleet")) return "Fleet";
   if (path.startsWith("/driver/trip/")) return "Active trip";
-  if (path.startsWith("/driver/shipment/")) return "Proof of delivery";
+  if (path.startsWith("/driver/shipment/")) {
+    // The booking screen names itself ("BOOKING" over the shipper), so the shell adds no title there.
+    return path.endsWith("/pod") ? "Confirm delivery" : "";
+  }
   if (path.startsWith("/driver/earnings")) return "Earnings";
   if (path.startsWith("/driver/payout-setup")) return "Payout method";
   if (path.startsWith("/driver/payout-history")) return "Payout history";
@@ -195,20 +204,21 @@ class DriverShell extends StatelessWidget {
                   child: AccessRefresh(
                 child: Column(children: [
                   CarrierApprovalBanner(currentPath: currentPath),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                        NvSpace.gutter, NvSpace.s4, NvSpace.s2, NvSpace.s2),
-                    child: Row(children: [
-                      Expanded(
-                        child: Semantics(
-                            header: true,
-                            child: Text(title, style: NvText.title)),
-                      ),
-                      // Stays until Home's "Updates" row replaces it (spec/screens.md).
-                      if (AuthorizationSession.can("notification.read"))
-                        const NotificationBell(),
-                    ]),
-                  ),
+                  if (title.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                          NvSpace.gutter, NvSpace.s4, NvSpace.s2, NvSpace.s2),
+                      child: Row(children: [
+                        Expanded(
+                          child: Semantics(
+                              header: true,
+                              child: Text(title, style: NvText.title)),
+                        ),
+                        // Stays until Home's "Updates" row replaces it (spec/screens.md).
+                        if (AuthorizationSession.can("notification.read"))
+                          const NotificationBell(),
+                      ]),
+                    ),
                   Expanded(child: child),
                 ]),
               )),
@@ -238,6 +248,7 @@ class DriverWelcomeScreen extends StatelessWidget {
 
   Widget _home(BuildContext context) {
     if (!AuthorizationSession.signedIn) return const StartScreen();
+    if (DriverSession.carrierRole != "DRIVER") return const _OfficeHome();
     // Scrolls even when short, so pulling down reloads access here as on every other tab.
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -251,14 +262,10 @@ class DriverWelcomeScreen extends StatelessWidget {
               color: DriverTheme.navy),
         ),
         const SizedBox(height: 12),
-        // A signed-in driver is past signing in and never sees carrier earnings, so their copy mentions neither.
-        Text(
-          AuthorizationSession.signedIn &&
-                  !AuthorizationSession.can("payment.read")
-              ? "Run your trips with live tracking and confirm each delivery here."
-              : "Sign in with your phone, confirm your carrier organization, run trips with live tracking, "
-                  "and get paid after proof of delivery and cooling-off.",
-          style: const TextStyle(color: DriverTheme.muted, height: 1.4),
+        // A driver never sees carrier earnings, so their copy does not mention pay.
+        const Text(
+          "Run your trips with live tracking and confirm each delivery here.",
+          style: TextStyle(color: DriverTheme.muted, height: 1.4),
         ),
         // Signing in, registering and the developer lab are for people still signing in;
         // release builds leave them off the signed-in home.
@@ -925,6 +932,185 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
   }
 }
 
+/// "Bengaluru to Chennai", or null when the trip is not known.
+String? _tripRoute(Map<String, dynamic>? trip) {
+  final from = trip?["originCity"];
+  final to = trip?["destCity"];
+  if (from is! String || from.isEmpty || to is! String || to.isEmpty) {
+    return null;
+  }
+  return "$from to $to";
+}
+
+DateTime? _tripStart(Map<String, dynamic>? trip) =>
+    DateTime.tryParse(trip?["windowStart"]?.toString() ?? "");
+
+/// "18 – 19 Oct", or null when the trip is not known.
+String? _tripDates(Map<String, dynamic>? trip) {
+  final start = _tripStart(trip);
+  if (start == null) return null;
+  final end = DateTime.tryParse(trip?["windowEnd"]?.toString() ?? "");
+  return end == null ? formatDate(start) : formatDateRange(start, end);
+}
+
+/// "Bengaluru to Chennai, 18 – 19 Oct", or null when the trip is not known.
+String? _tripInWords(Map<String, dynamic>? trip) {
+  final route = _tripRoute(trip);
+  if (route == null) return null;
+  final dates = _tripDates(trip);
+  return dates == null ? route : "$route, $dates";
+}
+
+bool _tripStarted(Map<String, dynamic>? trip) =>
+    trip?["status"] == "IN_PROGRESS" || trip?["status"] == "COMPLETED";
+
+String _shipperName(Map<String, dynamic> booking) {
+  final name = booking["customerOrgName"];
+  return name is String && name.isNotEmpty ? name : "The shipper";
+}
+
+String? _weightWords(Map<String, dynamic> booking) {
+  final weight = booking["weightKg"];
+  return weight is num ? formatKg(weight) : null;
+}
+
+Map<String, dynamic>? _ewayBillOf(Map<String, dynamic> booking) {
+  final bill = booking["ewayBill"];
+  return bill is Map<String, dynamic> ? bill : null;
+}
+
+/// An accepted booking whose e-way bill the shipper made without the truck on it.
+bool _truckMissingFromBill(Map<String, dynamic> booking) {
+  final bill = _ewayBillOf(booking);
+  final truck = bill?["truckNumber"];
+  return booking["status"] == "BOOKED" &&
+      bill?["kind"] == "BILL" &&
+      (truck is! String || truck.isEmpty);
+}
+
+/// Owners see a booking's amounts; dispatchers and drivers do not (spec: ca-booking-dispatcher). There is no
+/// owner flag, so this is the owner check the approval banner already uses: who may add the bank account.
+bool get _seesPaymentAmounts =>
+    DriverSession.canSetUpPayouts && AuthorizationSession.can("payment.read");
+
+/// The status word for a booking, or null for a status the app has no word for (never the code itself).
+(String, NvStatusTone)? _bookingStatus(
+    Map<String, dynamic> booking, Map<String, dynamic>? trip,
+    {bool onBookingScreen = false}) {
+  switch (booking["status"]) {
+    case "PENDING_CARRIER_ACCEPT":
+      return (
+        onBookingScreen ? "Waiting for you to accept" : "Waiting for you",
+        NvStatusTone.attention
+      );
+    case "BOOKED":
+      // On the booking screen its own step says the truck is missing.
+      if (!onBookingScreen && _truckMissingFromBill(booking)) {
+        return ("Truck not on bill", NvStatusTone.attention);
+      }
+      return _tripStarted(trip)
+          ? ("In transit", NvStatusTone.info)
+          : ("Accepted", NvStatusTone.info);
+    case "PENDING_RELEASE":
+      return _seesPaymentAmounts
+          ? ("Awaiting payment release", NvStatusTone.attention)
+          : ("Delivery confirmed", NvStatusTone.good);
+    case "DELIVERED":
+      return ("Delivered", NvStatusTone.good);
+  }
+  return null;
+}
+
+// NvListCard sets its status beside the title with no width limit, so at 200% text a long status ran off the
+// card. Capped at half the screen it wraps instead.
+Widget _cardStatus(BuildContext context, NvStatusLabel label) => ConstrainedBox(
+    constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width / 2),
+    child: label);
+
+/// What the screen says after an accept: the truck the shipper now puts on the e-way bill, when there is one.
+String _acceptedSentence(Map<String, dynamic> booking) {
+  final truck = booking["assignedTruckNumber"];
+  if (truck is! String || truck.isEmpty) return "Booking accepted.";
+  return "Accepted with ${portalTruckNumber(truck)}. ${_shipperName(booking)} can make the e-way bill now.";
+}
+
+String _acceptRefusalSentence(Object error) => serverNeverAnswered(error)
+    ? "Could not accept. Check your connection and try again."
+    : _driverRefusalSentence(error);
+
+/// Cancelled bookings stay off these screens, as before.
+const _bookingStatusesShown = {
+  "PENDING_CARRIER_ACCEPT",
+  "BOOKED",
+  "PENDING_RELEASE",
+  "DELIVERED"
+};
+
+typedef _BookingsAndTrips = ({
+  List<Map<String, dynamic>> bookings,
+  Map<String, Map<String, dynamic>> tripsById
+});
+
+/// The carrier's bookings and its trips by id. The trips only add routes, dates and progress, so a trip list
+/// that fails to load leaves them out instead of failing the screen.
+Future<_BookingsAndTrips> _loadBookingsAndTrips() async {
+  final response =
+      await api.get<Map<String, dynamic>>("/v1/pilot/carrier/shipments");
+  final raw = response.data?["shipments"];
+  final bookings = raw is List
+      ? raw
+          .whereType<Map<String, dynamic>>()
+          .where((booking) => _bookingStatusesShown.contains(booking["status"]))
+          .toList()
+      : <Map<String, dynamic>>[];
+  final tripsById = <String, Map<String, dynamic>>{};
+  try {
+    final tripsResponse =
+        await api.get<Map<String, dynamic>>("/v1/pilot/anchor-trips");
+    final rawTrips = tripsResponse.data?["trips"];
+    if (rawTrips is List) {
+      for (final trip in rawTrips.whereType<Map<String, dynamic>>()) {
+        final id = trip["id"];
+        if (id is String) tripsById[id] = trip;
+      }
+    }
+  } catch (_) {}
+  return (bookings: bookings, tripsById: tripsById);
+}
+
+String _listLoadFailedWords(String what, Object error) =>
+    serverNeverAnswered(error)
+        ? "Could not load $what. Check your connection, then try again."
+        : "Could not load $what.";
+
+enum _BookingGroup { needsYou, active, done }
+
+_BookingGroup _bookingGroup(Map<String, dynamic> booking) {
+  final status = booking["status"];
+  if (status == "PENDING_RELEASE" || status == "DELIVERED") {
+    return _BookingGroup.done;
+  }
+  if (status == "PENDING_CARRIER_ACCEPT" ||
+      (_truckMissingFromBill(booking) &&
+          AuthorizationSession.can("eway_bill.add_truck"))) {
+    return _BookingGroup.needsYou;
+  }
+  return _BookingGroup.active;
+}
+
+/// The "Next:" line on a card waiting on the office, or null when nothing waits on it.
+String? _bookingNextWords(Map<String, dynamic> booking) {
+  if (booking["status"] == "PENDING_CARRIER_ACCEPT") {
+    return "accept and choose the truck.";
+  }
+  if (_bookingGroup(booking) == _BookingGroup.needsYou) {
+    return "add the truck to the e-way bill.";
+  }
+  return null;
+}
+
+/// ca-bookings: the office's bookings under Needs you, Active and Done. A card opens its booking; Accept is
+/// on the booking screen, never on the list.
 class DriverShipmentsScreen extends StatefulWidget {
   const DriverShipmentsScreen({super.key});
 
@@ -933,9 +1119,17 @@ class DriverShipmentsScreen extends StatefulWidget {
 }
 
 class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
-  List<Map<String, dynamic>> _shipments = [];
+  List<Map<String, dynamic>> _bookings = [];
+  Map<String, Map<String, dynamic>> _tripsById = {};
   bool _loading = false;
   String? _error;
+  _BookingGroup _shown = _BookingGroup.needsYou;
+
+  static const _emptyWords = {
+    _BookingGroup.needsYou: "Nothing needs you right now.",
+    _BookingGroup.active: "No active bookings.",
+    _BookingGroup.done: "No finished bookings yet.",
+  };
 
   Future<void> _load() async {
     setState(() {
@@ -943,39 +1137,19 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
       _error = null;
     });
     try {
-      final r =
-          await api.get<Map<String, dynamic>>("/v1/pilot/carrier/shipments");
-      final raw = r.data?["shipments"];
-      final list = <Map<String, dynamic>>[];
-      if (raw is List) {
-        for (final s in raw) {
-          if (s is Map<String, dynamic>) {
-            final st = s["status"]?.toString() ?? "";
-            if (st == "PENDING_CARRIER_ACCEPT" ||
-                st == "BOOKED" ||
-                st == "PENDING_RELEASE") list.add(s);
-          }
-        }
+      final loaded = await _loadBookingsAndTrips();
+      if (mounted) {
+        setState(() {
+          _bookings = loaded.bookings;
+          _tripsById = loaded.tripsById;
+        });
       }
-      if (mounted) setState(() => _shipments = list);
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = _listLoadFailedWords("bookings", e));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _acceptShipment(Map<String, dynamic> shipment) async {
-    try {
-      if (!await acceptBooking(context, shipment)) return;
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Booking accepted.")));
-      await _load();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_driverRefusalSentence(e))));
     }
   }
 
@@ -985,55 +1159,295 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
     _load();
   }
 
+  Future<void> _open(Map<String, dynamic> booking) async {
+    await context.push("/driver/shipment/${booking["id"]}");
+    // Accepting or adding a truck there moves the booking between groups.
+    if (mounted) _load();
+  }
+
+  Widget _card(Map<String, dynamic> booking) {
+    final trip = _tripsById[booking["anchorTripId"]];
+    final status = _bookingStatus(booking, trip);
+    final pickup = booking["pickupAddress"]?.toString() ?? "";
+    final drop = booking["dropAddress"]?.toString() ?? "";
+    final start = _tripStart(trip);
+    final weight = _weightWords(booking);
+    final billKind = _ewayBillOf(booking)?["kind"];
+    final details = [
+      if (start != null) formatDate(start),
+      if (weight != null) weight,
+      // "Needed" only when the shipper saved a bill: no stored answer says "needed" before that.
+      if (billKind == "BILL") "E-way bill: needed",
+      if (billKind == "NOT_NEEDED") "E-way bill: not needed",
+    ];
+    return NvListCard(
+      title: _shipperName(booking),
+      status: status == null
+          ? null
+          : _cardStatus(context, NvStatusLabel(status.$1, tone: status.$2)),
+      subtitle: pickup.isEmpty || drop.isEmpty ? null : "$pickup to $drop",
+      footnote: details.isEmpty ? null : details.join(" · "),
+      next: _bookingNextWords(booking),
+      needsYou: _bookingGroup(booking) == _BookingGroup.needsYou,
+      onOpen: () => _open(booking),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final needsYouCount = _bookings
+        .where((booking) => _bookingGroup(booking) == _BookingGroup.needsYou)
+        .length;
+    final shown =
+        _bookings.where((booking) => _bookingGroup(booking) == _shown).toList();
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(
+            NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
         children: [
-          const Text(
-            "Customer bookings — accept new requests, then confirm delivery when drop-off is complete.",
-            style: TextStyle(color: DriverTheme.muted),
+          NvChoiceChips<_BookingGroup>(
+            options: [
+              NvChoice(_BookingGroup.needsYou, "Needs you ($needsYouCount)"),
+              const NvChoice(_BookingGroup.active, "Active"),
+              const NvChoice(_BookingGroup.done, "Done"),
+            ],
+            selected: _shown,
+            onChanged: (group) => setState(() => _shown = group),
           ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Text(_error!, style: const TextStyle(color: Colors.red)),
+          const SizedBox(height: NvSpace.s4),
+          if (_loading && _bookings.isEmpty) ...[
+            Semantics(
+                liveRegion: true,
+                child: const Text("Loading bookings.", style: NvText.caption)),
+            const SizedBox(height: NvSpace.s2),
+            const NvListLoadingCard(),
+          ] else if (_error != null)
+            NvListError(title: _error!, onRetry: _load)
+          else if (shown.isEmpty)
+            NvListEmpty(title: _emptyWords[_shown]!),
+          for (final booking in shown) ...[
+            _card(booking),
+            const SizedBox(height: NvSpace.s3),
           ],
-          if (_loading) const Center(child: CircularProgressIndicator()),
-          ..._shipments.map((s) {
-            final id = s["id"]?.toString() ?? "";
-            final st = s["status"]?.toString() ?? "";
-            final stLabel = shipmentStatusLabel(st,
-                seesPayment: AuthorizationSession.can("payment.read"));
-            return Card(
-              child: ListTile(
-                title: Text("${s["customerOrgName"]} · ${s["weightKg"]} kg"),
-                subtitle: Text(
-                    "$stLabel · ${s["pickupAddress"]} → ${s["dropAddress"]}"
-                    "${ewayBillRowSummary(s).isEmpty ? "" : "\n${ewayBillRowSummary(s)}"}"),
-                isThreeLine: true,
-                trailing: st == "PENDING_CARRIER_ACCEPT"
-                    ? FilledButton(
-                        onPressed: DriverSession.complianceApproved &&
-                                AuthorizationSession.can("carrier.offer_accept")
-                            ? () => _acceptShipment(s)
-                            : null,
-                        child: const Text("Accept"),
-                      )
-                    : const Icon(Icons.chevron_right),
-                onTap: st == "PENDING_CARRIER_ACCEPT"
-                    ? null
-                    : () => context.push("/driver/shipment/$id"),
-              ),
-            );
-          }),
-          if (!_loading && _shipments.isEmpty)
-            const Padding(
-                padding: EdgeInsets.only(top: 24),
-                child: Text("No shipments to deliver.",
-                    style: TextStyle(color: DriverTheme.muted))),
         ],
+      ),
+    );
+  }
+}
+
+/// One thing the office should do next, from its bookings and trips.
+class _OfficeTask {
+  const _OfficeTask(
+      {required this.title,
+      required this.detail,
+      required this.actionLabel,
+      required this.path});
+  final String title;
+  final String detail;
+  final String actionLabel;
+  final String path;
+}
+
+/// In the order they block the work: accept, then the truck on the bill, then a driver for a booked trip.
+/// Each kind needs the permission that does it, so nobody is sent to a task they cannot do.
+List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
+  final tasks = <_OfficeTask>[];
+  if (AuthorizationSession.can("carrier.offer_accept")) {
+    for (final booking in loaded.bookings
+        .where((booking) => booking["status"] == "PENDING_CARRIER_ACCEPT")) {
+      final trip = loaded.tripsById[booking["anchorTripId"]];
+      final route = _tripRoute(trip);
+      final start = _tripStart(trip);
+      final weight = _weightWords(booking);
+      final who =
+          [_shipperName(booking), if (weight != null) weight].join(", ");
+      tasks.add(_OfficeTask(
+        title: "Accept a booking",
+        detail: route == null
+            ? "$who."
+            : "$who, on your $route trip${start == null ? "" : ", ${formatDate(start)}"}.",
+        actionLabel: "Review booking",
+        path: "/driver/shipment/${booking["id"]}",
+      ));
+    }
+  }
+  if (AuthorizationSession.can("eway_bill.add_truck")) {
+    for (final booking in loaded.bookings.where(_truckMissingFromBill)) {
+      final route = _tripRoute(loaded.tripsById[booking["anchorTripId"]]);
+      tasks.add(_OfficeTask(
+        title: "Add the truck to an e-way bill",
+        detail: [if (route != null) route, _shipperName(booking)].join(" · "),
+        actionLabel: "Open booking",
+        path: "/driver/shipment/${booking["id"]}",
+      ));
+    }
+  }
+  if (AuthorizationSession.can("trip.assign")) {
+    for (final trip in loaded.tripsById.values) {
+      final driver = trip["assignedDriverUserId"];
+      final reserved = trip["reservedKg"];
+      final waitingForDriver =
+          (trip["status"] == "OPEN" || trip["status"] == "FULL") &&
+              reserved is num &&
+              reserved > 0 &&
+              (driver is! String || driver.isEmpty);
+      if (!waitingForDriver) continue;
+      final start = _tripStart(trip);
+      tasks.add(_OfficeTask(
+        title: "Assign a driver",
+        detail: [
+          _tripRoute(trip) ?? "Trip",
+          if (start != null) formatDate(start)
+        ].join(" · "),
+        actionLabel: "Open trip",
+        path: "/driver/trip/${trip["id"]}/active",
+      ));
+    }
+  }
+  return tasks;
+}
+
+/// ca-home: the office's first task with its button, the other tasks under it, then the trips on the road.
+class _OfficeHome extends StatefulWidget {
+  const _OfficeHome();
+
+  @override
+  State<_OfficeHome> createState() => _OfficeHomeState();
+}
+
+class _OfficeHomeState extends State<_OfficeHome> {
+  _BookingsAndTrips? _loaded;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final loaded = await _loadBookingsAndTrips();
+      if (mounted) setState(() => _loaded = loaded);
+    } catch (e) {
+      if (mounted) setState(() => _error = _listLoadFailedWords("bookings", e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _open(String path) async {
+    await context.push(path);
+    if (mounted) _load();
+  }
+
+  Widget _firstTask(_OfficeTask task) => Container(
+        padding: const EdgeInsets.all(NvSpace.s4),
+        decoration: BoxDecoration(
+          color: NvColors.card,
+          borderRadius: BorderRadius.circular(NvRadius.card),
+          border: Border.all(color: NvColors.navy, width: 1.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Semantics(
+                header: true,
+                child: const Text("NEEDS YOU", style: NvText.label)),
+            const SizedBox(height: NvSpace.s2),
+            Text(task.title, style: NvText.heading),
+            const SizedBox(height: NvSpace.s1),
+            Text(task.detail, style: NvText.body),
+            const SizedBox(height: NvSpace.s4),
+            NvButton(
+                label: task.actionLabel,
+                onPressed: () => _open(task.path),
+                fullWidth: true),
+          ],
+        ),
+      );
+
+  Widget _tripOnTheRoad(
+      Map<String, dynamic> trip, List<Map<String, dynamic>> bookings) {
+    final truck = trip["assignedTruckNumber"];
+    final driver = trip["assignedDriverName"];
+    final bookingCount = bookings
+        .where((booking) => booking["anchorTripId"] == trip["id"])
+        .length;
+    final facts = [
+      if (truck is String && truck.isNotEmpty) portalTruckNumber(truck),
+      if (driver is String && driver.isNotEmpty) driver,
+      bookingCount == 1 ? "1 booking" : "$bookingCount bookings",
+    ];
+    return NvListCard(
+      title: _tripRoute(trip) ?? "Trip",
+      status: _cardStatus(context,
+          const NvStatusLabel("In transit", tone: NvStatusTone.info)),
+      footnote: facts.join(" · "),
+      onOpen: () => _open("/driver/trip/${trip["id"]}/active"),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loaded = _loaded;
+    final List<Widget> content;
+    if (loaded == null && _loading) {
+      content = [
+        Semantics(
+            liveRegion: true,
+            child: const Text("Loading bookings.", style: NvText.caption)),
+        const SizedBox(height: NvSpace.s2),
+        const NvListLoadingCard(),
+      ];
+    } else if (_error != null || loaded == null) {
+      content = [
+        NvListError(title: _error ?? "Could not load bookings.", onRetry: _load)
+      ];
+    } else {
+      final tasks = _officeTasks(loaded);
+      final onTheRoad = loaded.tripsById.values
+          .where((trip) => trip["status"] == "IN_PROGRESS")
+          .toList();
+      content = [
+        if (tasks.isEmpty)
+          const NvListEmpty(title: "Nothing needs you right now.")
+        else ...[
+          _firstTask(tasks.first),
+          for (final task in tasks.skip(1)) ...[
+            const SizedBox(height: NvSpace.s3),
+            NvListCard(
+                title: task.title,
+                subtitle: task.detail,
+                onOpen: () => _open(task.path)),
+          ],
+        ],
+        if (onTheRoad.isNotEmpty) ...[
+          const SizedBox(height: NvSpace.s6),
+          Semantics(
+              header: true, child: const Text("Today", style: NvText.heading)),
+          const SizedBox(height: NvSpace.s3),
+          for (final trip in onTheRoad) ...[
+            _tripOnTheRoad(trip, loaded.bookings),
+            const SizedBox(height: NvSpace.s3),
+          ],
+        ],
+      ];
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(
+            NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
+        children: content,
       ),
     );
   }
@@ -1048,13 +1462,18 @@ class DriverShipmentDetailScreen extends StatefulWidget {
       _DriverShipmentDetailScreenState();
 }
 
+/// The office sees the booking as numbered steps (ca-booking-*); a driver keeps the plain shipment view until
+/// the driver screens are redesigned.
 class _DriverShipmentDetailScreenState
     extends State<DriverShipmentDetailScreen> {
   Map<String, dynamic>? _shipment;
+  Map<String, dynamic>? _trip;
   bool _accepting = false;
   bool _loadFailed = false;
   bool _loadNeverAnswered = false;
   bool _shipmentMissingFromList = false;
+
+  bool get _forDriver => DriverSession.carrierRole == "DRIVER";
 
   @override
   void initState() {
@@ -1067,24 +1486,26 @@ class _DriverShipmentDetailScreenState
     if (shipment == null) return;
     try {
       // Busy only once the request goes out, not while the office is choosing a truck.
-      final sent = await acceptBooking(context, shipment, onSending: () {
+      final sent = await acceptBooking(context, shipment,
+          tripInWords: _tripInWords(_trip), onSending: () {
         if (mounted) setState(() => _accepting = true);
       });
       if (!sent) return;
       await _load();
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Booking accepted.")));
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_acceptedSentence(_shipment ?? shipment))));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_driverRefusalSentence(e))));
+          .showSnackBar(SnackBar(content: Text(_acceptRefusalSentence(e))));
     } finally {
       if (mounted) setState(() => _accepting = false);
     }
   }
 
   Future<void> _load() async {
+    Map<String, dynamic>? found;
     try {
       final r =
           await api.get<Map<String, dynamic>>("/v1/pilot/carrier/shipments");
@@ -1092,19 +1513,10 @@ class _DriverShipmentDetailScreenState
       if (raw is List) {
         for (final s in raw) {
           if (s is Map<String, dynamic> && s["id"] == widget.shipmentId) {
-            if (mounted) setState(() => _shipment = s);
-            return;
+            found = s;
+            break;
           }
         }
-      }
-      if (mounted) {
-        setState(() {
-          _loadFailed = true;
-          _loadNeverAnswered = false;
-          _shipmentMissingFromList = true;
-          // Otherwise a driver keeps a stale screen offering actions on a shipment that is no longer theirs.
-          if (DriverSession.carrierRole == "DRIVER") _shipment = null;
-        });
       }
     } catch (e) {
       if (mounted) {
@@ -1114,6 +1526,33 @@ class _DriverShipmentDetailScreenState
           _shipmentMissingFromList = false;
         });
       }
+      return;
+    }
+    if (!mounted) return;
+    if (found == null) {
+      setState(() {
+        _loadFailed = true;
+        _loadNeverAnswered = false;
+        _shipmentMissingFromList = true;
+        // Otherwise a driver keeps a stale screen offering actions on a shipment that is no longer theirs.
+        if (_forDriver) _shipment = null;
+      });
+      return;
+    }
+    setState(() => _shipment = found);
+    if (!_forDriver) await _loadTrip(found);
+  }
+
+  Future<void> _loadTrip(Map<String, dynamic> shipment) async {
+    final tripId = shipment["anchorTripId"];
+    if (tripId is! String || tripId.isEmpty) return;
+    try {
+      final response =
+          await api.get<Map<String, dynamic>>("/v1/pilot/anchor-trips/$tripId");
+      final trip = response.data?["trip"];
+      if (mounted && trip is Map<String, dynamic>) setState(() => _trip = trip);
+    } catch (_) {
+      // The trip only adds its route, dates, room and progress; the booking reads without them.
     }
   }
 
@@ -1122,26 +1561,37 @@ class _DriverShipmentDetailScreenState
     final s = _shipment;
     if (s == null && _loadFailed) {
       return Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(_shipmentMissingFromList && DriverSession.carrierRole == "DRIVER"
-            ? "This shipment is not on a trip assigned to you now. Go back and pull down on Shipments to refresh."
-            : _loadNeverAnswered
-                ? "Could not load this shipment. Check your connection and try again."
-                : "Could not load this shipment."),
-        // A driver's retry would ask the same list, which has already answered without this shipment; the office
-        // keeps its button as before.
-        if (!_shipmentMissingFromList || DriverSession.carrierRole != "DRIVER")
-          TextButton(
-              onPressed: () {
-                setState(() => _loadFailed = false);
-                _load();
-              },
-              child: const Text("Try again")),
-      ]));
+          child: Padding(
+        padding: const EdgeInsets.all(NvSpace.gutter),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(
+              _shipmentMissingFromList && _forDriver
+                  ? "This shipment is not on a trip assigned to you now. Go back and pull down on Shipments to refresh."
+                  : _loadNeverAnswered
+                      ? "Could not load this shipment. Check your connection and try again."
+                      : "Could not load this shipment.",
+              style: NvText.body,
+              textAlign: TextAlign.center),
+          // A driver's retry would ask the same list, which has already answered without this shipment; the office
+          // keeps its button as before.
+          if (!_shipmentMissingFromList || !_forDriver)
+            NvButton(
+                label: "Try again",
+                kind: NvButtonKind.quiet,
+                onPressed: () {
+                  setState(() => _loadFailed = false);
+                  _load();
+                }),
+        ]),
+      ));
     }
     if (s == null) {
       return const Center(child: CircularProgressIndicator());
     }
+    return _forDriver ? _driverView(s) : _officeView(s);
+  }
+
+  Widget _driverView(Map<String, dynamic> s) {
     final st = s["status"]?.toString() ?? "";
     // Scrolls because the e-way bill card made this screen taller than a 360 by 640 phone.
     return Padding(
@@ -1162,11 +1612,17 @@ class _DriverShipmentDetailScreenState
           const SizedBox(height: 12),
           Text("Pickup: ${s["pickupAddress"]}"),
           Text("Drop: ${s["dropAddress"]}"),
-          // The server leaves it out for a driver; a missing amount is not zero.
-          if (s["netToCarrierPaise"] is num)
-            Text(
-                "Net to carrier: ${formatInrFromPaise(s["netToCarrierPaise"] as num)}"),
-          EwayBillCarrierCard(shipment: s),
+          Card(
+              child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text("E-way bill",
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 4),
+                        EwayBillCarrierCard(shipment: s),
+                      ]))),
           const SizedBox(height: 16),
           if (st == "PENDING_CARRIER_ACCEPT")
             FilledButton(
@@ -1184,12 +1640,7 @@ class _DriverShipmentDetailScreenState
             ),
           if (st == "BOOKED" && AuthorizationSession.can("pod.upload"))
             FilledButton(
-              onPressed: () async {
-                await context
-                    .push("/driver/shipment/${widget.shipmentId}/pod");
-                // Confirming delivery changes the status, so the button must not stay on offer.
-                if (mounted) _load();
-              },
+              onPressed: _confirmDelivery,
               child: const Text("Confirm delivery"),
             ),
           if (AuthorizationSession.can("conversation.read")) ...[
@@ -1201,13 +1652,426 @@ class _DriverShipmentDetailScreenState
               label: const Text("Shipment conversation"),
             ),
           ],
-          ShipmentPaymentStatus(
-              shipment: s,
-              showPaymentStatus: AuthorizationSession.can("payment.read")),
+          ShipmentPaymentStatus(shipment: s, showPaymentStatus: false),
         ],
       )),
     );
   }
+
+  Future<void> _confirmDelivery() async {
+    await context.push("/driver/shipment/${widget.shipmentId}/pod");
+    // Confirming delivery changes the status, so the button must not stay on offer.
+    if (mounted) _load();
+  }
+
+  Widget _officeView(Map<String, dynamic> s) {
+    final status = s["status"]?.toString() ?? "";
+    final delivered = status == "PENDING_RELEASE" || status == "DELIVERED";
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(
+            NvSpace.gutter, NvSpace.s4, NvSpace.gutter, NvSpace.s6),
+        children: [
+          _summaryCard(s),
+          const SizedBox(height: NvSpace.s4),
+          NvStepList(
+              steps: _officeSteps(s), listName: "Steps for this booking"),
+          if (_seesPaymentAmounts)
+            ..._paymentBlock(s)
+          else if (delivered) ...[
+            const SizedBox(height: NvSpace.s5),
+            _nothingMoreForYou(status),
+          ],
+          if (AuthorizationSession.can("conversation.read")) ...[
+            const SizedBox(height: NvSpace.s5),
+            NvButton(
+                label: "Messages",
+                kind: NvButtonKind.secondary,
+                fullWidth: true,
+                onPressed: () =>
+                    openShipmentConversation(context, widget.shipmentId)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// "BOOKING" over the shipper, the status, and before acceptance the facts the office decides on.
+  Widget _summaryCard(Map<String, dynamic> s) {
+    final status = _bookingStatus(s, _trip, onBookingScreen: true);
+    final statusLabel =
+        status == null ? null : NvStatusLabel(status.$1, tone: status.$2);
+    final pickup = s["pickupAddress"]?.toString() ?? "";
+    final drop = s["dropAddress"]?.toString() ?? "";
+    final weight = _weightWords(s);
+    final List<Widget> details;
+    if (s["status"] == "PENDING_CARRIER_ACCEPT") {
+      final billKind = _ewayBillOf(s)?["kind"];
+      final facts = [
+        if (pickup.isNotEmpty) ("Pickup", pickup),
+        if (drop.isNotEmpty) ("Drop", drop),
+        if (weight != null) ("Weight", weight),
+        if (billKind == "BILL")
+          ("E-way bill", "Needed. ${_shipperName(s)} makes it."),
+        if (billKind == "NOT_NEEDED")
+          ("E-way bill", "Not needed (shipper said so)."),
+      ];
+      details = [
+        if (statusLabel != null)
+          Align(alignment: Alignment.centerLeft, child: statusLabel),
+        for (final (index, (label, value)) in facts.indexed) ...[
+          if (index > 0) const Divider(height: 1, color: NvColors.line),
+          _factRow(label, value),
+        ],
+      ];
+    } else {
+      final start = _tripStart(_trip);
+      final summary = [
+        if (pickup.isNotEmpty && drop.isNotEmpty) "$pickup to $drop",
+        if (weight != null) weight,
+        if (start != null) formatDate(start),
+      ].join(" · ");
+      details = [
+        Wrap(
+          spacing: NvSpace.s2,
+          runSpacing: NvSpace.s1,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            if (statusLabel != null) statusLabel,
+            if (summary.isNotEmpty) Text(summary, style: NvText.caption),
+          ],
+        ),
+      ];
+    }
+    return Container(
+      padding: const EdgeInsets.all(NvSpace.s4),
+      decoration: BoxDecoration(
+        color: NvColors.card,
+        borderRadius: BorderRadius.circular(NvRadius.card),
+        border: Border.all(color: NvColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text("BOOKING", style: NvText.label),
+          const SizedBox(height: NvSpace.s1),
+          Semantics(
+              header: true, child: Text(_shipperName(s), style: NvText.title)),
+          const SizedBox(height: NvSpace.s2),
+          ...details,
+        ],
+      ),
+    );
+  }
+
+  // A wrap, so at large text the value drops under its label instead of squeezing.
+  Widget _factRow(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: NvSpace.s2),
+        child: Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          spacing: NvSpace.s4,
+          runSpacing: NvSpace.s1,
+          children: [
+            Text(label, style: NvText.body.copyWith(color: NvColors.slate)),
+            Text(value, style: NvText.bodyStrong, textAlign: TextAlign.end),
+          ],
+        ),
+      );
+
+  List<NvStep> _officeSteps(Map<String, dynamic> s) {
+    final status = s["status"]?.toString() ?? "";
+    final pending = status == "PENDING_CARRIER_ACCEPT";
+    final delivered = status == "PENDING_RELEASE" || status == "DELIVERED";
+    final truck = s["assignedTruckNumber"];
+    return [
+      if (pending)
+        NvStep(
+            title: "Accept and choose the truck",
+            who: "You",
+            state: NvStepState.yours,
+            panel: _acceptPanel())
+      else
+        NvStep(
+            title: truck is String && truck.isNotEmpty
+                ? "Accepted with ${portalTruckNumber(truck)}"
+                : "Accepted",
+            state: NvStepState.done),
+      _billStep(s, pending: pending, delivered: delivered),
+      _tripStep(pending: pending, delivered: delivered),
+      _deliveryStep(s, delivered: delivered),
+      if (_seesPaymentAmounts)
+        switch (status) {
+          "DELIVERED" => const NvStep(
+              title: "Payment released",
+              who: "NaviG8r operations",
+              state: NvStepState.done),
+          "PENDING_RELEASE" => const NvStep(
+              title: "Payment release",
+              who: "NaviG8r operations",
+              state: NvStepState.waiting),
+          _ => const NvStep(
+              title: "Payment released",
+              who: "NaviG8r operations",
+              state: NvStepState.later),
+        }
+      // After delivery a dispatcher reads "Nothing more for you to do" instead of the payment step.
+      else if (!delivered)
+        const NvStep(
+            title: "Payment released",
+            who: "NaviG8r operations",
+            state: NvStepState.later),
+    ];
+  }
+
+  /// ca-booking-new: the trip and the room it leaves, then Accept. There is no decline endpoint, so no Decline.
+  Widget _acceptPanel() {
+    final route = _tripRoute(_trip);
+    final dates = _tripDates(_trip);
+    final capacity = _trip?["capacityKg"];
+    final reserved = _trip?["reservedKg"];
+    // The server reserves a booking's weight when it is booked, so the room left already counts this one.
+    final roomLeft =
+        capacity is num && reserved is num ? capacity - reserved : null;
+    final onTrip = route == null
+        ? null
+        : [
+            "On your trip $route${dates == null ? "" : ", $dates"}.",
+            if (roomLeft != null && roomLeft >= 0)
+              "After this, ${formatKg(roomLeft)} of room is left.",
+          ].join(" ");
+    final String? cannotAcceptReason;
+    if (!DriverSession.complianceApproved) {
+      cannotAcceptReason = "You can accept once NaviG8r approves your company.";
+    } else if (!AuthorizationSession.can("carrier.offer_accept")) {
+      cannotAcceptReason = "Your role cannot accept bookings.";
+    } else {
+      cannotAcceptReason = null;
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (onTrip != null) ...[
+          Text(onTrip, style: NvText.body),
+          const SizedBox(height: NvSpace.s3),
+        ],
+        NvButton(
+          label: "Accept",
+          loading: _accepting,
+          loadingLabel: "Accepting",
+          onPressed: cannotAcceptReason == null ? _accept : null,
+          disabledReason: cannotAcceptReason,
+          fullWidth: true,
+        ),
+      ],
+    );
+  }
+
+  NvStep _billStep(Map<String, dynamic> s,
+      {required bool pending, required bool delivered}) {
+    const title = "Truck on the e-way bill";
+    final shipper = _shipperName(s);
+    if (pending) {
+      return NvStep(
+          title: title, who: "$shipper, or you", state: NvStepState.later);
+    }
+    final bill = _ewayBillOf(s);
+    final card = EwayBillCarrierCard(shipment: s);
+    if (bill == null) {
+      return NvStep(
+          title: title,
+          who: shipper,
+          state: delivered ? NvStepState.later : NvStepState.waiting,
+          panel: card);
+    }
+    if (bill["kind"] == "NOT_NEEDED") {
+      return const NvStep(
+          title: "E-way bill",
+          who: "Not needed (shipper said so).",
+          state: NvStepState.done);
+    }
+    final canAddTruck =
+        AuthorizationSession.can("eway_bill.add_truck") && !ewayBillIsClosed(s);
+    if (_truckMissingFromBill(s)) {
+      return canAddTruck
+          ? NvStep(
+              title: title,
+              who: "You · $shipper made the bill without it",
+              state: NvStepState.yours,
+              panel: card)
+          : NvStep(
+              title: title,
+              who: "$shipper, or your office",
+              state: NvStepState.waiting,
+              panel: card);
+    }
+    final check = bill["check"];
+    final flagged = check is Map && check["result"] == "PROBLEM";
+    final mismatch = ewayBillTruckMismatchSentence(s, bill,
+            reader: TruckMismatchReader.carrierOffice) !=
+        null;
+    if ((flagged || mismatch) && !ewayBillIsClosed(s)) {
+      return NvStep(
+          title: title, who: "You", state: NvStepState.problem, panel: card);
+    }
+    final number = bill["billNumber"];
+    final validUntil = bill["validUntilUtcMs"];
+    final checked = check is Map && check["result"] == "FOUND";
+    final validWords = validUntil is num
+        ? () {
+            final moment = DateTime.fromMillisecondsSinceEpoch(
+                validUntil.toInt(),
+                isUtc: true);
+            return "valid until ${formatDate(moment)}, ${formatTimeIst(moment)}";
+          }()
+        : null;
+    final who = [
+      if (number is String && number.isNotEmpty) formatBillNumber(number),
+      if (checked && validWords != null) validWords,
+      if (!checked) ewayBillCheckLine(bill, forShipper: false),
+    ];
+    return NvStep(
+        title: checked ? "E-way bill checked" : title,
+        who: who.isEmpty ? null : who.join(" · "),
+        state: NvStepState.done);
+  }
+
+  /// Assigning the driver and starting happen on the trip screen, so this step opens it.
+  NvStep _tripStep({required bool pending, required bool delivered}) {
+    const title = "Driver assigned and trip started";
+    final trip = _trip;
+    if (delivered || _tripStarted(trip)) {
+      final driver = trip?["assignedDriverName"];
+      final startedAt = trip?["startedAtUtcMs"];
+      final moment = startedAt is num
+          ? DateTime.fromMillisecondsSinceEpoch(startedAt.toInt(), isUtc: true)
+          : null;
+      final who = [
+        if (driver is String && driver.isNotEmpty) driver,
+        if (moment != null) "${formatDate(moment)}, ${formatTimeIst(moment)}",
+      ];
+      return NvStep(
+          title: "Trip started",
+          who: who.isEmpty ? null : who.join(" · "),
+          state: NvStepState.done);
+    }
+    if (pending || trip == null) {
+      return const NvStep(title: title, who: "You", state: NvStepState.later);
+    }
+    return NvStep(
+      title: title,
+      who: "You",
+      state: NvStepState.yours,
+      panel: NvButton(
+          label: "Open trip",
+          kind: NvButtonKind.secondary,
+          fullWidth: true,
+          onPressed: () async {
+            await context.push("/driver/trip/${trip["id"]}/active");
+            if (mounted) _load();
+          }),
+    );
+  }
+
+  /// Confirming opens today's proof of delivery screen (notes, no photo). It is offered once the trip is on the
+  /// road, or whenever the trip could not be read, since the server accepts it for any accepted booking.
+  NvStep _deliveryStep(Map<String, dynamic> s, {required bool delivered}) {
+    const title = "Confirm delivery";
+    if (delivered) {
+      final podAt = s["podAtUtcMs"];
+      final moment = podAt is num
+          ? DateTime.fromMillisecondsSinceEpoch(podAt.toInt(), isUtc: true)
+          : null;
+      return NvStep(
+          title: "Delivery confirmed",
+          who: moment == null
+              ? null
+              : "${formatDate(moment)}, ${formatTimeIst(moment)} · Proof of delivery added",
+          state: NvStepState.done);
+    }
+    final driver = _trip?["assignedDriverName"];
+    final who = driver is String && driver.isNotEmpty
+        ? "You or $driver"
+        : "You or your driver";
+    final canConfirm = s["status"] == "BOOKED" &&
+        AuthorizationSession.can("pod.upload") &&
+        (_trip == null || _tripStarted(_trip));
+    if (!canConfirm) {
+      return NvStep(title: title, who: who, state: NvStepState.later);
+    }
+    return NvStep(
+      title: title,
+      who: who,
+      state: NvStepState.yours,
+      panel: NvButton(
+          label: "Confirm delivery",
+          onPressed: _confirmDelivery,
+          fullWidth: true),
+    );
+  }
+
+  /// ca-booking-owner, with only the amount the carrier API sends: "You receive". The shipper's price, the
+  /// commission and the bank account's last digits are not sent to carriers.
+  List<Widget> _paymentBlock(Map<String, dynamic> s) {
+    final awaitingRelease = s["status"] == "PENDING_RELEASE";
+    final amount = s["netToCarrierPaise"];
+    if (!awaitingRelease && amount is! num) return const [];
+    return [
+      const SizedBox(height: NvSpace.s5),
+      Container(
+        padding: const EdgeInsets.all(NvSpace.s4),
+        decoration: BoxDecoration(
+          color: NvColors.card,
+          borderRadius: BorderRadius.circular(NvRadius.card),
+          border: Border.all(color: NvColors.line),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (awaitingRelease)
+              const Text(
+                  "NaviG8r operations check the proof of delivery, then release the payment to your bank account.",
+                  style: NvText.body),
+            if (awaitingRelease && amount is num)
+              const SizedBox(height: NvSpace.s3),
+            if (amount is num)
+              Row(children: [
+                const Expanded(
+                    child: Text("You receive", style: NvText.bodyStrong)),
+                Text(formatRupees(amount), style: NvText.bodyStrong),
+              ]),
+          ],
+        ),
+      ),
+      const SizedBox(height: NvSpace.s2),
+      const Text(
+          "Only owners see payment amounts. Dispatchers and drivers do not.",
+          style: NvText.caption),
+    ];
+  }
+
+  /// ca-booking-dispatcher: delivered, and no amounts.
+  Widget _nothingMoreForYou(String status) => Container(
+        padding: const EdgeInsets.all(NvSpace.s4),
+        decoration: BoxDecoration(
+          color: NvColors.sunken,
+          borderRadius: BorderRadius.circular(NvRadius.card),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text("Nothing more for you to do on this booking.",
+                style: NvText.bodyStrong),
+            if (status == "PENDING_RELEASE") ...[
+              const SizedBox(height: NvSpace.s1),
+              const Text(
+                  "NaviG8r operations check the proof of delivery. The owner sees the payment.",
+                  style: NvText.body),
+            ],
+          ],
+        ),
+      );
 }
 
 class DriverLoadsScreen extends StatefulWidget {
@@ -1916,7 +2780,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
   Future<void> _acceptOnTrip(Map<String, dynamic> shipment) async {
     try {
-      if (!await acceptBooking(context, shipment)) return;
+      if (!await acceptBooking(context, shipment,
+          tripInWords: _tripInWords(_trip))) {
+        return;
+      }
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context)

@@ -84,14 +84,20 @@ void main() {
                 bill: {'kind': 'BILL', 'billNumber': '123456789012'})));
     expect(
         find.text(
-            'Truck not on this bill yet. Add your truck to the bill on the portal, then enter it here.'),
+            'Add the truck on the portal before the goods move, then enter it here.'),
         findsOneWidget,
-        reason: 'the carrier is told its part');
+        reason: 'ca-booking-truck: the carrier is told its part');
+    expect(find.text('E-way bill number'), findsOneWidget,
+        reason: 'ca-booking-truck: the bill number is a copy row');
+    expect(find.text('Portal: Update Part B, find the bill by this number'),
+        findsOneWidget,
+        reason: 'the copy row says where it goes on the portal');
     expect(find.textContaining('has not checked the truck or the expiry'),
         findsOneWidget,
         reason: 'no truck yet, so the original caveat stays');
-    expect(find.widgetWithText(OutlinedButton, 'Add truck'), findsOneWidget,
-        reason: 'owners and dispatchers can add the truck');
+    expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget,
+        reason:
+            'owners and dispatchers can add the truck; it is the step\'s primary action');
     expect(find.text('Open the government e-way bill portal'), findsOneWidget,
         reason: 'the owner gets the portal link');
     await tester.tap(find.text('Open the government e-way bill portal'));
@@ -204,7 +210,8 @@ void main() {
     api.dio.httpClientAdapter = MockApiAdapter((request) => jsonResponse({
           'shipments': [
             {
-              ...shipment(status: 'PENDING_CARRIER_ACCEPT'),
+              // Accepted: before acceptance the booking screen shows the bill only as a fact.
+              ...shipment(),
               'pickupAddress': 'Synthetic pickup address, Bengaluru',
               'dropAddress': 'Synthetic drop address, Chennai',
               'netToCarrierPaise': 250000,
@@ -240,8 +247,8 @@ void main() {
         reason: 'a past valid-until time is reported as typed, not as expired');
     expect(find.text('Change truck'), findsNothing,
         reason: 'a driver cannot change the truck');
-    expect(find.text('Accept booking'), findsOneWidget,
-        reason: 'the accept button is still on screen');
+    expect(find.text('Truck on the e-way bill'), findsOneWidget,
+        reason: 'the bill shows inside its step on the booking screen');
     expect(tester.takeException(), isNull,
         reason: 'no overflow on a small phone');
   });
@@ -253,7 +260,8 @@ void main() {
     api.dio.httpClientAdapter = MockApiAdapter((request) => jsonResponse({
           'shipments': [
             {
-              ...shipment(status: 'PENDING_CARRIER_ACCEPT'),
+              // Accepted: before acceptance the booking screen shows the bill only as a fact.
+              ...shipment(),
               'customerOrgName':
                   'Synthetic Shipper With A Very Long Registered Business Name Private Limited',
               'pickupAddress': 'Synthetic pickup address, Bengaluru',
@@ -297,8 +305,8 @@ void main() {
         reason: 'the owner can change the truck');
     expect(find.text('Open the government e-way bill portal'), findsOneWidget,
         reason: 'the owner has the portal link');
-    expect(find.text('Accept booking'), findsOneWidget,
-        reason: 'the accept button is still on screen');
+    expect(find.text('Truck on the e-way bill'), findsOneWidget,
+        reason: 'the bill shows inside its step on the booking screen');
     expect(tester.takeException(), isNull,
         reason: 'no overflow on a small phone');
   });
