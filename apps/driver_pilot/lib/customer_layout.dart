@@ -41,48 +41,6 @@ class CustomerPageFrame extends StatelessWidget {
   }
 }
 
-/// Two-column row on desktop; stacks on mobile.
-class CustomerResponsiveRow extends StatelessWidget {
-  const CustomerResponsiveRow({
-    required this.primary,
-    required this.secondary,
-    this.secondaryFlex = 1,
-    this.primaryFlex = 1,
-    super.key,
-  });
-
-  final Widget primary;
-  final Widget secondary;
-  final int primaryFlex;
-  final int secondaryFlex;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth >= CustomerBreakpoints.desktop) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(flex: primaryFlex, child: primary),
-              const SizedBox(width: 24),
-              Expanded(flex: secondaryFlex, child: secondary),
-            ],
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            primary,
-            const SizedBox(height: 16),
-            secondary,
-          ],
-        );
-      },
-    );
-  }
-}
-
 const List<NavigationDestination> kCustomerNavDestinations = [
   NavigationDestination(
       icon: Icon(Icons.home_outlined),

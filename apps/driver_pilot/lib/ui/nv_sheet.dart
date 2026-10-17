@@ -47,6 +47,7 @@ class NvSheet extends StatelessWidget {
       this.loadingLabel,
       this.cancelLabel = "Cancel",
       this.onCancel,
+      this.footnote,
       super.key});
 
   /// A question, for example "Which truck carries this trip?"
@@ -69,6 +70,9 @@ class NvSheet extends StatelessWidget {
 
   /// Defaults to closing the sheet.
   final VoidCallback? onCancel;
+
+  /// A small line under the buttons, for example what happens on the next screen.
+  final String? footnote;
 
   @override
   Widget build(BuildContext context) {
@@ -134,6 +138,10 @@ class NvSheet extends StatelessWidget {
                 : (onCancel ?? () => Navigator.of(context).maybePop()),
             child: Text(cancelLabel, textAlign: TextAlign.center),
           ),
+          if (footnote != null) ...[
+            const SizedBox(height: NvSpace.s3),
+            Text(footnote!, style: NvText.caption),
+          ],
         ],
       ),
     );

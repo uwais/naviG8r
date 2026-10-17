@@ -12,6 +12,7 @@ import "shipment_payment_status.dart";
 import "eway_bill_card.dart";
 import "eway_bill_dates.dart";
 import "eway_bill_words.dart";
+import "google_geocoding.dart";
 import "customer_checkout.dart";
 import "customer_layout.dart";
 import "customer_session.dart";
@@ -19,23 +20,25 @@ import "driver_theme.dart";
 import "location_editor.dart";
 import "pilot_api.dart";
 import "notification_center.dart";
+import "shipment_steps.dart";
 import "signed_in_header.dart";
 import "start_screen.dart";
 import "ui/format.dart";
+import "ui/nv_action_bar.dart";
+import "ui/nv_button.dart";
+import "ui/nv_field.dart";
 import "ui/nv_header.dart";
+import "ui/nv_list_card.dart";
+import "ui/nv_map.dart";
+import "ui/nv_message.dart";
+import "ui/nv_sheet.dart";
+import "ui/nv_status_label.dart";
+import "ui/pending_copy.dart";
 import "ui/sign_in_code_page.dart";
 import "ui/sign_in_phone_page.dart";
 import "ui/tokens.dart";
 
 String? lastBookedShipmentId;
-
-Future<void> signOutCustomer(BuildContext context, {String? redirectTo}) async {
-  await CustomerSession.signOut();
-  if (!context.mounted) return;
-  ScaffoldMessenger.of(context)
-      .showSnackBar(const SnackBar(content: Text("Signed out.")));
-  context.go(redirectTo ?? "/customer/login");
-}
 
 List<RouteBase> customerFlowRoutes() {
   return [
@@ -54,10 +57,20 @@ List<RouteBase> customerFlowRoutes() {
         GoRoute(
             path: "integrations",
             builder: (_, __) => const CustomerIntegrationsScreen()),
-        GoRoute(path: "trips", builder: (_, __) => const CustomerTripsScreen()),
+        GoRoute(
+            path: "trips",
+            builder: (_, state) => CustomerTripsScreen(
+                startWithMatch: state.uri.queryParameters["tab"] == "match")),
+        // Booking starts from a lane card: a Book screen with no lane is how stale prices and
+        // guessed weights happened (spec/decisions.md).
         GoRoute(
             path: "book",
-            builder: (_, __) => const CustomerBookShipmentScreen()),
+            redirect: (_, state) =>
+                (state.uri.queryParameters["anchorTripId"] ?? "").isEmpty
+                    ? "/customer/trips"
+                    : null,
+            builder: (_, state) =>
+                CustomerBookShipmentScreen.fromQuery(state.uri.queryParameters)),
         GoRoute(
           path: "eligible",
           redirect: (_, __) => "/customer/trips?tab=match",
@@ -80,12 +93,20 @@ class CustomerScaffold extends StatelessWidget {
     required this.title,
     required this.currentPath,
     required this.bodyBuilder,
+    this.subtitle,
+    this.actionBar,
     super.key,
   });
 
   final String title;
   final String currentPath;
   final WidgetBuilder bodyBuilder;
+
+  /// One line under the title, such as "Check the price, then pay."
+  final String? subtitle;
+
+  /// The screen's primary action, held at the bottom in place of the tabs (NvActionBar).
+  final Widget? actionBar;
 
   // Book has no tab: it opens from a lane card, so it sits under Find a lane.
   int _indexForPath(String path) {
@@ -119,17 +140,18 @@ class CustomerScaffold extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(
                         top: NvSpace.s4, bottom: NvSpace.s2),
-                    child: Row(children: [
-                      Expanded(
-                        child: Semantics(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Semantics(
                             header: true,
                             child: Text(title, style: NvText.title)),
-                      ),
-                      // Stays until Home's "Updates" row replaces it (spec/screens.md).
-                      if (CustomerSession.isSignedIn &&
-                          AuthorizationSession.can("notification.read"))
-                        const NotificationBell(),
-                    ]),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: NvSpace.s1),
+                          Text(subtitle!, style: NvText.body),
+                        ],
+                      ],
+                    ),
                   ),
                   Expanded(child: bodyBuilder(context)),
                 ],
@@ -163,6 +185,7 @@ class CustomerScaffold extends StatelessWidget {
               return Scaffold(
                 backgroundColor: DriverTheme.background,
                 appBar: appBar,
+                bottomNavigationBar: actionBar,
                 body: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -189,11 +212,12 @@ class CustomerScaffold extends StatelessWidget {
               backgroundColor: DriverTheme.background,
               appBar: appBar,
               body: SafeArea(child: AccessRefresh(child: page)),
-              bottomNavigationBar: NavigationBar(
-                selectedIndex: selected,
-                onDestinationSelected: goToIndex,
-                destinations: kCustomerNavDestinations,
-              ),
+              bottomNavigationBar: actionBar ??
+                  NavigationBar(
+                    selectedIndex: selected,
+                    onDestinationSelected: goToIndex,
+                    destinations: kCustomerNavDestinations,
+                  ),
             );
           },
         );
@@ -210,12 +234,51 @@ class CustomerHomeScreen extends StatefulWidget {
 }
 
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
+  List<Map<String, dynamic>> _shipments = [];
+  bool _shipmentsFailed = false;
+  int _unreadUpdates = 0;
+
   @override
   void initState() {
     super.initState();
     CustomerSession.refresh().then((_) {
-      if (mounted) setState(() {});
+      if (mounted) _load();
     });
+  }
+
+  Future<void> _load() async {
+    if (!CustomerSession.isSignedIn) return;
+    await Future.wait([_loadShipments(), _loadUnreadUpdates()]);
+  }
+
+  Future<void> _loadShipments() async {
+    if (!AuthorizationSession.can("load.read")) return;
+    try {
+      final r = await api.get<Map<String, dynamic>>("/shipments");
+      final raw = r.data?["shipments"];
+      if (!mounted) return;
+      setState(() {
+        _shipments =
+            raw is List ? raw.whereType<Map<String, dynamic>>().toList() : [];
+        _shipmentsFailed = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _shipmentsFailed = true);
+    }
+  }
+
+  Future<void> _loadUnreadUpdates() async {
+    if (!AuthorizationSession.can("notification.read")) return;
+    try {
+      final r =
+          await api.get<Map<String, dynamic>>("/v1/notifications/shipments");
+      if (mounted) {
+        setState(() =>
+            _unreadUpdates = (r.data?["unreadCount"] as num?)?.toInt() ?? 0);
+      }
+    } catch (_) {
+      // The Updates row still opens the inbox, which shows its own error.
+    }
   }
 
   // Listens to the session: the router keeps this page when only the session changes.
@@ -228,130 +291,235 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     if (!CustomerSession.isSignedIn) {
       return const Scaffold(body: SafeArea(child: StartScreen()));
     }
+    final canWriteBill = AuthorizationSession.can("eway_bill.write");
+    final canAddTruck = AuthorizationSession.can("eway_bill.add_truck");
+    Map<String, dynamic>? taskShipment;
+    String? task;
+    for (final shipment in _shipments) {
+      task = shipperTaskFor(shipment,
+          canWriteBill: canWriteBill, canAddTruck: canAddTruck);
+      if (task != null && (shipment["id"]?.toString() ?? "").isNotEmpty) {
+        taskShipment = shipment;
+        break;
+      }
+    }
+    final waiting = _shipments
+        .where((s) => s["status"] == "PENDING_CARRIER_ACCEPT")
+        .length;
+    final accepted = _shipments.where((s) => s["status"] == "BOOKED").length;
+    final showsUpdates = AuthorizationSession.can("notification.read");
+
     return CustomerScaffold(
-      title: "Book freight",
+      title: "Home",
       currentPath: "/customer",
-      bodyBuilder: (_) => ListView(
-        // Scrolls even when short, so pulling down reloads access here too.
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        children: [
-          const Text(
-            "Find carrier lanes, book a shipment, and track delivery from pickup to drop-off.",
-            style: TextStyle(color: DriverTheme.muted, height: 1.4),
-          ),
-          const SizedBox(height: 16),
-          CustomerResponsiveRow(
-            primaryFlex: 3,
-            secondaryFlex: 2,
-            primary: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (CustomerSession.isOrgAdmin)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Card(
-                        child: ListTile(
-                          leading: const Icon(Icons.groups_outlined),
-                          title: Text(
-                              CustomerSession.customerOrgName ?? "Your org"),
-                          subtitle: const Text(
-                              "Manage who can book and view shipments"),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => context.go("/customer/team"),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: ListTile(
-                          leading: const Icon(Icons.hub_outlined),
-                          title: const Text("ERP integrations"),
-                          subtitle: const Text(
-                              "API keys, webhooks, and sync status for your ERP"),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => context.go("/customer/integrations"),
-                        ),
-                      ),
-                    ],
-                  )
-                else if (CustomerSession.hasCustomerOrg)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Text(
-                        "Signed in to ${CustomerSession.customerOrgName ?? "your org"}. Shipments booked by your team appear under My shipments.",
-                        style: const TextStyle(
-                            color: DriverTheme.muted, height: 1.4),
-                      ),
-                    ),
-                  ),
-                if (CustomerSession.isSignedIn) ...[
-                  if (CustomerSession.hasCustomerOrg ||
-                      CustomerSession.isOrgAdmin)
-                    const SizedBox(height: 12),
-                  Card(
-                    child: Column(
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.person_outline,
-                              color: DriverTheme.navy),
-                          title:
-                              Text(CustomerSession.userFullName ?? "Signed in"),
-                          subtitle: Text(CustomerSession.userPhone ?? ""),
-                        ),
-                        const Divider(height: 1),
-                        ListTile(
-                          leading:
-                              const Icon(Icons.logout, color: DriverTheme.navy),
-                          title: const Text("Sign out"),
-                          subtitle: const Text(
-                              "Use a different phone number or account"),
-                          onTap: () => signOutCustomer(context),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            secondary: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text("Get started",
-                        style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: DriverTheme.navy)),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: () => context.go("/customer/trips"),
-                      icon: const Icon(Icons.travel_explore),
-                      label: const Text("Browse open trips"),
-                    ),
-                    const SizedBox(height: 8),
-                    FilledButton.icon(
-                      onPressed: () => context.go("/customer/book"),
-                      icon: const Icon(Icons.shopping_cart_outlined),
-                      label: const Text("Book a shipment"),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => context.go("/customer/shipments"),
-                      icon: const Icon(Icons.receipt_long_outlined),
-                      label: const Text("My shipments"),
-                    ),
-                  ],
-                ),
+      bodyBuilder: (_) => RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(vertical: NvSpace.s2),
+          children: [
+            if (taskShipment != null) ...[
+              _NeedsYouCard(task: task!, shipment: taskShipment),
+              const SizedBox(height: NvSpace.s6),
+            ],
+            if (_shipmentsFailed) ...[
+              NvListError(
+                  title: "Could not load your shipments.",
+                  help: "Check your connection, then try again.",
+                  onRetry: _loadShipments),
+              const SizedBox(height: NvSpace.s4),
+            ],
+            if (waiting > 0 || accepted > 0 || showsUpdates) ...[
+              Semantics(
+                header: true,
+                child: Text("Your shipments",
+                    style: NvText.heading.copyWith(color: NvColors.ink)),
               ),
+              const SizedBox(height: NvSpace.s3),
+              _HomeRows(children: [
+                if (waiting > 0)
+                  _HomeRow(
+                    leading: const NvStatusLabel("Waiting for carrier",
+                        tone: NvStatusTone.attention),
+                    title: _shipmentCount(waiting),
+                    onTap: () => context.go("/customer/shipments"),
+                  ),
+                if (accepted > 0)
+                  _HomeRow(
+                    leading: const NvStatusLabel("Accepted",
+                        tone: NvStatusTone.info),
+                    title: _shipmentCount(accepted),
+                    onTap: () => context.go("/customer/shipments"),
+                  ),
+                if (showsUpdates)
+                  _HomeRow(
+                    leading: const ExcludeSemantics(
+                        child: Icon(Icons.notifications_outlined,
+                            color: NvColors.slate)),
+                    title: "Updates",
+                    caption: _unreadUpdates > 0 ? "$_unreadUpdates new" : null,
+                    onTap: () async {
+                      await openNotificationInbox(context);
+                      if (mounted) unawaited(_loadUnreadUpdates());
+                    },
+                  ),
+              ]),
+              const SizedBox(height: NvSpace.s4),
+            ],
+            NvButton(
+              label: "Find a lane for new goods",
+              kind: taskShipment == null
+                  ? NvButtonKind.primary
+                  : NvButtonKind.secondary,
+              fullWidth: true,
+              onPressed: () => context.go("/customer/trips"),
             ),
+            if (CustomerSession.isOrgAdmin) ...[
+              const SizedBox(height: NvSpace.s6),
+              _HomeRows(children: [
+                _HomeRow(
+                  title: CustomerSession.customerOrgName ?? "Your org",
+                  caption: "Manage who can book and view shipments",
+                  onTap: () => context.go("/customer/team"),
+                ),
+                _HomeRow(
+                  title: "ERP integrations",
+                  caption: "API keys, webhooks, and sync status for your ERP",
+                  onTap: () => context.go("/customer/integrations"),
+                ),
+              ]),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _shipmentCount(int count) =>
+    count == 1 ? "1 shipment" : "$count shipments";
+
+/// The one task waiting on the shipper, with the button that opens its shipment.
+class _NeedsYouCard extends StatelessWidget {
+  const _NeedsYouCard({required this.task, required this.shipment});
+  final String task;
+  final Map<String, dynamic> shipment;
+
+  // Who did what, in the shipment step's own words (spec/copy.md).
+  String get _whatHappened {
+    final bill = shipment["ewayBill"];
+    final carrier = shipment["carrierDisplayName"]?.toString() ?? "The carrier";
+    if (task == "Fix the e-way bill") return "NaviG8r staff found a difference.";
+    if (bill is Map && bill["billNumber"] is String) {
+      return "Bill ${formatBillNumber(bill["billNumber"] as String)} saved. The truck is not on it yet.";
+    }
+    final truck = shipment["assignedTruckNumber"]?.toString() ?? "";
+    return truck.isEmpty
+        ? "$carrier accepted."
+        : "$carrier accepted and named the truck.";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final from = shipment["pickupAddress"]?.toString() ?? "";
+    final to = shipment["dropAddress"]?.toString() ?? "";
+    final route = from.isEmpty || to.isEmpty ? "" : "$from to $to. ";
+    final id = shipment["id"]?.toString() ?? "";
+    return Container(
+      padding: const EdgeInsets.all(NvSpace.s4),
+      decoration: BoxDecoration(
+        color: NvColors.card,
+        borderRadius: BorderRadius.circular(NvRadius.card),
+        border: Border.all(color: NvColors.navy, width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+              header: true,
+              child: const Text("NEEDS YOU", style: NvText.label)),
+          const SizedBox(height: NvSpace.s3),
+          Text(task, style: NvText.heading),
+          const SizedBox(height: NvSpace.s1),
+          Text("$route$_whatHappened", style: NvText.body),
+          const SizedBox(height: NvSpace.s4),
+          NvButton(
+            label: "Open shipment",
+            fullWidth: true,
+            onPressed: () => context.go("/customer/shipments/$id"),
           ),
         ],
       ),
     );
   }
+}
+
+/// Rows on one white card, split by thin lines, as on the shipper Home (sh-home).
+class _HomeRows extends StatelessWidget {
+  const _HomeRows({required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: NvColors.card,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(NvRadius.card),
+            side: const BorderSide(color: NvColors.line)),
+        child: Column(children: [
+          for (final (index, row) in children.indexed) ...[
+            if (index > 0) const Divider(height: 1, color: NvColors.line),
+            row,
+          ],
+        ]),
+      );
+}
+
+class _HomeRow extends StatelessWidget {
+  const _HomeRow(
+      {required this.title, required this.onTap, this.leading, this.caption});
+  final Widget? leading;
+  final String title;
+  final String? caption;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => MergeSemantics(
+        child: InkWell(
+          onTap: onTap,
+          highlightColor: NvColors.sunken,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: NvSpace.targetMin),
+            child: Padding(
+              padding: const EdgeInsets.all(NvSpace.s4),
+              child: Row(children: [
+                Expanded(
+                  // Wraps, so a long status word and the count stack at large text.
+                  child: Wrap(
+                    spacing: NvSpace.s3,
+                    runSpacing: NvSpace.s1,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (leading != null) leading!,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(title, style: NvText.bodyStrong),
+                          if (caption != null)
+                            Text(caption!, style: NvText.caption),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const ExcludeSemantics(
+                    child: Icon(Icons.chevron_right, color: NvColors.slate)),
+              ]),
+            ),
+          ),
+        ),
+      );
 }
 
 class CustomerLoginScreen extends StatefulWidget {
@@ -1325,63 +1493,198 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
   }
 }
 
+/// Turns typed place words into a map point. Screens take it as a parameter so tests can stand
+/// in for the geocoding service.
+typedef PlaceFinder = Future<GeocodeOutcome> Function(String place);
+
+/// A pickup or drop: the words the shipper typed and the map point the price and the match use.
+/// A point counts only for the words it was found for, unless the shipper dragged its pin.
+class _PlaceInput {
+  _PlaceInput({String words = "", this.point})
+      : words = TextEditingController(text: words),
+        _pointFor = point == null ? null : words.trim();
+
+  final TextEditingController words;
+  LatLng? point;
+  String? _pointFor;
+  bool _pinnedByHand = false;
+  String? error;
+
+  String get text => words.text.trim();
+  bool get placed => point != null && (_pinnedByHand || _pointFor == text);
+
+  void foundAt(LatLng found) {
+    point = found;
+    _pointFor = text;
+  }
+
+  void pinnedAt(LatLng pin) {
+    point = pin;
+    _pinnedByHand = true;
+  }
+
+  /// Looks up the words when they have no point yet. Sets [error] and returns false when the
+  /// place cannot be used.
+  Future<bool> place(PlaceFinder findPlace,
+      {required String emptyError, required String notFoundError}) async {
+    error = null;
+    if (text.isEmpty) {
+      error = emptyError;
+      return false;
+    }
+    if (placed) return true;
+    final outcome = await findPlace(text);
+    if (!outcome.isOk) {
+      error = notFoundError;
+      return false;
+    }
+    foundAt(outcome.position!);
+    return true;
+  }
+
+  void dispose() => words.dispose();
+}
+
+String _laneRoute(Map<String, dynamic> lane) =>
+    "${lane["originCity"]} to ${lane["destCity"]}";
+
+/// Capacity minus what is already booked, or null when the lane does not say.
+num? _roomLeftKg(Map<String, dynamic> lane) {
+  final capacity = lane["capacityKg"];
+  final reserved = lane["reservedKg"];
+  if (capacity is! num || reserved is! num) return null;
+  final room = capacity - reserved;
+  return room < 0 ? 0 : room;
+}
+
+String _roomLeftWords(num room) => room == 0 ? "None" : formatKg(room);
+
+String? _laneDates(Map<String, dynamic> lane) {
+  final start = DateTime.tryParse(lane["windowStart"]?.toString() ?? "");
+  final end = DateTime.tryParse(lane["windowEnd"]?.toString() ?? "");
+  if (start == null && end == null) return null;
+  return formatDateRange(start ?? end!, end ?? start!);
+}
+
+NvStatusLabel _laneStatusLabel(String status) {
+  final word = tripStatusLabel(status);
+  return switch (status) {
+    "OPEN" => NvStatusLabel(word, tone: NvStatusTone.good),
+    "IN_PROGRESS" => NvStatusLabel(word, tone: NvStatusTone.info),
+    _ => NvStatusLabel(word, tone: NvStatusTone.ended),
+  };
+}
+
+/// formatApiError's own sentences, but never its "HTTP n" or server-address fallbacks.
+String _plainError(Object error, String fallback) {
+  if (error is! DioException || serverNeverAnswered(error)) return fallback;
+  final sentence = formatApiError(error);
+  return sentence.startsWith("HTTP ") || sentence.startsWith("Cannot reach")
+      ? fallback
+      : sentence;
+}
+
+String _apiErrorCode(Object error) {
+  final body = error is DioException ? error.response?.data : null;
+  return body is Map ? body["error"]?.toString() ?? "" : "";
+}
+
+void _announce(BuildContext context, String words,
+        {Assertiveness assertiveness = Assertiveness.polite}) =>
+    SemanticsService.announce(words, Directionality.of(context),
+        assertiveness: assertiveness);
+
+/// One lane on a list; the whole card opens Book for it.
+Widget _laneCard(Map<String, dynamic> lane, {required VoidCallback onOpen}) {
+  final room = _roomLeftKg(lane);
+  final dates = _laneDates(lane);
+  final carrier = lane["carrierDisplayName"]?.toString() ?? "Carrier";
+  return Padding(
+    padding: const EdgeInsets.only(top: NvSpace.s3),
+    child: NvListCard(
+      title: _laneRoute(lane),
+      status: _laneStatusLabel(lane["status"]?.toString() ?? ""),
+      subtitle:
+          "$carrier · ${vehicleClassLabel(lane["vehicleClass"]?.toString())}",
+      facts: [
+        if (dates != null) NvFact("Dates", dates),
+        if (room != null) NvFact("Room left", _roomLeftWords(room)),
+      ],
+      onOpen: onOpen,
+    ),
+  );
+}
+
+enum _LaneView { browse, match }
+
 class CustomerTripsScreen extends StatefulWidget {
-  const CustomerTripsScreen({super.key});
+  const CustomerTripsScreen(
+      {this.startWithMatch = false,
+      this.findPlace = GoogleGeocodingService.forwardAddress,
+      super.key});
+
+  final bool startWithMatch;
+  final PlaceFinder findPlace;
 
   @override
   State<CustomerTripsScreen> createState() => _CustomerTripsScreenState();
 }
 
-class _CustomerTripsScreenState extends State<CustomerTripsScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabs;
-  bool _tabSynced = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabs = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_tabSynced) {
-      final tab = GoRouterState.of(context).uri.queryParameters["tab"];
-      if (tab == "match") _tabs.index = 1;
-      _tabSynced = true;
-    }
-  }
-
-  @override
-  void dispose() {
-    _tabs.dispose();
-    super.dispose();
-  }
+class _CustomerTripsScreenState extends State<CustomerTripsScreen> {
+  late _LaneView _view =
+      widget.startWithMatch ? _LaneView.match : _LaneView.browse;
 
   @override
   Widget build(BuildContext context) {
     return CustomerScaffold(
       title: "Find a lane",
+      subtitle: "Pick a lane going your way.",
       currentPath: "/customer/trips",
       bodyBuilder: (_) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TabBar(
-            controller: _tabs,
-            labelColor: DriverTheme.navy,
-            tabs: const [
-              Tab(text: "Browse open"),
-              Tab(text: "Match my route"),
+          const SizedBox(height: NvSpace.s2),
+          SegmentedButton<_LaneView>(
+            segments: const [
+              ButtonSegment(value: _LaneView.browse, label: Text("Browse all")),
+              ButtonSegment(
+                  value: _LaneView.match, label: Text("Match my route")),
             ],
+            selected: {_view},
+            showSelectedIcon: false,
+            onSelectionChanged: (chosen) =>
+                setState(() => _view = chosen.first),
+            style: ButtonStyle(
+              minimumSize:
+                  const WidgetStatePropertyAll(Size(0, NvSpace.targetMin)),
+              textStyle: const WidgetStatePropertyAll(NvText.bodyStrong),
+              backgroundColor: WidgetStateProperty.resolveWith((states) =>
+                  states.contains(WidgetState.selected)
+                      ? NvColors.card
+                      : NvColors.sunken),
+              foregroundColor: WidgetStateProperty.resolveWith((states) =>
+                  states.contains(WidgetState.selected)
+                      ? NvColors.navyInk
+                      : NvColors.slate),
+              side: const WidgetStatePropertyAll(
+                  BorderSide(color: NvColors.controlBorder)),
+            ),
           ),
           Expanded(
-            child: TabBarView(
-              controller: _tabs,
-              children: const [
-                _CustomerBrowseTripsTab(),
-                _CustomerMatchTripsTab(),
-              ],
-            ),
+            // Both views stay alive, so a match search survives a look at Browse. Offstage, unlike
+            // IndexedStack, also hides the other view from screen readers and finders.
+            child: Stack(fit: StackFit.expand, children: [
+              Offstage(
+                  offstage: _view != _LaneView.browse,
+                  child: const _CustomerBrowseTripsTab()),
+              Offstage(
+                offstage: _view != _LaneView.match,
+                child: _CustomerMatchTripsTab(
+                  findPlace: widget.findPlace,
+                  onBrowseAll: () => setState(() => _view = _LaneView.browse),
+                ),
+              ),
+            ]),
           ),
         ],
       ),
@@ -1398,27 +1701,24 @@ class _CustomerBrowseTripsTab extends StatefulWidget {
 }
 
 class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
-  bool _loading = false;
-  String? _error;
-  List<Map<String, dynamic>> _trips = [];
+  bool _loading = true;
+  bool _failed = false;
+  List<Map<String, dynamic>> _lanes = [];
 
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
+    _announce(context, "Loading lanes.");
     try {
       final r = await api.get<Map<String, dynamic>>("/anchor-trips");
       final raw = r.data?["trips"];
-      final list = <Map<String, dynamic>>[];
-      if (raw is List) {
-        for (final item in raw) {
-          if (item is Map<String, dynamic>) list.add(item);
-        }
-      }
-      setState(() => _trips = list);
-    } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (!mounted) return;
+      setState(() => _lanes =
+          raw is List ? raw.whereType<Map<String, dynamic>>().toList() : []);
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -1427,7 +1727,7 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
   @override
   void initState() {
     super.initState();
-    _load();
+    scheduleMicrotask(_load);
   }
 
   @override
@@ -1436,15 +1736,35 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
       onRefresh: _load,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(vertical: NvSpace.s3),
         children: [
-          if (_error != null)
-            Text(_error!, style: const TextStyle(color: Colors.red)),
-          if (_loading) const Center(child: CircularProgressIndicator()),
-          if (!_loading && _trips.isEmpty)
-            const Text("No open trips right now.",
-                style: TextStyle(color: DriverTheme.muted)),
-          ..._trips.map((t) => _tripCard(context, t)),
+          const Text(
+              "Every open lane, not sorted by distance. To see the closest to your route first, use Match my route.",
+              style: NvText.caption),
+          if (_loading) ...[
+            const SizedBox(height: NvSpace.s3),
+            const NvListLoadingCard(),
+            const SizedBox(height: NvSpace.s3),
+            const NvListLoadingCard(),
+          ] else if (_failed) ...[
+            const SizedBox(height: NvSpace.s3),
+            NvListError(
+                title: "Could not load lanes.",
+                help: "Check your connection, then try again.",
+                onRetry: _load),
+          ] else if (_lanes.isEmpty) ...[
+            const SizedBox(height: NvSpace.s3),
+            const NvListEmpty(
+                title: "No lanes are open right now.",
+                help: "New lanes appear here when carriers publish them."),
+          ] else
+            for (final lane in _lanes)
+              _laneCard(lane,
+                  onOpen: () => context.go(Uri(
+                      path: "/customer/book",
+                      queryParameters: {
+                        "anchorTripId": lane["id"]?.toString() ?? ""
+                      }).toString())),
         ],
       ),
     );
@@ -1452,177 +1772,296 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
 }
 
 class _CustomerMatchTripsTab extends StatefulWidget {
-  const _CustomerMatchTripsTab();
+  const _CustomerMatchTripsTab(
+      {required this.findPlace, required this.onBrowseAll});
+  final PlaceFinder findPlace;
+  final VoidCallback onBrowseAll;
 
   @override
   State<_CustomerMatchTripsTab> createState() => _CustomerMatchTripsTabState();
 }
 
 class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
-  final _pickupLabel = TextEditingController(text: "Gurugram, Haryana");
-  final _dropLabel = TextEditingController(text: "Jaipur, Rajasthan");
-  final _weightKg = TextEditingController(text: "200");
-  LatLng _pickupPos = const LatLng(28.4700, 77.0300);
-  LatLng _dropPos = const LatLng(26.9000, 75.8200);
-  bool _loading = false;
-  String? _error;
-  List<Map<String, dynamic>> _rows = [];
-  // The weight these results were found for; Book this lane carries it, not whatever the field says now.
+  final _pickup = _PlaceInput();
+  final _drop = _PlaceInput();
+  final _weightKg = TextEditingController();
+  String? _weightError;
+  bool _editing = true;
+  bool _searching = false;
+  bool _failed = false;
+  List<Map<String, dynamic>> _lanes = [];
+  // The search these results answer; a lane card carries it to Book, not whatever the fields say now.
   int? _searchedWeightKg;
+  ({String words, LatLng point})? _searchedPickup;
+  ({String words, LatLng point})? _searchedDrop;
 
   @override
   void dispose() {
-    _pickupLabel.dispose();
-    _dropLabel.dispose();
+    _pickup.dispose();
+    _drop.dispose();
     _weightKg.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _search() async {
+    final weightKg = int.tryParse(_weightKg.text.trim()) ?? 0;
     setState(() {
-      _loading = true;
-      _error = null;
+      _weightError =
+          weightKg <= 0 ? "Enter a weight greater than 0 kg." : null;
+      _searching = true;
+      _failed = false;
     });
     try {
-      final weightKg = int.tryParse(_weightKg.text.trim()) ?? 0;
-      if (weightKg <= 0) {
-        setState(() => _error = "Enter a weight greater than 0 kg.");
-        return;
-      }
-      final qs = Uri(queryParameters: {
-        "pickupLat": _pickupPos.latitude.toString(),
-        "pickupLng": _pickupPos.longitude.toString(),
-        "dropLat": _dropPos.latitude.toString(),
-        "dropLng": _dropPos.longitude.toString(),
-        "weightKg": weightKg.toString(),
-      }).query;
-      final r = await api
-          .get<Map<String, dynamic>>("/v1/customer/eligible-anchor-trips?$qs");
+      const notFound = "Could not find this place. Check the name and add the city.";
+      final pickupPlaced = await _pickup.place(widget.findPlace,
+          emptyError: "Enter the pickup place.", notFoundError: notFound);
+      final dropPlaced = await _drop.place(widget.findPlace,
+          emptyError: "Enter the drop place.", notFoundError: notFound);
+      if (!mounted || !pickupPlaced || !dropPlaced || weightKg <= 0) return;
+      final pickupPoint = _pickup.point!;
+      final dropPoint = _drop.point!;
+      final r = await api.get<Map<String, dynamic>>(
+          "/v1/customer/eligible-anchor-trips",
+          query: {
+            "pickupLat": pickupPoint.latitude.toString(),
+            "pickupLng": pickupPoint.longitude.toString(),
+            "dropLat": dropPoint.latitude.toString(),
+            "dropLng": dropPoint.longitude.toString(),
+            "weightKg": weightKg.toString(),
+          });
       final raw = r.data?["trips"];
-      final list = <Map<String, dynamic>>[];
-      if (raw is List) {
-        for (final item in raw) {
-          if (item is Map<String, dynamic>) list.add(item);
+      final lanes = <Map<String, dynamic>>[];
+      // The server keeps its closest-first order; rows failing its distance test are left out.
+      for (final row in raw is List ? raw : const []) {
+        final lane = row is Map ? row["trip"] : null;
+        final eligibility = row is Map ? row["eligibility"] : null;
+        if (lane is Map<String, dynamic> &&
+            eligibility is Map &&
+            eligibility["eligible"] == true) {
+          lanes.add(lane);
         }
       }
+      if (!mounted) return;
       setState(() {
-        _rows = list;
+        _lanes = lanes;
         _searchedWeightKg = weightKg;
+        _searchedPickup = (words: _pickup.text, point: pickupPoint);
+        _searchedDrop = (words: _drop.text, point: dropPoint);
+        _editing = false;
       });
-    } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      _announce(context,
+          lanes.isEmpty ? _emptyTitle(weightKg) : _resultLine(lanes.length));
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _searching = false);
     }
   }
+
+  String _resultLine(int count) =>
+      "$count ${count == 1 ? "lane" : "lanes"} with room for ${formatKg(_searchedWeightKg!)}, closest to your route first.";
+
+  String _emptyTitle(int weightKg) =>
+      "No lanes pass near this route with room for ${formatKg(weightKg)}.";
+
+  String _bookPath(Map<String, dynamic> lane) =>
+      Uri(path: "/customer/book", queryParameters: {
+        "anchorTripId": lane["id"]?.toString() ?? "",
+        "weightKg": "$_searchedWeightKg",
+        "pickup": _searchedPickup!.words,
+        "pickupLat": "${_searchedPickup!.point.latitude}",
+        "pickupLng": "${_searchedPickup!.point.longitude}",
+        "drop": _searchedDrop!.words,
+        "dropLat": "${_searchedDrop!.point.latitude}",
+        "dropLng": "${_searchedDrop!.point.longitude}",
+      }).toString();
 
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text(
-          "Trips whose lane passes near your pickup and drop.",
-          style: TextStyle(color: DriverTheme.muted),
-        ),
-        const SizedBox(height: 12),
-        LocationEndpointEditor(
-          title: "Pickup",
-          hint: "City or area",
-          labelController: _pickupLabel,
-          markerId: "match_pickup",
-          markerHue: BitmapDescriptor.hueGreen,
-          position: _pickupPos,
-          onPositionChanged: (p) => setState(() => _pickupPos = p),
-        ),
-        const SizedBox(height: 16),
-        LocationEndpointEditor(
-          title: "Drop",
-          hint: "City or area",
-          labelController: _dropLabel,
-          markerId: "match_drop",
-          markerHue: BitmapDescriptor.hueRed,
-          position: _dropPos,
-          onPositionChanged: (p) => setState(() => _dropPos = p),
-        ),
-        const SizedBox(height: 12),
-        routePreviewMap(a: _pickupPos, b: _dropPos),
-        const SizedBox(height: 12),
-        TextField(
-            controller: _weightKg,
-            decoration: const InputDecoration(labelText: "Weight (kg)"),
-            keyboardType: TextInputType.number),
-        const SizedBox(height: 12),
-        FilledButton(
-          onPressed: _loading ? null : _load,
-          child: _loading
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2))
-              : const Text("Find matching trips"),
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: 8),
-          Text(_error!, style: const TextStyle(color: Colors.red)),
-        ],
-        ..._rows.map((row) {
-          final trip = row["trip"];
-          final elig = row["eligibility"];
-          if (trip is! Map<String, dynamic>) return const SizedBox.shrink();
-          final eligible =
-              elig is Map<String, dynamic> && elig["eligible"] == true;
-          if (!eligible) return const SizedBox.shrink();
-          return _tripCard(context, trip, weightKg: _searchedWeightKg);
-        }),
-      ],
+      padding: const EdgeInsets.symmetric(vertical: NvSpace.s3),
+      children: _editing ? _form() : _results(),
     );
   }
+
+  List<Widget> _form() => [
+        NvField(
+            label: "Pickup",
+            controller: _pickup.words,
+            errorText: _pickup.error),
+        const SizedBox(height: NvSpace.s4),
+        NvField(
+            label: "Drop", controller: _drop.words, errorText: _drop.error),
+        const SizedBox(height: NvSpace.s4),
+        NvField(
+            label: "Weight",
+            controller: _weightKg,
+            unit: "kg",
+            keyboardType: TextInputType.number,
+            errorText: _weightError),
+        const SizedBox(height: NvSpace.s4),
+        NvButton(
+            label: "Find matching lanes",
+            fullWidth: true,
+            loading: _searching,
+            onPressed: _search),
+        if (_failed) ...[
+          const SizedBox(height: NvSpace.s3),
+          NvListError(
+              title: "Could not load lanes.",
+              help: "Check your connection, then try again.",
+              onRetry: _search),
+        ],
+      ];
+
+  List<Widget> _results() => [
+        _SearchSummary(
+          rows: [
+            ("Pickup", _searchedPickup!.words),
+            ("Drop", _searchedDrop!.words),
+            ("Weight", formatKg(_searchedWeightKg!)),
+          ],
+          changeLabel: "Change",
+          onChange: () => setState(() => _editing = true),
+        ),
+        const SizedBox(height: NvSpace.s3),
+        if (_lanes.isEmpty)
+          _NoMatchBox(
+            title: _emptyTitle(_searchedWeightKg!),
+            onChangeWeight: () => setState(() => _editing = true),
+            onBrowseAll: widget.onBrowseAll,
+          )
+        else ...[
+          Semantics(
+              liveRegion: true,
+              child:
+                  Text(_resultLine(_lanes.length), style: NvText.caption)),
+          for (final lane in _lanes)
+            _laneCard(lane, onOpen: () => context.go(_bookPath(lane))),
+        ],
+      ];
 }
 
-Widget _tripCard(BuildContext context, Map<String, dynamic> t, {int? weightKg}) {
-  final id = t["id"]?.toString() ?? "";
-  final route = "${t["originCity"]} → ${t["destCity"]}";
-  final status = tripStatusLabel(t["status"]?.toString() ?? "");
-  final carrier = t["carrierDisplayName"]?.toString() ?? "Carrier";
-  final window = formatTripWindowRange(
-      t["windowStart"]?.toString(), t["windowEnd"]?.toString());
-  final isBookable = t["status"]?.toString() == "OPEN";
-  return Card(
-    margin: const EdgeInsets.only(top: 12),
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(route,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w700, color: DriverTheme.navy)),
-          const SizedBox(height: 4),
-          Text(carrier, style: const TextStyle(color: DriverTheme.muted)),
-          const SizedBox(height: 6),
-          Text(
-              "$status · ${vehicleClassLabel(t["vehicleClass"]?.toString())} · $window",
-              style: const TextStyle(fontSize: 12)),
-          Text(
-              "Capacity ${t["capacityKg"]} kg (${t["reservedKg"]} kg reserved)",
-              style: const TextStyle(fontSize: 12, color: DriverTheme.muted)),
-          const SizedBox(height: 10),
-          FilledButton(
-            onPressed: (!isBookable || id.isEmpty)
-                ? null
-                : () => context.go(
-                    "/customer/book?anchorTripId=$id${weightKg != null ? "&weightKg=$weightKg" : ""}"),
-            child: Text(isBookable ? "Book this lane" : "Not available"),
-          ),
-        ],
-      ),
-    ),
-  );
+/// What a match search or a price was for, with the one way to change it.
+class _SearchSummary extends StatelessWidget {
+  const _SearchSummary(
+      {required this.rows, required this.changeLabel, required this.onChange});
+  final List<(String, String)> rows;
+  final String changeLabel;
+  final VoidCallback onChange;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(NvSpace.s4),
+        decoration: BoxDecoration(
+            color: NvColors.card,
+            borderRadius: BorderRadius.circular(NvRadius.card),
+            border: Border.all(color: NvColors.line)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final (label, value) in rows)
+              Padding(
+                padding: const EdgeInsets.only(bottom: NvSpace.s2),
+                child: Text.rich(TextSpan(children: [
+                  TextSpan(text: "$label ", style: NvText.caption),
+                  TextSpan(text: value, style: NvText.bodyStrong),
+                ])),
+              ),
+            NvButton(
+                label: changeLabel,
+                kind: NvButtonKind.secondary,
+                onPressed: onChange),
+          ],
+        ),
+      );
+}
+
+/// Match found nothing: say so, and offer a lower weight or every lane (sh-lanes-empty).
+class _NoMatchBox extends StatelessWidget {
+  const _NoMatchBox(
+      {required this.title,
+      required this.onChangeWeight,
+      required this.onBrowseAll});
+  final String title;
+  final VoidCallback onChangeWeight;
+  final VoidCallback onBrowseAll;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(NvSpace.s4),
+        decoration: BoxDecoration(
+            color: NvColors.sunken,
+            borderRadius: BorderRadius.circular(NvRadius.card)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: ExcludeSemantics(
+                  child:
+                      Icon(Icons.local_shipping_outlined, color: NvColors.slate)),
+            ),
+            const SizedBox(height: NvSpace.s3),
+            Semantics(
+                liveRegion: true,
+                child: Text(title,
+                    style: NvText.bodyStrong.copyWith(color: NvColors.navyInk))),
+            const SizedBox(height: NvSpace.s2),
+            const Text("Try a lower weight, or browse all lanes.",
+                style: NvText.body),
+            const SizedBox(height: NvSpace.s4),
+            NvButton(
+                label: "Change weight",
+                fullWidth: true,
+                onPressed: onChangeWeight),
+            const SizedBox(height: NvSpace.s2),
+            NvButton(
+                label: "Browse all lanes",
+                kind: NvButtonKind.secondary,
+                fullWidth: true,
+                onPressed: onBrowseAll),
+          ],
+        ),
+      );
 }
 
 class CustomerBookShipmentScreen extends StatefulWidget {
-  const CustomerBookShipmentScreen({super.key});
+  const CustomerBookShipmentScreen({
+    required this.laneId,
+    this.searchedWeightKg,
+    this.searchedPickup,
+    this.searchedDrop,
+    this.findPlace = GoogleGeocodingService.forwardAddress,
+    super.key,
+  });
+
+  /// From the Book link a lane card builds: the lane, and the match search's weight and places.
+  factory CustomerBookShipmentScreen.fromQuery(Map<String, String> query,
+      {PlaceFinder findPlace = GoogleGeocodingService.forwardAddress}) {
+    ({String words, LatLng point})? place(String name) {
+      final words = query[name] ?? "";
+      final lat = double.tryParse(query["${name}Lat"] ?? "");
+      final lng = double.tryParse(query["${name}Lng"] ?? "");
+      if (words.isEmpty || lat == null || lng == null) return null;
+      return (words: words, point: LatLng(lat, lng));
+    }
+
+    final weightKg = int.tryParse(query["weightKg"] ?? "");
+    return CustomerBookShipmentScreen(
+      laneId: query["anchorTripId"] ?? "",
+      searchedWeightKg: weightKg != null && weightKg > 0 ? weightKg : null,
+      searchedPickup: place("pickup"),
+      searchedDrop: place("drop"),
+      findPlace: findPlace,
+    );
+  }
+
+  final String laneId;
+  final int? searchedWeightKg;
+  final ({String words, LatLng point})? searchedPickup;
+  final ({String words, LatLng point})? searchedDrop;
+  final PlaceFinder findPlace;
 
   @override
   State<CustomerBookShipmentScreen> createState() =>
@@ -1631,23 +2070,28 @@ class CustomerBookShipmentScreen extends StatefulWidget {
 
 class _CustomerBookShipmentScreenState
     extends State<CustomerBookShipmentScreen> {
-  final _anchorTripId = TextEditingController();
-  final _customerOrgName = TextEditingController();
-  final _customerPhone = TextEditingController();
-  final _weightKg = TextEditingController(text: "200");
-  final _pickup = TextEditingController(text: "Sector 44, Gurugram");
-  final _drop = TextEditingController(text: "Sitapura, Jaipur");
-  LatLng _pickupPos = const LatLng(28.4700, 77.0300);
-  LatLng _dropPos = const LatLng(26.9000, 75.8200);
-  bool _quoting = false;
-  bool _booking = false;
+  late final _weightKg =
+      TextEditingController(text: widget.searchedWeightKg?.toString() ?? "");
+  late final _pickup = _PlaceInput(
+      words: widget.searchedPickup?.words ?? "",
+      point: widget.searchedPickup?.point);
+  late final _drop = _PlaceInput(
+      words: widget.searchedDrop?.words ?? "",
+      point: widget.searchedDrop?.point);
+  String? _weightError;
+  bool _tooHeavy = false;
+  Map<String, dynamic>? _lane;
+  bool _loadingLane = true;
+  bool _laneFailed = false;
   Map<String, dynamic>? _quote;
-  Map<String, dynamic>? _anchorTrip;
-  bool _loadingTrip = false;
-  String? _tripLoadError;
-  bool _tripLocked = false;
+  int? _pricedWeightKg;
+  bool _pricing = false;
+  bool _booking = false;
+  String? _actionError;
   CustomerCheckoutController? _checkout;
   String? _pendingShipmentIdForCheckout;
+
+  num? get _pricePaise => _quote?["grossPaise"] as num?;
 
   @override
   void initState() {
@@ -1659,67 +2103,123 @@ class _CustomerBookShipmentScreenState
       },
       onError: _onCheckoutError,
     )..init();
-    _bootstrap();
-  }
-
-  Future<void> _bootstrap() async {
-    await CustomerSession.refresh();
-    if (CustomerSession.customerOrgName != null &&
-        CustomerSession.customerOrgName!.isNotEmpty) {
-      _customerOrgName.text = CustomerSession.customerOrgName!;
-    }
-    if (CustomerSession.userPhone != null)
-      _customerPhone.text = CustomerSession.userPhone!;
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final id = GoRouterState.of(context).uri.queryParameters["anchorTripId"];
-    if (id != null && id.isNotEmpty && _anchorTripId.text.isEmpty) {
-      _anchorTripId.text = id;
-      _tripLocked = true;
-      final searchedWeightKg = int.tryParse(
-          GoRouterState.of(context).uri.queryParameters["weightKg"] ?? "");
-      if (searchedWeightKg != null && searchedWeightKg > 0) {
-        _weightKg.text = searchedWeightKg.toString();
-      }
-      scheduleMicrotask(_loadAnchorTrip);
-    }
+    scheduleMicrotask(_loadLane);
   }
 
   @override
   void dispose() {
     _checkout?.dispose();
-    _anchorTripId.dispose();
-    _customerOrgName.dispose();
-    _customerPhone.dispose();
     _weightKg.dispose();
     _pickup.dispose();
     _drop.dispose();
     super.dispose();
   }
 
-  Future<void> _loadAnchorTrip() async {
-    final id = _anchorTripId.text.trim();
-    if (id.isEmpty) return;
+  Future<void> _loadLane() async {
     setState(() {
-      _loadingTrip = true;
-      _tripLoadError = null;
+      _loadingLane = true;
+      _laneFailed = false;
     });
     try {
-      final r = await api.get<Map<String, dynamic>>("/anchor-trips/$id");
-      final t = r.data?["trip"];
-      setState(() => _anchorTrip = t is Map<String, dynamic> ? t : null);
-    } catch (e) {
+      final r = await api.get<Map<String, dynamic>>(
+          "/anchor-trips/${Uri.encodeComponent(widget.laneId)}");
+      final lane = r.data?["trip"];
+      if (!mounted) return;
       setState(() {
-        _tripLoadError = formatApiError(e);
-        _anchorTrip = null;
+        _lane = lane is Map<String, dynamic> ? lane : null;
+        _laneFailed = _lane == null;
       });
+    } catch (_) {
+      if (mounted) setState(() => _laneFailed = true);
     } finally {
-      if (mounted) setState(() => _loadingTrip = false);
+      if (mounted) setState(() => _loadingLane = false);
     }
+  }
+
+  void _clearPrice() {
+    if (_quote == null) return;
+    setState(() {
+      _quote = null;
+      _pricedWeightKg = null;
+    });
+    _announce(context, "Price cleared. Get a new price before paying.");
+  }
+
+  void _showTooHeavy() {
+    const sentence =
+        "This lane does not have room for that weight. Enter a lower weight, or choose another lane.";
+    setState(() {
+      _quote = null;
+      _weightError = sentence;
+      _tooHeavy = true;
+    });
+    _announce(context, sentence, assertiveness: Assertiveness.assertive);
+  }
+
+  Future<void> _getPrice() async {
+    final weightKg = int.tryParse(_weightKg.text.trim()) ?? 0;
+    setState(() {
+      _weightError =
+          weightKg <= 0 ? "Enter a weight greater than 0 kg." : null;
+      _tooHeavy = false;
+      _actionError = null;
+    });
+    final room = _lane == null ? null : _roomLeftKg(_lane!);
+    if (weightKg > 0 && room != null && weightKg > room) {
+      _showTooHeavy();
+      return;
+    }
+    setState(() => _pricing = true);
+    try {
+      const notFound =
+          "Could not find this place. Check the name, or drag its pin on the map.";
+      final pickupPlaced = await _pickup.place(widget.findPlace,
+          emptyError: "Enter the pickup place.", notFoundError: notFound);
+      final dropPlaced = await _drop.place(widget.findPlace,
+          emptyError: "Enter the drop place.", notFoundError: notFound);
+      if (!mounted || !pickupPlaced || !dropPlaced || weightKg <= 0) return;
+      final r = await api.post<Map<String, dynamic>>("/shipments/quote",
+          data: {
+            "weightKg": weightKg,
+            "pickup": _placePayload(_pickup),
+            "drop": _placePayload(_drop),
+            "anchorTripId": widget.laneId,
+          });
+      final quote = r.data?["quote"];
+      if (!mounted || quote is! Map<String, dynamic>) return;
+      setState(() {
+        _quote = quote;
+        _pricedWeightKg = weightKg;
+      });
+      final spokenRupees = formatRupees(_pricePaise ?? 0).substring(1);
+      _announce(context,
+          "Price for ${formatKg(weightKg)}: $spokenRupees rupees. This is the full price.");
+    } catch (error) {
+      if (mounted) {
+        setState(() => _actionError = _plainError(
+            error, "Could not get a price. Check your connection, then try again."));
+      }
+    } finally {
+      if (mounted) setState(() => _pricing = false);
+    }
+  }
+
+  Map<String, dynamic> _placePayload(_PlaceInput place) => {
+        "lat": place.point!.latitude,
+        "lng": place.point!.longitude,
+        "label": place.text,
+      };
+
+  Future<void> _confirmAndBook() async {
+    final lane = _lane;
+    final price = _pricePaise;
+    if (lane == null || price == null) return;
+    final goAhead = await showNvSheet<bool>(
+      context: context,
+      builder: (_) => _ConfirmBookingSheet(
+          lane: lane, weightKg: _pricedWeightKg!, pricePaise: price),
+    );
+    if (goAhead == true && mounted) await _book();
   }
 
   Future<void> _onCheckoutSuccess({
@@ -1742,11 +2242,15 @@ class _CustomerBookShipmentScreenState
       } catch (_) {}
     }
     if (!mounted) return;
-    if (id != null) {
-      lastBookedShipmentId = id;
-      context.go("/customer/shipments/$id");
-    }
+    if (id != null) _openBookedShipment(id);
     _pendingShipmentIdForCheckout = null;
+  }
+
+  void _openBookedShipment(String shipmentId) {
+    lastBookedShipmentId = shipmentId;
+    final carrier = _lane?["carrierDisplayName"]?.toString() ?? "the carrier";
+    _announce(context, "Booked. Waiting for $carrier to accept.");
+    context.go("/customer/shipments/$shipmentId");
   }
 
   void _onCheckoutError(String message) {
@@ -1756,70 +2260,26 @@ class _CustomerBookShipmentScreenState
     );
   }
 
-  Future<void> _fetchQuote() async {
-    setState(() => _quoting = true);
-    try {
-      final w = int.tryParse(_weightKg.text.trim()) ?? 0;
-      final payload = <String, dynamic>{
-        "weightKg": w,
-        "pickup": {
-          "lat": _pickupPos.latitude,
-          "lng": _pickupPos.longitude,
-          "label": _pickup.text.trim()
-        },
-        "drop": {
-          "lat": _dropPos.latitude,
-          "lng": _dropPos.longitude,
-          "label": _drop.text.trim()
-        },
-      };
-      final id = _anchorTripId.text.trim();
-      if (id.isNotEmpty) payload["anchorTripId"] = id;
-      final r = await api.post<Map<String, dynamic>>("/shipments/quote",
-          data: payload);
-      setState(() => _quote = r.data?["quote"] is Map<String, dynamic>
-          ? r.data!["quote"] as Map<String, dynamic>
-          : null);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
-    } finally {
-      if (mounted) setState(() => _quoting = false);
-    }
-  }
-
   Future<void> _book() async {
     if (!AuthorizationSession.can("load.create") ||
         !CustomerSession.hasCustomerOrg) return;
-    setState(() => _booking = true);
+    setState(() {
+      _booking = true;
+      _actionError = null;
+    });
     try {
-      final id = _anchorTripId.text.trim();
-      if (id.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Choose a trip from the Trips tab first.")));
-        return;
-      }
+      final phone = CustomerSession.userPhone?.trim() ?? "";
       final r = await api.post<Map<String, dynamic>>(
         "/shipments/book",
         data: {
-          "anchorTripId": id,
-          "customerOrgName": _customerOrgName.text.trim(),
-          if (_customerPhone.text.trim().isNotEmpty)
-            "customerPhone": _customerPhone.text.trim(),
-          "weightKg": int.tryParse(_weightKg.text.trim()) ?? 0,
-          "pickupAddress": _pickup.text.trim(),
-          "dropAddress": _drop.text.trim(),
-          "pickup": {
-            "lat": _pickupPos.latitude,
-            "lng": _pickupPos.longitude,
-            "label": _pickup.text.trim()
-          },
-          "drop": {
-            "lat": _dropPos.latitude,
-            "lng": _dropPos.longitude,
-            "label": _drop.text.trim()
-          },
+          "anchorTripId": widget.laneId,
+          "customerOrgName": CustomerSession.customerOrgName?.trim() ?? "",
+          if (phone.isNotEmpty) "customerPhone": phone,
+          "weightKg": _pricedWeightKg,
+          "pickupAddress": _pickup.text,
+          "dropAddress": _drop.text,
+          "pickup": _placePayload(_pickup),
+          "drop": _placePayload(_drop),
         },
       );
       final shipment = r.data?["shipment"];
@@ -1851,22 +2311,23 @@ class _CustomerBookShipmentScreenState
           amountPaise: amountPaise,
           shipmentId: shipmentId,
         );
-      } else if (shipmentId != null) {
-        lastBookedShipmentId = shipmentId;
-        if (!mounted) return;
-        context.go("/customer/shipments/$shipmentId");
+      } else if (shipmentId != null && mounted) {
+        _openBookedShipment(shipmentId);
       }
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+    } catch (error) {
+      if (!mounted) return;
+      final code = _apiErrorCode(error);
+      if (code == "insufficient_capacity") {
+        _showTooHeavy();
+      } else if (code == "anchor_trip_not_open") {
+        setState(() => _quote = null);
+      } else {
+        setState(() => _actionError = _plainError(
+            error, "Could not book. Check your connection, then try again."));
+      }
       // The room shown is from when the screen opened; after a room refusal, show what is left now.
-      final code = e is DioException ? e.response?.data : null;
-      if (mounted &&
-          code is Map &&
-          const ["insufficient_capacity", "anchor_trip_not_open"]
-              .contains(code["error"])) {
-        unawaited(_loadAnchorTrip());
+      if (code == "insufficient_capacity" || code == "anchor_trip_not_open") {
+        unawaited(_loadLane());
       }
     } finally {
       if (mounted) setState(() => _booking = false);
@@ -1875,168 +2336,294 @@ class _CustomerBookShipmentScreenState
 
   @override
   Widget build(BuildContext context) {
-    final ao = latLngFromTripField(_anchorTrip, "origin");
-    final ad = latLngFromTripField(_anchorTrip, "destination");
+    final lane = _lane;
+    final laneOpen = lane != null && lane["status"]?.toString() == "OPEN";
     return CustomerScaffold(
-      title: "Book shipment",
+      title: "Book space",
+      subtitle: "Check the price, then pay.",
       currentPath: "/customer/book",
+      actionBar: lane == null
+          ? const SizedBox.shrink()
+          : NvActionBar(child: _actionBar(laneOpen)),
       bodyBuilder: (_) => ListView(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: NvSpace.s3),
         children: [
-          if (_anchorTrip == null && !_tripLocked) ...[
-            OutlinedButton.icon(
-              onPressed: () => context.go("/customer/trips"),
-              icon: const Icon(Icons.travel_explore),
-              label: const Text("Choose a lane from Trips"),
-            ),
-            const SizedBox(height: 12),
+          if (_loadingLane && lane == null)
+            const NvListLoadingCard()
+          else if (_laneFailed && lane == null)
+            NvListError(
+                title: "Could not load this lane.",
+                help: "Check your connection, then try again.",
+                onRetry: _loadLane)
+          else if (lane != null) ...[
+            _LaneSummary(lane: lane),
+            const SizedBox(height: NvSpace.s4),
+            if (!laneOpen)
+              const NvMessage(
+                  "This lane is no longer taking bookings. Choose another lane.",
+                  tone: NvMessageTone.attention)
+            else if (_quote == null)
+              ..._fields(lane)
+            else ...[
+              _SearchSummary(
+                rows: [
+                  ("Weight", formatKg(_pricedWeightKg!)),
+                  ("Pickup", _pickup.text),
+                  ("Drop", _drop.text),
+                ],
+                changeLabel: "Change weight, pickup or drop",
+                onChange: _clearPrice,
+              ),
+              const SizedBox(height: NvSpace.s4),
+              _PriceCard(pricePaise: _pricePaise!),
+            ],
           ],
-          if (_loadingTrip) const Center(child: CircularProgressIndicator()),
-          if (_tripLoadError != null)
-            Text(_tripLoadError!,
-                style: const TextStyle(color: Colors.red, fontSize: 13)),
-          if (_anchorTrip != null) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _fields(Map<String, dynamic> lane) {
+    final room = _roomLeftKg(lane);
+    final hasPoint = _pickup.point != null ||
+        _drop.point != null ||
+        (latLngFromTripField(lane, "origin") != null &&
+            latLngFromTripField(lane, "destination") != null);
+    return [
+      NvField(
+        label: "Weight",
+        controller: _weightKg,
+        unit: "kg",
+        keyboardType: TextInputType.number,
+        help: room == null ? null : "Up to ${formatKg(room)} on this lane.",
+        errorText: _weightError,
+      ),
+      const SizedBox(height: NvSpace.s4),
+      NvField(
+          label: "Pickup",
+          controller: _pickup.words,
+          errorText: _pickup.error),
+      const SizedBox(height: NvSpace.s4),
+      NvField(label: "Drop", controller: _drop.words, errorText: _drop.error),
+      if (_tooHeavy) ...[
+        const SizedBox(height: NvSpace.s4),
+        NvButton(
+            label: "Choose another lane",
+            kind: NvButtonKind.secondary,
+            fullWidth: true,
+            onPressed: () => context.go("/customer/trips")),
+      ],
+      if (hasPoint) ...[
+        const SizedBox(height: NvSpace.s4),
+        NvMap(
+          map: bookShipmentRouteMap(
+            shipmentPickup: _pickup.point,
+            shipmentDrop: _drop.point,
+            anchorOrigin: latLngFromTripField(lane, "origin"),
+            anchorDestination: latLngFromTripField(lane, "destination"),
+            onPickupMoved: (pin) => setState(() => _pickup.pinnedAt(pin)),
+            onDropMoved: (pin) => setState(() => _drop.pinnedAt(pin)),
+          ),
+        ),
+      ],
+    ];
+  }
+
+  Widget _actionBar(bool laneOpen) {
+    if (!laneOpen) {
+      return NvButton(
+          label: "Choose another lane",
+          fullWidth: true,
+          onPressed: () => context.go("/customer/trips"));
+    }
+    final price = _pricePaise;
+    final button = price == null
+        ? NvButton(
+            label: "Get price",
+            loadingLabel: "Getting price",
+            loading: _pricing,
+            fullWidth: true,
+            onPressed: _getPrice)
+        : NvButton(
+            label: "Pay ${formatRupees(price)} and book",
+            loading: _booking,
+            fullWidth: true,
+            onPressed: _confirmAndBook);
+    final words = [
+      if (_actionError != null)
+        NvMessage(_actionError!, tone: NvMessageTone.problem),
+      // The way out sits as close to Pay as Pay itself (decisions.md 6).
+      if (price != null)
+        Text.rich(
+          TextSpan(children: [
+            const TextSpan(
+                text:
+                    "Your payment is held when you book and collected after delivery. Booked shipments cannot be cancelled in the app; to change one, contact "),
+            TextSpan(
+                text: PendingCopy.changeOrCancelContact,
+                style: NvText.body.copyWith(fontWeight: FontWeight.w700)),
+            const TextSpan(text: "."),
+          ]),
+          style: NvText.body,
+        ),
+    ];
+    // At very large text the words above the button scroll inside the bar, so the bar never
+    // takes more than half the screen and the button never leaves it.
+    return ConstrainedBox(
+      constraints:
+          BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height / 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (words.isNotEmpty) ...[
+            Flexible(
+              child: SingleChildScrollView(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                        "${_anchorTrip!["originCity"]} → ${_anchorTrip!["destCity"]}",
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: DriverTheme.navy,
-                            fontSize: 18)),
-                    const SizedBox(height: 6),
-                    Text(
-                        _anchorTrip!["carrierDisplayName"]?.toString() ??
-                            "Carrier",
-                        style: const TextStyle(color: DriverTheme.muted)),
-                    Text(
-                      "${tripStatusLabel(_anchorTrip!["status"]?.toString() ?? "")} · ${vehicleClassLabel(_anchorTrip!["vehicleClass"]?.toString())}",
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    Text(
-                        formatTripWindowRange(
-                            _anchorTrip!["windowStart"]?.toString(),
-                            _anchorTrip!["windowEnd"]?.toString()),
-                        style: const TextStyle(
-                            fontSize: 12, color: DriverTheme.muted)),
-                    if (_anchorTrip!["capacityKg"] is num &&
-                        _anchorTrip!["reservedKg"] is num)
-                      Text(
-                          "Room left: ${((_anchorTrip!["capacityKg"] as num) - (_anchorTrip!["reservedKg"] as num)).clamp(0, double.infinity).round()} kg",
-                          style: const TextStyle(fontSize: 12)),
+                    for (final (index, line) in words.indexed) ...[
+                      if (index > 0) const SizedBox(height: NvSpace.s3),
+                      line,
+                    ],
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: NvSpace.s3),
           ],
-          CustomerResponsiveRow(
-            primaryFlex: 3,
-            secondaryFlex: 2,
-            primary: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text("Shipment details",
-                    style: TextStyle(
-                        fontWeight: FontWeight.w600, color: DriverTheme.navy)),
-                const SizedBox(height: 8),
-                if (!CustomerSession.isSignedIn ||
-                    !CustomerSession.hasCustomerOrg)
-                  TextField(
-                      controller: _customerOrgName,
-                      decoration: const InputDecoration(
-                          labelText: "Your business name")),
-                TextField(
-                    controller: _weightKg,
-                    decoration: const InputDecoration(labelText: "Weight (kg)"),
-                    keyboardType: TextInputType.number),
-                const SizedBox(height: 12),
-                LocationEndpointEditor(
-                  title: "Pickup",
-                  hint: "Pickup address",
-                  labelController: _pickup,
-                  markerId: "book_pickup",
-                  markerHue: BitmapDescriptor.hueGreen,
-                  position: _pickupPos,
-                  onPositionChanged: (p) => setState(() => _pickupPos = p),
-                ),
-                const SizedBox(height: 16),
-                LocationEndpointEditor(
-                  title: "Drop",
-                  hint: "Drop address",
-                  labelController: _drop,
-                  markerId: "book_drop",
-                  markerHue: BitmapDescriptor.hueRed,
-                  position: _dropPos,
-                  onPositionChanged: (p) => setState(() => _dropPos = p),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                          onPressed: _quoting ? null : _fetchQuote,
-                          child: const Text("Get quote")),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _booking ? null : _book,
-                        child: _booking
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2))
-                            : const Text("Book & pay"),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            secondary: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                bookShipmentRouteMap(
-                  shipmentPickup: _pickupPos,
-                  shipmentDrop: _dropPos,
-                  anchorOrigin: ao,
-                  anchorDestination: ad,
-                ),
-                if (_quote != null) ...[
-                  const SizedBox(height: 12),
-                  Card(
-                    color: DriverTheme.navy.withOpacity(0.06),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("Estimated price",
-                              style: TextStyle(fontWeight: FontWeight.w600)),
-                          Text(
-                            formatInrFromPaise(
-                                _quote!["grossPaise"] as num? ?? 0),
-                            style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w700,
-                                color: DriverTheme.navy),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
+          button,
         ],
       ),
+    );
+  }
+}
+
+/// The lane being booked: route, carrier, dates and the room left.
+class _LaneSummary extends StatelessWidget {
+  const _LaneSummary({required this.lane});
+  final Map<String, dynamic> lane;
+
+  @override
+  Widget build(BuildContext context) {
+    final room = _roomLeftKg(lane);
+    final dates = _laneDates(lane);
+    final carrier = lane["carrierDisplayName"]?.toString() ?? "Carrier";
+    return Container(
+      padding: const EdgeInsets.all(NvSpace.s4),
+      decoration: BoxDecoration(
+          color: NvColors.card,
+          borderRadius: BorderRadius.circular(NvRadius.card),
+          border: Border.all(color: NvColors.line)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(_laneRoute(lane),
+              style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
+          const SizedBox(height: NvSpace.s1),
+          Wrap(spacing: NvSpace.s1, children: [
+            Text(dates == null ? carrier : "$carrier · $dates",
+                style: NvText.caption),
+            if (room != null)
+              Text("Room left: ${_roomLeftWords(room)}",
+                  style: NvText.caption.copyWith(
+                      fontWeight: FontWeight.w700, color: NvColors.ink)),
+          ]),
+        ],
+      ),
+    );
+  }
+}
+
+/// The full price, shown before Pay with the promise that nothing is added.
+class _PriceCard extends StatelessWidget {
+  const _PriceCard({required this.pricePaise});
+  final num pricePaise;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(NvSpace.s4),
+        decoration: BoxDecoration(
+            color: NvColors.card,
+            borderRadius: BorderRadius.circular(NvRadius.card),
+            border: Border.all(color: NvColors.navy, width: 1.5)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: NvSpace.s3,
+              children: [
+                const Text("Price", style: NvText.heading),
+                Text(formatRupees(pricePaise), style: NvText.title),
+              ],
+            ),
+            const SizedBox(height: NvSpace.s2),
+            const Text("This is the full price. Nothing is added at payment.",
+                style: NvText.body),
+            const SizedBox(height: NvSpace.s2),
+            const Text(
+                "Changing weight, pickup or drop clears this price, and you get a new one.",
+                style: NvText.caption),
+          ],
+        ),
+      );
+}
+
+/// The last look before money moves: the lane, the weight and the full price, and that the
+/// booking cannot be cancelled in the app (sh-book-confirm).
+class _ConfirmBookingSheet extends StatelessWidget {
+  const _ConfirmBookingSheet(
+      {required this.lane, required this.weightKg, required this.pricePaise});
+  final Map<String, dynamic> lane;
+  final int weightKg;
+  final num pricePaise;
+
+  @override
+  Widget build(BuildContext context) {
+    final price = formatRupees(pricePaise);
+    final carrier = lane["carrierDisplayName"]?.toString() ?? "The carrier";
+    final dates = _laneDates(lane);
+    Widget row(String label, String value, {bool strong = false}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: NvSpace.s2),
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: NvSpace.s3,
+            children: [
+              Text(label,
+                  style: strong
+                      ? NvText.bodyStrong.copyWith(color: NvColors.navyInk)
+                      : NvText.body.copyWith(color: NvColors.slate)),
+              Text(value,
+                  style: strong
+                      ? NvText.bodyStrong.copyWith(color: NvColors.navyInk)
+                      : NvText.body),
+            ],
+          ),
+        );
+    return NvSheet(
+      title: "Pay $price to book?",
+      primaryLabel: "Continue to payment",
+      onPrimary: () => Navigator.of(context).pop(true),
+      cancelLabel: "Go back",
+      onCancel: () => Navigator.of(context).pop(false),
+      footnote:
+          "Next, you choose how to pay on the payment provider's screen.",
+      choices: [
+        row("Lane", _laneRoute(lane)),
+        row("Carrier", carrier),
+        if (dates != null) row("Dates", dates),
+        row("Weight", formatKg(weightKg)),
+        row("You pay", price, strong: true),
+        const SizedBox(height: NvSpace.s2),
+        const Text("The payment is held now and collected after delivery.",
+            style: NvText.body),
+        Text("$carrier then accepts and names the truck.", style: NvText.body),
+        const Text(
+            "You cannot cancel in the app. To change the booking, contact ${PendingCopy.changeOrCancelContact}.",
+            style: NvText.body),
+      ],
     );
   }
 }

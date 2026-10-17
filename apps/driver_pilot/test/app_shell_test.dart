@@ -301,23 +301,19 @@ void main() {
           reason: 'screens.md: drivers do not publish or manage bookings');
     });
 
-    testWidgets('Book still opens, under Find a lane, with Back to it',
+    testWidgets('Book opens from a lane link, under Find a lane, with Back to it',
         (tester) async {
       await launchSignedIn(tester,
           person: 'Priya Raman',
           startAt: 'org-sharma',
           subroleAt: {'org-sharma': 'CUSTOMER_ADMIN'});
       GoRouter.of(tester.element(find.byType(NavigationBar)))
-          .go('/customer/book');
+          .go('/customer/book?anchorTripId=lane-1');
       await pumpFrames(tester);
-      expect(find.text('Book shipment'), findsOneWidget,
-          reason: 'the Book route keeps working without a tab');
-      expect(
-          tester
-              .widget<NavigationBar>(find.byType(NavigationBar))
-              .selectedIndex,
-          1,
-          reason: 'Book sits under Find a lane');
+      expect(find.text('Book space'), findsOneWidget,
+          reason: 'PR 4: the Book route keeps working without a tab');
+      expect(find.byType(NavigationBar), findsNothing,
+          reason: 'PR 4: on Book the action bar takes the tabs\' place');
       expect(inHeader(find.text('Find a lane')), findsOneWidget,
           reason:
               'screens.md: detail screens add Back, named for where it goes');
