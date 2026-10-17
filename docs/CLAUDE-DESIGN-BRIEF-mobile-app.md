@@ -1,6 +1,6 @@
 # Design brief: NaviG8r mobile app (shipper, carrier office, driver)
 
-> **Status:** Draft; the dark pattern screen (section 12) blocks it on questions 3, 5 and 6 · **Written:** 2026-10-17 · **For:** Claude Design
+> **Status:** Draft. Design can start; before build, settle the two open items in section 12 and confirm no tax (question 5) · **Written:** 2026-10-17 · **For:** Claude Design
 > **Screens as of:** main f82628f plus open PR #153 (truck and transporter ID at acceptance), synthetic data
 
 Paste this whole file into Claude Design, attach the screenshots in `docs/design-mobile-app/screenshots/`, and
@@ -142,13 +142,13 @@ short and true.
 2. Book and pay: "Check the price, then pay." The price shown is the price charged: when weight, pickup or drop
    changes, the old price disappears and the screen asks for a new quote (today it keeps showing the old one).
    Weight, pickup and drop start at what the shipper searched with; with no search, they start empty, not at
-   guessed values. A lane that filled before Book & pay is refused in words before any money moves. Whether tax
-   is added on top of the price is not decided (question 5); the screen must say so once it is.
-3. Wait for the carrier: "Waiting for Carrier A to accept." Say nothing about when money is taken: today the
-   payment is held at booking and collected after delivery, and that may change (question 3).
+   guessed values. A lane that filled before Book & pay is refused in words before any money moves. No tax is added
+   on top, so the screen shows one price.
+3. Wait for the carrier: "Waiting for Carrier A to accept. Your payment is on hold; it is collected after
+   delivery."
 4. E-way bill (sequence B), then tracking, then delivery.
-5. Cancelling: there is no cancel action for shippers today. Until there is one, the shipment screen says how to
-   reach NaviG8r about a booking, and promises no refund amount (question 6).
+5. Cancelling: shippers cannot cancel in the app. The shipment screen says how to reach NaviG8r about a
+   booking (use a placeholder; the contact is not named yet) and promises no refund amount.
 
 
 **B. E-way bill (shipper and carrier)**
@@ -173,7 +173,7 @@ short and true.
 **C. Carrier office: a trip**
 1. Publish a trip. 2. Accept each booking, choosing the truck. 3. Assign a driver. 4. Truck on the e-way bill, if
 the shipper left it to you. 5. Start. 6. Confirm delivery for each booking. 7. Proof of delivery accepted, then
-payment released (subject to question 3). Only the owner sees amounts, and sees them together: what the shipper paid, NaviG8r's commission,
+payment released. Only the owner sees amounts, and sees them together: what the shipper paid, NaviG8r's commission,
 and what the carrier receives.
 
 **D. Driver: a day**
@@ -206,7 +206,7 @@ Today's trip, then Start, then the next stop, then the e-way bill number, then C
 - **Screen readers:** every icon button has a label; messages that appear after an action are announced.
 - **Drivers see no money**, in any state, on any screen.
 - **No dark patterns:** no manufactured urgency or scarcity; the full price, with fees and tax, on the same screen
-  as Pay; no pre-checked options; cancelling as easy to find as booking; neutral decline wording; a button does
+  as Pay; no pre-checked options; a way out (cancel, or the named contact until cancel exists) as easy to find as booking; neutral decline wording; a button does
   what it says; nothing ranked for reasons other than the user's benefit; no asking for data the task does not
   need.
 - **Honest copy:** loading says what is loading; errors say what went wrong and what to do; empty states say what
@@ -214,8 +214,7 @@ Today's trip, then Start, then the next stop, then the e-way bill number, then C
 
 ## 8. What this design is not
 
-- Not new features. Every action in section 5 exists today except a shipper cancelling (A.5), which waits on
-  question 6. This is layout, order and words.
+- Not new features. Every action in section 5 exists today. This is layout, order and words.
 - Not a change to who can do what: owners, dispatchers, drivers and shippers keep their current permissions.
 - Not a redesign of the government portal, which we only link to.
 - Not a marketing page: no tours, no upsell, no rating prompts.
@@ -254,12 +253,11 @@ Field lists, not code. Everything exists today.
 
 1. Which languages and phone sizes do drivers use? (Changes type size and whether to plan for Hindi or others.)
 2. Should shippers get a separate app, or keep one app with a clear "I ship goods / I carry goods" choice?
-3. Payment is held at booking and collected after delivery. Is that changing? Any sentence about when the
-   shipper is charged, and C.7, wait on this.
+3. Payment is held at booking and collected after delivery. Is that changing? Answered 17 Oct: no.
 4. Should the e-way bill step offer "No e-way bill needed" before or after the shipper opens the portal?
-5. Is tax added on top of the shown price? (For the accountant.) The price screen must say so if it is.
-6. Should a shipper be able to cancel in the app, and what is refunded at each status? Until then, who do they
-   contact?
+5. Is tax added on top of the shown price? (For the accountant.) Assumed no for now (Rishabh, 17 Oct); tax treatment to be confirmed.
+6. Should a shipper be able to cancel in the app? Answered 17 Oct: not for now; recorded in ROADMAP.md under
+   "Not for now (decided)". Still open: which contact the shipment screen names.
 7. One line for shippers on when an e-way bill is needed; who writes it?
 
 ## 12. Dark pattern screen
@@ -267,7 +265,7 @@ Field lists, not code. Everything exists today.
 ```
 DARK PATTERN SCREEN — mobile app redesign brief — 2026-10-17
 Screened: this brief, sections 1 to 11
-Verdict: BLOCKED (see the re-screen below: three questions for the team)
+Verdict: OPEN on two items, one accepted risk (second re-screen, 17 Oct, at the end)
 Findings:
   1. Actionability — FAIL — a lane with less room than the searched weight still offered Book this lane —
      such lanes say "Not enough room for N kg", have no Book button and sort after lanes that fit (A.1).
@@ -297,5 +295,12 @@ Re-screened 2026-10-17 after a review checked the brief against the code: BLOCKE
     was removed. "Not charged until accepted" was false (the payment is held at booking) and was removed;
     any timing sentence waits on question 3. OPEN.
   10 Money: ranking claim corrected to "closest to your route first"; dates are not used.
-Accepted risks: none
+Re-screened again 2026-10-17 after Rishabh answered questions 3, 5 and 6: TWO ITEMS OPEN, ONE ACCEPTED RISK.
+  8 Promise matches delivery: A.3 now says what payment does (held at booking, collected after delivery; not
+    changing). OPEN: the sentence holds only while a known payment issue (tracked privately) does not bite;
+    Rishabh to accept it or fix it first.
+  6 Exit: no shipper cancel, by decision; the screen names a contact and promises no refund amount. OPEN until
+    the contact is named and shown as visibly as Book & pay.
+  3 Full cost: one price, no tax line, on the assumption that no tax is added on top. ACCEPTED RISK.
+Accepted risks: no tax is added on top of the shown price (Rishabh, 17 Oct; tax treatment to be confirmed). If the accountant says otherwise, the price screen must show it before Pay.
 ```
