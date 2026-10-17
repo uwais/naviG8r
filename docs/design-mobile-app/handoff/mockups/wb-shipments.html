@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Web: shipments list</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="web">
+  <header class="wtop">
+    <div class="wtop-in">
+      <img src="assets/logo-horizontal-light-transparent.png" alt="NaviG8r" style="height: 32px; width: auto;">
+      <nav class="wnav" aria-label="Main" style="flex: 1;">
+        <a href="wb-shipments.dc.html">Home</a>
+        <a href="wb-lanes.dc.html">Find a lane</a>
+        <a href="wb-shipments.dc.html" aria-current="page">Shipments</a>
+      </nav>
+      <button class="hdr-who-btn" type="button" aria-haspopup="menu" aria-label="Sharma Textiles, Priya Raman, Shipper. Switch company or sign out" style="flex: none;"><span class="hdr-text"><span class="hdr-co">Sharma Textiles</span><span class="hdr-sub">Priya Raman · Shipper</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+    </div>
+  </header>
+  <main class="wmain" aria-labelledby="h">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px;">
+      <h1 id="h" class="h1" style="font-size: 32px; line-height: 38px;">Shipments</h1>
+      <a class="btn btn-primary" href="wb-lanes.dc.html">Find a lane</a>
+    </div>
+    <div class="chips" role="group" aria-label="Show">
+      <button class="chip" type="button" aria-pressed="true">Active (3)</button>
+      <button class="chip" type="button" aria-pressed="false">Done</button>
+    </div>
+    <div style="overflow-x: auto; border-radius: 16px;">
+      <table class="tbl" style="min-width: 820px; font-size: 15px; line-height: 22px;">
+        <thead><tr><th scope="col">Route</th><th scope="col">Date</th><th scope="col">Weight</th><th scope="col">Carrier</th><th scope="col">Status</th><th scope="col">Next</th></tr></thead>
+        <tbody>
+          <tr><td><a href="wb-shipment.dc.html" style="color: var(--navy); font-weight: 600;">Bengaluru to Chennai</a></td><td>18 Oct</td><td class="tnum">80 kg</td><td>Ravi Roadways</td><td><span class="st st-att">Needs you</span></td><td>You make the e-way bill</td></tr>
+          <tr><td><a href="wb-shipment.dc.html" style="color: var(--navy); font-weight: 600;">Hosur to Coimbatore</a></td><td>17 Oct</td><td class="tnum">400 kg</td><td>KTC Freight</td><td><span class="st st-info">In transit</span></td><td>KTC Freight confirms delivery</td></tr>
+          <tr><td><a href="wb-shipment.dc.html" style="color: var(--navy); font-weight: 600;">Bengaluru to Mysuru</a></td><td>21 Oct</td><td class="tnum">150 kg</td><td>Deccan Movers</td><td><span class="st st-att">Waiting for carrier</span></td><td>Deccan Movers accepts and names the truck</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

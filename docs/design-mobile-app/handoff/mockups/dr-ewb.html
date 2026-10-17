@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Driver: e-way bills at a check-post</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="scr">
+  <header class="hdr">
+    <a class="hdr-back" href="dr-trip.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Trip</a>
+    <span class="hdr-title">E-way bills</span>
+  </header>
+  <main class="body body--tight" aria-labelledby="h">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
+      <h1 id="h" class="h1">E-way bills</h1>
+      <p class="cap">Truck <span class="mono" style="font-size: 15px; color: var(--ink);">KA01AB1234</span></p>
+    </div>
+    <section class="card" style="border: 2px solid var(--navy); gap: 6px;" aria-label="E-way bill for Sharma Textiles">
+      <p class="label">Sharma Textiles · Drop 1</p>
+      <p class="mono" style="font-size: 30px; line-height: 38px; font-weight: 600; color: var(--navy-ink); letter-spacing: 0.04em;">3412 0098 7654</p>
+      <p class="cap-ink">Valid until <span class="strong">19 Oct, 23:59 IST</span></p>
+    </section>
+    <section class="card" style="gap: 6px;" aria-label="E-way bill for Lakshmi Foods">
+      <p class="label">Lakshmi Foods · Drop 2</p>
+      <p class="mono" style="font-size: 30px; line-height: 38px; font-weight: 600; color: var(--navy-ink); letter-spacing: 0.04em;">2718 4402 1196</p>
+      <p class="cap-ink">Valid until <span class="strong">19 Oct, 23:59 IST</span></p>
+    </section>
+    <section class="card" style="gap: 8px; border-color: var(--problem);" aria-label="E-way bill for Mehta Hardware">
+      <p class="label">Mehta Hardware · Drop 3</p>
+      <p class="mono" style="font-size: 30px; line-height: 38px; font-weight: 600; color: var(--navy-ink); letter-spacing: 0.04em;">1904 7731 5520</p>
+      <p class="err" style="font-size: 15px; line-height: 22px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="width: 18px; height: 18px; margin-top: 2px;"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/></svg>This truck is not on this bill. Call your office now so they can add it.</p>
+      <a class="btn btn-secondary btn-full" href="tel:+919845000000" style="min-height: 56px;">Call Ravi Roadways</a>
+    </section>
+  </main>
+</div>
+
+</body>
+</html>

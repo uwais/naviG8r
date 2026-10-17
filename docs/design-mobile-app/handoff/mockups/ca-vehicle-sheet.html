@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Truck: number and size</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="scr">
+  <header class="hdr">
+    <a class="hdr-back" href="ca-profile.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Company</a>
+    <a class="hdr-who-btn" href="c-menu.dc.html" aria-haspopup="dialog" aria-label="Ravi Roadways, Ravi Shetty, Owner. Switch company or sign out"><span class="hdr-text"><span class="hdr-co">Ravi Roadways</span><span class="hdr-sub">Ravi Shetty · Owner</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a>
+  </header>
+  <main class="body" aria-labelledby="h">
+    <h1 id="h" class="h1">Truck</h1>
+    <div class="field">
+      <label class="field-label" for="rn">Registration number</label>
+      <div class="input mono"><input id="rn" value="KA01AB1234" autocapitalize="characters" aria-describedby="rn-h" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 500 16px/24px var(--font-mono); letter-spacing: 0.04em;"></div>
+      <p id="rn-h" class="help">As on the registration certificate. Spaces are removed for the e-way bill.</p>
+    </div>
+    <fieldset style="border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">
+      <legend class="field-label" style="padding: 0; margin-bottom: 6px;">Truck size</legend>
+      <div class="choices" role="radiogroup" aria-label="Truck size">
+        <label class="choice"><input type="radio" name="sz"><span class="choice-text"><span class="strong">Small</span><span class="cap">[Size guide from the team]</span></span></label>
+        <label class="choice on"><input type="radio" name="sz" checked><span class="choice-text"><span class="strong">Medium</span><span class="cap">[Size guide from the team]</span></span></label>
+        <label class="choice"><input type="radio" name="sz"><span class="choice-text"><span class="strong">Large</span><span class="cap">[Size guide from the team]</span></span></label>
+      </div>
+    </fieldset>
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <button class="btn btn-primary btn-full" type="button">Save truck</button>
+    </div>
+    <section class="card-sunken" style="margin-top: auto;" aria-labelledby="rm">
+      <h2 id="rm" class="h2">Remove this truck</h2>
+      <p class="cap-ink">You are asked to confirm before anything is removed.</p>
+      <button class="btn btn-destructive" type="button" style="align-self: flex-start;">Remove truck</button>
+    </section>
+  </main>
+</div>
+
+</body>
+</html>

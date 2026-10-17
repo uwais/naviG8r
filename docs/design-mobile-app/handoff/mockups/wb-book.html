@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Web: book and pay</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="web">
+  <header class="wtop">
+    <div class="wtop-in">
+      <img src="assets/logo-horizontal-light-transparent.png" alt="NaviG8r" style="height: 32px; width: auto;">
+      <nav class="wnav" aria-label="Main" style="flex: 1;">
+        <a href="wb-shipments.dc.html">Home</a>
+        <a href="wb-lanes.dc.html" aria-current="page">Find a lane</a>
+        <a href="wb-shipments.dc.html">Shipments</a>
+      </nav>
+      <button class="hdr-who-btn" type="button" aria-haspopup="menu" aria-label="Sharma Textiles, Priya Raman, Shipper. Switch company or sign out" style="flex: none;"><span class="hdr-text"><span class="hdr-co">Sharma Textiles</span><span class="hdr-sub">Priya Raman · Shipper</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+    </div>
+  </header>
+  <main class="wmain" aria-labelledby="h">
+    <a class="btn btn-quiet" href="wb-lanes.dc.html" style="align-self: flex-start; padding-left: 0;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Back to lanes</a>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <h1 id="h" class="h1" style="font-size: 32px; line-height: 38px;">Book space: Bengaluru to Chennai</h1>
+      <p class="lead">Ravi Roadways · 18 – 19 Oct · <span class="strong">Room left: 105 kg</span></p>
+    </div>
+    <div class="wcols">
+      <section class="wcol-main card" aria-label="What you are sending" style="gap: 16px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+          <div class="field"><label class="field-label" for="w">Weight</label><div class="input"><input id="w" value="80" inputmode="decimal" aria-describedby="wh" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 400 16px/24px var(--font-body);"><span class="suffix">kg</span></div><p id="wh" class="help">Up to 105 kg on this lane.</p></div>
+          <div class="field"><label class="field-label" for="p">Pickup</label><div class="input"><input id="p" value="Bommasandra, Bengaluru" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 400 16px/24px var(--font-body);"></div></div>
+          <div class="field"><label class="field-label" for="d">Drop</label><div class="input"><input id="d" value="Guindy, Chennai" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 400 16px/24px var(--font-body);"></div></div>
+        </div>
+        <div class="map" style="height: 220px;" role="img" aria-label="Map: pickup in Bommasandra, Bengaluru; drop in Guindy, Chennai">
+          <svg class="map-art" viewBox="0 0 700 220" preserveAspectRatio="none" aria-hidden="true"><path d="M0 140 C140 120 220 170 340 140 S560 90 700 110" stroke="#d9d4c7" stroke-width="12" fill="none"/><path d="M120 0 L170 220 M480 0 L440 220" stroke="#e1ddd1" stroke-width="7"/><path d="M110 150 C240 140 380 70 590 96" stroke="#16233d" stroke-width="3" stroke-dasharray="5 6" fill="none"/><circle cx="110" cy="150" r="9" fill="#16233d"/><circle cx="590" cy="96" r="9" fill="#e8a33d" stroke="#16233d" stroke-width="2.5"/></svg>
+          <span class="map-chip">Pickup and drop</span>
+        </div>
+      </section>
+      <aside class="wcol-side" aria-labelledby="ph">
+        <section class="card" style="border-color: var(--navy); gap: 12px;" aria-live="polite">
+          <div class="price"><h2 id="ph" class="h2">Price for 80 kg</h2><p class="price-amt">₹2,640</p></div>
+          <p class="cap-ink">This is the full price. Nothing is added at payment.</p>
+          <p class="cap">Changing weight, pickup or drop clears this price.</p>
+          <hr class="divider">
+          <p class="cap-ink">Your payment is held when you book and collected after delivery. Booked shipments cannot be cancelled here; to change one, contact <span class="strong">[NaviG8r contact]</span>.</p>
+          <button class="btn btn-primary btn-full" type="button">Pay ₹2,640 and book</button>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

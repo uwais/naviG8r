@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Copy: carrier office and driver</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 1040px; min-height: 2400px; gap: 22px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Copy: carrier office and driver</h1>
+    <p class="lead" style="max-width: 820px;">Tabs for the office: Home, Bookings, Trips, Publish, Profile. Tabs for drivers: Today, Trips, Profile. Rows marked "owner only" never render for dispatchers or drivers.</p>
+  </div>
+
+  <h2 class="spec-sub">Office home, bookings</h2>
+  <table class="tbl"><thead><tr><th style="width: 180px;">Element</th><th>Copy</th><th style="width: 260px;">Notes</th></tr></thead><tbody>
+    <tr><td class="k">Home</td><td>Home · NEEDS YOU · Accept a booking · [Shipper], [weight], on your [route] trip, [date]. · Review booking · Add the truck to an e-way bill · Assign a driver · Today</td><td>Signed-in home has no sign-in, register or developer links</td></tr>
+    <tr><td class="k">Bookings list</td><td>Bookings · Needs you ([n]) · Active · Done · [Shipper] · [pickup] to [drop] · [date] · [weight] · E-way bill: needed | not needed · Next: [action].</td><td>Whole card opens</td></tr>
+    <tr><td class="k">Booking title</td><td>BOOKING · [Shipper]</td><td>Was "Proof of delivery"</td></tr>
+    <tr><td class="k">Booking facts</td><td>Pickup · Drop · Weight · E-way bill: Needed. [Shipper] makes it. | Not needed (shipper said so).</td><td></td></tr>
+    <tr><td class="k">Steps</td><td>Accept and choose the truck · Truck on the e-way bill · Driver assigned and trip started · Confirm delivery · Payment released</td><td></td></tr>
+    <tr><td class="k">Accept panel</td><td>On your trip [route], [dates]. After this, [n] kg of room is left. · Accept · Decline</td><td>Decline is neutral, no guilt</td></tr>
+    <tr><td class="k">Accept sheet</td><td>Which truck carries this trip? · [route], [dates]. [Shipper] puts this truck number on the e-way bill. · Accept with this truck (disabled) · Choose a truck first. · Accept with [truck] · Cancel</td><td>No truck preselected</td></tr>
+    <tr><td class="k">Accept result</td><td>Accepted with [truck]. [Shipper] can make the e-way bill now. · Could not accept. Check your connection and try again.</td><td>Announced</td></tr>
+    <tr><td class="k">No trucks</td><td>You have no trucks yet. Add one to accept bookings. · Add truck</td><td></td></tr>
+    <tr><td class="k">Truck on bill</td><td>[Shipper] made the bill without it · Add the truck on the portal before the goods move, then enter it here. · E-way bill number · Portal: Update Part B, find the bill by this number · Truck number · Portal field: Vehicle No. · Add truck · Open the e-way bill portal</td><td></td></tr>
+    <tr><td class="k">Confirm delivery</td><td>When the goods are handed over at [drop], add a photo of the signed delivery note, then confirm. · Proof of delivery · Add photo · Confirm delivery · Add the proof of delivery first.</td><td></td></tr>
+    <tr><td class="k">Payment (owner only)</td><td>Awaiting payment release · NaviG8r operations check the proof of delivery, then release the payment to your bank account ending [4 digits]. · Shipper paid · NaviG8r commission · You receive · Only owners see payment amounts. Dispatchers and drivers do not.</td><td>All three amounts together</td></tr>
+    <tr><td class="k">Same, dispatcher</td><td>Delivery confirmed · Nothing more for you to do on this booking. · NaviG8r operations check the proof of delivery. The owner sees the payment.</td><td>No amounts</td></tr>
+  </tbody></table>
+
+  <h2 class="spec-sub">Trips, publish, profile</h2>
+  <table class="tbl"><thead><tr><th style="width: 180px;">Element</th><th>Copy</th><th style="width: 260px;">Notes</th></tr></thead><tbody>
+    <tr><td class="k">Trips list</td><td>Trips · Open · In transit · Done · Dates · Room left · Bookings · [truck] · [driver] | No driver yet · Truck chosen when you accept the first booking</td><td>No View or Start on the card</td></tr>
+    <tr><td class="k">Trip</td><td>TRIP · [route] · [status] · [dates] · [size] truck · Room left: [n] kg of [capacity] kg · Truck and driver · Not assigned · Assign driver · Bookings on this trip ([n])</td><td></td></tr>
+    <tr><td class="k">Start (disabled)</td><td>Start the trip · Start trip · Assign a driver first. Then start on loading day.</td><td>Start lives only here</td></tr>
+    <tr><td class="k">Start sheet</td><td>Start [route] now? · Truck · Driver · Bookings · [Shipper]'s e-way bill does not have the truck yet. Add it on the portal before these goods move. · Start trip · Add the truck first · Not yet · Starting tells each shipper their goods are on the way.</td><td>Warning only when true</td></tr>
+    <tr><td class="k">Assign sheet</td><td>Who drives this trip? · [route], [dates], truck [truck]. The driver sees the trip and the e-way bill, never the payment. · Assign [name] · Cancel · Add a driver to your company</td><td>No driver preselected</td></tr>
+    <tr><td class="k">Publish</td><td>Publish a trip · Shippers can book space on it once it is published. · From · To · Leaves · Arrives by · Truck size: Small, Medium, Large · Room for shippers · The weight you can carry for shippers on this trip. · You choose the truck when you accept the first booking. · Publish trip</td><td>Fields start empty</td></tr>
+    <tr><td class="k">Profile</td><td>Company · Approved by NaviG8r · Transporter ID · Your GSTIN, or a TRANSIN if you have no GST registration. Shippers copy it into their e-way bills. It is not the shipper's GSTIN. · Trucks ([n]) · Add truck · Drivers ([n]) · Add driver · Manage drivers · Bank details (owner only) · Account ending [4 digits] · Team · Invite · Dispatchers accept bookings and assign drivers. They do not see payments.</td><td>No developer lab</td></tr>
+    <tr><td class="k">Truck</td><td>Truck · Registration number · As on the registration certificate. Spaces are removed for the e-way bill. · Truck size · [Size guide from the team] · Save truck · Remove this truck · You are asked to confirm before anything is removed. · Remove truck</td><td>Replaces "Vehicle class (SMALL|MEDIUM|LARGE)"</td></tr>
+  </tbody></table>
+
+  <h2 class="spec-sub">Driver</h2>
+  <table class="tbl"><thead><tr><th style="width: 180px;">Element</th><th>Copy</th><th style="width: 260px;">Notes</th></tr></thead><tbody>
+    <tr><td class="k">Today</td><td>Today · [weekday] [date] · [route] · Ready to start · Truck · Pickups · Drops · Open today's trip · Next</td><td>No money anywhere</td></tr>
+    <tr><td class="k">No trip</td><td>No trip today. · Your office assigns trips. They appear here.</td><td>Empty state</td></tr>
+    <tr><td class="k">Trip</td><td>In transit · Show e-way bills · NEXT STOP · DROP [n] OF [n] · [place] · [Shipper] · [weight] · Directions · I am here: confirm delivery · All stops</td><td>Start trip appears here before the trip starts</td></tr>
+    <tr><td class="k">E-way bills</td><td>E-way bills · Truck [truck] · [Shipper] · Drop [n] · [bill number] · Valid until [date], [time] IST · This truck is not on this bill. Call your office now so they can add it. · Call [Carrier]</td><td>Large mono numbers</td></tr>
+    <tr><td class="k">Confirm</td><td>Confirm delivery · 1. Photo of the signed delivery note · Photo added · Take again · 2. Confirm the goods are handed over · [Shipper] gets the photo as proof of delivery. · Confirm delivery</td><td></td></tr>
+    <tr><td class="k">Done</td><td>Delivery confirmed · [place] · [Shipper] · [time] IST</td><td>Announced; next stop follows</td></tr>
+    <tr><td class="k">Profile</td><td>Profile · Name · Phone · Company · Role · Call your office · Help from NaviG8r · Sign out · Your office changes your trips and the truck. Ask them if something is wrong.</td><td>No bank, earnings or payouts</td></tr>
+    <tr><td class="k">Offline</td><td>No signal. Showing what was saved at [time] IST. · Could not confirm: no signal. Try again when you have one.</td><td>Saved copy only if the app already keeps one; no offline queue is promised</td></tr>
+  </tbody></table>
+</div>
+
+</body>
+</html>

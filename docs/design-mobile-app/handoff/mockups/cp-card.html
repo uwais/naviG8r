@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>List card: every state</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 760px; height: 940px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">List card</h1>
+    <p class="lead" style="max-width: 660px;">The whole card is one link to the item. No buttons inside, so a slip cannot start a trip or remove anything. Route on its own line, facts as short label and value pairs, status as a label, and one "Next:" line saying who acts.</p>
+  </div>
+  <div class="spec-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+    <div class="spec-cell"><p class="spec-tag">Default</p>
+      <a class="lane" href="#"><div class="lane-top"><p class="route-from">Bengaluru <span class="route-arrow">to</span> Chennai</p><span class="st st-good">Open</span></div><p class="cap">Ravi Roadways · Medium truck</p><dl class="facts"><div class="fact"><dt>Dates</dt><dd>18 – 19 Oct</dd></div><div class="fact"><dt>Room left</dt><dd>105 kg</dd></div></dl><svg class="lane-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a></div>
+    <div class="spec-cell"><p class="spec-tag">Pressed</p>
+      <a class="lane" href="#" style="background: var(--sunken); border-color: var(--control-border);"><div class="lane-top"><p class="route-from">Bengaluru <span class="route-arrow">to</span> Chennai</p><span class="st st-good">Open</span></div><p class="cap">Ravi Roadways · Medium truck</p><dl class="facts"><div class="fact"><dt>Dates</dt><dd>18 – 19 Oct</dd></div><div class="fact"><dt>Room left</dt><dd>105 kg</dd></div></dl><svg class="lane-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a></div>
+    <div class="spec-cell"><p class="spec-tag">Focus</p>
+      <a class="lane is-focus" href="#"><div class="lane-top"><p class="route-from">Bengaluru <span class="route-arrow">to</span> Chennai</p><span class="st st-good">Open</span></div><p class="cap">Ravi Roadways · Medium truck</p><dl class="facts"><div class="fact"><dt>Dates</dt><dd>18 – 19 Oct</dd></div><div class="fact"><dt>Room left</dt><dd>105 kg</dd></div></dl><svg class="lane-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a></div>
+    <div class="spec-cell"><p class="spec-tag">Needs you</p>
+      <a class="lane" href="#" style="border-color: var(--navy);"><div class="lane-top"><p class="route-from">Bengaluru <span class="route-arrow">to</span> Chennai</p><span class="st st-att">Needs you</span></div><p class="cap">18 Oct · 80 kg · Ravi Roadways</p><p class="cap-ink"><span class="strong">Next:</span> you make the e-way bill.</p><svg class="lane-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a></div>
+    <div class="spec-cell"><p class="spec-tag">Unavailable (Full) · still opens</p>
+      <a class="lane" href="#"><div class="lane-top"><p class="route-from">Bengaluru <span class="route-arrow">to</span> Hyderabad</p><span class="st st-neutral">Full</span></div><p class="cap">Deccan Movers · Medium truck</p><dl class="facts"><div class="fact"><dt>Dates</dt><dd>20 – 21 Oct</dd></div><div class="fact"><dt>Room left</dt><dd>None</dd></div></dl><svg class="lane-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a></div>
+    <div class="spec-cell"><p class="spec-tag">Loading</p>
+      <div class="lane" aria-busy="true" aria-label="Loading lanes" style="cursor: default;"><span style="height: 18px; width: 70%; border-radius: 6px; background: var(--sunken);"></span><span style="height: 14px; width: 50%; border-radius: 6px; background: var(--sunken);"></span><span style="height: 32px; width: 80%; border-radius: 6px; background: var(--sunken);"></span></div>
+      <p class="small">Under the list: "Loading lanes." Announced once.</p></div>
+    <div class="spec-cell"><p class="spec-tag">Empty</p>
+      <div class="card-sunken"><p class="h2">No lanes are open right now.</p><p class="cap-ink">New lanes appear here when carriers publish them.</p></div></div>
+    <div class="spec-cell"><p class="spec-tag">Error</p>
+      <div class="card-sunken" role="alert" style="background: var(--problem-tint);"><p class="h2">Could not load lanes.</p><p class="cap-ink">Check your connection, then try again.</p><button class="btn btn-secondary" type="button" style="align-self: flex-start;">Try again</button></div></div>
+  </div>
+</div>
+
+</body>
+</html>

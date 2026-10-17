@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>E-way bill 2: enter four details</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="scr">
+  <header class="hdr">
+    <a class="hdr-back" href="sh-ewb-portal.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Shipment</a>
+    <a class="hdr-who-btn" href="c-menu.dc.html" aria-haspopup="dialog" aria-label="Sharma Textiles, Priya Raman, Shipper. Switch company or sign out"><span class="hdr-text"><span class="hdr-co">Sharma Textiles</span><span class="hdr-sub">Priya Raman · Shipper</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a>
+  </header>
+  <main class="body body--tight" aria-labelledby="h">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <p class="label">E-way bill · Part 2 of 2</p>
+      <h1 id="h" class="h1">Enter the bill's details</h1>
+      <p class="cap-ink">Copy these four from the bill on the portal. Bengaluru to Chennai, 18 Oct.</p>
+    </div>
+    <div class="field">
+      <label class="field-label" for="n">E-way bill number</label>
+      <div class="input mono is-focus"><input id="n" inputmode="numeric" value="341200987654" aria-describedby="n-h" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 500 16px/24px var(--font-mono); letter-spacing: 0.04em;"></div>
+      <p id="n-h" class="help">12 digits, at the top of the bill.</p>
+    </div>
+    <div class="field">
+      <span class="field-label" id="d">Bill date</span>
+      <button class="input" type="button" aria-labelledby="d d-v" style="cursor: pointer; text-align: left;"><span id="d-v" style="flex: 1;">18 Oct 2026</span><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" style="color: var(--slate);" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg></button>
+    </div>
+    <div class="field">
+      <label class="field-label" for="g">Your GSTIN</label>
+      <div class="input mono"><input id="g" value="33AAACS7781L1ZQ" aria-describedby="g-h" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 500 16px/24px var(--font-mono); letter-spacing: 0.04em;"></div>
+      <p id="g-h" class="help">The GSTIN that made the bill. Not the carrier's transporter ID.</p>
+    </div>
+    <div class="field">
+      <label class="field-label" for="i">Invoice number</label>
+      <div class="input"><input id="i" value="ST/2026/0418" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 400 16px/24px var(--font-body);"></div>
+    </div>
+  </main>
+  <div class="actionbar">
+    <button class="btn btn-primary btn-full" type="button">Save e-way bill</button>
+    <p class="small" style="text-align: center;">NaviG8r staff then check it on the portal.</p>
+  </div>
+</div>
+
+</body>
+</html>
