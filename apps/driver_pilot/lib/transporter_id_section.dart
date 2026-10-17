@@ -25,6 +25,8 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
   String? _savedTransporterId = DriverSession.transporterId;
   late final _transporterId =
       TextEditingController(text: _savedTransporterId ?? '');
+  // A saved ID shows as text with a Change button, so it is not edited by accident; with none saved, the field is open.
+  late bool _editing = _savedTransporterId == null;
   bool _saving = false;
   String? _error;
 
@@ -56,6 +58,7 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
       DriverSession.transporterId = _savedTransporterId;
       DriverSession.transporterIdLoaded = true;
       _transporterId.text = _savedTransporterId ?? '';
+      setState(() => _editing = _savedTransporterId == null);
       // The reply does not say whether one was there before, so an empty save states what is true now.
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
           content: Text(_savedTransporterId != null
@@ -67,6 +70,12 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
       if (mounted) setState(() => _saving = false);
     }
   }
+
+  void _cancel() => setState(() {
+        _transporterId.text = _savedTransporterId ?? '';
+        _error = null;
+        _editing = false;
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +97,15 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
               if (!_loadedWhenOpened)
                 const Text(
                     'Could not load the transporter ID. Leave Profile and open it again to retry.')
-              else if (AuthorizationSession.can('transporter_id.write')) ...[
+              else if (AuthorizationSession.can('transporter_id.write') &&
+                  !_editing) ...[
+                SelectableText(saved!,
+                    style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                    onPressed: () => setState(() => _editing = true),
+                    child: const Text('Change transporter ID')),
+              ] else if (AuthorizationSession.can('transporter_id.write')) ...[
                 TextField(
                     controller: _transporterId,
                     enabled: !_saving,
@@ -105,6 +122,10 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
                 FilledButton(
                     onPressed: _saving ? null : _save,
                     child: Text(_saving ? 'Saving…' : 'Save transporter ID')),
+                if (saved != null)
+                  TextButton(
+                      onPressed: _saving ? null : _cancel,
+                      child: const Text('Cancel')),
               ] else
                 Text(saved ?? 'Not added yet. The carrier owner can add it.'),
             ]));

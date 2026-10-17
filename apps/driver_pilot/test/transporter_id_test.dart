@@ -28,6 +28,11 @@ Future<void> mountSection(WidgetTester tester) async {
 
 Finder transporterIdField() => find.widgetWithText(TextField, 'Transporter ID');
 
+Future<void> tapChange(WidgetTester tester) async {
+  await tester.tap(find.text('Change transporter ID'));
+  await tester.pump();
+}
+
 void main() {
   setUp(() {
     DriverSession.transporterId = '29ABCDE1234F1Z5';
@@ -48,6 +53,7 @@ void main() {
         });
       });
       await mountSection(tester);
+      await tapChange(tester);
       expect(
           tester.widget<TextField>(transporterIdField()).controller!.text,
           '29ABCDE1234F1Z5');
@@ -55,12 +61,36 @@ void main() {
       await tester.tap(find.text('Save transporter ID'));
       await tester.pumpAndSettle();
       expect(sent, {'transporterId': '27aaaaa0000a1z5'});
-      expect(
-          tester.widget<TextField>(transporterIdField()).controller!.text,
-          '27AAAAA0000A1Z5',
+      expect(find.text('27AAAAA0000A1Z5'), findsOneWidget,
           reason: 'the saved form, as the server wrote it');
+      expect(transporterIdField(), findsNothing,
+          reason: 'a successful save closes the field');
+      expect(find.text('Change transporter ID'), findsOneWidget);
       expect(DriverSession.transporterId, '27AAAAA0000A1Z5');
       expect(find.text('Transporter ID saved.'), findsOneWidget);
+    });
+
+    testWidgets('once saved, it shows as text with a Change button, and Cancel puts it back',
+        (tester) async {
+      signInAsCarrierLogin(
+          office: true, alsoAllowed: ['trip.assign', 'transporter_id.write']);
+      final sent = <Object?>[];
+      api.dio.httpClientAdapter = MockApiAdapter((request) {
+        sent.add(request.data);
+        return jsonResponse({'org': carrierOrganization});
+      });
+      await mountSection(tester);
+      expect(transporterIdField(), findsNothing);
+      expect(find.text('29ABCDE1234F1Z5'), findsOneWidget);
+      expect(find.text('Save transporter ID'), findsNothing);
+      await tapChange(tester);
+      await tester.enterText(transporterIdField(), '12345');
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      expect(sent, isEmpty);
+      expect(transporterIdField(), findsNothing);
+      expect(find.text('29ABCDE1234F1Z5'), findsOneWidget);
+      expect(find.text('Change transporter ID'), findsOneWidget);
     });
 
     testWidgets('an empty field clears it', (tester) async {
@@ -72,12 +102,16 @@ void main() {
         return jsonResponse({'org': carrierOrganization});
       });
       await mountSection(tester);
+      await tapChange(tester);
       await tester.enterText(transporterIdField(), '');
       await tester.tap(find.text('Save transporter ID'));
       await tester.pumpAndSettle();
       expect(sent, {'transporterId': null});
       expect(DriverSession.transporterId, isNull);
       expect(find.text('No transporter ID is saved now.'), findsOneWidget);
+      expect(transporterIdField(), findsOneWidget,
+          reason: 'with none saved, the field stays open');
+      expect(find.text('Cancel'), findsNothing);
     });
 
     testWidgets(
@@ -135,6 +169,7 @@ void main() {
       await tester.tap(find.text('Save transporter ID'));
       await tester.pumpAndSettle();
       expect(find.text('Transporter ID saved.'), findsOneWidget);
+      await tapChange(tester);
       await tester.enterText(transporterIdField(), '');
       await tester.tap(find.text('Save transporter ID'));
       await tester.pumpAndSettle();
@@ -170,6 +205,7 @@ void main() {
       await tester.tap(find.text('Save transporter ID'));
       await tester.pumpAndSettle();
       expect(find.text('Transporter ID saved.'), findsOneWidget);
+      await tapChange(tester);
       await tester.enterText(transporterIdField(), '12345');
       await tester.tap(find.text('Save transporter ID'));
       await tester.pumpAndSettle();
@@ -187,6 +223,7 @@ void main() {
       api.dio.httpClientAdapter = MockApiAdapter(
           (request) => jsonResponse({'error': 'unavailable'}, 500));
       await mountSection(tester);
+      await tapChange(tester);
       // What Save vehicle's refresh does first, before /v1/pilot/me answers.
       DriverSession.clearCarrierCache();
       await tester.enterText(transporterIdField(), '27aaaaa0000a1z5');
@@ -209,12 +246,13 @@ void main() {
             'org': {...carrierOrganization, 'transporterId': '27AAAAA0000A1Z5'}
           }));
       await mountSection(tester);
+      await tapChange(tester);
       // What Save vehicle's refresh does first, before /v1/pilot/me answers.
       DriverSession.clearCarrierCache();
       await tester.enterText(transporterIdField(), '27aaaaa0000a1z5');
       await tester.tap(find.text('Save transporter ID'));
       await tester.pumpAndSettle();
-      expect(transporterIdField(), findsOneWidget);
+      expect(find.text('27AAAAA0000A1Z5'), findsOneWidget);
       expect(find.textContaining('Could not load'), findsNothing);
       expect(find.text('Transporter ID saved.'), findsOneWidget);
       expect(DriverSession.transporterIdLoaded, isTrue,
@@ -231,6 +269,7 @@ void main() {
             'field': 'transporterId'
           }, 400));
       await mountSection(tester);
+      await tapChange(tester);
       await tester.enterText(transporterIdField(), '12345');
       await tester.tap(find.text('Save transporter ID'));
       await tester.pumpAndSettle();
@@ -281,8 +320,9 @@ void main() {
           home: const Scaffold(body: DriverProfileScreen())));
       await tester.pumpAndSettle();
       expect(DriverSession.transporterId, '27AAAAA0000A1Z5');
-      expect(tester.widget<TextField>(transporterIdField()).controller!.text,
-          '27AAAAA0000A1Z5');
+      expect(find.text('27AAAAA0000A1Z5'), findsOneWidget);
+      expect(transporterIdField(), findsNothing,
+          reason: 'a saved ID opens as text, not as a field');
     });
 
     testWidgets(

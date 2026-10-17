@@ -54,13 +54,14 @@ web app at http://127.0.0.1:8087/#/customer/login. Carrier A's seeded trips alre
 one that does not. 29TRNSP1234A1Z7 is the transporter ID the practice portal's Transporter sign-in uses.
 
 1. **Owner adds the transporter ID.** Carrier app, sign in as 8000000003, open Profile. Under Transporter ID type
-   `29 trnsp 1234 a1z7` and tap Save transporter ID. Right: "Transporter ID saved." and the field reads
-   29TRNSP1234A1Z7, still there after leaving Profile and opening it again. Wrong: a line starting "HTTP", or the
-   field empty when you come back.
-2. **A wrong one is refused.** Type `12345`, tap Save transporter ID. Right: "A transporter ID is 15 letters and
+   `29 trnsp 1234 a1z7` and tap Save transporter ID. (If an ID is already saved, tap Change transporter ID first.)
+   Right: "Transporter ID saved.", the field closes and 29TRNSP1234A1Z7 shows as plain text with a Change
+   transporter ID button, still there after leaving Profile and opening it again. Wrong: a line starting "HTTP",
+   the ID still in an open field, or nothing shown when you come back.
+2. **A wrong one is refused.** Tap Change transporter ID, type `12345`, tap Save transporter ID. Right: "A transporter ID is 15 letters and
    digits, starting with two digits: your GSTIN, or the TRANSIN from the e-way bill portal. Leave it empty if you do
-   not have one." Leave Profile and open it again: still 29TRNSP1234A1Z7. Wrong: "Transporter ID saved.", or
-   "HTTP 400".
+   not have one." Tap Cancel: the field closes and 29TRNSP1234A1Z7 shows again. Leave Profile and open it again:
+   still 29TRNSP1234A1Z7. Wrong: "Transporter ID saved.", or "HTTP 400".
 3. **A driver does not see it.** Sign in as 8000000009 and open Profile. Right: no Transporter ID heading or field.
    Wrong: the ID shown anywhere.
 4. **Owner publishes a trip with no truck.** Sign in as 8000000003, open Publish, set an origin and a destination,
@@ -73,7 +74,8 @@ one that does not. 29TRNSP1234A1Z7 is the transporter ID the practice portal's T
    truck carries this trip?" listing KA01AB1234 and KA02XY9999, neither chosen, with Accept with this truck greyed
    out. Tap Cancel. Right: the sheet closes and the booking still shows Accept. Wrong: "Booking accepted."
 7. **Owner accepts with a truck.** Tap Accept again, choose KA02XY9999, tap Accept with this truck. Right: "Booking
-   accepted."; open the trip from Loads, and its Truck and driver card says "Truck: KA02XY9999. Driver: not
+   accepted." The sheet closes. Then open Loads and tap the trip (not the booking) to open the trip screen; its
+   Truck and driver card says "Truck: KA02XY9999. Driver: not
    assigned." Wrong: no truck on the trip.
 8. **Shipper sees the box.** Shipper app, open the shipment (pull down to refresh). Right: under "No e-way bill added
    yet." a box "For the e-way bill" with "Truck: KA02XY9999" and "Transporter ID: 29TRNSP1234A1Z7", each with Copy,
@@ -82,9 +84,13 @@ one that does not. 29TRNSP1234A1Z7 is the transporter ID the practice portal's T
    way, enter the truck now." Tap Copy beside the transporter ID and paste into any text field. Right: exactly 29TRNSP1234A1Z7, and "Copied transporter ID". Wrong:
    no box, or the label pasted with the value.
 9. **Both parts in one portal visit.** Tap Open the practice e-way bill portal, choose Supplier, then Generate a new
-   e-way bill. Fill Part A as in the guide's Step 1, type 350 into "Approximate distance (km)", paste KA02XY9999 into
-   "B.1 Vehicle Number for Road (optional if a transporter is named)" and 29TRNSP1234A1Z7 into "Transporter ID
-   (optional)", and generate. Back in the app tap Add e-way bill, enter the four details, Save e-way bill. Right:
+   e-way bill. Fill every field with these values:
+   A.1 GSTIN of Supplier `29ABCDE1234F1Z5` (the shipper's own; the practice portal refuses any other while you
+   are signed in as Supplier); A.2 `560099`; A.3 GSTIN of Recipient `33AAACT5678L1Z2`; A.4 `600032`; A.5 Document
+   Number `SYN/2026/102`; A.6 today; A.7 `75000`; A.8 HSN `8471`; A.9 Supply; Approximate distance (km) `350`;
+   B.1 Vehicle Number `KA02XY9999`; Transporter ID `29TRNSP1234A1Z7`. Tap Generate e-way bill. Back in the app tap
+   Add e-way bill and enter the four details the portal shows: bill number, bill date, GSTIN of whoever made the bill
+   `29ABCDE1234F1Z5`, invoice number `SYN/2026/102`. Tap Save e-way bill. Right:
    the box is still there. Tap Add truck. Right: Truck number already reads KA02XY9999, with "Filled in from the truck
    on this trip. Change it if the e-way bill shows a different truck." Choose the valid-until the portal showed and
    tap Save truck. Right: the box goes, the bill shows Truck: KA02XY9999, and no sentence says the trucks differ.
@@ -93,7 +99,8 @@ one that does not. 29TRNSP1234A1Z7 is the transporter ID the practice portal's T
     the seeded drivers only see trips that already name a truck, so the widget tests cover that case. They also cover
     a carrier with no trucks, whose sheet says so and offers Accept without a truck: the seed's Carrier B has no
     trucks but is not approved, so it cannot accept.)
-11. **No transporter ID.** As the owner, clear the field on Profile and tap Save transporter ID ("No transporter ID
+11. **No transporter ID.** As the owner, on Profile tap Change transporter ID, clear the field and tap Save
+    transporter ID ("No transporter ID
     is saved now."). As the shipper, open the booking from step 10. Right: the box shows the truck only, and "Your
     carrier has not added a transporter ID yet; ask them for one. Without a transporter ID on the bill, only whoever
     made the bill can change the truck. Validity starts when the first truck is entered, so enter the truck on loading
