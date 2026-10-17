@@ -189,6 +189,7 @@ class _DriverPilotAppState extends State<DriverPilotApp>
       ),
       title: kIsWeb ? "NaviG8r Customer" : "NaviG8r Driver",
       theme: DriverTheme.theme(),
+      themeMode: ThemeMode.light,
       routerConfig: router,
     );
   }
