@@ -1,6 +1,7 @@
 import "organization_access.dart";
 import "dart:async";
 
+import "package:dio/dio.dart" show DioException;
 import "package:flutter/foundation.dart" show kIsWeb;
 import "package:flutter/material.dart";
 import "package:go_router/go_router.dart";
@@ -1523,6 +1524,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   bool _loading = false;
   String? _error;
   List<Map<String, dynamic>> _rows = [];
+  // The weight these results were found for; Book this lane carries it, not whatever the field says now.
+  int? _searchedWeightKg;
 
   @override
   void dispose() {
@@ -1559,7 +1562,10 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
           if (item is Map<String, dynamic>) list.add(item);
         }
       }
-      setState(() => _rows = list);
+      setState(() {
+        _rows = list;
+        _searchedWeightKg = weightKg;
+      });
     } catch (e) {
       if (mounted) setState(() => _error = formatApiError(e));
     } finally {
@@ -1624,14 +1630,14 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
           final eligible =
               elig is Map<String, dynamic> && elig["eligible"] == true;
           if (!eligible) return const SizedBox.shrink();
-          return _tripCard(context, trip);
+          return _tripCard(context, trip, weightKg: _searchedWeightKg);
         }),
       ],
     );
   }
 }
 
-Widget _tripCard(BuildContext context, Map<String, dynamic> t) {
+Widget _tripCard(BuildContext context, Map<String, dynamic> t, {int? weightKg}) {
   final id = t["id"]?.toString() ?? "";
   final route = "${t["originCity"]} → ${t["destCity"]}";
   final status = tripStatusLabel(t["status"]?.toString() ?? "");
@@ -1662,7 +1668,8 @@ Widget _tripCard(BuildContext context, Map<String, dynamic> t) {
           FilledButton(
             onPressed: (!isBookable || id.isEmpty)
                 ? null
-                : () => context.go("/customer/book?anchorTripId=$id"),
+                : () => context.go(
+                    "/customer/book?anchorTripId=$id${weightKg != null ? "&weightKg=$weightKg" : ""}"),
             child: Text(isBookable ? "Book this lane" : "Not available"),
           ),
         ],
@@ -1730,6 +1737,11 @@ class _CustomerBookShipmentScreenState
     if (id != null && id.isNotEmpty && _anchorTripId.text.isEmpty) {
       _anchorTripId.text = id;
       _tripLocked = true;
+      final searchedWeightKg = int.tryParse(
+          GoRouterState.of(context).uri.queryParameters["weightKg"] ?? "");
+      if (searchedWeightKg != null && searchedWeightKg > 0) {
+        _weightKg.text = searchedWeightKg.toString();
+      }
       scheduleMicrotask(_loadAnchorTrip);
     }
   }
@@ -1905,6 +1917,14 @@ class _CustomerBookShipmentScreenState
       if (mounted)
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+      // The room shown is from when the screen opened; after a room refusal, show what is left now.
+      final code = e is DioException ? e.response?.data : null;
+      if (mounted &&
+          code is Map &&
+          const ["insufficient_capacity", "anchor_trip_not_open"]
+              .contains(code["error"])) {
+        unawaited(_loadAnchorTrip());
+      }
     } finally {
       if (mounted) setState(() => _booking = false);
     }
@@ -1960,6 +1980,11 @@ class _CustomerBookShipmentScreenState
                             _anchorTrip!["windowEnd"]?.toString()),
                         style: const TextStyle(
                             fontSize: 12, color: DriverTheme.muted)),
+                    if (_anchorTrip!["capacityKg"] is num &&
+                        _anchorTrip!["reservedKg"] is num)
+                      Text(
+                          "Room left: ${((_anchorTrip!["capacityKg"] as num) - (_anchorTrip!["reservedKg"] as num)).clamp(0, double.infinity).round()} kg",
+                          style: const TextStyle(fontSize: 12)),
                   ],
                 ),
               ),
