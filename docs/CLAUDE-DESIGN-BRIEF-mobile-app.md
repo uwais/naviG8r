@@ -1,6 +1,6 @@
 # Design brief: NaviG8r mobile app (shipper, carrier office, driver)
 
-> **Status:** Draft for team review · **Written:** 2026-10-17 · **For:** Claude Design
+> **Status:** Draft; the dark pattern screen (section 12) blocks it on questions 3, 5 and 6 · **Written:** 2026-10-17 · **For:** Claude Design
 > **Screens as of:** main f82628f plus open PR #153 (truck and transporter ID at acceptance), synthetic data
 
 Paste this whole file into Claude Design, attach the screenshots in `docs/design-mobile-app/screenshots/`, and
@@ -134,30 +134,36 @@ sentence and one button, later steps named but collapsed. Wording below is a sta
 short and true.
 
 **A. Shipper: booking**
-1. Find a lane: "Pick a lane going your way." Each card shows the route, carrier, dates and room left. A lane with
-   less room than the weight searched shows "Not enough room for 500 kg" and no Book button, after the lanes that
-   fit. Lanes are ordered by how well they fit the route and dates, never by what NaviG8r earns on them.
-2. Book and pay: "Check the price, then pay." The full price, with any fee or tax, shows before Pay, and is the
-   amount charged. The weight starts at the weight searched with; with no search, the field starts empty, not at a
-   guessed number. If the lane fills while the shipper is paying, say so in words and charge nothing.
-3. Wait for the carrier: "Waiting for Carrier A to accept. You are not charged until they do." Check that
-   sentence with the team before using it: it must match what payment actually does.
+1. Find a lane: "Pick a lane going your way." Every card, in both Browse and Match my route, shows the route,
+   carrier, dates and room left. Match my route already leaves out lanes without room for the weight and orders
+   the rest by how close they pass the pickup and drop; say "closest to your route first". Browse is not ranked;
+   do not suggest it is. Never order by what NaviG8r earns. Empty states: "No lanes pass near this route with
+   room for 500 kg. Try a lower weight, or browse all lanes." and "No lanes are open right now."
+2. Book and pay: "Check the price, then pay." The price shown is the price charged: when weight, pickup or drop
+   changes, the old price disappears and the screen asks for a new quote (today it keeps showing the old one).
+   Weight, pickup and drop start at what the shipper searched with; with no search, they start empty, not at
+   guessed values. A lane that filled before Book & pay is refused in words before any money moves. Whether tax
+   is added on top of the price is not decided (question 5); the screen must say so once it is.
+3. Wait for the carrier: "Waiting for Carrier A to accept." Say nothing about when money is taken: today the
+   payment is held at booking and collected after delivery, and that may change (question 3).
 4. E-way bill (sequence B), then tracking, then delivery.
-5. Cancelling: the shipment screen says how to cancel and what is refunded at each status, as plainly as Book
-   says how to book. If the app cannot cancel at some status, it says so and names who to contact.
+5. Cancelling: there is no cancel action for shippers today. Until there is one, the shipment screen says how to
+   reach NaviG8r about a booking, and promises no refund amount (question 6).
+
 
 **B. E-way bill (shipper and carrier)**
 
 | Step | Who | What the card says | Button |
 |---|---|---|---|
-| 0 | Shipper | "Does this load need an e-way bill?" | Yes, make one · No e-way bill needed |
+| 0 | Shipper | "Does this load need an e-way bill?" with a one-line hint on when one is needed (wording from the team, question 7). If the shipper says no, the carrier sees that before accepting. | Yes, make one · No e-way bill needed |
 | 1 | Shipper | "Make the bill on the government portal. Copy these two in at Part B:" truck number and transporter ID, each with Copy, each labelled with the portal's field name | Open the e-way bill portal |
 | 2 | Shipper | "Copy four details from the portal's bill: bill number, bill date, your GSTIN, invoice number." | Save e-way bill |
 | 3 | Shipper or carrier | Only if the truck was not on the bill: "Add the truck on the portal before the goods move, then enter it here." | Add truck |
-| 4 | NaviG8r ops | "We are checking the bill on the portal." Then "Checked." | none |
+| 4 | NaviG8r ops | "NaviG8r staff check the bill on the portal by hand." Then "Checked.", or what is wrong and what to do | none |
 | 5 | Driver | The bill number in large type, the truck, and the valid-until time | none |
 
 - Before the carrier accepts, step 1 says "You can make the bill once the carrier accepts and names the truck."
+  (True once PR #153, the truck chosen at acceptance, is merged.)
 - Validity starts when the first truck is entered (one day per 200 km, ending at midnight India time), so step 1
   says to enter the truck on loading day, before the goods move.
 - If the carrier has no transporter ID, step 1 shows the truck only and says only the bill's maker can then change
@@ -167,7 +173,7 @@ short and true.
 **C. Carrier office: a trip**
 1. Publish a trip. 2. Accept each booking, choosing the truck. 3. Assign a driver. 4. Truck on the e-way bill, if
 the shipper left it to you. 5. Start. 6. Confirm delivery for each booking. 7. Proof of delivery accepted, then
-payment released. Only the owner sees amounts, and sees them together: what the shipper paid, NaviG8r's commission,
+payment released (subject to question 3). Only the owner sees amounts, and sees them together: what the shipper paid, NaviG8r's commission,
 and what the carrier receives.
 
 **D. Driver: a day**
@@ -208,7 +214,8 @@ Today's trip, then Start, then the next stop, then the e-way bill number, then C
 
 ## 8. What this design is not
 
-- Not new features. Every action in section 5 exists today; this is layout, order and words.
+- Not new features. Every action in section 5 exists today except a shipper cancelling (A.5), which waits on
+  question 6. This is layout, order and words.
 - Not a change to who can do what: owners, dispatchers, drivers and shippers keep their current permissions.
 - Not a redesign of the government portal, which we only link to.
 - Not a marketing page: no tours, no upsell, no rating prompts.
@@ -247,15 +254,20 @@ Field lists, not code. Everything exists today.
 
 1. Which languages and phone sizes do drivers use? (Changes type size and whether to plan for Hindi or others.)
 2. Should shippers get a separate app, or keep one app with a clear "I ship goods / I carry goods" choice?
-3. Does a shipper pay at booking, or only once the carrier accepts? Step A.3's sentence depends on it.
+3. Payment is held at booking and collected after delivery. Is that changing? Any sentence about when the
+   shipper is charged, and C.7, wait on this.
 4. Should the e-way bill step offer "No e-way bill needed" before or after the shipper opens the portal?
+5. Is tax added on top of the shown price? (For the accountant.) The price screen must say so if it is.
+6. Should a shipper be able to cancel in the app, and what is refunded at each status? Until then, who do they
+   contact?
+7. One line for shippers on when an e-way bill is needed; who writes it?
 
 ## 12. Dark pattern screen
 
 ```
 DARK PATTERN SCREEN — mobile app redesign brief — 2026-10-17
 Screened: this brief, sections 1 to 11
-Verdict: PASS WITH CHANGES (changes made in section 5; two items open)
+Verdict: BLOCKED (see the re-screen below: three questions for the team)
 Findings:
   1. Actionability — FAIL — a lane with less room than the searched weight still offered Book this lane —
      such lanes say "Not enough room for N kg", have no Book button and sort after lanes that fit (A.1).
@@ -273,8 +285,17 @@ Findings:
   so; the bill's four details are what ops needs to find it on the portal), 10 money (NaviG8r earns a commission
   per booking; lane order never uses it), 11 reversal test (we show lanes with room going your way, you pay the
   shown price, the carrier pays our commission out of it).
-Open, not accepted: (a) A.3 says the shipper is not charged until the carrier accepts; true only if payment
-  works that way (question 3). (b) A.2 "charge nothing if the lane fills" must match the payment flow; check
-  before build.
+Re-screened 2026-10-17 after a review checked the brief against the code: BLOCKED until questions 3, 5 and 6 are
+  answered; every sentence the brief proposes is now true of the code or waits on a question.
+  1 Actionability: Match my route already drops lanes without room (server side), so the "Not enough room" card
+    was dropped; Browse shows room left instead (A.1).
+  3 Full cost: the price has no tax line and whether tax applies is unanswered (question 5). OPEN.
+  6 Exit: shippers have no cancel action; the brief no longer points to one and promises no refund (A.5,
+    question 6). OPEN.
+  8 Promise matches delivery: the shown price must clear when weight, pickup or drop change (A.2; the app
+    keeps a stale price today). The "lane fills while paying" case cannot happen (room is reserved first) and
+    was removed. "Not charged until accepted" was false (the payment is held at booking) and was removed;
+    any timing sentence waits on question 3. OPEN.
+  10 Money: ranking claim corrected to "closest to your route first"; dates are not used.
 Accepted risks: none
 ```
