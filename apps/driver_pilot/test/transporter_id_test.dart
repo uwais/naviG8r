@@ -91,6 +91,31 @@ void main() {
       expect(transporterIdField(), findsNothing);
       expect(find.text('29ABCDE1234F1Z5'), findsOneWidget);
       expect(find.text('Change transporter ID'), findsOneWidget);
+      await tapChange(tester);
+      expect(tester.widget<TextField>(transporterIdField()).controller!.text,
+          '29ABCDE1234F1Z5',
+          reason: 'Cancel drops what was typed');
+    });
+
+    testWidgets('Cancel after a refusal leaves no refusal for the next Change',
+        (tester) async {
+      signInAsCarrierLogin(
+          office: true, alsoAllowed: ['trip.assign', 'transporter_id.write']);
+      api.dio.httpClientAdapter = MockApiAdapter((request) => jsonResponse({
+            'error': 'invalid_transporter_id',
+            'detail': transporterIdRule,
+            'field': 'transporterId'
+          }, 400));
+      await mountSection(tester);
+      await tapChange(tester);
+      await tester.enterText(transporterIdField(), '12345');
+      await tester.tap(find.text('Save transporter ID'));
+      await tester.pumpAndSettle();
+      expect(find.text(transporterIdRule), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      await tapChange(tester);
+      expect(find.text(transporterIdRule), findsNothing);
     });
 
     testWidgets('an empty field clears it', (tester) async {

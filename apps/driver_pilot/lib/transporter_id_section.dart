@@ -109,6 +109,8 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
                 TextField(
                     controller: _transporterId,
                     enabled: !_saving,
+                    // Open with a saved ID only after Change, so the cursor goes where the owner just asked to type.
+                    autofocus: saved != null,
                     textCapitalization: TextCapitalization.characters,
                     decoration:
                         const InputDecoration(labelText: 'Transporter ID')),

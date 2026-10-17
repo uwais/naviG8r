@@ -74,7 +74,7 @@ one that does not. 29TRNSP1234A1Z7 is the transporter ID the practice portal's T
    truck carries this trip?" listing KA01AB1234 and KA02XY9999, neither chosen, with Accept with this truck greyed
    out. Tap Cancel. Right: the sheet closes and the booking still shows Accept. Wrong: "Booking accepted."
 7. **Owner accepts with a truck.** Tap Accept again, choose KA02XY9999, tap Accept with this truck. Right: "Booking
-   accepted." The sheet closes. Then open Loads and tap the trip (not the booking) to open the trip screen; its
+   accepted." The sheet closes. Then open Loads and tap View on the trip's card (not Start) to open the trip screen; its
    Truck and driver card says "Truck: KA02XY9999. Driver: not
    assigned." Wrong: no truck on the trip.
 8. **Shipper sees the box.** Shipper app, open the shipment (pull down to refresh). Right: under "No e-way bill added
@@ -84,11 +84,12 @@ one that does not. 29TRNSP1234A1Z7 is the transporter ID the practice portal's T
    way, enter the truck now." Tap Copy beside the transporter ID and paste into any text field. Right: exactly 29TRNSP1234A1Z7, and "Copied transporter ID". Wrong:
    no box, or the label pasted with the value.
 9. **Both parts in one portal visit.** Tap Open the practice e-way bill portal, choose Supplier, then Generate a new
-   e-way bill. Fill every field with these values:
-   A.1 GSTIN of Supplier `29ABCDE1234F1Z5` (the shipper's own; the practice portal refuses any other while you
-   are signed in as Supplier); A.2 `560099`; A.3 GSTIN of Recipient `33AAACT5678L1Z2`; A.4 `600032`; A.5 Document
+   e-way bill. Fill every field with these values. Test before 14:30 Eastern (midnight in India): the practice portal dates the
+   bill in India time, and after that hour the app's date picker cannot reach that date on a phone set to US time.
+   A.1 GSTIN of Supplier `29ABCDE1234F1Z5` (already filled in: the shipper's own, and the practice portal refuses
+   any other while you are signed in as Supplier); A.2 `560099`; A.3 GSTIN of Recipient `33AAACT5678L1Z2`; A.4 `600032`; A.5 Document
    Number `SYN/2026/102`; A.6 today; A.7 `75000`; A.8 HSN `8471`; A.9 Supply; Approximate distance (km) `350`;
-   B.1 Vehicle Number `KA02XY9999`; Transporter ID `29TRNSP1234A1Z7`. Tap Generate e-way bill. Back in the app tap
+   B.1 Vehicle Number for Road `KA02XY9999`; Transporter ID (optional) `29TRNSP1234A1Z7`. Tap Generate e-way bill. Back in the app tap
    Add e-way bill and enter the four details the portal shows: bill number, bill date, GSTIN of whoever made the bill
    `29ABCDE1234F1Z5`, invoice number `SYN/2026/102`. Tap Save e-way bill. Right:
    the box is still there. Tap Add truck. Right: Truck number already reads KA02XY9999, with "Filled in from the truck
