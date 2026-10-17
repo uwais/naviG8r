@@ -21,8 +21,8 @@ void main() {
         'This lane does not have room for that weight. Enter a lower weight, or choose another lane.');
   });
 
-  test('a trip that stopped taking bookings gets a sentence, not HTTP 400', () {
+  test('a lane that stopped taking bookings gets a sentence, not HTTP 400', () {
     expect(formatApiError(refusal('anchor_trip_not_open')),
-        'This trip is no longer taking bookings. Choose another lane.');
+        'This lane is no longer taking bookings. Choose another lane.');
   });
 }

@@ -224,7 +224,7 @@ String formatApiError(Object e) {
       "insufficient_capacity":
           "This lane does not have room for that weight. Enter a lower weight, or choose another lane.",
       "anchor_trip_not_open":
-          "This trip is no longer taking bookings. Choose another lane.",
+          "This lane is no longer taking bookings. Choose another lane.",
     };
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||
