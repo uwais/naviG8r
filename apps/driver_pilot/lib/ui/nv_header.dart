@@ -19,6 +19,7 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
     this.onAddCompany,
     this.backLabel,
     this.onBack,
+    this.navigation,
     super.key,
   }) : taskTitle = null;
 
@@ -37,7 +38,8 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
         currentCompanyId = null,
         onSwitch = null,
         onSignOut = null,
-        onAddCompany = null;
+        onAddCompany = null,
+        navigation = null;
 
   final String? company;
   final String? person;
@@ -54,7 +56,13 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onBack;
   final String? taskTitle;
 
+  /// A wide screen's links, before the account button, which then sits at the right end.
+  final Widget? navigation;
+
   static const height = 72.0;
+
+  // Beside the links the account button has no share of the row to shrink into, so it gets a cap.
+  static const _accountButtonWidthBesideNavigation = 360.0;
 
   /// The header's height is fixed, so its text stops growing here and long names end in
   /// "..."; the account button's spoken label always carries the full words.
@@ -98,7 +106,13 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
                         padding: const EdgeInsets.only(
                             left: NvSpace.s1, right: NvSpace.s2)),
                   ),
-                if (company != null)
+                if (navigation != null) Expanded(child: navigation!),
+                if (company != null && navigation != null)
+                  ConstrainedBox(
+                      constraints: const BoxConstraints(
+                          maxWidth: _accountButtonWidthBesideNavigation),
+                      child: _accountButton(context))
+                else if (company != null)
                   Flexible(child: _accountButton(context))
                 else if (taskTitle != null)
                   Expanded(

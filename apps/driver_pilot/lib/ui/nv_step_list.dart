@@ -8,15 +8,24 @@ enum NvStepState { done, yours, waiting, later, problem }
 /// (or a waiting one) a panel the screen fills with its sentence and button.
 class NvStep {
   const NvStep(
-      {required this.title, required this.state, this.who, this.panel});
+      {required this.title,
+      required this.state,
+      this.who,
+      this.panel,
+      this.panelAlwaysShown = false});
   final String title;
   final NvStepState state;
 
   /// The line under the title: who acts ("You", the carrier's name), or for a done step what happened.
   final String? who;
 
-  /// Shown only for yours, problem and waiting steps. A waiting panel must hold no button.
+  /// Shown only for yours, problem and waiting steps, unless [panelAlwaysShown]. A waiting panel
+  /// must hold no button.
   final Widget? panel;
+
+  /// Also shows the panel on a done step (white, as the saved e-way bill in sh-ewb-checking) or
+  /// a later one (grey, as in sh-ewb-ask).
+  final bool panelAlwaysShown;
 }
 
 /// The ordered steps of a shipment or booking. Step states differ by marker as well as colour:
@@ -85,7 +94,8 @@ class _StepRow extends StatelessWidget {
 
   bool get _showsPanel =>
       step.panel != null &&
-      (step.state == NvStepState.yours ||
+      (step.panelAlwaysShown ||
+          step.state == NvStepState.yours ||
           step.state == NvStepState.problem ||
           step.state == NvStepState.waiting);
 
@@ -213,9 +223,13 @@ class _StepPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final decoration = switch (state) {
-      NvStepState.waiting => BoxDecoration(
+      NvStepState.waiting || NvStepState.later => BoxDecoration(
           color: NvColors.sunken,
           borderRadius: BorderRadius.circular(NvRadius.button)),
+      NvStepState.done => BoxDecoration(
+          color: NvColors.card,
+          borderRadius: BorderRadius.circular(NvRadius.card),
+          border: Border.all(color: NvColors.line)),
       NvStepState.problem => BoxDecoration(
           color: NvColors.card,
           borderRadius: BorderRadius.circular(NvRadius.card),

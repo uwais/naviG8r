@@ -11,7 +11,7 @@ import "ui/nv_header.dart";
 /// account menu switches company and signs out through the same session calls the old
 /// drop-down and sign-out icon used. "Add a company" is left out: no flow adds one today.
 NvHeader signedInHeader(BuildContext context,
-    {String? backLabel, VoidCallback? onBack}) {
+    {String? backLabel, VoidCallback? onBack, Widget? navigation}) {
   final user = AuthorizationSession.user ?? const <String, dynamic>{};
   final phone = formatPhone(user["phone"]?.toString() ?? "");
   final router = GoRouter.maybeOf(context);
@@ -33,6 +33,7 @@ NvHeader signedInHeader(BuildContext context,
     onSignOut: () => _signOut(router),
     backLabel: backLabel,
     onBack: onBack,
+    navigation: navigation,
   );
 }
 

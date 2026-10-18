@@ -1,23 +1,52 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import 'authorization_session.dart';
-import 'driver_theme.dart';
 import 'eway_bill_closed.dart';
-import 'eway_bill_copy_box.dart';
-import 'eway_bill_dates.dart';
 import 'eway_bill_error_text.dart';
 import 'eway_bill_portal_link.dart';
 import 'eway_bill_truck_form.dart';
 import 'eway_bill_words.dart';
 import 'pilot_api.dart';
+import 'ui/format.dart';
+import 'ui/nv_button.dart';
+import 'ui/nv_choice.dart';
+import 'ui/nv_copy_row.dart';
+import 'ui/nv_field.dart';
+import 'ui/nv_message.dart';
+import 'ui/tokens.dart';
 
 enum _Mode { viewing, addingBill, statingNotNeeded, addingTruck }
 
-/// The shipper's e-way bill for one shipment. The bill is made on the government portal; this card
-/// only holds the details the shipper types in and shows what ops saw when it looked the bill up.
+const ewayBillFootnote =
+    'NaviG8r never makes or changes an e-way bill. You make it on the portal.';
+
+/// True for the shipper who booked this shipment, holding eway_bill.write, while the server
+/// still takes changes to its bill.
+bool shipperCanWriteEwayBill(Map<String, dynamic> shipment) =>
+    AuthorizationSession.hasRole('SHIPPER') &&
+    AuthorizationSession.can('eway_bill.write') &&
+    shipment['customerOrgId'] == AuthorizationSession.organizationId &&
+    !ewayBillIsClosed(shipment);
+
+/// The words of the shipper's e-way bill step. The bill is made on the government portal; this
+/// only holds the details the shipper types in and shows what NaviG8r staff saw when they looked
+/// the bill up. It sits inside the shipment's step list; the portal button for part 1 is the
+/// screen's primary action, in its action bar on a phone and in this panel on a desktop.
 class EwayBillCard extends StatefulWidget {
-  const EwayBillCard({required this.shipment, super.key});
+  const EwayBillCard(
+      {required this.shipment,
+      this.onSaved,
+      this.portalButtonInPanel = false,
+      super.key});
   final Map<String, dynamic> shipment;
+
+  /// Puts part 1's "Open the e-way bill portal" in this panel, for a desktop that has no action
+  /// bar to hold it.
+  final bool portalButtonInPanel;
+
+  /// The shipment the server returned after a save, so the screen's steps move on at once.
+  final ValueChanged<Map<String, dynamic>>? onSaved;
 
   @override
   State<EwayBillCard> createState() => _EwayBillCardState();
@@ -34,6 +63,10 @@ class _EwayBillCardState extends State<EwayBillCard> {
   String? _reason;
   bool _busy = false;
   String? _error;
+  String? _formSummary;
+  final _formSummaryFocus = FocusNode();
+  String? _numberError;
+  String? _gstinError;
   num _savedAtUtcMs = 0;
 
   static Map<String, dynamic>? _billFrom(Map<String, dynamic> shipment) {
@@ -41,12 +74,28 @@ class _EwayBillCardState extends State<EwayBillCard> {
     return raw is Map<String, dynamic> ? raw : null;
   }
 
-  bool get _canEdit {
-    final shipment = widget.shipment;
-    return AuthorizationSession.hasRole('SHIPPER') &&
-        AuthorizationSession.can('eway_bill.write') &&
-        shipment['customerOrgId'] == AuthorizationSession.organizationId &&
-        !ewayBillIsClosed(shipment);
+  bool get _canEdit => shipperCanWriteEwayBill(widget.shipment);
+
+  bool get _canAddTruck =>
+      _canEdit && AuthorizationSession.can('eway_bill.add_truck');
+
+  String get _carrier {
+    final name = widget.shipment['carrierDisplayName']?.toString() ?? '';
+    return name.trim().isEmpty ? 'The carrier' : name;
+  }
+
+  /// The carrier's transporter ID, sent to shippers only once the carrier has accepted.
+  String? get _transporterId {
+    final id = widget.shipment['carrierTransporterId'];
+    return id is String && id.trim().isNotEmpty ? id.trim() : null;
+  }
+
+  /// The truck the carrier named for the trip, in the portal's form.
+  String? get _tripTruck {
+    final truck = widget.shipment['assignedTruckNumber'];
+    if (truck is! String) return null;
+    final portalForm = portalTruckNumber(truck);
+    return portalForm.isEmpty ? null : portalForm;
   }
 
   @override
@@ -57,7 +106,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       _mode = _Mode.viewing;
       _bill = _billFrom(widget.shipment);
       _savedAtUtcMs = 0;
-      _error = null;
+      _clearErrors();
       _busy = false;
       _billDate = null;
       _reason = null;
@@ -80,10 +129,19 @@ class _EwayBillCardState extends State<EwayBillCard> {
     _gstin.dispose();
     _invoice.dispose();
     _note.dispose();
+    _formSummaryFocus.dispose();
     super.dispose();
   }
 
+  void _clearErrors() {
+    _error = null;
+    _formSummary = null;
+    _numberError = null;
+    _gstinError = null;
+  }
+
   void _openBillForm() {
+    if (_busy) return;
     final bill = _bill;
     final editing = bill != null && bill['kind'] == 'BILL';
     setState(() {
@@ -91,24 +149,33 @@ class _EwayBillCardState extends State<EwayBillCard> {
       _gstin.text = editing ? '${bill['makerGstin'] ?? ''}' : '';
       _invoice.text = editing ? '${bill['invoiceNumber'] ?? ''}' : '';
       _billDate = editing ? bill['billDate'] as String? : null;
-      _error = null;
+      _clearErrors();
       _mode = _Mode.addingBill;
     });
   }
 
   void _openStatementForm() {
+    if (_busy) return;
     final bill = _bill;
     final editing = bill != null && bill['kind'] == 'NOT_NEEDED';
     setState(() {
       _reason = editing ? bill['notNeededReason'] as String? : null;
       _note.text = editing ? '${bill['notNeededNote'] ?? ''}' : '';
-      _error = null;
+      _clearErrors();
       _mode = _Mode.statingNotNeeded;
     });
   }
 
+  void _openTruckForm() {
+    if (_busy) return;
+    setState(() {
+      _clearErrors();
+      _mode = _Mode.addingTruck;
+    });
+  }
+
   void _cancel() => setState(() {
-        _error = null;
+        _clearErrors();
         _mode = _Mode.viewing;
       });
 
@@ -131,21 +198,64 @@ class _EwayBillCardState extends State<EwayBillCard> {
     setState(() => _billDate = '${picked.year}-$month-$day');
   }
 
+  // Checks the two mistakes testers made, before anything is sent (spec/copy.md, step 2 errors).
+  // The GSTIN check runs only when the carrier's transporter ID is on this screen to compare with.
+  bool _formHasFieldErrors() {
+    final digits = _number.text.replaceAll(RegExp(r'[\s-]'), '');
+    _numberError = RegExp(r'^\d+$').hasMatch(digits) && digits.length != 12
+        ? 'This has ${digits.length} digits. An e-way bill number has 12.'
+        : null;
+    final transporterId = _transporterId;
+    String squeezed(String text) =>
+        text.replaceAll(RegExp(r'\s'), '').toUpperCase();
+    _gstinError = transporterId != null &&
+            _gstin.text.trim().isNotEmpty &&
+            squeezed(_gstin.text) == squeezed(transporterId)
+        ? "This is the carrier's transporter ID. Enter the GSTIN that made the bill."
+        : null;
+    final count = [_numberError, _gstinError].whereType<String>().length;
+    _formSummary = switch (count) {
+      0 => null,
+      1 => '1 detail needs fixing before you can save.',
+      _ => '$count details need fixing before you can save.',
+    };
+    return count > 0;
+  }
+
   Future<void> _saveBill() async {
+    final direction = Directionality.of(context);
     final date = _billDate;
+    setState(() => _error = null);
+    if (_formHasFieldErrors()) {
+      setState(() {});
+      _showFormSummary(direction);
+      return;
+    }
     if (_number.text.trim().isEmpty ||
         date == null ||
         _gstin.text.trim().isEmpty ||
         _invoice.text.trim().isEmpty) {
-      setState(() => _error = 'Fill in all four details to save.');
+      setState(() => _formSummary = 'Fill in all four details to save.');
+      _showFormSummary(direction);
       return;
     }
+    setState(() => _formSummary = null);
     await _submit('/shipments/${widget.shipment['id']}/eway-bill', {
       'kind': 'BILL',
       'billNumber': _number.text,
       'billDate': date,
       'makerGstin': _gstin.text,
       'invoiceNumber': _invoice.text,
+    });
+  }
+
+  // A failed save says how many details need fixing, then focus moves to that summary
+  // (accessibility.md, e-way bill form).
+  void _showFormSummary(TextDirection direction) {
+    SemanticsService.announce(_formSummary!, direction,
+        assertiveness: Assertiveness.assertive);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _formSummaryFocus.requestFocus();
     });
   }
 
@@ -191,192 +301,402 @@ class _EwayBillCardState extends State<EwayBillCard> {
     }
   }
 
-  void _showSaved(Map<String, dynamic>? shipment) => setState(() {
-        _bill = shipment == null ? null : _billFrom(shipment);
-        final savedTime = shipment?['updatedAtUtcMs'];
-        if (savedTime is num) _savedAtUtcMs = savedTime;
-        _mode = _Mode.viewing;
-      });
-
-  void _openTruckForm() => setState(() {
-        _error = null;
-        _mode = _Mode.addingTruck;
-      });
-
-  /// The truck the carrier named for the trip, in the portal's form, to fill the truck form with.
-  String? get _tripTruck {
-    final truck = widget.shipment['assignedTruckNumber'];
-    return truck is String && truck.isNotEmpty
-        ? portalTruckNumber(truck)
-        : null;
+  void _showSaved(Map<String, dynamic>? shipment) {
+    setState(() {
+      _bill = shipment == null ? null : _billFrom(shipment);
+      final savedTime = shipment?['updatedAtUtcMs'];
+      if (savedTime is num) _savedAtUtcMs = savedTime;
+      _mode = _Mode.viewing;
+    });
+    final bill = _bill;
+    if (bill != null && bill['kind'] == 'BILL') {
+      final truck = bill['truckNumber'];
+      SemanticsService.announce(
+          truck is String && truck.isNotEmpty
+              ? 'E-way bill saved. Nothing more for you to do until delivery.'
+              : 'E-way bill saved. The truck is not on it yet.',
+          Directionality.of(context));
+    }
+    if (shipment != null) widget.onSaved?.call(shipment);
   }
 
-  List<Widget> _viewing() {
-    final bill = _bill;
+  List<Widget> _noBill() {
     final canEdit = _canEdit;
-    if (bill == null) {
+    final status = widget.shipment['status'];
+    final actions = canEdit
+        ? [
+            const SizedBox(height: NvSpace.s3),
+            NvButton(
+                label: 'I have made it. Enter the details',
+                kind: NvButtonKind.secondary,
+                fullWidth: true,
+                onPressed: _openBillForm),
+            const SizedBox(height: NvSpace.s2),
+            NvButton(
+                label: 'No e-way bill needed',
+                kind: NvButtonKind.secondary,
+                fullWidth: true,
+                onPressed: _openStatementForm),
+          ]
+        : const <Widget>[];
+    if (status == 'PENDING_CARRIER_ACCEPT') {
       return [
-        const Text('No e-way bill added yet.'),
-        EwayBillCopyBox(shipment: widget.shipment, bill: bill),
-        if (canEdit) ...[
-          const SizedBox(height: 8),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            OutlinedButton(
-                onPressed: _openBillForm, child: const Text('Add e-way bill')),
-            OutlinedButton(
-                onPressed: _openStatementForm,
-                child: const Text('No e-way bill needed')),
-          ]),
-          const EwayBillPortalButton(),
-        ],
+        const Text(
+            'You can make the bill once the carrier accepts and names the truck. We will send you an update.',
+            style: NvText.body),
+        ...actions,
       ];
     }
-    if (bill['kind'] == 'NOT_NEEDED') {
+    if (status != 'BOOKED') {
       return [
         Text(
-            'You said no e-way bill is needed: ${notNeededReasonWords(bill)}.'),
-        if (canEdit) ...[
-          const SizedBox(height: 8),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            OutlinedButton(
-                onPressed: _busy ? null : _openStatementForm,
-                child: const Text('Change')),
-            OutlinedButton(
-                onPressed: _busy ? null : _remove,
-                child: const Text('Remove e-way bill')),
-          ]),
-        ],
-        EwayBillErrorText(_error),
+            ewayBillIsClosed(widget.shipment)
+                ? 'No e-way bill was added.'
+                : 'No e-way bill added yet.',
+            style: NvText.body),
+        ...actions,
       ];
     }
-    final number = bill['billNumber'];
-    final date = bill['billDate'];
-    final truckLines = ewayBillTruckLines(bill);
-    final canAddTruck =
-        canEdit && AuthorizationSession.can('eway_bill.add_truck');
-    final mismatch = ewayBillTruckMismatchSentence(widget.shipment, bill,
-        reader: TruckMismatchReader.shipper);
+    final truck = _tripTruck;
+    final transporterId = _transporterId;
     return [
-      if (number is String)
-        SelectableText(groupedBillNumber(number),
-            style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: DriverTheme.navy)),
-      if (date is String)
-        Text('Bill date: ${ewayBillDateFromCalendarDate(date)}'),
-      Text('GSTIN of whoever made the bill: ${bill['makerGstin'] ?? ''}'),
-      Text('Invoice number: ${bill['invoiceNumber'] ?? ''}'),
-      const SizedBox(height: 8),
-      if (truckLines.isEmpty)
-        const Text(
-            'Truck not added yet. You or your carrier can add it after the truck is on the bill on the portal.')
-      else
-        for (final line in truckLines) Text(line),
-      EwayBillCopyBox(shipment: widget.shipment, bill: bill),
-      if (mismatch != null) Text(mismatch),
-      const SizedBox(height: 8),
-      Text(ewayBillCheckLine(bill, forShipper: true)),
-      if (canEdit) ...[
-        const SizedBox(height: 8),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          OutlinedButton(
-              onPressed: _busy ? null : _openBillForm,
-              child: const Text('Edit')),
-          if (canAddTruck)
-            OutlinedButton(
-                onPressed: _busy ? null : _openTruckForm,
-                child: Text(truckLines.isEmpty ? 'Add truck' : 'Change truck')),
-          OutlinedButton(
-              onPressed: _busy ? null : _remove,
-              child: const Text('Remove e-way bill')),
-        ]),
-        const EwayBillPortalButton(),
+      Text('Make the bill on the $ewayBillPortalName. Copy these two in:',
+          style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
+      const SizedBox(height: NvSpace.s3),
+      truck == null
+          ? const NvCopyRow(
+              label: 'Truck number',
+              state: NvCopyRowState.notYet,
+              noValueWords: 'Not chosen yet',
+              guidance: 'Shown once the carrier accepts and names the truck.')
+          : NvCopyRow(
+              label: 'Truck number',
+              value: truck,
+              portalField: 'Portal field: Vehicle No. (Part B)'),
+      const SizedBox(height: NvSpace.s2),
+      transporterId == null
+          ? NvCopyRow(
+              label: "Carrier's transporter ID",
+              state: NvCopyRowState.empty,
+              noValueWords: '$_carrier has not added one.',
+              guidance:
+                  "Leave Transporter ID empty. Only you, the bill's maker, can then change the truck.")
+          : NvCopyRow(
+              label: "Carrier's transporter ID",
+              value: transporterId,
+              portalField: 'Portal field: Transporter ID. Not your GSTIN.'),
+      const SizedBox(height: NvSpace.s3),
+      const Text(
+          'Make it on loading day, before the goods move: the bill is valid from when the truck is entered.',
+          style: NvText.body),
+      if (canEdit && widget.portalButtonInPanel) ...[
+        const SizedBox(height: NvSpace.s3),
+        const EwayBillPortalButton(
+            label: 'Open the e-way bill portal', kind: NvButtonKind.primary),
       ],
+      ...actions,
+    ];
+  }
+
+  List<Widget> _notNeeded(Map<String, dynamic> bill) {
+    final entered = bill['enteredAtUtcMs'];
+    return [
+      if (entered is num)
+        Text(
+            'You said so on ${formatDate(DateTime.fromMillisecondsSinceEpoch(entered.toInt(), isUtc: true))}.',
+            style: NvText.body),
+      Text('Reason: ${notNeededReasonWords(bill)}', style: NvText.caption),
+      if (_canEdit)
+        Wrap(spacing: NvSpace.s2, children: [
+          NvButton(
+              label: 'Change',
+              kind: NvButtonKind.quiet,
+              onPressed: _openStatementForm),
+          NvButton(
+              label: 'Remove e-way bill',
+              kind: NvButtonKind.quiet,
+              onPressed: _remove,
+              loading: _busy),
+        ]),
       EwayBillErrorText(_error),
     ];
   }
 
-  Widget _field(TextEditingController controller, String label,
-          {String? helper,
-          int? maxLength,
-          TextInputType? keyboardType,
-          TextCapitalization capitalization = TextCapitalization.none}) =>
+  Widget _fact(String label, String value, {bool identifier = false}) =>
       Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: TextField(
-              controller: controller,
-              enabled: !_busy,
-              maxLength: maxLength,
-              keyboardType: keyboardType,
-              textCapitalization: capitalization,
-              decoration: InputDecoration(
-                  labelText: label,
-                  helperText: helper,
-                  helperMaxLines: 2,
-                  counterText: '',
-                  border: const OutlineInputBorder())));
+        padding: const EdgeInsets.symmetric(vertical: NvSpace.s1),
+        child: Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          spacing: NvSpace.s3,
+          children: [
+            Text(label, style: NvText.caption),
+            Text(value,
+                style: identifier
+                    ? NvText.id.copyWith(fontWeight: FontWeight.w600)
+                    : NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
+          ],
+        ),
+      );
+
+  String? _validUntilWords(Map<String, dynamic> bill) {
+    final validUntil = bill['validUntilUtcMs'];
+    if (validUntil is! num) return null;
+    final moment =
+        DateTime.fromMillisecondsSinceEpoch(validUntil.toInt(), isUtc: true);
+    return '${formatDate(moment)}, ${formatTimeIst(moment)}';
+  }
+
+  List<Widget> _billWithoutTruck(Map<String, dynamic> bill) {
+    final number = bill['billNumber'];
+    final truck = _tripTruck;
+    final canAddTruck = _canAddTruck;
+    return [
+      Text.rich(TextSpan(style: NvText.body, children: [
+        const TextSpan(text: 'Bill '),
+        TextSpan(
+            text: formatBillNumber(number is String ? number : ''),
+            style: NvText.id),
+        const TextSpan(text: ' saved. The truck is not on it yet.'),
+      ])),
+      if (canAddTruck) ...[
+        const SizedBox(height: NvSpace.s3),
+        Text(
+            'Add the truck on the portal before the goods move, then enter it here.',
+            style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
+      ],
+      if (truck != null && widget.shipment['status'] == 'BOOKED') ...[
+        const SizedBox(height: NvSpace.s3),
+        NvCopyRow(
+            label: 'Truck number',
+            value: truck,
+            portalField: 'Portal: Update Part B, Vehicle No.'),
+      ],
+      const SizedBox(height: NvSpace.s3),
+      const Text(
+          "The bill's validity starts when the truck is added: one day per 200 km, ending at midnight India time.",
+          style: NvText.caption),
+      if (bill['check'] is Map) ...[
+        const SizedBox(height: NvSpace.s2),
+        Text(ewayBillCheckLine(bill, forShipper: true),
+            style: NvText.caption),
+      ],
+      if (canAddTruck) ...[
+        const SizedBox(height: NvSpace.s3),
+        NvButton(
+            label: 'Add truck', fullWidth: true, onPressed: _openTruckForm),
+        const SizedBox(height: NvSpace.s2),
+        const EwayBillPortalButton(
+            label: 'Open the e-way bill portal', kind: NvButtonKind.quiet),
+      ],
+    ];
+  }
+
+  List<Widget> _billProblem(Map<String, dynamic> bill) => [
+        Text('NaviG8r staff found a difference',
+            style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
+        const SizedBox(height: NvSpace.s2),
+        Text(ewayBillCheckLine(bill, forShipper: true), style: NvText.body),
+        const SizedBox(height: NvSpace.s2),
+        const Text(
+            'If the portal is right, fix it here. If the bill itself is wrong, change it on the portal first.',
+            style: NvText.body),
+        if (_canEdit) ...[
+          const SizedBox(height: NvSpace.s3),
+          NvButton(
+              label: 'Fix the details',
+              fullWidth: true,
+              onPressed: _openBillForm),
+        ],
+        const SizedBox(height: NvSpace.s3),
+        if (bill['billNumber'] is String)
+          _fact('Bill number', formatBillNumber(bill['billNumber'] as String),
+              identifier: true),
+        if (bill['billDate'] is String)
+          _fact('Bill date', _calendarDateWords(bill['billDate'] as String)),
+        if (bill['makerGstin'] is String)
+          _fact('Your GSTIN', bill['makerGstin'] as String, identifier: true),
+        if (bill['invoiceNumber'] is String)
+          _fact('Invoice number', bill['invoiceNumber'] as String,
+              identifier: true),
+        if (bill['truckNumber'] is String)
+          _fact('Truck', bill['truckNumber'] as String, identifier: true),
+      ];
+
+  List<Widget> _billWithTruck(Map<String, dynamic> bill) {
+    final checked = bill['check'] is Map;
+    final validUntil = _validUntilWords(bill);
+    final mismatch = ewayBillTruckMismatchSentence(widget.shipment, bill,
+        reader: TruckMismatchReader.shipper);
+    return [
+      if (!checked && !ewayBillIsClosed(widget.shipment)) ...[
+        const NvMessage(
+            'E-way bill saved. Nothing more for you to do until delivery.',
+            tone: NvMessageTone.good),
+        const SizedBox(height: NvSpace.s3),
+      ],
+      if (bill['billNumber'] is String)
+        _fact('Bill number', formatBillNumber(bill['billNumber'] as String),
+            identifier: true),
+      _fact('Truck', bill['truckNumber'] as String, identifier: true),
+      if (validUntil != null) _fact('Valid until', validUntil),
+      // The countdown and the has-passed reminder, after the truck and valid-until lines.
+      for (final line in ewayBillTruckLines(bill).skip(2))
+        Text(line, style: NvText.caption),
+      if (mismatch != null) ...[
+        const SizedBox(height: NvSpace.s2),
+        Text(mismatch, style: NvText.body),
+      ],
+      if (checked) ...[
+        const SizedBox(height: NvSpace.s2),
+        Text(ewayBillCheckLine(bill, forShipper: true), style: NvText.caption),
+      ],
+    ];
+  }
+
+  List<Widget> _billActions(Map<String, dynamic> bill) {
+    if (!_canEdit) return const [];
+    final truck = bill['truckNumber'];
+    final hasTruck = truck is String && truck.isNotEmpty;
+    return [
+      const SizedBox(height: NvSpace.s2),
+      Wrap(spacing: NvSpace.s2, children: [
+        NvButton(
+            label: 'Edit', kind: NvButtonKind.quiet, onPressed: _openBillForm),
+        if (hasTruck && _canAddTruck)
+          NvButton(
+              label: 'Change truck',
+              kind: NvButtonKind.quiet,
+              onPressed: _openTruckForm),
+        NvButton(
+            label: 'Remove e-way bill',
+            kind: NvButtonKind.quiet,
+            onPressed: _remove,
+            loading: _busy),
+      ]),
+    ];
+  }
+
+  List<Widget> _viewing() {
+    final bill = _bill;
+    if (bill == null) return _noBill();
+    if (bill['kind'] == 'NOT_NEEDED') return _notNeeded(bill);
+    final check = bill['check'];
+    final truck = bill['truckNumber'];
+    final body = check is Map && check['result'] == 'PROBLEM'
+        ? _billProblem(bill)
+        : truck is String && truck.isNotEmpty
+            ? _billWithTruck(bill)
+            : _billWithoutTruck(bill);
+    return [...body, ..._billActions(bill), EwayBillErrorText(_error)];
+  }
 
   List<Widget> _billForm() {
     final checked = _bill?['check'] is Map;
+    final date = _billDate;
     return [
-      Text(
-          'Copy these four details from the $ewayBillPortalName. All four are needed to save. naviG8r does not make or change e-way bills.'),
-      const EwayBillPortalButton(),
-      const SizedBox(height: 8),
-      _field(_number, 'E-way bill number (12 digits)',
-          maxLength: 14, keyboardType: TextInputType.number),
-      Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: OutlinedButton(
-              onPressed: _busy ? null : _chooseDate,
-              child: Text(_billDate == null
-                  ? 'Bill date: choose the date'
-                  : 'Bill date: ${ewayBillDateFromCalendarDate(_billDate!)}'))),
-      _field(_gstin, 'GSTIN of whoever made the bill',
-          helper: 'Used only by naviG8r ops to find the bill on the portal.',
-          maxLength: 15,
-          capitalization: TextCapitalization.characters),
-      _field(_invoice, 'Invoice number',
-          helper: 'Used only by naviG8r ops to find the bill on the portal.',
-          maxLength: 32),
-      if (checked) const Text('Changing these details clears the check.'),
+      const Text('E-WAY BILL · PART 2 OF 2', style: NvText.label),
+      const SizedBox(height: NvSpace.s1),
+      Semantics(
+          header: true,
+          child: const Text("Enter the bill's details", style: NvText.heading)),
+      const SizedBox(height: NvSpace.s1),
+      const Text('Copy these four from the bill on the portal.',
+          style: NvText.body),
+      if (_formSummary != null) ...[
+        const SizedBox(height: NvSpace.s3),
+        Focus(
+            focusNode: _formSummaryFocus,
+            child: NvMessage(_formSummary!, tone: NvMessageTone.problem)),
+      ],
+      const SizedBox(height: NvSpace.s4),
+      NvField(
+          label: 'E-way bill number',
+          controller: _number,
+          help: '12 digits, at the top of the bill.',
+          errorText: _numberError,
+          identifier: true,
+          keyboardType: TextInputType.number),
+      const SizedBox(height: NvSpace.s3),
+      const Text('Bill date', style: NvText.bodyStrong),
+      const SizedBox(height: 6),
+      NvButton(
+          label: date == null
+              ? 'Choose the date'
+              : _calendarDateWords(date, withYear: true),
+          kind: NvButtonKind.secondary,
+          fullWidth: true,
+          onPressed: _chooseDate),
+      const SizedBox(height: NvSpace.s3),
+      NvField(
+          label: 'Your GSTIN',
+          controller: _gstin,
+          help:
+              "The GSTIN that made the bill. Not the carrier's transporter ID.",
+          errorText: _gstinError,
+          identifier: true),
+      const SizedBox(height: NvSpace.s3),
+      NvField(label: 'Invoice number', controller: _invoice, identifier: true),
+      if (checked) ...[
+        const SizedBox(height: NvSpace.s2),
+        const Text('Changing these details clears the check.',
+            style: NvText.caption),
+      ],
       EwayBillErrorText(_error),
-      const SizedBox(height: 8),
-      Wrap(spacing: 8, runSpacing: 8, children: [
-        FilledButton(
-            onPressed: _busy ? null : _saveBill,
-            child: Text(_busy ? 'Saving...' : 'Save e-way bill')),
-        TextButton(
-            onPressed: _busy ? null : _cancel, child: const Text('Cancel')),
-      ]),
+      const SizedBox(height: NvSpace.s4),
+      NvButton(
+          label: 'Save e-way bill',
+          loadingLabel: 'Saving',
+          loading: _busy,
+          fullWidth: true,
+          onPressed: _saveBill),
+      const SizedBox(height: NvSpace.s1),
+      const Text('NaviG8r staff then check it on the portal.',
+          style: NvText.caption),
+      const SizedBox(height: NvSpace.s2),
+      NvButton(
+          label: 'Cancel',
+          kind: NvButtonKind.quiet,
+          fullWidth: true,
+          onPressed: _cancel),
     ];
   }
 
   List<Widget> _statementForm() {
     return [
-      const Text('Why is no e-way bill needed?'),
-      _ReasonChoices(
-          reasons: notNeededReasonChoices,
+      Text('Why is no e-way bill needed?',
+          style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
+      const SizedBox(height: NvSpace.s2),
+      NvChoiceRows<String>(
+          options: [
+            for (final entry in notNeededReasonChoices.entries)
+              NvChoice(entry.key, entry.value),
+          ],
           selected: _reason,
-          enabled: !_busy,
           onChanged: (value) => setState(() => _reason = value)),
-      if (_reason == 'OTHER') _field(_note, 'Write the reason', maxLength: 140),
+      if (_reason == 'OTHER') ...[
+        const SizedBox(height: NvSpace.s3),
+        NvField(label: 'Write the reason', controller: _note),
+      ],
       EwayBillErrorText(_error),
-      const SizedBox(height: 8),
-      Wrap(spacing: 8, runSpacing: 8, children: [
-        FilledButton(
-            onPressed: _busy ? null : _saveStatement,
-            child: Text(_busy ? 'Saving...' : 'Save')),
-        TextButton(
-            onPressed: _busy ? null : _cancel, child: const Text('Cancel')),
-      ]),
+      const SizedBox(height: NvSpace.s4),
+      NvButton(
+          label: 'Save',
+          loadingLabel: 'Saving',
+          loading: _busy,
+          fullWidth: true,
+          onPressed: _saveStatement),
+      const SizedBox(height: NvSpace.s2),
+      NvButton(
+          label: 'Cancel',
+          kind: NvButtonKind.quiet,
+          fullWidth: true,
+          onPressed: _cancel),
     ];
   }
 
   @override
   Widget build(BuildContext context) {
+    final bill = _bill;
     final body = switch (_mode) {
       _Mode.viewing => _viewing(),
       _Mode.addingBill => _billForm(),
@@ -384,48 +704,35 @@ class _EwayBillCardState extends State<EwayBillCard> {
       _Mode.addingTruck => [
           EwayBillTruckForm(
               path: '/shipments/${widget.shipment['id']}/eway-bill/truck',
-              current: _bill,
+              current: bill,
               assignedTruckNumber: _tripTruck,
-              clearsCheck: _bill?['check'] is Map,
+              clearsCheck: bill?['check'] is Map,
               onSaved: _showSaved,
               onCancel: _cancel),
-          const EwayBillPortalButton(),
+          const EwayBillPortalButton(
+              label: 'Open the e-way bill portal', kind: NvButtonKind.quiet),
         ],
     };
-    return Card(
-        child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text('E-way bill',
-                      style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  ...body,
-                ])));
+    final aboutNotNeeded = _mode == _Mode.statingNotNeeded ||
+        (_mode == _Mode.viewing && bill?['kind'] == 'NOT_NEEDED');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ...body,
+        if (!aboutNotNeeded) ...[
+          const SizedBox(height: NvSpace.s3),
+          const Text(ewayBillFootnote, style: NvText.caption),
+        ],
+      ],
+    );
   }
 }
 
-/// One tappable row per reason, none chosen until the shipper chooses.
-class _ReasonChoices extends StatelessWidget {
-  const _ReasonChoices(
-      {required this.reasons,
-      required this.selected,
-      required this.enabled,
-      required this.onChanged});
-  final Map<String, String> reasons;
-  final String? selected;
-  final bool enabled;
-  final ValueChanged<String?> onChanged;
-
-  @override
-  Widget build(BuildContext context) => Column(children: [
-        for (final entry in reasons.entries)
-          RadioListTile<String>(
-              contentPadding: EdgeInsets.zero,
-              title: Text(entry.value),
-              value: entry.key,
-              groupValue: selected,
-              onChanged: enabled ? onChanged : null),
-      ]);
+/// "1 Oct" for a calendar date written as 2026-10-01, or with the year in a form.
+String _calendarDateWords(String date, {bool withYear = false}) {
+  final parsed = DateTime.tryParse(date);
+  if (parsed == null) return date;
+  // Noon UTC is the same calendar day in India.
+  return formatDate(DateTime.utc(parsed.year, parsed.month, parsed.day, 12),
+      withYear: withYear);
 }

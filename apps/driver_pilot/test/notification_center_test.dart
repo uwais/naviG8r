@@ -198,10 +198,15 @@ void main() {
       home: const NotificationInboxScreen(),
     ));
     await tester.pumpAndSettle();
-    expect(find.text('Notifications'), findsOneWidget);
-    expect(find.text('Shipment update'), findsOneWidget);
-    expect(find.textContaining('New update'), findsOneWidget);
-    expect(find.textContaining('Shipment SHIPMENT'), findsOneWidget);
+    expect(find.text('Updates'), findsOneWidget,
+        reason: 'sh-notifications: the inbox is titled Updates');
+    expect(find.text('Shipment update'), findsOneWidget,
+        reason:
+            'with no shipment list to name it from, the row keeps a plain title');
+    expect(find.text('New update'), findsOneWidget);
+    expect(find.textContaining('SHIPMENT'), findsNothing,
+        reason:
+            'copy.md: a shipment is never named by an ID or reference code');
     await tester.tap(find.text('Shipment update'));
     await tester.pumpAndSettle();
     expect(find.text('Load booked'), findsOneWidget);

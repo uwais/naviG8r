@@ -74,11 +74,12 @@ void main() {
     selectOrganizationForWidget(
         'shipper-a', 'SHIPPER', ['load.read', 'load.create']);
     await pumpAuthorizationFrames(tester);
-    expect(find.text('Book freight'), findsOneWidget);
+    expect(find.text('Find a lane for new goods'), findsOneWidget,
+        reason: 'PR 4: the shipper Home, which no longer says Book freight');
     selectOrganizationForWidget('platform', 'FINANCE', ['payment.capture']);
     await pumpAuthorizationFrames(tester);
     expect(find.text('Internal workspace'), findsOneWidget);
-    expect(find.text('Book freight'), findsNothing);
+    expect(find.text('Find a lane for new goods'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
