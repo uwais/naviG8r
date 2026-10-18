@@ -1,6 +1,8 @@
 // PR 10 of the redesign: when a request fails on a shipper screen, the screen says what failed in
 // plain words, never "HTTP 500", a server address or an exception's text (decisions.md 7).
-import 'package:driver_pilot/shipper/book_a_lane.dart';
+import 'package:driver_pilot/shipper/erp_integrations.dart';
+import 'package:driver_pilot/shipper/shipper_sign_in.dart';
+import 'package:driver_pilot/shipper/shipper_team.dart';
 import 'package:driver_pilot/customer_session.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/pilot_api.dart';

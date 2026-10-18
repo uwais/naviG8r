@@ -1,7 +1,7 @@
 // PR 3 of the redesign: the sign-in and code screens (mockups c-signin, c-code, c-code-error)
 // with copy.md's words and accessibility.md's announcements.
 import 'package:driver_pilot/authorization_session.dart';
-import 'package:driver_pilot/shipper/book_a_lane.dart';
+import 'package:driver_pilot/shipper/shipper_sign_in.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/pilot_api.dart';

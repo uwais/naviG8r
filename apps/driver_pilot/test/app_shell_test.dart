@@ -1,7 +1,7 @@
 // PR 3 of the redesign: the start screen, one header with the account menu, and tabs by role
 // (spec/screens.md, Navigation). Names and companies are the mockups' synthetic ones.
 import 'package:driver_pilot/authorization_session.dart';
-import 'package:driver_pilot/shipper/book_a_lane.dart';
+import 'package:driver_pilot/shipper/shipper_scaffold.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/main.dart';

@@ -8,7 +8,9 @@ import "package:go_router/go_router.dart";
 
 import "authorization_session.dart";
 import "organization_access.dart";
-import "shipper/book_a_lane.dart";
+import "shipper/shipment_screen.dart";
+import "shipper/shipper_routes.dart";
+import "shipper/shipper_scaffold.dart";
 import "driver_flow.dart";
 import "driver_session.dart";
 import "driver_theme.dart";

@@ -1,5 +1,5 @@
 import 'package:driver_pilot/authorization_session.dart';
-import 'package:driver_pilot/shipper/book_a_lane.dart';
+import 'package:driver_pilot/shipper/shipper_scaffold.dart';
 import 'package:driver_pilot/organization_access.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:flutter/material.dart';

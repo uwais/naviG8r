@@ -3,6 +3,9 @@
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/shipper/book_a_lane.dart';
+import 'package:driver_pilot/shipper/find_a_lane.dart';
+import 'package:driver_pilot/shipper/shipper_home.dart';
+import 'package:driver_pilot/shipper/shipper_routes.dart';
 import 'package:driver_pilot/customer_layout.dart';
 import 'package:driver_pilot/customer_session.dart';
 import 'package:driver_pilot/driver_theme.dart';
