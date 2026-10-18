@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 
 import 'authorization_session.dart';
 import 'conversation_drafts.dart';
-import 'customer_flow.dart';
+import 'shipper/book_a_lane.dart';
 import 'pilot_api.dart';
 import 'plain_error_sentence.dart';
 import 'push_notifications.dart';
