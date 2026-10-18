@@ -37,7 +37,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     // Home sits under the sign-in page, so it is built signed out and must load once sign-in lands.
     CustomerSession.listenable.addListener(_loadWhenTheAccountChanges);
     CustomerSession.refresh().then((_) {
-      if (mounted) _load();
+      if (mounted && _loadedForAccount != AuthorizationSession.scopeKey) {
+        _load();
+      }
     });
   }
 
@@ -48,13 +50,19 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 
   void _loadWhenTheAccountChanges() {
-    if (!CustomerSession.isSignedIn) _loadedForAccount = null;
-    if (mounted &&
-        CustomerSession.isSignedIn &&
-        !AuthorizationSession.switching &&
-        _loadedForAccount != AuthorizationSession.scopeKey) {
-      _load();
-    }
+    if (!mounted) return;
+    final account =
+        CustomerSession.isSignedIn ? AuthorizationSession.scopeKey : null;
+    if (account == _loadedForAccount) return;
+    // Another account's shipments must not show while this one's load.
+    setState(() {
+      _shipments = [];
+      _lanesById = {};
+      _shipmentsFailed = false;
+      _unreadUpdates = 0;
+    });
+    _loadedForAccount = null;
+    if (account != null && !AuthorizationSession.switching) _load();
   }
 
   Future<void> _load() async {

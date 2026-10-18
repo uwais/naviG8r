@@ -786,6 +786,40 @@ void main() {
       expect(find.text('Make the e-way bill'), findsOneWidget,
           reason: 'seen on the emulator: Home stayed empty until pulled');
     });
+
+    testWidgets('Home never shows the last account\'s task to the next one',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer');
+      server.answers['/shipments'] = {
+        'shipments': [
+          booking(extra: {'assignedTruckNumber': 'KA01AB1234'})
+        ]
+      };
+      server.answers['/anchor-trips'] = {
+        'trips': [lane()]
+      };
+      await tester.pumpAndSettle();
+      expect(find.text('Make the e-way bill'), findsOneWidget);
+      CustomerSession.clear();
+      await tester.pumpAndSettle();
+      // The next company's load fails, so only stale data could put a task on screen.
+      server.answers['/shipments'] =
+          jsonResponse({'error': 'internal'}, 500);
+      CustomerSession.applyForTest(
+          userFullName: 'Anil Kumar',
+          customerOrgId: 'org-other',
+          customerOrgName: 'Kumar Traders',
+          customerRole: 'CUSTOMER_MEMBER');
+      AuthorizationSession.principal!['permissions'] = [
+        ...AuthorizationSession.principal!['permissions'] as List,
+        'eway_bill.write',
+      ];
+      AuthorizationSession.revision.value++;
+      await tester.pumpAndSettle();
+      expect(find.text('Make the e-way bill'), findsNothing,
+          reason: 'the task belonged to Sharma Textiles');
+      expect(find.text('Could not load your shipments.'), findsOneWidget);
+    });
   });
 
   group('Updates', () {
