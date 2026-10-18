@@ -56,11 +56,11 @@ async function signIn(page: Page, phone: string, options: { requireVisibleDebugC
         response.url().endsWith("/v1/auth/me") && response.status() === 200,
     ),
     page
-      .getByRole("button", { name: "Verify and continue", exact: true })
+      .getByRole("button", { name: "Sign in", exact: true })
       .evaluate((element: HTMLElement) => element.click()),
   ]);
   await expect(
-    page.getByRole("button", { name: "Verify and continue", exact: true }),
+    page.getByRole("button", { name: "Sign in", exact: true }),
   ).toHaveCount(0);
 }
 
@@ -94,12 +94,12 @@ test("shipper opens a conversation from shipment details", async ({ page }, info
     page.getByRole("group", { name: /Payment on hold/ }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Shipment conversation", exact: true }),
+    page.getByRole("button", { name: "Messages", exact: true }),
   ).toBeVisible();
   await page.waitForTimeout(500);
   await page.screenshot({ path: info.outputPath("shipment-details-conversation-entry.png") });
   await page
-    .getByRole("button", { name: "Shipment conversation", exact: true })
+    .getByRole("button", { name: "Messages", exact: true })
     .evaluate((element: HTMLElement) => element.click());
   await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
