@@ -1,9 +1,11 @@
 // PR 6 of the redesign: the office Home (ca-home), the Bookings list (ca-bookings) and the booking screen
 // (ca-booking-new, -truck, -deliver, -owner, -dispatcher).
+import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/pilot_api.dart';
+import 'package:driver_pilot/plain_error_sentence.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -158,6 +160,26 @@ Map<String, dynamic> delivered({int? netToCarrierPaise}) => {
     };
 
 void main() {
+  test('an unpaid booking is refused in words, never "Something went wrong"',
+      () {
+    api = Api('http://test');
+    DioException refusal(String code) => DioException(
+          requestOptions: RequestOptions(path: '/v1/pilot/carrier/shipments'),
+          response: Response(
+            requestOptions: RequestOptions(path: '/v1/pilot/carrier/shipments'),
+            statusCode: 400,
+            data: {'error': code},
+          ),
+        );
+    expect(plainErrorSentence(refusal('checkout_not_completed_for_accept')),
+        'The shipper has not finished paying for this booking yet. You can accept it once they do.',
+        reason:
+            'an unpaid booking shows as waiting for the office; trying again cannot work until the shipper pays');
+    expect(plainErrorSentence(refusal('checkout_not_completed_for_pod')),
+        'This booking is not ready for delivery yet. Ask your office.',
+        reason: 'a driver can meet this, so it says nothing about payment');
+  });
+
   group('The office Home', () {
     testWidgets(
         'puts the first task first, with its button, then the others and the trips on the road',

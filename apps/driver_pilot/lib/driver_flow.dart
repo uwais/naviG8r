@@ -302,6 +302,7 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
       context.go("/driver/onboarding/otp?phone=$phone", extra: {
         "challengeId": r.data?["challengeId"],
         "expiresAtUtcMs": r.data?["expiresAtUtcMs"],
+        "retryAfterMs": r.data?["retryAfterMs"],
         "debugCode": r.data?["debugCode"],
       });
     } catch (e) {
@@ -508,7 +509,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   final _org = TextEditingController();
   final _reg = TextEditingController();
   String? _truckSize;
-  final _cap = TextEditingController(text: "1000");
+  final _cap = TextEditingController();
   final _transporterId = TextEditingController();
   bool _busy = false;
 
@@ -740,8 +741,8 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
   final _phone = TextEditingController();
   final _reg = TextEditingController();
   String? _truckSize;
-  final _cap = TextEditingController(text: "1000");
-  String _role = "DRIVER";
+  final _cap = TextEditingController();
+  String? _role;
   bool _loading = true;
   bool _inviting = false;
   String? _error;
@@ -776,8 +777,18 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
   Future<void> _invite() async {
     final orgId = DriverSession.carrierOrgId;
     if (orgId == null) return;
-    if (_role == "DRIVER" && _truckSize == null) {
+    final role = _role;
+    if (role == null) {
+      setState(() => _error = "Choose Driver or Dispatcher.");
+      return;
+    }
+    final cap = int.tryParse(_cap.text.trim()) ?? 0;
+    if (role == "DRIVER" && _truckSize == null) {
       setState(() => _error = _chooseTruckSizeSentence);
+      return;
+    }
+    if (role == "DRIVER" && cap <= 0) {
+      setState(() => _error = "Enter a positive vehicle capacity.");
       return;
     }
     setState(() {
@@ -788,10 +799,9 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
       final payload = <String, dynamic>{
         "orgId": orgId,
         "phone": digitsOnly(_phone.text.trim()),
-        "role": _role,
+        "role": role,
       };
-      if (_role == "DRIVER") {
-        final cap = int.tryParse(_cap.text.trim()) ?? 0;
+      if (role == "DRIVER") {
         payload["vehicleRegistrationNumber"] = _reg.text.trim();
         payload["vehicleClass"] = _truckSize;
         payload["vehicleCapacityKg"] = cap;
@@ -843,16 +853,15 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
               keyboardType: TextInputType.phone,
               decoration:
                   const InputDecoration(labelText: "Driver phone (10 digits)")),
-          DropdownButtonFormField<String>(
-            value: _role,
-            decoration: const InputDecoration(labelText: "Role"),
-            items: const [
-              DropdownMenuItem(value: "DRIVER", child: Text("Driver")),
-              DropdownMenuItem(value: "DISPATCHER", child: Text("Dispatcher")),
+          const SizedBox(height: NvSpace.s3),
+          NvChoiceChips<String>(
+            label: "Role",
+            options: const [
+              NvChoice("DRIVER", "Driver"),
+              NvChoice("DISPATCHER", "Dispatcher"),
             ],
-            onChanged: (v) {
-              if (v != null) setState(() => _role = v);
-            },
+            selected: _role,
+            onChanged: (role) => setState(() => _role = role),
           ),
           if (_role == "DISPATCHER") ...[
             const SizedBox(height: 8),
@@ -861,7 +870,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
               style: TextStyle(
                   fontSize: 12, color: DriverTheme.muted, height: 1.35),
             ),
-          ] else ...[
+          ] else if (_role == "DRIVER") ...[
             TextField(
                 controller: _reg,
                 decoration:
@@ -891,9 +900,11 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : Text(_role == "DISPATCHER"
-                    ? "Invite dispatcher"
-                    : "Invite driver"),
+                : Text(switch (_role) {
+                    "DISPATCHER" => "Invite dispatcher",
+                    "DRIVER" => "Invite driver",
+                    _ => "Invite",
+                  }),
           ),
           if (_error != null) ...[
             const SizedBox(height: 8),
@@ -2565,6 +2576,7 @@ class _DriverTrackScreenState extends State<DriverTrackScreen> {
           }
         }
       }
+      if (!mounted) return;
       setState(() => _trips = list);
     } catch (e) {
       if (mounted) setState(() => _error = plainErrorSentence(e));
@@ -2721,11 +2733,17 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
       rows.add(_truckRow(ownRegistration, DriverSession.vehicleClass,
           onOpen: _editOwnTruck));
     }
+    // A failed fleet load shows no count and no "no trucks", which would read as an empty fleet.
+    final fleetFailed = _office && !_fleetLoaded;
     return NvSectionCard(
-      title: _office ? "Trucks (${rows.length})" : "Your truck",
+      title: !_office
+          ? "Your truck"
+          : fleetFailed
+              ? "Trucks"
+              : "Trucks (${rows.length})",
       children: [
         const SizedBox(height: NvSpace.s2),
-        if (rows.isEmpty) ...[
+        if (rows.isEmpty && !fleetFailed) ...[
           const Text("You have no trucks yet.", style: NvText.body),
           if (DriverSession.canInviteDrivers)
             const Text("A truck is added with its driver: use Add driver.",
@@ -2735,19 +2753,20 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
           if (index > 0) const Divider(height: 1, color: NvColors.line),
           row,
         ],
-        if (_office && !_fleetLoaded) ...[
-          const SizedBox(height: NvSpace.s2),
-          const Text("Could not load your trucks and drivers.",
-              style: NvText.caption),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: NvButton(
-                label: "Try again", kind: NvButtonKind.quiet, onPressed: _load),
-          ),
-        ],
+        if (fleetFailed) _fleetLoadFailed("Could not load your trucks."),
       ],
     );
   }
+
+  Widget _fleetLoadFailed(String sentence) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: NvSpace.s2),
+          Text(sentence, style: NvText.caption),
+          NvButton(
+              label: "Try again", kind: NvButtonKind.quiet, onPressed: _load),
+        ],
+      );
 
   Widget _drivers() {
     final names = _fleetDrivers
@@ -2755,7 +2774,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         .whereType<String>()
         .toList();
     return NvSectionCard(
-      title: "Drivers (${names.length})",
+      title: _fleetLoaded ? "Drivers (${names.length})" : "Drivers",
       action: DriverSession.canInviteDrivers
           ? NvButton(
               label: "Add driver",
@@ -2763,9 +2782,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
               onPressed: () => context.push("/driver/fleet"))
           : null,
       children: [
-        const SizedBox(height: NvSpace.s2),
-        Text(names.isEmpty ? "No drivers yet." : names.join(" · "),
-            style: NvText.body),
+        if (_fleetLoaded) ...[
+          const SizedBox(height: NvSpace.s2),
+          Text(names.isEmpty ? "No drivers yet." : names.join(" · "),
+              style: NvText.body),
+        ] else
+          _fleetLoadFailed("Could not load your drivers."),
       ],
     );
   }
@@ -3090,15 +3112,27 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     _posSub = null;
   }
 
+  /// The phone in the truck: a driver's, or an owner's who is the trip's driver. An office phone that
+  /// opens a trip in transit is not where the truck is, so it never sends its position as the truck's.
+  bool get _phoneIsInTheTruck {
+    final driver = _nonEmpty(_trip?["assignedDriverUserId"]);
+    return _forDriver ||
+        (driver != null &&
+            driver == AuthorizationSession.user?["id"]?.toString());
+  }
+
   /// Location may be shared only while the trip on screen is in progress and still this person's to see.
   bool get _mayShareLocation =>
       mounted &&
       !_tripNoLongerAssigned &&
+      _phoneIsInTheTruck &&
       _trip?["status"]?.toString() == "IN_PROGRESS";
 
   Future<void> _startLocation() async {
     // One attempt at a time: a load and Start load, or two loads, can both ask while an attempt waits on the phone.
-    if (_posSub != null || _startingLocationSharing) return;
+    if (_posSub != null || _startingLocationSharing || !_mayShareLocation) {
+      return;
+    }
     _startingLocationSharing = true;
     try {
       // Each answer can arrive after the trip was given away or finished, so a check follows each one.
@@ -3162,6 +3196,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           "/v1/pilot/anchor-trips/${widget.tripId}/complete",
           data: {});
       final t = r.data?["trip"];
+      if (!mounted) return;
       if (t is Map<String, dynamic>) setState(() => _trip = t);
       _stopLocationSharing();
       await _load();
@@ -3188,8 +3223,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       final r = await api.post<Map<String, dynamic>>(
           "/v1/pilot/anchor-trips/${widget.tripId}/start");
       final t = r.data?["trip"];
-      if (t is Map<String, dynamic>) setState(() => _trip = t);
       if (!mounted) return;
+      if (t is Map<String, dynamic>) setState(() => _trip = t);
       if (_posSub == null) await _startLocation();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -3271,6 +3306,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       final r = await api
           .get<Map<String, dynamic>>("/v1/pilot/anchor-trips/${widget.tripId}");
       final t = r.data?["trip"];
+      if (!mounted) return;
       setState(() => _trip = t is Map<String, dynamic> ? t : null);
       // Also restarts sharing once the office gives the trip back. Not awaited, so a permission dialog never
       // holds up the load.
@@ -3752,19 +3788,35 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 const NvMessage(
                     "All deliveries confirmed. GPS sharing has stopped.",
                     tone: NvMessageTone.good),
+              // An owner driving the trip shares this phone's location, and is told so as a driver is.
+              if (status == "IN_PROGRESS" && _phoneIsInTheTruck)
+                const Text(_locationSharedSentence, style: NvText.caption),
             ],
           ),
         ),
       ),
       if (mayStart)
         NvActionBar(
-          child: NvButton(
-            label: "Start trip",
-            onPressed: startBlocked == null ? _confirmStart : null,
-            disabledReason: startBlocked,
-            loading: _starting,
-            loadingLabel: "Starting",
-            fullWidth: true,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (startBlocked != null) ...[
+                Semantics(
+                    header: true,
+                    child:
+                        const Text("Start the trip", style: NvText.bodyStrong)),
+                const SizedBox(height: NvSpace.s2),
+              ],
+              NvButton(
+                label: "Start trip",
+                onPressed: startBlocked == null ? _confirmStart : null,
+                disabledReason: startBlocked,
+                loading: _starting,
+                loadingLabel: "Starting",
+                fullWidth: true,
+              ),
+            ],
           ),
         )
       else if (canComplete && AuthorizationSession.can("load.status_update"))

@@ -5,6 +5,7 @@ import "../customer_session.dart";
 import "../driver_theme.dart";
 import "../pilot_api.dart";
 import "../plain_error_sentence.dart";
+import "../ui/format.dart";
 import "shipper_scaffold.dart";
 
 class CustomerTeamScreen extends StatefulWidget {
@@ -168,7 +169,7 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
                 child: ListTile(
                   title: Text(user["fullName"]?.toString() ?? "—"),
                   subtitle: Text(
-                      "${user["phone"]} · ${customerMemberRoleLabel(role)}"),
+                      "${formatPhone(user["phone"]?.toString() ?? "")} · ${customerMemberRoleLabel(role)}"),
                 ),
               );
             }),

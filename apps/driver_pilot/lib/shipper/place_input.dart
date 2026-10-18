@@ -8,7 +8,8 @@ import "../google_geocoding.dart";
 typedef PlaceFinder = Future<GeocodeOutcome> Function(String place);
 
 /// A pickup or drop: the words the shipper typed and the map point the price and the match use.
-/// A point counts only for the words it was found for, unless the shipper dragged its pin.
+/// A point counts only for the words it was found for, or the words beside it when the shipper
+/// dragged its pin; typing other words looks those up.
 class PlaceInput {
   PlaceInput({String words = "", this.point})
       : words = TextEditingController(text: words),
@@ -17,21 +18,17 @@ class PlaceInput {
   final TextEditingController words;
   LatLng? point;
   String? _pointFor;
-  bool _pinnedByHand = false;
   String? error;
 
   String get text => words.text.trim();
-  bool get placed => point != null && (_pinnedByHand || _pointFor == text);
+  bool get placed => point != null && _pointFor == text;
 
   void foundAt(LatLng found) {
     point = found;
     _pointFor = text;
   }
 
-  void pinnedAt(LatLng pin) {
-    point = pin;
-    _pinnedByHand = true;
-  }
+  void pinnedAt(LatLng pin) => foundAt(pin);
 
   /// Looks up the words when they have no point yet. Sets [error] and returns false when the
   /// place cannot be used.

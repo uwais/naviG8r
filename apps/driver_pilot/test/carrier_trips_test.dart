@@ -107,7 +107,9 @@ class Server {
       this.trips = const [],
       this.bookings = const [],
       this.ownTruck = true,
-      this.refusesWrites = false});
+      this.refusesWrites = false,
+      this.fleetFails = false,
+      this.emptyFleet = false});
   final List<String> allowed;
   final bool office;
   final List<Map<String, dynamic>> trips;
@@ -116,6 +118,12 @@ class Server {
 
   /// Every write is answered with a 409 and a code the app has no sentence for.
   final bool refusesWrites;
+
+  /// The fleet request is answered with a 500, as when the server is down.
+  final bool fleetFails;
+
+  /// The fleet loads with no trucks and no drivers.
+  final bool emptyFleet;
   final sent = <RequestOptions>[];
 
   void answer() {
@@ -154,7 +162,9 @@ class Server {
             ],
           });
         case '/v1/pilot/carrier/fleet':
-          return jsonResponse(fleet);
+          if (fleetFails) return jsonResponse({'error': 'internal_error'}, 500);
+          return jsonResponse(
+              emptyFleet ? {'vehicles': [], 'drivers': []} : fleet);
         case '/v1/pilot/anchor-trips':
           return jsonResponse({'trips': trips});
         case '/v1/pilot/carrier/shipments':
@@ -342,7 +352,38 @@ void main() {
       expect(find.text('Assign a driver first. Then start on loading day.'),
           findsOneWidget,
           reason: 'copy.md Start (disabled)');
+      expect(find.text('Start the trip'), findsOneWidget,
+          reason:
+              'copy.md Start (disabled) and ca-trip: the block has a heading');
     });
+
+    for (final (who, driver, shares) in [
+      ('an office phone', 'driver-1', false),
+      ('an owner who drives the trip', 'carrier-person', true),
+    ]) {
+      testWidgets('a trip in transit on $who: location shared is $shares',
+          (tester) async {
+        final location = CountingLocation();
+        GeolocatorPlatform.instance = location;
+        signInWith(Server(allowed: ownerAllowed, trips: [
+          tripAt('trip-a',
+              status: 'IN_PROGRESS',
+              assigned: {...truckAndDriver, 'assignedDriverUserId': driver})
+        ], bookings: [
+          sharma
+        ]));
+        await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+            size: const Size(800, 2000));
+        expect(location.permissionChecks > 0, shares,
+            reason:
+                "only the phone in the truck sends its position as the truck's");
+        expect(
+            find.text(
+                'Your location is shared with the shippers while this trip is in transit.'),
+            shares ? findsOneWidget : findsNothing,
+            reason: 'whoever shares is told so, and nobody else is');
+      });
+    }
 
     testWidgets('Start opens the sheet before any request; the sheet sends it',
         (tester) async {
@@ -534,6 +575,46 @@ void main() {
           reason: 'the office has a Publish tab; no developer or publish rows');
     });
 
+    testWidgets(
+        'a fleet that failed to load says so, and never reads as an empty fleet',
+        (tester) async {
+      signInWith(Server(allowed: ownerAllowed, fleetFails: true));
+      await mount(tester, const DriverProfileScreen(),
+          size: const Size(800, 3000));
+      expect(find.text('Trucks'), findsOneWidget,
+          reason: 'no count when the fleet did not load');
+      expect(find.text('KA01AB1234'), findsOneWidget,
+          reason: "the person's own truck is known without the fleet");
+      expect(find.text('Could not load your trucks.'), findsOneWidget);
+      expect(find.text('Drivers'), findsOneWidget,
+          reason: 'no count when the fleet did not load');
+      expect(find.text('Could not load your drivers.'), findsOneWidget,
+          reason: 'the drivers card says it failed too');
+      expect(find.widgetWithText(NvButton, 'Try again'), findsNWidgets(2),
+          reason: 'each card offers a retry');
+      expect(find.text('No drivers yet.'), findsNothing,
+          reason: 'a failed load is not an empty fleet');
+      expect(find.text('You have no trucks yet.'), findsNothing,
+          reason: 'a failed load is not an empty fleet');
+      expect(find.textContaining('(0)'), findsNothing);
+    });
+
+    testWidgets('an office with no trucks or drivers is told how to add them',
+        (tester) async {
+      signInWith(
+          Server(allowed: ownerAllowed, ownTruck: false, emptyFleet: true));
+      await mount(tester, const DriverProfileScreen(),
+          size: const Size(800, 3000));
+      expect(find.text('Trucks (0)'), findsOneWidget);
+      expect(find.text('You have no trucks yet.'), findsOneWidget,
+          reason: 'ca-profile: the empty fleet, said plainly');
+      expect(find.text('A truck is added with its driver: use Add driver.'),
+          findsOneWidget,
+          reason: 'copy.md: how a truck gets added');
+      expect(find.text('No drivers yet.'), findsOneWidget,
+          reason: 'copy.md: the empty drivers card');
+    });
+
     testWidgets('a dispatcher profile has no bank section and no payment link',
         (tester) async {
       signInWith(Server(allowed: dispatcherAllowed));
@@ -643,10 +724,29 @@ void main() {
               .widgetList<ChoiceChip>(find.byType(ChoiceChip))
               .where((chip) => chip.selected),
           isEmpty,
-          reason: 'nothing preselected');
+          reason: 'nothing preselected, the role included');
+      await tester.tap(find.text('Invite'));
+      await tester.pumpAndSettle();
+      expect(find.text('Choose Driver or Dispatcher.'), findsOneWidget,
+          reason: 'decisions.md guardrail 6: the role is chosen, not assumed');
+      await tester.tap(find.text('Driver'));
+      await tester.pumpAndSettle();
+      expect(
+          tester
+              .widget<TextField>(
+                  find.widgetWithText(TextField, 'Vehicle capacity (kg)'))
+              .controller
+              ?.text,
+          isEmpty,
+          reason: 'decisions.md guardrail 6: no capacity filled in for them');
       await tester.tap(find.text('Invite driver'));
       await tester.pumpAndSettle();
       expect(find.text('Choose a truck size.'), findsOneWidget);
+      await tester.tap(find.text('Medium'));
+      await tester.tap(find.text('Invite driver'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter a positive vehicle capacity.'), findsOneWidget,
+          reason: 'an empty capacity is asked for, not sent as 0');
       expect(server.sent, isEmpty);
     });
   });
@@ -712,4 +812,15 @@ class NoLocation extends GeolocatorPlatform {
   @override
   Future<LocationPermission> checkPermission() async =>
       LocationPermission.deniedForever;
+}
+
+/// [NoLocation] that counts how often the screen asked, which it does only when it means to share.
+class CountingLocation extends NoLocation {
+  int permissionChecks = 0;
+
+  @override
+  Future<LocationPermission> checkPermission() {
+    permissionChecks++;
+    return super.checkPermission();
+  }
 }

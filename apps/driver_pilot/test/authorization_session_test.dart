@@ -150,6 +150,29 @@ void main() {
     expect(mobileAccessRedirect('/driver/payout-setup'), isNull);
   });
 
+  test("earnings and payout history are the owner's, not a dispatcher's",
+      () async {
+    await AuthorizationSession.refresh();
+    await AuthorizationSession.selectOrganization('carrier-a');
+    // A dispatcher holds payment.read on the server; only the owner adds the bank account.
+    AuthorizationSession.principal!['permissions'] = [
+      'load.read',
+      'payment.read'
+    ];
+    for (final path in ['/driver/earnings', '/driver/payout-history']) {
+      expect(mobileAccessRedirect(path), '/driver',
+          reason:
+              'Profile tells the owner dispatchers do not see payments, so a typed link must not show them');
+    }
+    AuthorizationSession.principal!['permissions'] = [
+      'load.read',
+      'payment.read',
+      'bank_account.create_token'
+    ];
+    expect(mobileAccessRedirect('/driver/earnings'), isNull,
+        reason: 'the owner still opens earnings');
+  });
+
   test('sends selected organization and bearer token on protected requests',
       () async {
     await AuthorizationSession.refresh();

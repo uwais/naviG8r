@@ -429,11 +429,20 @@ void main() {
           MaterialApp.router(theme: DriverTheme.theme(), routerConfig: router));
       await tester.pumpAndSettle();
       expect(find.text(transporterIdHelperText), findsOneWidget);
+      expect(
+          tester
+              .widget<TextField>(
+                  find.widgetWithText(TextField, 'Vehicle capacity (kg)'))
+              .controller
+              ?.text,
+          isEmpty,
+          reason: 'decisions.md guardrail 6: the capacity starts empty');
       for (final (label, value) in [
         ('Your full name', 'Synthetic Carrier C'),
         ('Phone (10 digits)', '8000000017'),
         ('Carrier / org display name', 'Synthetic Carrier C'),
         ('Your vehicle registration', 'KA05MN0001'),
+        ('Vehicle capacity (kg)', '1000'),
         ('Transporter ID (optional)', transporterId),
       ]) {
         await tester.enterText(find.widgetWithText(TextField, label), value);

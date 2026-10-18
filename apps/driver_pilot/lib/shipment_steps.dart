@@ -1,3 +1,4 @@
+import "shipper/shipper_words.dart" show carrierOf;
 import "ui/nv_status_label.dart" show NvStatusTone;
 import "ui/nv_step_list.dart" show NvStepState;
 
@@ -89,12 +90,18 @@ EwayBillStage ewayBillStageOf(Map<String, dynamic> shipment) {
   return EwayBillStage.awaitingCheck;
 }
 
+/// A booking is made before checkout, so a closed or failed checkout leaves it booked and unpaid.
+bool paymentNotTaken(String? paymentStatus) =>
+    paymentStatus == "CREATED" || paymentStatus == "FAILED";
+
 /// [tripStatus] is the trip's status when the screen loaded the trip; without it a started trip
-/// reads as not started yet.
+/// reads as not started yet. [paymentStatus] is the payment's status where the screen has it; the
+/// list cards do not (RECON gap 16).
 ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
-    {String? tripStatus}) {
+    {String? tripStatus, String? paymentStatus}) {
   final status = shipment["status"]?.toString() ?? "";
-  final carrier = _carrierName(shipment);
+  final carrier = carrierOf(shipment);
+  final unpaid = paymentNotTaken(paymentStatus);
   final stage = ewayBillStageOf(shipment);
   final waitingForCarrier = status == "PENDING_CARRIER_ACCEPT";
   final delivered = status == "PENDING_RELEASE" || status == "DELIVERED";
@@ -172,6 +179,7 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
 
   final (String statusWord, NvStatusTone statusTone) = switch (status) {
     _ when delivered => ("Delivered", NvStatusTone.good),
+    _ when unpaid => ("Not paid", NvStatusTone.problem),
     _ when stage == EwayBillStage.problem => (
         "E-way bill needs a fix",
         NvStatusTone.problem
@@ -201,8 +209,11 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
 
   return ShipmentProgress(
     steps: [
-      const ShipmentStep(
-          ShipmentStepName.booked, "Booked and paid", NvStepState.done),
+      unpaid
+          ? const ShipmentStep(
+              ShipmentStepName.booked, "Booked, not paid", NvStepState.problem)
+          : const ShipmentStep(
+              ShipmentStepName.booked, "Booked and paid", NvStepState.done),
       ShipmentStep(
           ShipmentStepName.carrierAccepts,
           "Carrier accepts and names the truck",
@@ -258,9 +269,4 @@ String? shipperTaskFor(Map<String, dynamic> shipment,
     return canAddTruck ? task : null;
   }
   return canWriteBill ? task : null;
-}
-
-String _carrierName(Map<String, dynamic> shipment) {
-  final name = shipment["carrierDisplayName"]?.toString() ?? "";
-  return name.trim().isEmpty ? "The carrier" : name;
 }

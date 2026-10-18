@@ -209,7 +209,7 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
         padding: const EdgeInsets.symmetric(vertical: NvSpace.s3),
         children: [
           const Text(
-              "Every open lane, not sorted by distance. To see the closest to your route first, use Match my route.",
+              "Every lane, whatever its status, not sorted by distance. To see the closest to your route first, use Match my route.",
               style: NvText.caption),
           if (_loading) ...[
             const SizedBox(height: NvSpace.s3),

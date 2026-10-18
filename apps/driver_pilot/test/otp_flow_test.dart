@@ -356,4 +356,42 @@ void main() {
     expect((verified as Map)['challengeId'], 'challenge-first',
         reason: 'the first code request is carried to verification');
   });
+
+  testWidgets('driver sign-in starts the wait from the first code request',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    api = Api('http://test');
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/me') return jsonResponse({}, 401);
+      if (request.uri.path == '/v1/auth/otp/start') {
+        return jsonResponse({
+          'challengeId': 'challenge-first',
+          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
+          'retryAfterMs': 1200,
+        });
+      }
+      return jsonResponse({});
+    });
+    AuthorizationSession.clear();
+    AuthorizationSession.initialized = false;
+    await tester.pumpWidget(const DriverPilotApp());
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.tap(find.text('I carry goods'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '9876543210');
+    await tester.tap(find.text('Send code'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(find.text('No SMS yet? You can ask for a new code in 0:02.'),
+        findsOneWidget,
+        reason:
+            "the phone screen hands the server's wait to the code screen, as the shipper's does");
+    expect(sendNewCodeButton(tester).onPressed, isNull,
+        reason: 'no new code until the server allows one');
+    await tester.pump(const Duration(seconds: 2));
+    expect(sendNewCodeButton(tester).onPressed, isNotNull);
+  });
 }

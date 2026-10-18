@@ -251,11 +251,22 @@ class _CustomerShipmentDetailScreenState
         "Shipment";
   }
 
-  /// The amount the shipper paid: the payment's own amount, else the booking's price.
-  num? get _paidPaise {
+  /// The booking's amount: the payment's own amount, else the booking's price.
+  num? get _amountPaise {
     final amount = _payment?["amountPaise"] ?? _shipment?["grossPaise"];
     return amount is num ? amount : null;
   }
+
+  String? get _paymentStatus => _payment?["status"]?.toString();
+
+  /// Only an authorized or captured payment holds the shipper's money.
+  bool get _paymentHeld =>
+      _paymentStatus == "AUTHORIZED" || _paymentStatus == "CAPTURED";
+
+  String _notPaidSentence(String carrier) =>
+      "${_paymentStatus == "FAILED" ? "Payment did not go through. " : ""}"
+      "This booking is not paid, so $carrier cannot accept it yet. "
+      "To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.";
 
   NvStep _step(ShipmentStep step, Map<String, dynamic> shipment,
       ShipmentProgress progress) {
@@ -263,27 +274,37 @@ class _CustomerShipmentDetailScreenState
     switch (step.name) {
       case ShipmentStepName.booked:
         final booked = _momentFromUtcMs(shipment["createdAtUtcMs"]);
-        final paid = _paidPaise;
+        final amount = _amountPaise;
         final facts = [
           if (booked != null) formatDate(booked),
-          if (paid != null && !progress.delivered)
-            "${formatRupees(paid)} held until delivery",
+          if (amount != null && _paymentHeld && !progress.delivered)
+            "${formatRupees(amount)} held until delivery",
         ];
         return NvStep(
             title: step.title,
             state: step.state,
-            who: facts.isEmpty ? null : facts.join(" · "));
+            who: facts.isEmpty ? null : facts.join(" · "),
+            panel: paymentNotTaken(_paymentStatus)
+                ? Text(_notPaidSentence(carrier), style: NvText.body)
+                : null);
       case ShipmentStepName.carrierAccepts:
         final truck = shipment["assignedTruckNumber"]?.toString() ?? "";
+        final String waiting;
+        if (_paymentHeld) {
+          waiting =
+              "Waiting for $carrier to accept. Your payment is on hold; it is collected after delivery.";
+        } else if (paymentNotTaken(_paymentStatus)) {
+          waiting = "$carrier can accept once this booking is paid.";
+        } else {
+          waiting = "Waiting for $carrier to accept.";
+        }
         return NvStep(
             title: step.title,
             state: step.state,
             who: step.state == NvStepState.done && truck.isNotEmpty
                 ? "$carrier · Truck $truck"
                 : step.who,
-            panel: Text(
-                "Waiting for $carrier to accept. Your payment is on hold; it is collected after delivery.",
-                style: NvText.body));
+            panel: Text(waiting, style: NvText.body));
       case ShipmentStepName.ewayBill:
         final partOne = step.state == NvStepState.yours &&
             progress.ewayBill == EwayBillStage.none;
@@ -303,7 +324,7 @@ class _CustomerShipmentDetailScreenState
             state: step.state,
             who: step.who,
             panel: const Text(
-                "NaviG8r staff check the bill on the portal by hand. We will tell you if anything needs fixing.",
+                "NaviG8r staff check the bill on the portal by hand. If they find a problem, this shipment and your Home screen show what to fix.",
                 style: NvText.body));
       case ShipmentStepName.onTheWay:
         final started = _momentFromUtcMs(_trip?["startedAtUtcMs"]);
@@ -381,7 +402,7 @@ class _CustomerShipmentDetailScreenState
   }
 
   Widget _delivered(Map<String, dynamic> shipment) {
-    final paid = _paidPaise;
+    final paid = _paymentHeld ? _amountPaise : null;
     final released = shipment["status"] == "DELIVERED";
     return Container(
       padding: const EdgeInsets.all(NvSpace.s4),
@@ -409,8 +430,11 @@ class _CustomerShipmentDetailScreenState
   }
 
   Widget _cancelled() {
-    final paid = _paidPaise;
-    final refunded = _payment?["status"] == "REFUNDED";
+    final amount = _amountPaise;
+    // A booking never paid is also marked refunded on cancel, and the shipper's payment record
+    // does not say which it was, so a refund is told without claiming the shipper paid.
+    final refunded = _paymentStatus == "REFUNDED";
+    final nothingPaid = paymentNotTaken(_paymentStatus);
     Widget row(String label, String value) => Padding(
           padding: const EdgeInsets.symmetric(vertical: NvSpace.s1),
           child: Wrap(
@@ -439,15 +463,24 @@ class _CustomerShipmentDetailScreenState
                 child: Text("This shipment was cancelled",
                     style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
               ),
-              if (paid != null) ...[
-                const SizedBox(height: NvSpace.s2),
-                row("You paid", formatRupees(paid)),
-                if (refunded) row("Refunded", formatRupees(paid)),
-              ],
               const SizedBox(height: NvSpace.s2),
-              const Text(
-                  "Refunds reach your account in the time your bank or payment app takes.",
-                  style: NvText.caption),
+              if (nothingPaid)
+                const Text("Nothing was paid for this booking.",
+                    style: NvText.body)
+              else ...[
+                if (_paymentHeld && amount != null)
+                  row("You paid", formatRupees(amount)),
+                if (refunded)
+                  Text(
+                      amount == null
+                          ? "If you paid for this booking, all of it is refunded."
+                          : "If you paid the ${formatRupees(amount)} for this booking, all of it is refunded.",
+                      style: NvText.body),
+                const SizedBox(height: NvSpace.s2),
+                const Text(
+                    "Refunds reach your account in the time your bank or payment app takes.",
+                    style: NvText.caption),
+              ],
             ],
           ),
         ),
@@ -460,7 +493,9 @@ class _CustomerShipmentDetailScreenState
           child: Text.rich(
             TextSpan(children: [
               TextSpan(
-                  text: "Questions about this refund? ",
+                  text: nothingPaid
+                      ? "Questions about this booking? "
+                      : "Questions about this refund? ",
                   style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
               const TextSpan(
                   text: "Contact ${PendingCopy.changeOrCancelContact}."),
@@ -537,7 +572,9 @@ class _CustomerShipmentDetailScreenState
     final desktop = customerIsDesktop(context);
     final progress = shipment == null
         ? null
-        : shipmentProgress(shipment, tripStatus: _trip?["status"]?.toString());
+        : shipmentProgress(shipment,
+            tripStatus: _trip?["status"]?.toString(),
+            paymentStatus: _paymentStatus);
     // Part 1 of the e-way bill: the portal is the shipper's one primary action, kept in view. On a
     // desktop it sits in the e-way bill step instead (wb-shipment).
     final portalIsPrimary = shipment != null &&

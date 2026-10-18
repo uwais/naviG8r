@@ -1,3 +1,6 @@
+// Over 500 lines on purpose: one card whose four modes share one state (its form controllers and
+// the save in flight); splitting the forms out would pass that state between files.
+
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 

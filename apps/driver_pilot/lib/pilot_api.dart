@@ -227,6 +227,11 @@ String formatApiError(Object e) {
           "This lane does not have room for that weight. Enter a lower weight, or choose another lane.",
       "anchor_trip_not_open":
           "This lane is no longer taking bookings. Choose another lane.",
+      "checkout_not_completed_for_accept":
+          "The shipper has not finished paying for this booking yet. You can accept it once they do.",
+      // A driver can meet this one, so it says nothing about payment.
+      "checkout_not_completed_for_pod":
+          "This booking is not ready for delivery yet. Ask your office.",
     };
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||

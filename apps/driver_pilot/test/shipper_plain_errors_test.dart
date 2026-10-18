@@ -82,6 +82,33 @@ void main() {
         'Could not sign you in. Check your connection, then try again.');
   });
 
+  testWidgets('a teammate phone is written the one way the app writes phones',
+      (tester) async {
+    CustomerSession.skipRefreshInTests = true;
+    CustomerSession.applyForTest(
+        userFullName: 'Priya Raman',
+        userPhone: '9845012345',
+        customerOrgId: 'org-sharma',
+        customerOrgName: 'Sharma Textiles',
+        customerRole: 'CUSTOMER_ADMIN');
+    await showWithFailingServer(
+        tester, '/customer/team', const CustomerTeamScreen(),
+        working: {
+          '/v1/pilot/customer/members': {
+            'members': [
+              {
+                'user': {'fullName': 'Arjun Mehta', 'phone': '9845067890'},
+                'membership': {'role': 'CUSTOMER_MEMBER'}
+              },
+            ]
+          }
+        });
+    expect(find.textContaining('+91 98450 67890 · '), findsOneWidget,
+        reason:
+            'copy.md formats: one way to write a phone, as on every other screen');
+    expect(find.textContaining('9845067890'), findsNothing);
+  });
+
   testWidgets('team and ERP integrations that cannot load', (tester) async {
     CustomerSession.skipRefreshInTests = true;
     CustomerSession.applyForTest(

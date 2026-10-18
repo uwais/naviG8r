@@ -11,6 +11,7 @@ import "../plain_error_sentence.dart";
 import "../ui/format.dart";
 import "../ui/sign_in_code_page.dart";
 import "../ui/sign_in_phone_page.dart";
+import "announce.dart";
 
 class CustomerLoginScreen extends StatefulWidget {
   const CustomerLoginScreen({super.key});
@@ -97,8 +98,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
       _challengeId = r.data?["challengeId"] as String?;
       _challengePhone = phone;
       _startOtpCooldown(r.data?["retryAfterMs"]);
-      SemanticsService.announce(
-          "Code sent to ${formatPhone(phone)}.", Directionality.of(context));
+      announce(context, "Code sent to ${formatPhone(phone)}.");
       final dc = r.data?["debugCode"];
       if (dc is String && dc.isNotEmpty) {
         _debugCode = dc;
@@ -121,8 +121,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
 
   void _showVerifyError(String error) {
     setState(() => _error = error);
-    SemanticsService.announce(error, Directionality.of(context),
-        assertiveness: Assertiveness.assertive);
+    announce(context, error, assertiveness: Assertiveness.assertive);
   }
 
   Future<void> _verify() async {

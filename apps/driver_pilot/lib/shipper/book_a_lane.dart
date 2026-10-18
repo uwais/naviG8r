@@ -52,12 +52,19 @@ class CustomerBookShipmentScreen extends StatefulWidget {
   /// From the Book link a lane card builds: the lane, and the match search's weight and places.
   factory CustomerBookShipmentScreen.fromQuery(Map<String, String> query,
       {PlaceFinder findPlace = GoogleGeocodingService.forwardAddress}) {
-    ({String words, LatLng point})? place(String name) {
+    ({String words, LatLng? point})? place(String name) {
       final words = query[name] ?? "";
+      if (words.isEmpty) return null;
       final lat = double.tryParse(query["${name}Lat"] ?? "");
       final lng = double.tryParse(query["${name}Lng"] ?? "");
-      if (words.isEmpty || lat == null || lng == null) return null;
-      return (words: words, point: LatLng(lat, lng));
+      // tryParse takes "NaN" and "Infinity"; without a point on the globe the words are looked up.
+      final onTheGlobe = lat != null &&
+          lng != null &&
+          lat >= -90 &&
+          lat <= 90 &&
+          lng >= -180 &&
+          lng <= 180;
+      return (words: words, point: onTheGlobe ? LatLng(lat, lng) : null);
     }
 
     final weightKg = int.tryParse(query["weightKg"] ?? "");
@@ -72,8 +79,8 @@ class CustomerBookShipmentScreen extends StatefulWidget {
 
   final String laneId;
   final int? searchedWeightKg;
-  final ({String words, LatLng point})? searchedPickup;
-  final ({String words, LatLng point})? searchedDrop;
+  final ({String words, LatLng? point})? searchedPickup;
+  final ({String words, LatLng? point})? searchedDrop;
   final PlaceFinder findPlace;
 
   @override
@@ -241,6 +248,7 @@ class _CustomerBookShipmentScreenState
     required String signature,
   }) async {
     final id = _pendingShipmentIdForCheckout;
+    var confirmed = false;
     if (id != null && id.isNotEmpty) {
       try {
         await api.post<Map<String, dynamic>>(
@@ -252,25 +260,41 @@ class _CustomerBookShipmentScreenState
             "razorpaySignature": signature,
           },
         );
+        confirmed = true;
       } catch (_) {}
     }
     if (!mounted) return;
-    if (id != null) _openBookedShipment(id);
+    if (id != null) {
+      _openBookedShipment(id,
+          announcement: confirmed
+              ? null
+              : "Booked, but the payment could not be confirmed yet. The shipment shows whether it went through.");
+    }
     _pendingShipmentIdForCheckout = null;
   }
 
-  void _openBookedShipment(String shipmentId) {
+  /// [announcement] replaces "Booked. Waiting for the carrier" when the booking is not known to be paid.
+  void _openBookedShipment(String shipmentId, {String? announcement}) {
     lastBookedShipmentId = shipmentId;
     final carrier = _lane?["carrierDisplayName"]?.toString() ?? "the carrier";
-    announce(context, "Booked. Waiting for $carrier to accept.");
+    announce(
+        context, announcement ?? "Booked. Waiting for $carrier to accept.");
     context.go("/customer/shipments/$shipmentId");
   }
 
+  // The shipment already exists, so the shipper goes to it: Pay again here would book a second one.
   void _onCheckoutError(String message) {
+    final id = _pendingShipmentIdForCheckout;
+    _pendingShipmentIdForCheckout = null;
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Payment did not go through. $message")),
-    );
+    const sentence = "Payment did not go through. This booking is not paid.";
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text(sentence)));
+    if (id != null) {
+      _openBookedShipment(id, announcement: sentence);
+    } else {
+      _clearPrice();
+    }
   }
 
   Future<void> _book() async {
@@ -325,7 +349,11 @@ class _CustomerBookShipmentScreenState
           shipmentId: shipmentId,
         );
       } else if (shipmentId != null && mounted) {
-        _openBookedShipment(shipmentId);
+        final held = payStatus == "AUTHORIZED" || payStatus == "CAPTURED";
+        _openBookedShipment(shipmentId,
+            announcement: held
+                ? null
+                : "Booked, but payment did not start. This booking is not paid.");
       }
     } catch (error) {
       if (!mounted) return;

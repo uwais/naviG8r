@@ -111,29 +111,32 @@ class _DriverPilotAppState extends State<DriverPilotApp>
             path: "/workspace", builder: (_, __) => const SizedBox.shrink()),
         ...driverFlowRoutes(),
         ...customerFlowRoutes(),
-        // The developer lab is left out of release builds; its link is hidden there too.
-        if (!kReleaseMode)
-          GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
         GoRoute(
             path: "/", redirect: (_, __) => kIsWeb ? "/customer" : "/driver"),
-        GoRoute(path: "/register", builder: (_, __) => const RegisterScreen()),
+        // Kept in release for links to /login?mode=customer; without it, release goes to the start.
         GoRoute(
           path: "/login",
           redirect: (context, state) {
             if (state.uri.queryParameters["mode"] == "customer")
               return "/customer/login";
-            return null;
+            return kReleaseMode ? "/" : null;
           },
           builder: (_, __) => const LoginScreen(),
         ),
-        GoRoute(path: "/trips", builder: (_, __) => const MyTripsScreen()),
-        GoRoute(
-          path: "/trips/:tripId",
-          builder: (_, state) =>
-              TripDetailScreen(tripId: state.pathParameters["tripId"] ?? ""),
-        ),
-        GoRoute(
-            path: "/publish", builder: (_, __) => const PublishTripScreen()),
+        // The developer lab is left out of release builds; its link is hidden there too.
+        if (!kReleaseMode) ...[
+          GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
+          GoRoute(
+              path: "/register", builder: (_, __) => const RegisterScreen()),
+          GoRoute(path: "/trips", builder: (_, __) => const MyTripsScreen()),
+          GoRoute(
+            path: "/trips/:tripId",
+            builder: (_, state) =>
+                TripDetailScreen(tripId: state.pathParameters["tripId"] ?? ""),
+          ),
+          GoRoute(
+              path: "/publish", builder: (_, __) => const PublishTripScreen()),
+        ],
       ],
     );
 

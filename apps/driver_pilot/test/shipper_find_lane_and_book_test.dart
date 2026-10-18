@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/shipper/book_a_lane.dart';
 import 'package:driver_pilot/shipper/find_a_lane.dart';
+import 'package:driver_pilot/shipper/place_input.dart';
 import 'package:driver_pilot/shipper/shipper_home.dart';
 import 'package:driver_pilot/shipper/shipper_routes.dart';
 import 'package:driver_pilot/customer_layout.dart';
@@ -18,6 +19,7 @@ import 'package:driver_pilot/ui/nv_field.dart';
 import 'package:driver_pilot/ui/nv_header.dart';
 import 'package:driver_pilot/ui/nv_sheet.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -116,8 +118,9 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
               builder: (_, __) => const Text('Shipments list')),
           GoRoute(
               path: 'shipments/:id',
-              builder: (_, state) =>
-                  Text('Shipment ${state.pathParameters['id']}')),
+              // A Scaffold, as the real shipment screen has, so a snack bar shown on arrival appears.
+              builder: (_, state) => Scaffold(
+                  body: Text('Shipment ${state.pathParameters['id']}'))),
         ]),
   ]);
   addTearDown(router.dispose);
@@ -263,9 +266,10 @@ void main() {
           reason: 'copy.md: lanes sub');
       expect(
           find.text(
-              'Every open lane, not sorted by distance. To see the closest to your route first, use Match my route.'),
+              'Every lane, whatever its status, not sorted by distance. To see the closest to your route first, use Match my route.'),
           findsOneWidget,
-          reason: 'copy.md: Browse is not ranked and says so');
+          reason:
+              'copy.md: Browse is not ranked and says so; it lists full and finished lanes too (RECON gap 19), so it never says "open"');
       expect(find.text('Bengaluru to Chennai'), findsOneWidget,
           reason: 'copy.md: lane card route');
       expect(find.text('Ravi Roadways · Medium truck'), findsOneWidget,
@@ -538,6 +542,123 @@ void main() {
           reason: 'the refused price is cleared');
     });
 
+    // The booking exists before checkout opens, so after checkout the shipper goes to it and Pay is
+    // never offered again: a second Pay would book a second shipment.
+    Future<(FakeServer, List<String>)> payThroughCheckout(WidgetTester tester,
+        {required Map<String, dynamic> checkoutAnswer,
+        bool confirmFails = false}) async {
+      final announced = watchAnnouncements(tester);
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('razorpay_flutter'),
+          (call) async => call.method == 'open' ? checkoutAnswer : null);
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+              const MethodChannel('razorpay_flutter'), null));
+      final server = await showPricedBook(tester);
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {
+          'status': 'CREATED',
+          'amountPaise': 264000,
+          'razorpayOrderId': 'order_synthetic'
+        },
+        'razorpayKeyId': 'rzp_test_synthetic',
+      });
+      if (confirmFails) {
+        server.answer(
+            '/v1/payments/razorpay/confirm', {'error': 'internal_error'}, 500);
+      }
+      await tester.tap(find.text('Pay ₹2,640 and book'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue to payment'));
+      await tester.pumpAndSettle();
+      return (server, announced);
+    }
+
+    testWidgets(
+        'a closed or failed checkout opens the unpaid booking instead of offering Pay again',
+        (tester) async {
+      final (server, announced) =
+          await payThroughCheckout(tester, checkoutAnswer: {
+        'type': 1,
+        'data': {'code': 2, 'message': 'Payment cancelled'}
+      });
+      expect(server.countOf('/shipments/book'), 1);
+      expect(find.text('Shipment shipment-9'), findsOneWidget,
+          reason:
+              'the booking already exists; tapping Pay again would book a second shipment');
+      expect(find.text('Payment did not go through. This booking is not paid.'),
+          findsOneWidget,
+          reason: 'says why the shipment opened, in plain words');
+      expect(find.textContaining('Payment cancelled'), findsNothing,
+          reason: "the payment provider's own message is not shown");
+      expect(announced,
+          contains('Payment did not go through. This booking is not paid.'),
+          reason: 'never announce "Booked. Waiting" for an unpaid booking');
+    });
+
+    testWidgets(
+        'a payment the app could not confirm opens the shipment without saying it is paid',
+        (tester) async {
+      final (_, announced) =
+          await payThroughCheckout(tester, confirmFails: true, checkoutAnswer: {
+        'type': 0,
+        'data': {
+          'razorpay_order_id': 'order_synthetic',
+          'razorpay_payment_id': 'pay_synthetic',
+          'razorpay_signature': 'signature_synthetic'
+        }
+      });
+      expect(find.text('Shipment shipment-9'), findsOneWidget);
+      expect(
+          announced,
+          contains(
+              'Booked, but the payment could not be confirmed yet. The shipment shows whether it went through.'),
+          reason:
+              'the confirm call failed, so the app does not know the payment is held');
+    });
+
+    testWidgets(
+        'a booking whose payment never started is not announced as paid',
+        (tester) async {
+      final announced = watchAnnouncements(tester);
+      final server = await showPricedBook(tester);
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {'status': 'CREATED', 'amountPaise': 264000},
+      });
+      await tester.tap(find.text('Pay ₹2,640 and book'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue to payment'));
+      await tester.pumpAndSettle();
+      expect(find.text('Shipment shipment-9'), findsOneWidget);
+      expect(
+          announced,
+          contains(
+              'Booked, but payment did not start. This booking is not paid.'),
+          reason: 'checkout never opened, so nothing was paid');
+    });
+
+    testWidgets('a link point off the globe is looked up from its words',
+        (tester) async {
+      final server = await showShipperApp(
+          tester, searchedBook.replaceFirst('pickupLat=12.8', 'pickupLat=NaN'));
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answer('/shipments/quote', {
+        'quote': {'grossPaise': 264000}
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Bommasandra, Bengaluru'), findsWidgets,
+          reason: 'the words from the link stay');
+      await tester.tap(find.text('Get price'));
+      await tester.pumpAndSettle();
+      final quoted = server.requests
+          .lastWhere((request) => request.uri.path == '/shipments/quote')
+          .data as Map;
+      expect((quoted['pickup'] as Map)['lat'], 12.8,
+          reason: 'a NaN latitude is never sent; the words were looked up');
+    });
+
     testWidgets('a weight over the room left is refused before pricing',
         (tester) async {
       final server = await showShipperApp(tester, searchedBook);
@@ -646,6 +767,7 @@ void main() {
 
   desktopTests();
   announcementTests();
+  placeInputTests();
   doubleTextTests();
 }
 
@@ -801,6 +923,26 @@ void desktopTests() {
       expect(find.byType(NavigationBar), findsOneWidget,
           reason: 'phone: the tabs stay at the bottom');
     });
+  });
+}
+
+void placeInputTests() {
+  test(
+      'a dragged pin counts for the words beside it, not for words typed after',
+      () async {
+    final place = PlaceInput(words: 'Bommasandra, Bengaluru');
+    place.pinnedAt(const LatLng(12.9, 77.6));
+    expect(place.placed, isTrue,
+        reason: 'the drag places the words the shipper is looking at');
+    place.words.text = 'Guindy, Chennai';
+    expect(place.placed, isFalse,
+        reason:
+            'new words with the old pin would book one place labelled as another');
+    await place.place(findAnyPlace,
+        emptyError: 'empty', notFoundError: 'not found');
+    expect(place.point, const LatLng(12.8, 77.7),
+        reason: 'the new words are looked up');
+    place.dispose();
   });
 }
 

@@ -5,6 +5,7 @@ import 'eway_bill_dates.dart';
 import 'eway_bill_error_text.dart';
 import 'eway_bill_portal_link.dart';
 import 'pilot_api.dart';
+import 'ui/format.dart';
 
 /// The moment a date and time typed as India time stands for, whatever zone the phone is set to.
 int validUntilUtcMsFromIndiaTime(DateTime date, TimeOfDay time) =>
@@ -130,9 +131,8 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
     final date = _date;
     if (date == null) return 'Valid until, date in India: choose the date';
     final time = _time;
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    final dateWords = ewayBillDateFromCalendarDate('${date.year}-$month-$day');
+    final dateWords = formatDate(DateTime.utc(date.year, date.month, date.day),
+        withYear: true);
     return time == null
         ? 'Valid until, date in India: $dateWords'
         : 'Valid until, date in India: $dateWords, ${ewayBillClockTime(time.hour, time.minute)}';

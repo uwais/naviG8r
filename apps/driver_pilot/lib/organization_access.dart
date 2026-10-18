@@ -147,6 +147,12 @@ String? mobileAccessRedirect(String path) {
                         ? 'payment.read'
                         : 'load.read';
     if (!AuthorizationSession.can(permission)) return '/driver';
+    // Payment amounts are the owner's, as on Profile and the booking screen: a dispatcher holds
+    // payment.read too, and only the owner may add the bank account.
+    if (permission == 'payment.read' &&
+        !AuthorizationSession.can('bank_account.create_token')) {
+      return '/driver';
+    }
   }
   return null;
 }

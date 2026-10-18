@@ -142,7 +142,11 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
   return server;
 }
 
-/// Opens [shipment]'s screen with the trip the tracking call returns.
+/// A paid booking's payment: checkout finished, the money held until delivery.
+const heldPayment = {'status': 'AUTHORIZED', 'amountPaise': 264000};
+
+/// Opens [shipment]'s screen with the trip the tracking call returns, and [heldPayment] unless
+/// [payment] says otherwise.
 Future<FakeServer> showShipment(
     WidgetTester tester, Map<String, dynamic> shipment,
     {Map<String, dynamic>? trip,
@@ -154,7 +158,7 @@ Future<FakeServer> showShipment(
       height: height, width: width);
   server.answers['/shipments/${shipment['id']}'] = {
     'shipment': shipment,
-    if (payment != null) 'payment': payment,
+    'payment': payment ?? heldPayment,
   };
   server.answers['/shipments/${shipment['id']}/tracking'] = {
     if (trip != null) 'trip': trip
@@ -334,8 +338,14 @@ void main() {
           reason: 'copy.md cancelled');
       expect(find.textContaining('FAILED_CARRIER_REFUNDED'), findsNothing,
           reason: 'decisions.md guardrail 7: never the system code');
-      expect(find.text('Refunded'), findsOneWidget,
-          reason: 'the payment says it was refunded');
+      expect(
+          find.text(
+              'If you paid the ₹2,640 for this booking, all of it is refunded.'),
+          findsOneWidget,
+          reason:
+              'a never-paid booking is also marked refunded on cancel, so the refund is told without claiming a payment');
+      expect(find.text('You paid'), findsNothing,
+          reason: 'the payment record cannot say whether it was ever paid');
       expect(
           find.text(
               'Refunds reach your account in the time your bank or payment app takes.'),
@@ -350,6 +360,72 @@ void main() {
       expect(find.text('Steps for this shipment'), findsNothing);
       await leave(tester);
     });
+
+    testWidgets('cancelled with the payment still held: says what was paid',
+        (tester) async {
+      await showShipment(tester, booking(status: 'FAILED_CARRIER_REFUNDED'),
+          trip: lane());
+      expect(find.text('You paid'), findsOneWidget,
+          reason: 'an authorized payment is money the shipper paid');
+      expect(find.text('₹2,640'), findsOneWidget);
+      expect(
+          find.text(
+              'Refunds reach your account in the time your bank or payment app takes.'),
+          findsOneWidget);
+      await leave(tester);
+    });
+
+    testWidgets('cancelled before any payment: says nothing was paid',
+        (tester) async {
+      await showShipment(tester, booking(status: 'FAILED_CARRIER_REFUNDED'),
+          trip: lane(), payment: {'status': 'CREATED', 'amountPaise': 264000});
+      expect(find.text('Nothing was paid for this booking.'), findsOneWidget,
+          reason: 'checkout never finished, so no money was taken');
+      expect(find.text('You paid'), findsNothing,
+          reason: 'no payment was taken, so none is claimed');
+      expect(find.textContaining('refunded'), findsNothing,
+          reason: 'nothing to refund');
+      expect(
+          find.text(
+              'Questions about this booking? Contact ${PendingCopy.changeOrCancelContact}.'),
+          findsOneWidget,
+          reason: 'the contact stays, about the booking, not a refund');
+      await leave(tester);
+    });
+
+    for (final (paymentStatus, opening) in [
+      ('CREATED', ''),
+      ('FAILED', 'Payment did not go through. '),
+    ]) {
+      testWidgets(
+          'payment $paymentStatus: booked, not paid, and nothing said to be held',
+          (tester) async {
+        await showShipment(tester, booking(status: 'PENDING_CARRIER_ACCEPT'),
+            trip: lane(),
+            payment: {'status': paymentStatus, 'amountPaise': 264000});
+        expect(find.text('Booked, not paid'), findsOneWidget,
+            reason: 'checkout did not finish, so the first step is not "paid"');
+        expect(find.text('Booked and paid'), findsNothing,
+            reason: 'never claim a payment that was not taken');
+        expect(find.text('Not paid'), findsOneWidget,
+            reason: 'the status word says what is wrong');
+        expect(
+            find.text(
+                '${opening}This booking is not paid, so Ravi Roadways cannot accept it yet. '
+                'To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.'),
+            findsOneWidget,
+            reason:
+                'what it means and who to contact; there is no way to pay again in the app');
+        expect(find.textContaining('held until delivery'), findsNothing,
+            reason: 'no money is held');
+        expect(find.textContaining('Your payment is on hold'), findsNothing,
+            reason: 'no money is held');
+        expect(find.text('Ravi Roadways can accept once this booking is paid.'),
+            findsOneWidget,
+            reason: 'the carrier step says why it waits');
+        await leave(tester);
+      });
+    }
   });
 
   group('E-way bill steps (5b)', () {
@@ -555,9 +631,10 @@ void main() {
           reason: 'copy.md step 4');
       expect(
           find.text(
-              'NaviG8r staff check the bill on the portal by hand. We will tell you if anything needs fixing.'),
+              'NaviG8r staff check the bill on the portal by hand. If they find a problem, this shipment and your Home screen show what to fix.'),
           findsOneWidget,
-          reason: 'copy.md step 4: who checks, and how');
+          reason:
+              'copy.md step 4: who checks, and how; no message is sent about a problem, so none is promised');
       expect(find.text('3412 0098 7654'), findsOneWidget,
           reason: 'the bill number in groups of four');
       expect(
@@ -632,7 +709,8 @@ void main() {
           reason: 'copy.md: a shipment is named by its route');
       expect(find.textContaining('shp_'), findsNothing, reason: 'never an ID');
       server.answers['/shipments/shp_waiting'] = {
-        'shipment': (server.answers['/shipments'] as Map)['shipments'][2]
+        'shipment': (server.answers['/shipments'] as Map)['shipments'][2],
+        'payment': heldPayment,
       };
       await tester.tap(find.text('Bengaluru to Mysuru'));
       await tester.pumpAndSettle();
@@ -918,7 +996,10 @@ void desktopTests() {
       expect(find.text('Needs you'), findsOneWidget);
       expect(find.textContaining('shp_'), findsNothing, reason: 'never an ID');
 
-      server.answers['/shipments/shp_waiting'] = {'shipment': waiting};
+      server.answers['/shipments/shp_waiting'] = {
+        'shipment': waiting,
+        'payment': heldPayment,
+      };
       await tester.tap(find.text('Bengaluru to Mysuru'));
       await tester.pumpAndSettle();
       expect(
