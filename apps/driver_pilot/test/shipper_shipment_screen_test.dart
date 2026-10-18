@@ -850,6 +850,11 @@ void main() {
         'trips': [lane()]
       };
       await tester.pumpAndSettle();
+      final semantics = tester.ensureSemantics();
+      expect(tester.getSemantics(find.text('Updates')),
+          containsSemantics(isButton: true, hasTapAction: true),
+          reason: 'a screen reader and the browser tests find the row as a button');
+      semantics.dispose();
       await tester.tap(find.text('Updates'));
       await tester.pumpAndSettle();
       expect(find.byType(NotificationInboxScreen), findsOneWidget);

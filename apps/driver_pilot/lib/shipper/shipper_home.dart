@@ -322,37 +322,40 @@ class _HomeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MergeSemantics(
-        child: InkWell(
-          onTap: onTap,
-          highlightColor: NvColors.sunken,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: NvSpace.targetMin),
-            child: Padding(
-              padding: const EdgeInsets.all(NvSpace.s4),
-              child: Row(children: [
-                Expanded(
-                  // Wraps, so a long status word and the count stack at large text.
-                  child: Wrap(
-                    spacing: NvSpace.s3,
-                    runSpacing: NvSpace.s1,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      if (leading != null) leading!,
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(title, style: NvText.bodyStrong),
-                          if (caption != null)
-                            Text(caption!, style: NvText.caption),
-                        ],
-                      ),
-                    ],
+        child: Semantics(
+          button: true,
+          child: InkWell(
+            onTap: onTap,
+            highlightColor: NvColors.sunken,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: NvSpace.targetMin),
+              child: Padding(
+                padding: const EdgeInsets.all(NvSpace.s4),
+                child: Row(children: [
+                  Expanded(
+                    // Wraps, so a long status word and the count stack at large text.
+                    child: Wrap(
+                      spacing: NvSpace.s3,
+                      runSpacing: NvSpace.s1,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (leading != null) leading!,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(title, style: NvText.bodyStrong),
+                            if (caption != null)
+                              Text(caption!, style: NvText.caption),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const ExcludeSemantics(
-                    child: Icon(Icons.chevron_right, color: NvColors.slate)),
-              ]),
+                  const ExcludeSemantics(
+                      child: Icon(Icons.chevron_right, color: NvColors.slate)),
+                ]),
+              ),
             ),
           ),
         ),

@@ -140,7 +140,8 @@ test("shipper opens one grouped notification row into events and messages", asyn
   }));
 
   await signIn(page, "8000000001", { requireVisibleDebugCode: false });
-  const inboxButton = page.getByRole("button", { name: /Notifications/ });
+  // Shippers reach the inbox from the Updates row on Home (sh-home); the bell is carrier-only.
+  const inboxButton = page.getByRole("button", { name: /Updates/ });
   await expect(inboxButton).toBeVisible();
   await inboxButton.evaluate((element: HTMLElement) => element.click());
   const shipmentRow = page.locator("flt-semantics-host").getByText(/Shipment update/);
