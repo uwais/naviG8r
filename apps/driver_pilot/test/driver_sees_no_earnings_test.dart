@@ -236,18 +236,6 @@ void main() {
     });
   });
 
-  test(
-      'a driver reads statuses without payment; the office reads them as before',
-      () {
-    expect(shipmentStatusLabel('PENDING_RELEASE', seesPayment: false),
-        'Delivery confirmed');
-    expect(shipmentStatusLabel('FAILED_CARRIER_REFUNDED', seesPayment: false),
-        'Cancelled');
-    expect(shipmentStatusLabel('PENDING_RELEASE'), 'Awaiting payment release');
-    expect(shipmentStatusLabel('FAILED_CARRIER_REFUNDED'),
-        'FAILED_CARRIER_REFUNDED');
-  });
-
   group('No payment word reaches a driver, and the office keeps its wording',
       () {
     final delivered = <String, dynamic>{

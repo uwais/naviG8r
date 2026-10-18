@@ -106,18 +106,25 @@ class Server {
       this.office = true,
       this.trips = const [],
       this.bookings = const [],
-      this.ownTruck = true});
+      this.ownTruck = true,
+      this.refusesWrites = false});
   final List<String> allowed;
   final bool office;
   final List<Map<String, dynamic>> trips;
   final List<Map<String, dynamic>> bookings;
   final bool ownTruck;
+
+  /// Every write is answered with a 409 and a code the app has no sentence for.
+  final bool refusesWrites;
   final sent = <RequestOptions>[];
 
   void answer() {
     api.dio.httpClientAdapter = MockApiAdapter((request) {
       if (request.method != 'GET') {
         sent.add(request);
+        if (refusesWrites) {
+          return jsonResponse({'error': 'trip_not_startable'}, 409);
+        }
         return jsonResponse({
           'trip':
               trips.isEmpty ? null : {...trips.first, 'status': 'IN_PROGRESS'}
@@ -310,8 +317,9 @@ void main() {
       expect(find.text('Bengaluru to Chennai'), findsOneWidget);
       expect(find.text('Open'), findsOneWidget);
       expect(find.text('18 – 19 Oct · Medium truck'), findsOneWidget);
-      expect(find.text('Room left: 25 kg of 1000 kg'), findsOneWidget,
-          reason: 'copy.md: Room left: [n] kg of [capacity] kg');
+      expect(find.text('Room left: 25 kg of 1,000 kg'), findsOneWidget,
+          reason:
+              'copy.md: Room left: [n] kg of [capacity] kg; mockup ca-trip groups thousands, "1,000 kg"');
       expect(find.text('Truck and driver'), findsOneWidget);
       expect(find.text('Bookings on this trip (1)'), findsOneWidget);
       expect(find.text('Sharma Textiles · 80 kg'), findsOneWidget);
@@ -379,6 +387,28 @@ void main() {
               'Trip started. Shippers are told their goods are on the way.'),
           findsOneWidget,
           reason: 'accessibility.md: Start trip announcement');
+    });
+
+    testWidgets('a refused Start says so in plain words, never HTTP text',
+        (tester) async {
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [sharma],
+          refusesWrites: true));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Start trip'));
+      await tester.pumpAndSettle();
+      await tester
+          .tap(inSheet(find.widgetWithText(FilledButton, 'Start trip')));
+      await tester.pumpAndSettle();
+      expect(find.text('Something went wrong. Please try again.'),
+          findsOneWidget,
+          reason: 'a refusal with no sentence of its own gets the plain one');
+      expect(find.textContaining('HTTP'), findsNothing,
+          reason: 'decisions.md 7: never "HTTP 409: {…}"');
+      expect(find.textContaining('trip_not_startable'), findsNothing,
+          reason: 'no raw codes in the UI');
     });
 
     testWidgets(

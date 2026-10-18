@@ -3,6 +3,7 @@
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/ui/nv_button.dart';
 import 'package:driver_pilot/ui/nv_list_card.dart';
+import 'package:driver_pilot/ui/nv_status_label.dart';
 import 'package:driver_pilot/ui/tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -218,5 +219,48 @@ void main() {
         reason: 'accessibility.md: cards grow, nothing truncates');
     expect(find.text('Room left'), findsOneWidget,
         reason: 'facts wrap instead of disappearing');
+  });
+
+  testWidgets(
+      'at 200% text a long status drops under the title and stays on the card',
+      (tester) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+    const status = 'Awaiting payment release';
+    await mountList(tester, [
+      NvListCard(
+        title: 'Bengaluru to Chennai',
+        status: const NvStatusLabel(status, tone: NvStatusTone.attention),
+        onOpen: () {},
+      ),
+    ]);
+
+    expect(tester.takeException(), isNull,
+        reason: 'accessibility.md: 200% text on 360 dp, nothing overflows');
+    final card = tester.getRect(find.byType(InkWell));
+    final label = tester.getRect(find.byType(NvStatusLabel));
+    expect(label.right <= card.right && label.left >= card.left, isTrue,
+        reason: 'the status stays inside the card instead of running off it');
+    expect(label.top >= tester.getRect(find.text('Bengaluru to Chennai')).bottom,
+        isTrue,
+        reason: 'a status that does not fit beside the title drops under it');
+  });
+
+  testWidgets('at normal text a short status sits beside the title',
+      (tester) async {
+    // The test font draws every letter as a square, so a short route is what fits beside a status.
+    await mountList(tester, [
+      NvListCard(
+          title: 'Pune to Goa',
+          status: const NvStatusLabel('Open', tone: NvStatusTone.info),
+          onOpen: () {}),
+    ]);
+
+    final title = tester.getRect(find.text('Pune to Goa'));
+    final label = tester.getRect(find.byType(NvStatusLabel));
+    expect(label.top < title.bottom, isTrue,
+        reason: 'mockups: the status is on the title line when it fits');
+    expect(label.left > title.right, isTrue,
+        reason: 'mockups: the status is at the right of the title');
   });
 }

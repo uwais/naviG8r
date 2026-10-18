@@ -1,49 +1,10 @@
 import 'eway_bill_closed.dart';
-import 'eway_bill_dates.dart';
 import 'eway_bill_portal_link.dart';
+import 'ui/format.dart';
 
-// The words both e-way bill cards and the shipment lists use. They state only what ops saw and when,
+// The words the e-way bill cards and screens use. They state only what ops saw and when,
 // never that a bill is valid now: a bill can change on the government portal and nothing here would
 // hear about it.
-
-/// "1234 5678 9012", so it can be read aloud.
-String groupedBillNumber(String number) {
-  final groups = <String>[];
-  for (var start = 0; start < number.length; start += 4) {
-    groups.add(number.substring(start, (start + 4).clamp(0, number.length)));
-  }
-  return groups.join(' ');
-}
-
-/// One line for a shipment list row, or '' when the row should say nothing. It says ops flagged a bill,
-/// never that a bill is fine or wrong: a row has no room for "when, and it may have changed". A shipment
-/// with no bill gets a line only before pickup, while one could still be added. Every value is
-/// type-checked so a row cannot throw.
-String ewayBillRowSummary(Map<String, dynamic> shipment) {
-  final bill = shipment['ewayBill'];
-  if (bill is! Map) {
-    final status = shipment['status'];
-    return status == 'PENDING_CARRIER_ACCEPT' || status == 'BOOKED'
-        ? 'E-way bill: none added'
-        : '';
-  }
-  if (bill['kind'] == 'NOT_NEEDED') {
-    return 'No e-way bill needed (the shipper says so)';
-  }
-  if (bill['kind'] != 'BILL') return 'E-way bill: open the shipment to see it';
-  final number = bill['billNumber'];
-  final truck = bill['truckNumber'];
-  final check = bill['check'];
-  final numberWords = number is String && number.isNotEmpty
-      ? 'E-way bill ${groupedBillNumber(number)}'
-      : 'E-way bill';
-  final truckWords =
-      truck is String && truck.isNotEmpty ? 'truck $truck' : 'truck not added';
-  final flaggedWords = check is Map && check['result'] == 'PROBLEM'
-      ? '. Ops flagged this bill. Open it to see why.'
-      : '';
-  return '$numberWords, $truckWords$flaggedWords';
-}
 
 /// The truck on the bill and its valid-until time, or nothing when no truck is on it. The countdown
 /// shows only in the last 12 hours, so it reads as a reminder, not as pressure. It runs to the
@@ -54,11 +15,11 @@ List<String> ewayBillTruckLines(Map<String, dynamic> bill, {DateTime? now}) {
   final lines = ['Truck: $truck'];
   final validUntil = bill['validUntilUtcMs'];
   if (validUntil is! num) return lines;
+  final validUntilMoment =
+      DateTime.fromMillisecondsSinceEpoch(validUntil.toInt(), isUtc: true);
   lines.add(
-      'Valid until: ${ewayBillDateTimeFromUtcMs(validUntil)} (India time)');
-  final left =
-      DateTime.fromMillisecondsSinceEpoch(validUntil.toInt(), isUtc: true)
-          .difference(now ?? DateTime.now());
+      'Valid until: ${formatDate(validUntilMoment, now: now)}, ${formatTimeIst(validUntilMoment)}');
+  final left = validUntilMoment.difference(now ?? DateTime.now());
   if (left <= Duration.zero) {
     // naviG8r cannot see the portal, so it says only that the typed time has passed, not that the bill expired.
     lines.add('The valid-until time entered has passed. Check the portal.');
@@ -149,8 +110,9 @@ String ewayBillCheckLine(Map<String, dynamic> bill,
     return forShipper ? 'Entered by you. Not checked yet.' : 'Not checked yet.';
   }
   final checkedAt = check['checkedAtUtcMs'];
-  final date =
-      checkedAt is num ? ' on ${ewayBillDateFromUtcMs(checkedAt)}' : '';
+  final date = checkedAt is num
+      ? ' on ${formatDate(DateTime.fromMillisecondsSinceEpoch(checkedAt.toInt(), isUtc: true))}'
+      : '';
   if (check['result'] == 'FOUND') {
     return 'Ops saw this bill on the $ewayBillPortalName$date. It may have changed since.';
   }

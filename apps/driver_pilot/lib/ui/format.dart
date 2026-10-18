@@ -85,10 +85,12 @@ String _indianGrouping(int number) {
   return groups.join(",");
 }
 
-/// "80 kg".
+/// "80 kg", "2,400 kg", with the same Indian grouping as rupees.
 String formatKg(num kilograms) {
   final whole = kilograms == kilograms.roundToDouble();
-  return "${whole ? kilograms.round() : kilograms} kg";
+  final digits = (whole ? kilograms.round() : kilograms).toString().split(".");
+  final grouped = _indianGrouping(int.parse(digits.first));
+  return "${digits.length == 2 ? "$grouped.${digits.last}" : grouped} kg";
 }
 
 /// "3412 0098 7654", in groups of four so it can be read aloud. Copy the number without spaces.

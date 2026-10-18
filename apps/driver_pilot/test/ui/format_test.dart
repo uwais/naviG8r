@@ -112,6 +112,16 @@ void main() {
       expect(formatKg(80.5), '80.5 kg',
           reason: 'a part kilogram is not rounded away');
     });
+
+    test('groups thousands the Indian way, like rupees', () {
+      expect(formatKg(2400), '2,400 kg',
+          reason: 'mockups sh-lanes-browse and ca-trips: "2,400 kg", "1,000 kg"');
+      expect(formatKg(125000), '1,25,000 kg',
+          reason: 'the same Indian grouping as formatRupees');
+      expect(formatKg(1250.5), '1,250.5 kg',
+          reason: 'a part kilogram keeps its decimals after the grouping');
+      expect(formatKg(999), '999 kg', reason: 'three digits need no comma');
+    });
   });
 
   group('IDs', () {

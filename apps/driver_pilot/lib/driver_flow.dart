@@ -22,7 +22,7 @@ import "location_editor.dart";
 import "maps_config.dart";
 import "pilot_api.dart";
 import "notification_center.dart";
-import "refusal_sentence.dart";
+import "plain_error_sentence.dart";
 import "signed_in_header.dart";
 import "start_screen.dart";
 import "transporter_id_section.dart";
@@ -306,7 +306,7 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = refusalSentence(e));
+      setState(() => _error = plainErrorSentence(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -413,7 +413,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       if (mounted) {
         final retry = otpRetryAfterMs(e);
         if (retry != null) _startCooldown(retry);
-        setState(() => _error = refusalSentence(e));
+        setState(() => _error = plainErrorSentence(e));
       }
     } finally {
       if (mounted) setState(() => _starting = false);
@@ -451,7 +451,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final error = refusalSentence(e);
+        final error = plainErrorSentence(e);
         setState(() => _error = error);
         SemanticsService.announce(error, Directionality.of(context),
             assertiveness: Assertiveness.assertive);
@@ -573,7 +573,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             duration: const Duration(seconds: 10),
             action: SnackBarAction(label: "Close", onPressed: () {}),
-            content: Text(refusalSentence(e))));
+            content: Text(plainErrorSentence(e))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -683,7 +683,7 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(refusalSentence(e))));
+            .showSnackBar(SnackBar(content: Text(plainErrorSentence(e))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -806,7 +806,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Driver invited to your carrier org.")));
     } catch (e) {
-      if (mounted) setState(() => _error = refusalSentence(e));
+      if (mounted) setState(() => _error = plainErrorSentence(e));
     } finally {
       if (mounted) setState(() => _inviting = false);
     }
@@ -993,12 +993,6 @@ bool get _seesPaymentAmounts =>
   }
   return null;
 }
-
-// NvListCard sets its status beside the title with no width limit, so at 200% text a long status ran off the
-// card. Capped at half the screen it wraps instead.
-Widget _cardStatus(BuildContext context, NvStatusLabel label) => ConstrainedBox(
-    constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width / 2),
-    child: label);
 
 /// A label and its value on one line. A wrap, so at large text the value drops under its label instead of
 /// squeezing. [identifier] sets the value in the mono face, as for a truck number.
@@ -1198,7 +1192,7 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
       title: _shipperName(booking),
       status: status == null
           ? null
-          : _cardStatus(context, NvStatusLabel(status.$1, tone: status.$2)),
+          : NvStatusLabel(status.$1, tone: status.$2),
       subtitle: pickup.isEmpty || drop.isEmpty ? null : "$pickup to $drop",
       footnote: details.isEmpty ? null : details.join(" · "),
       next: _bookingNextWords(booking),
@@ -1402,8 +1396,7 @@ class _OfficeHomeState extends State<_OfficeHome> {
     ];
     return NvListCard(
       title: _tripRoute(trip) ?? "Trip",
-      status: _cardStatus(context,
-          const NvStatusLabel("In transit", tone: NvStatusTone.info)),
+      status: const NvStatusLabel("In transit", tone: NvStatusTone.info),
       footnote: facts.join(" · "),
       onOpen: () => _open("/driver/trip/${trip["id"]}/active"),
     );
@@ -2476,7 +2469,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
     final counts = _bookingCounts;
     return NvListCard(
       title: _tripRoute(trip) ?? "Trip",
-      status: status == null ? null : _cardStatus(context, status),
+      status: status,
       facts: [
         if (dates != null) NvFact("Dates", dates),
         if (room != null)
@@ -2574,7 +2567,7 @@ class _DriverTrackScreenState extends State<DriverTrackScreen> {
       }
       setState(() => _trips = list);
     } catch (e) {
-      if (mounted) setState(() => _error = refusalSentence(e));
+      if (mounted) setState(() => _error = plainErrorSentence(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -3058,7 +3051,7 @@ bool _answeredTripNoLongerAssigned(Object error) =>
 String _driverRefusalSentence(Object error) =>
     _answeredTripNoLongerAssigned(error)
         ? _tripNoLongerAssignedSentence
-        : refusalSentence(error);
+        : plainErrorSentence(error);
 
 class DriverActiveTripScreen extends StatefulWidget {
   const DriverActiveTripScreen({required this.tripId, super.key});
@@ -3183,7 +3176,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         return;
       }
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(refusalSentence(e))));
+          .showSnackBar(SnackBar(content: Text(plainErrorSentence(e))));
     } finally {
       if (mounted) setState(() => _completing = false);
     }
@@ -3210,7 +3203,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         return;
       }
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(refusalSentence(e))));
+          .showSnackBar(SnackBar(content: Text(plainErrorSentence(e))));
     } finally {
       if (mounted) setState(() => _starting = false);
     }
@@ -3473,7 +3466,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       subtitle: [_shipperName(stop), if (weight != null) weight].join(" · "),
       status: status == null
           ? null
-          : _cardStatus(context, NvStatusLabel(status.$1, tone: status.$2)),
+          : NvStatusLabel(status.$1, tone: status.$2),
       onOpen: () async {
         await context.push("/driver/shipment/${stop["id"]}");
         if (mounted) await _load();
@@ -3697,7 +3690,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       subtitle: pickup.isEmpty || drop.isEmpty ? null : "$pickup to $drop",
       status: status == null
           ? null
-          : _cardStatus(context, NvStatusLabel(status.$1, tone: status.$2)),
+          : NvStatusLabel(status.$1, tone: status.$2),
       onOpen: () async {
         await context.push("/driver/shipment/${booking["id"]}");
         if (mounted) await _load();
@@ -4235,7 +4228,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
       if (mounted)
         setState(() {
           _summary = null;
-          _error = refusalSentence(e);
+          _error = plainErrorSentence(e);
         });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -4409,7 +4402,7 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
         setState(() => _refusedField =
             _edits == editsWhenSent ? refusedBankDetailsField(e) : null);
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(refusalSentence(e))));
+            .showSnackBar(SnackBar(content: Text(plainErrorSentence(e))));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

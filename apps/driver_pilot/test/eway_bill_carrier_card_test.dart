@@ -33,7 +33,7 @@ void main() {
             })));
     expect(
         find.textContaining(
-            "This is the shipper's statement. naviG8r has not checked it."),
+            "This is the shipper's statement. NaviG8r has not checked it."),
         findsOneWidget,
         reason: 'the statement is the shipper\'s');
     await mountCard(
@@ -52,10 +52,11 @@ void main() {
     expect(find.text('1234 5678 9012'), findsOneWidget,
         reason: 'number in groups of four');
     expect(
-        find.text(
-            'Ops saw on the portal that this bill was cancelled on 14 Oct 2026. The shipper can see this on their shipment.'),
+        find.textContaining(RegExp(
+            r'^Ops saw on the portal that this bill was cancelled on 14 Oct( 2026)?\. The shipper can see this on their shipment\.$')),
         findsOneWidget,
-        reason: 'the carrier is not told to act');
+        reason:
+            'the carrier is not told to act; copy.md Formats: the year only when it is not this year');
     expect(find.textContaining('has not checked the truck or the expiry'),
         findsOneWidget,
         reason: 'says what is not checked');
@@ -116,7 +117,7 @@ void main() {
         reason: 'the saved truck shows');
     expect(
         find.text(
-            'Shown as entered in naviG8r. naviG8r has not made or changed this bill, and has not checked it against the portal.'),
+            'Shown as entered in NaviG8r. NaviG8r has not made or changed this bill, and has not checked it against the portal.'),
         findsOneWidget,
         reason: 'with a truck, the caveat names the portal');
     expect(find.textContaining('has not checked the truck or the expiry'),
@@ -174,9 +175,12 @@ void main() {
         reason: 'the number to quote at a check-post');
     expect(find.text('Truck: KA01AB1234'), findsOneWidget,
         reason: 'the truck on the bill');
-    expect(find.text('Valid until: 16 Oct 2026, 23:59 (India time)'),
+    expect(
+        find.textContaining(
+            RegExp(r'^Valid until: 16 Oct( 2026)?, 23:59 IST$')),
         findsOneWidget,
-        reason: 'the valid-until time in India');
+        reason:
+            'the valid-until time in India; copy.md Formats: time as 16:40 IST, the year only when it is not this year');
     expect(find.textContaining('has not checked it against the portal'),
         findsOneWidget,
         reason: 'the caveat for a bill with a truck');

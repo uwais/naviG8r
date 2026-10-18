@@ -77,11 +77,15 @@ void main() {
     List<String> linesAt(Duration before) =>
         ewayBillTruckLines(bill(), now: validUntil.subtract(before));
     expect(linesAt(const Duration(days: 1)),
-        ['Truck: KA01AB1234', 'Valid until: 16 Oct 2026, 23:59 (India time)'],
-        reason: 'a day out: truck and time, no countdown');
+        ['Truck: KA01AB1234', 'Valid until: 16 Oct, 23:59 IST'],
+        reason:
+            'a day out: truck and time, no countdown; copy.md Formats: no year this year, time as 16:40 IST');
     expect(linesAt(const Duration(hours: 12)),
-        ['Truck: KA01AB1234', 'Valid until: 16 Oct 2026, 23:59 (India time)'],
+        ['Truck: KA01AB1234', 'Valid until: 16 Oct, 23:59 IST'],
         reason: 'exactly 12 hours out: still no countdown');
+    expect(linesAt(const Duration(days: 366))[1],
+        'Valid until: 16 Oct 2026, 23:59 IST',
+        reason: 'copy.md Formats: the year shows when it is not this year');
     expect(linesAt(const Duration(hours: 11, minutes: 59)).last,
         'Expires in 11 hours',
         reason: 'under 12 hours the countdown appears');

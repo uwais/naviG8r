@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import 'pilot_api.dart';
+import 'plain_error_sentence.dart';
 import 'push_notifications.dart';
 
 /// Only the server-resolved principal for the selected organization grants UI access.
@@ -149,7 +150,7 @@ abstract final class AuthorizationSession {
         if (api.activeOrganizationId != null) api.selectOrganization(null);
         error = null;
       } else {
-        error = formatApiError(e);
+        error = plainErrorSentence(e);
       }
     } finally {
       if (generation == _generation) {

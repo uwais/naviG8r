@@ -96,7 +96,7 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
           "The bill's validity starts when you add the truck on the portal: one day per 200 km, ending at midnight India time.",
           style: NvText.caption),
       const Text(
-          'Shown as the shipper entered it. naviG8r has not made or changed this bill, and has not checked the truck or the expiry.',
+          'Shown as the shipper entered it. NaviG8r has not made or changed this bill, and has not checked the truck or the expiry.',
           style: NvText.caption),
       if (_addingTruck)
         _truckForm(bill)
@@ -133,8 +133,8 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
       Text(ewayBillCheckLine(bill, forShipper: false), style: NvText.body),
       Text(
           truckLines.isEmpty
-              ? 'Shown as the shipper entered it. naviG8r has not made or changed this bill, and has not checked the truck or the expiry.'
-              : 'Shown as entered in naviG8r. naviG8r has not made or changed this bill, and has not checked it against the portal.',
+              ? 'Shown as the shipper entered it. NaviG8r has not made or changed this bill, and has not checked the truck or the expiry.'
+              : 'Shown as entered in NaviG8r. NaviG8r has not made or changed this bill, and has not checked it against the portal.',
           style: NvText.caption),
       if (canAddTruck && _addingTruck)
         _truckForm(bill)
@@ -167,7 +167,7 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
       lines = [
         Text(
             '$shipper says no e-way bill is needed: ${notNeededReasonWords(bill)}. '
-            "This is the shipper's statement. naviG8r has not checked it.",
+            "This is the shipper's statement. NaviG8r has not checked it.",
             style: NvText.body)
       ];
     } else {

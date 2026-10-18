@@ -18,22 +18,6 @@ const _monthNames = [
   'Dec',
 ];
 
-DateTime _inIndia(num utcMs) =>
-    DateTime.fromMillisecondsSinceEpoch(utcMs.toInt(), isUtc: true)
-        .add(indiaTimeOffset);
-
-/// "14 Oct 2026" for a moment in time, read in India.
-String ewayBillDateFromUtcMs(num utcMs) {
-  final india = _inIndia(utcMs);
-  return '${india.day} ${_monthNames[india.month - 1]} ${india.year}';
-}
-
-/// "16 Oct 2026, 23:59" for a moment in time, read in India. E-way bill times are India times.
-String ewayBillDateTimeFromUtcMs(num utcMs) {
-  final india = _inIndia(utcMs);
-  return '${ewayBillDateFromUtcMs(utcMs)}, ${ewayBillClockTime(india.hour, india.minute)}';
-}
-
 /// "23:59", always 24-hour, so it reads the same as the portal.
 String ewayBillClockTime(int hour, int minute) =>
     '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';

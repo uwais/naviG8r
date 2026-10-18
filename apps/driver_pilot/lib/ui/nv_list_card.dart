@@ -28,7 +28,8 @@ class NvListCard extends StatelessWidget {
   final String title;
   final VoidCallback onOpen;
 
-  /// A status label beside the title. It must not be tappable.
+  /// A status label beside the title, or under it when the two do not fit on one line. It must not be
+  /// tappable.
   final Widget? status;
   final String? subtitle;
   final List<NvFact> facts;
@@ -64,16 +65,17 @@ class NvListCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Expanded(
-                      child: Text(title,
+                // A wrap, so at 200% text a long status drops under the title instead of running off the card.
+                Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: NvSpace.s2,
+                    runSpacing: NvSpace.s1,
+                    children: [
+                      Text(title,
                           style: NvText.bodyStrong
-                              .copyWith(color: NvColors.navyInk))),
-                  if (status != null) ...[
-                    const SizedBox(width: NvSpace.s2),
-                    status!,
-                  ],
-                ]),
+                              .copyWith(color: NvColors.navyInk)),
+                      if (status != null) status!,
+                    ]),
                 if (subtitle != null) ...[
                   const SizedBox(height: NvSpace.s1),
                   Text(subtitle!, style: NvText.caption),
