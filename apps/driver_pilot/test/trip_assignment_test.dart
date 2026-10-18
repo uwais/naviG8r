@@ -20,7 +20,7 @@ import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
 const savedSentence =
-    'Saved. The driver is not sent a message. The trip shows on their Loads screen when they pull down to refresh.';
+    'Saved. The driver is not sent a message. The trip shows on their Trips screen when they pull down to refresh.';
 const busySentence =
     'This driver is already on another trip that is in progress.';
 const replacedSentence = 'A driver who is replaced stops seeing this trip.';
@@ -517,7 +517,7 @@ void main() {
       addTearDown(tester.view.reset);
       for (final subrole in ['DRIVER', 'OWNER']) {
         signInAsCarrierStaff(subrole: subrole, canAssign: subrole == 'OWNER');
-        // The Loads screen refreshes the session first, so the server answers with the same login.
+        // The Trips screen refreshes the session first, so the server answers with the same login.
         api.dio.httpClientAdapter = MockApiAdapter((request) {
           if (request.path == '/v1/auth/me') {
             return jsonResponse({
@@ -569,12 +569,12 @@ void main() {
 
   group('A driver publishing a trip', () {
     test(
-        'is told for ten seconds that it shows under Loads only if it is assigned to them; the office as before',
+        'is told for ten seconds that it shows under Trips only if it is assigned to them; the office as before',
         () {
       signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
       final forDriver = tripPublishedMessage();
       expect((forDriver.content as Text).data,
-          'Trip published. Your carrier must assign it to a driver. You will see it under Loads only if it is assigned to you.');
+          'Trip published. Your carrier must assign it to a driver. You will see it under Trips only if it is assigned to you.');
       expect(forDriver.duration, const Duration(seconds: 10));
       expect(forDriver.action?.label, 'Close');
 

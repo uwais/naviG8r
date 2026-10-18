@@ -667,9 +667,10 @@ void main() {
       () {
     expect(driverShellTitle('/driver/trip/t/active'), '',
         reason: 'ca-trip: TRIP over the route, no shell title');
-    expect(driverShellTitle('/driver/trip/t/active', forDriver: true),
-        'Active trip',
-        reason: 'the driver screen is PR 8');
+    expect(driverShellTitle('/driver/trip/t/active', forDriver: true), '',
+        reason: 'PR 8, dr-trip: the route names the driver trip screen');
+    expect(driverShellTitle('/driver/trip/t/eway-bills', forDriver: true), '',
+        reason: 'PR 8, dr-ewb: "E-way bills" beside the truck names the screen');
     expect(driverShellTitle('/driver/publish'), 'Publish a trip');
     expect(driverShellTitle('/driver/profile'), 'Company');
     expect(driverShellTitle('/driver/profile', forDriver: true), 'Profile');

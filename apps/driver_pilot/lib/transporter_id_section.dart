@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'authorization_session.dart';
 import 'driver_session.dart';
 import 'pilot_api.dart';
+import 'refusal_sentence.dart';
 import 'ui/nv_button.dart';
 import 'ui/nv_field.dart';
 import 'ui/nv_section_card.dart';
@@ -71,7 +72,7 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
               ? 'Transporter ID saved.'
               : 'No transporter ID is saved now.')));
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = refusalSentence(e));
     } finally {
       if (mounted) setState(() => _saving = false);
     }

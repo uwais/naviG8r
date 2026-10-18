@@ -115,13 +115,16 @@ class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
     final canAddTruck = _canAddTruck;
     if (canAddTruck && truckLines.isEmpty) return _addTruckLines(bill);
     // Holding eway_bill.add_truck is what makes a login the carrier office here; a driver does not.
+    final office = AuthorizationSession.can('eway_bill.add_truck');
     final mismatch = ewayBillTruckMismatchSentence(widget.shipment, bill,
-        reader: AuthorizationSession.can('eway_bill.add_truck')
+        reader: office
             ? TruckMismatchReader.carrierOffice
             : TruckMismatchReader.driver);
     return [
+      // A driver reads the number out at a check post, so it is set large (dr-ewb).
       if (number is String)
-        SelectableText(formatBillNumber(number), style: NvText.id),
+        SelectableText(formatBillNumber(number),
+            style: office ? NvText.id : NvText.idDisplay),
       if (truckLines.isEmpty)
         const Text('Truck not added yet.', style: NvText.body)
       else
