@@ -3,12 +3,16 @@
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/customer_flow.dart';
+import 'package:driver_pilot/customer_layout.dart';
 import 'package:driver_pilot/customer_session.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/notification_center.dart';
 import 'package:driver_pilot/pilot_api.dart';
+import 'package:driver_pilot/ui/nv_action_bar.dart';
+import 'package:driver_pilot/ui/nv_button.dart';
 import 'package:driver_pilot/ui/nv_field.dart';
+import 'package:driver_pilot/ui/nv_header.dart';
 import 'package:driver_pilot/ui/nv_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -17,6 +21,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'support/mock_api.dart';
+import 'support/shipper_screen_checks.dart';
 
 Map<String, dynamic> lane(
         {String id = 'lane-1',
@@ -56,11 +61,12 @@ class FakeServer {
 Future<GeocodeOutcome> findAnyPlace(String place) async =>
     GeocodeOutcome.ok(const LatLng(12.8, 77.7), place);
 
-/// A phone 360 dp wide. [height] is 800 for "visible without scrolling" checks; taller elsewhere,
-/// because the test font draws every letter a full square wide and lists build only what shows.
+/// A phone 360 dp wide, or [width] for the desktop layout. [height] is 800 for "visible without
+/// scrolling" checks; taller elsewhere, because the test font draws every letter a full square
+/// wide and lists build only what shows.
 Future<FakeServer> showShipperApp(WidgetTester tester, String start,
-    {double height = 2000}) async {
-  tester.view.physicalSize = Size(360, height);
+    {double height = 2000, double width = 360}) async {
+  tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   FlutterSecureStorage.setMockInitialValues({'access_token': 'synthetic'});
@@ -126,8 +132,9 @@ const searchedBook =
     '/customer/book?anchorTripId=lane-1&weightKg=80&pickup=Bommasandra%2C+Bengaluru&pickupLat=12.8&pickupLng=77.7&drop=Guindy%2C+Chennai&dropLat=13.0&dropLng=80.2';
 
 Future<FakeServer> showPricedBook(WidgetTester tester,
-    {double height = 2000}) async {
-  final server = await showShipperApp(tester, searchedBook, height: height);
+    {double height = 2000, double width = 360}) async {
+  final server =
+      await showShipperApp(tester, searchedBook, height: height, width: width);
   server.answer('/anchor-trips/lane-1', {'trip': lane()});
   server.answer('/shipments/quote', {
     'quote': {'grossPaise': 264000}
@@ -631,6 +638,293 @@ void main() {
           reason: 'decisions.md 8: 200% text at 360 dp');
       expect(find.textContaining('Pay ₹'), findsOneWidget,
           reason: 'Pay stays in the action bar at 200% text');
+    });
+  });
+
+  desktopTests();
+  announcementTests();
+  doubleTextTests();
+}
+
+const contactAbovePay =
+    'Your payment is held when you book and collected after delivery. Booked shipments cannot be cancelled in the app; to change one, contact [NaviG8r contact].';
+
+void desktopTests() {
+  group('Desktop width (PR 9)', () {
+    testWidgets(
+        'at 1280 x 900 the price card and Pay are on screen together, beside the fields',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      await showPricedBook(tester, width: 1280, height: 900);
+      const screen = Rect.fromLTWH(0, 0, 1280, 900);
+      bool onScreen(Finder finder) {
+        final shown = tester.getRect(finder);
+        return screen.contains(shown.topLeft) &&
+            screen.contains(shown.bottomRight);
+      }
+
+      final price = find.text('₹2,640');
+      final pay = find.text('Pay ₹2,640 and book');
+      expect(onScreen(price) && onScreen(pay), isTrue,
+          reason: 'PR 9: the price card and Pay are on screen together');
+      final fields = tester.getRect(find.text('Change weight, pickup or drop'));
+      expect(tester.getRect(price).left, greaterThan(fields.right),
+          reason: 'wb-book: the price card sits in the side column');
+      expect(tester.getRect(pay).left, greaterThan(fields.right),
+          reason: 'wb-book: Pay sits with the price, not in a bottom bar');
+      expect(tester.getRect(find.text(contactAbovePay)).bottom,
+          lessThanOrEqualTo(tester.getRect(pay).top),
+          reason:
+              'owner decision: the no-cancel line stays directly above Pay');
+      expect(find.byType(NvActionBar), findsNothing,
+          reason: 'desktop: no bottom action bar');
+      expect(find.byType(NavigationBar), findsNothing,
+          reason: 'PR 9: the top bar replaces the bottom tabs');
+
+      final topBar = find.byType(CustomerTopNavigation);
+      for (final words in ['NaviG8r', 'Home', 'Find a lane', 'Shipments']) {
+        expect(find.descendant(of: topBar, matching: find.text(words)),
+            findsOneWidget,
+            reason: 'PR 9: the top bar shows "$words"');
+      }
+      expect(
+          find.bySemanticsLabel(
+              'Sharma Textiles, Priya Raman, Shipper. Switch company or sign out'),
+          findsOneWidget,
+          reason: 'PR 9: the account button is in the top bar');
+      final back = find.descendant(
+          of: find.byType(CustomerPageFrame),
+          matching: find.text('Find a lane'));
+      expect(back, findsOneWidget,
+          reason:
+              'wb-book: Back to the lanes sits in the page, above the title');
+      expect(tester.getRect(back).bottom,
+          lessThanOrEqualTo(tester.getRect(find.text('Book space')).top));
+      semantics.dispose();
+    });
+
+    testWidgets(
+        'content is at most 1200 wide and centred; the top links open tabs',
+        (tester) async {
+      final server =
+          await showShipperApp(tester, '/customer', width: 1600, height: 900);
+      server.answer('/shipments', {'shipments': []});
+      await tester.pumpAndSettle();
+      final content = tester.getRect(
+          find.widgetWithText(FilledButton, 'Find a lane for new goods'));
+      expect(content.width, lessThanOrEqualTo(1200),
+          reason: 'PR 9: content max width 1200');
+      expect(content.center.dx, closeTo(800, 1),
+          reason: 'the content column is centred');
+
+      await tester.tap(find.descendant(
+          of: find.byType(CustomerTopNavigation),
+          matching: find.text('Find a lane')));
+      await tester.pumpAndSettle();
+      expect(find.text('Pick a lane going your way.'), findsOneWidget,
+          reason: 'the top bar link opens Find a lane');
+    });
+
+    testWidgets(
+        'at 1280 lanes are a card grid, and Match sits beside its results',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/trips',
+          width: 1280, height: 900);
+      server.answer('/anchor-trips', {
+        'trips': [
+          lane(),
+          lane(
+              id: 'lane-2',
+              from: 'Hosur',
+              to: 'Kanchipuram',
+              carrier: 'KTC Freight'),
+        ]
+      });
+      await tester.pumpAndSettle();
+      final first = tester.getRect(find.text('Bengaluru to Chennai'));
+      final second = tester.getRect(find.text('Hosur to Kanchipuram'));
+      expect(second.top, first.top,
+          reason: 'PR 9: lanes become a card grid, side by side');
+      expect(second.left, greaterThan(first.right));
+
+      server.answer('/v1/customer/eligible-anchor-trips', {
+        'trips': [
+          {
+            'trip': lane(),
+            'eligibility': {'eligible': true}
+          },
+        ]
+      });
+      await tester.tap(find.text('Match my route'));
+      await tester.pumpAndSettle();
+      await tester.enterText(field('Pickup'), 'Bommasandra, Bengaluru');
+      await tester.enterText(field('Drop'), 'Guindy, Chennai');
+      await tester.enterText(field('Weight'), '80');
+      await tester.tap(find.text('Find matching lanes'));
+      await tester.pumpAndSettle();
+      final result = tester.getRect(find
+          .text('1 lane with room for 80 kg, closest to your route first.'));
+      expect(
+          result.left, greaterThan(tester.getRect(find.text('Change')).right),
+          reason: 'wb-lanes: the search sits beside its results');
+    });
+
+    testWidgets('at 360 x 800 the layout is the phone layout', (tester) async {
+      await showPricedBook(tester, height: 800);
+      expect(find.byType(CustomerTopNavigation), findsNothing,
+          reason: 'PR 9: below 1024 there is no top bar');
+      expect(
+          find.ancestor(
+              of: find.text('Pay ₹2,640 and book'),
+              matching: find.byType(NvActionBar)),
+          findsOneWidget,
+          reason: 'phone: Pay stays in the bottom action bar');
+      await scrollTo(tester, find.text('₹2,640'));
+      expect(
+          find.ancestor(
+              of: find.text('₹2,640'), matching: find.byType(ListView)),
+          findsOneWidget,
+          reason: 'phone: the price card is in the one column');
+      expect(
+          find.descendant(
+              of: find.byType(NvHeader), matching: find.text('Find a lane')),
+          findsOneWidget,
+          reason: 'phone: Back is in the header');
+
+      await tester.pumpWidget(const SizedBox());
+      final server = await showShipperApp(tester, '/customer', height: 800);
+      server.answer('/shipments', {'shipments': []});
+      await tester.pumpAndSettle();
+      expect(find.byType(NavigationBar), findsOneWidget,
+          reason: 'phone: the tabs stay at the bottom');
+    });
+  });
+}
+
+void announcementTests() {
+  testWidgets('Browse says it is loading lanes, then how many it found',
+      (tester) async {
+    final announced = watchAnnouncements(tester);
+    final server = await showShipperApp(tester, '/customer/trips');
+    server.answer('/anchor-trips', {
+      'trips': [lane(), lane(id: 'lane-2', to: 'Hyderabad')]
+    });
+    await tester.pumpAndSettle();
+    expect(announced, containsAllInOrder(['Loading lanes.', '2 lanes']),
+        reason:
+            'accessibility.md: "Loading lanes." once, then the count when loaded');
+  });
+}
+
+void doubleTextTests() {
+  group('200% text at 360 x 800 (PR 10)', () {
+    testWidgets('Home, Browse, the Match form, its results and its empty state',
+        (tester) async {
+      useDoubleTextSize(tester);
+      final server = await showShipperApp(tester, '/customer', height: 800);
+      server.answer('/shipments', {
+        'shipments': [
+          {
+            'id': 'needs-bill',
+            'status': 'BOOKED',
+            'carrierDisplayName': 'Ravi Roadways',
+            'pickupAddress': 'Bommasandra, Bengaluru',
+            'dropAddress': 'Guindy, Chennai',
+            'assignedTruckNumber': 'KA01AB1234',
+          },
+          {'id': 'b', 'status': 'PENDING_CARRIER_ACCEPT'},
+        ]
+      });
+      server.answer('/anchor-trips', {
+        'trips': [
+          lane(),
+          lane(id: 'lane-2', to: 'Hyderabad', reservedKg: 1000, status: 'FULL')
+        ]
+      });
+      server.answer(
+          '/v1/notifications/shipments', {'shipments': [], 'unreadCount': 3});
+      await tester.pumpAndSettle();
+      await expectNoOverflowToTheEnd(tester, 'Home');
+
+      await tester.tap(find.text('Find a lane').last);
+      await tester.pumpAndSettle();
+      await expectNoOverflowToTheEnd(tester, 'Browse');
+
+      await tester.tap(find.text('Match my route'));
+      await tester.pumpAndSettle();
+      await expectNoOverflowToTheEnd(tester, 'the Match form');
+
+      server.answer('/v1/customer/eligible-anchor-trips', {
+        'trips': [
+          {
+            'trip': lane(),
+            'eligibility': {'eligible': true}
+          },
+        ]
+      });
+      await scrollTo(tester, field('Pickup'));
+      await tester.enterText(field('Pickup'), 'Bommasandra, Bengaluru');
+      await scrollTo(tester, field('Drop'));
+      await tester.enterText(field('Drop'), 'Guindy, Chennai');
+      await scrollTo(tester, field('Weight'));
+      await tester.enterText(field('Weight'), '80');
+      await scrollTo(tester, find.text('Find matching lanes'));
+      await tester.tap(find.text('Find matching lanes'));
+      await tester.pumpAndSettle();
+      await expectNoOverflowToTheEnd(tester, 'Match results');
+
+      server.answer('/v1/customer/eligible-anchor-trips', {'trips': []});
+      await scrollTo(tester, find.text('Change'));
+      await tester.tap(find.text('Change'));
+      await tester.pumpAndSettle();
+      await scrollTo(tester, find.text('Find matching lanes'));
+      await tester.tap(find.text('Find matching lanes'));
+      await tester.pumpAndSettle();
+      await scrollTo(tester, find.text('Change weight'));
+      await expectNoOverflowToTheEnd(tester, 'an empty match');
+    });
+
+    testWidgets(
+        'Book before a price, with a price, the confirm sheet and too heavy',
+        (tester) async {
+      useDoubleTextSize(tester);
+      final server = await showShipperApp(tester, searchedBook, height: 800);
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answer('/shipments/quote', {
+        'quote': {'grossPaise': 264000}
+      });
+      await tester.pumpAndSettle();
+      await expectNoOverflowToTheEnd(tester, 'Book before a price');
+
+      await tester.tap(find.text('Get price'));
+      await tester.pumpAndSettle();
+      await expectNoOverflowToTheEnd(tester, 'Book with a price');
+
+      await tester.tap(find.text('Pay ₹2,640 and book'));
+      await tester.pumpAndSettle();
+      await expectNoOverflowToTheEnd(tester, 'the confirm sheet',
+          list: find
+              .descendant(
+                  of: find.byType(NvSheet), matching: find.byType(Scrollable))
+              .first);
+      await tester.ensureVisible(find.text('Go back'));
+      await tester.tap(find.text('Go back'));
+      await tester.pumpAndSettle();
+
+      // At 200% in the test font the list above the action bar is 16 dp tall, less than this
+      // button, so a tap at its centre lands on the bar; the button's own action runs instead.
+      await scrollTo(tester, find.text('Change weight, pickup or drop'));
+      tester
+          .widget<NvButton>(
+              find.widgetWithText(NvButton, 'Change weight, pickup or drop'))
+          .onPressed!();
+      await tester.pumpAndSettle();
+      await scrollTo(tester, field('Weight'));
+      await tester.enterText(field('Weight'), '150');
+      await tester.tap(find.text('Get price'));
+      await tester.pumpAndSettle();
+      await scrollTo(tester, find.text('Choose another lane'));
+      await expectNoOverflowToTheEnd(tester, 'Book too heavy');
     });
   });
 }

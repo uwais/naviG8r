@@ -8,6 +8,7 @@ import 'authorization_session.dart';
 import 'conversation_drafts.dart';
 import 'customer_flow.dart';
 import 'pilot_api.dart';
+import 'plain_error_sentence.dart';
 import 'push_notifications.dart';
 import 'signed_in_header.dart';
 import 'ui/format.dart';
@@ -457,7 +458,8 @@ class _ShipmentConversationScreenState
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = formatApiError(error);
+        _error = plainErrorSentence(error,
+            'Could not load messages. Check your connection, then try again.');
         _loading = false;
       });
     }
@@ -482,7 +484,10 @@ class _ShipmentConversationScreenState
         _nextBefore = response.data?['nextBefore']?.toString();
       });
     } catch (error) {
-      if (mounted) setState(() => _error = formatApiError(error));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(error,
+            'Could not load earlier messages. Check your connection, then try again.'));
+      }
     } finally {
       if (mounted) setState(() => _loadingEarlier = false);
     }
@@ -537,7 +542,10 @@ class _ShipmentConversationScreenState
         await ConversationDrafts.write(
             _scope, widget.shipmentId, body, requestId);
       }
-      if (mounted) setState(() => _error = formatApiError(error));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(
+            error, 'Could not send. Check your connection, then try again.'));
+      }
     } finally {
       _sendingBody = null;
       _sendingRequestId = null;

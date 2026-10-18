@@ -19,6 +19,7 @@ import "driver_theme.dart";
 import "location_editor.dart";
 import "pilot_api.dart";
 import "notification_center.dart";
+import "plain_error_sentence.dart";
 import "shipment_steps.dart";
 import "signed_in_header.dart";
 import "start_screen.dart";
@@ -95,6 +96,8 @@ class CustomerScaffold extends StatelessWidget {
     required this.bodyBuilder,
     this.subtitle,
     this.actionBar,
+    this.sideBuilder,
+    this.titleFocus,
     super.key,
   });
 
@@ -107,6 +110,13 @@ class CustomerScaffold extends StatelessWidget {
 
   /// The screen's primary action, held at the bottom in place of the tabs (NvActionBar).
   final Widget? actionBar;
+
+  /// The column beside the main one on a desktop, such as the price and Pay on Book. Only
+  /// passed at desktop width: on a phone the screen puts the same widgets in its one column.
+  final WidgetBuilder? sideBuilder;
+
+  /// Lets the screen move focus to its title, as after a booking opens the new shipment.
+  final FocusNode? titleFocus;
 
   // Book has no tab: it opens from a lane card, so it sits under Find a lane.
   int _indexForPath(String path) {
@@ -128,98 +138,116 @@ class CustomerScaffold extends StatelessWidget {
     return ListenableBuilder(
       listenable: CustomerSession.listenable,
       builder: (context, _) {
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final selected = _indexForPath(currentPath);
-            final tabRoot = _tabPaths[selected];
-            final useRail = customerUseRail(constraints.maxWidth);
-            final page = CustomerPageFrame(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(
-                        top: NvSpace.s4, bottom: NvSpace.s2),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Semantics(
-                            header: true,
-                            child: Text(title, style: NvText.title)),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: NvSpace.s1),
-                          Text(subtitle!, style: NvText.body),
-                        ],
-                      ],
-                    ),
-                  ),
-                  Expanded(child: bodyBuilder(context)),
-                ],
-              ),
-            );
+        final selected = _indexForPath(currentPath);
+        final tabRoot = _tabPaths[selected];
+        final desktop = customerIsDesktop(context);
+        final backLabel = currentPath == tabRoot
+            ? null
+            : kCustomerNavDestinations[selected].label;
+        void goBack() => context.go(tabRoot);
+        void goToIndex(int index) {
+          final target = _tabPaths[index];
+          if (target != currentPath) context.go(target);
+        }
 
-            void goToIndex(int index) {
-              final target = _tabPaths[index];
-              if (target != currentPath) context.go(target);
-            }
-
-            if (!CustomerSession.isSignedIn) {
-              // Signed out: no account header and no tabs, only a way back to the start screen.
-              return Scaffold(
-                backgroundColor: DriverTheme.background,
-                appBar: NvHeader.task(
-                    backLabel: "Back", onBack: () => context.go("/customer")),
-                body: SafeArea(child: page),
-              );
-            }
-
-            final appBar = signedInHeader(
-              context,
-              backLabel: currentPath == tabRoot
-                  ? null
-                  : kCustomerNavDestinations[selected].label,
-              onBack: currentPath == tabRoot ? null : () => context.go(tabRoot),
-            );
-
-            if (useRail) {
-              return Scaffold(
-                backgroundColor: DriverTheme.background,
-                appBar: appBar,
-                bottomNavigationBar: actionBar,
-                body: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+        final signedIn = CustomerSession.isSignedIn;
+        final body = bodyBuilder(context);
+        final heading = Semantics(
+            header: true,
+            child: Text(title, style: desktop ? NvText.display : NvText.title));
+        final page = CustomerPageFrame(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding:
+                    const EdgeInsets.only(top: NvSpace.s4, bottom: NvSpace.s2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    NavigationRail(
-                      extended: constraints.maxWidth >= 1080,
-                      selectedIndex: selected,
-                      onDestinationSelected: goToIndex,
-                      leading: const CustomerBrandHeader(),
-                      destinations: customerRailDestinations(),
-                      labelType: constraints.maxWidth >= 1080
-                          ? NavigationRailLabelType.none
-                          : NavigationRailLabelType.all,
-                    ),
-                    const VerticalDivider(width: 1),
-                    Expanded(
-                        child: SafeArea(
-                            left: false, child: AccessRefresh(child: page))),
+                    // The top bar holds the tabs, so on a desktop Back sits above the title.
+                    if (desktop && signedIn && backLabel != null) ...[
+                      TextButton.icon(
+                        onPressed: goBack,
+                        icon: const Icon(Icons.chevron_left, size: 22),
+                        label: Text(backLabel),
+                        style: TextButton.styleFrom(
+                            foregroundColor: NvColors.navyInk,
+                            minimumSize: const Size(0, NvSpace.targetMin)),
+                      ),
+                      const SizedBox(height: NvSpace.s2),
+                    ],
+                    if (titleFocus == null)
+                      heading
+                    else
+                      Focus(focusNode: titleFocus, child: heading),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: NvSpace.s1),
+                      Text(subtitle!, style: NvText.body),
+                    ],
                   ],
                 ),
-              );
-            }
+              ),
+              Expanded(
+                child: sideBuilder == null
+                    ? body
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: body),
+                          const SizedBox(width: NvSpace.s6),
+                          SizedBox(
+                            width: CustomerBreakpoints.sideColumn,
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: NvSpace.s3),
+                              child: sideBuilder!(context),
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        );
 
-            return Scaffold(
-              backgroundColor: DriverTheme.background,
-              appBar: appBar,
-              body: SafeArea(child: AccessRefresh(child: page)),
-              bottomNavigationBar: actionBar ??
-                  NavigationBar(
-                    selectedIndex: selected,
-                    onDestinationSelected: goToIndex,
-                    destinations: kCustomerNavDestinations,
-                  ),
-            );
-          },
+        if (!signedIn) {
+          // Signed out: no account header and no tabs, only a way back to the start screen.
+          return Scaffold(
+            backgroundColor: DriverTheme.background,
+            appBar: NvHeader.task(
+                backLabel: "Back", onBack: () => context.go("/customer")),
+            body: SafeArea(child: page),
+          );
+        }
+
+        if (desktop) {
+          return Scaffold(
+            backgroundColor: DriverTheme.background,
+            appBar: CustomerTopBar(
+              header: signedInHeader(context,
+                  navigation: CustomerTopNavigation(
+                      selectedIndex: selected, onSelect: goToIndex)),
+            ),
+            body: SafeArea(child: AccessRefresh(child: page)),
+            bottomNavigationBar: actionBar,
+          );
+        }
+
+        return Scaffold(
+          backgroundColor: DriverTheme.background,
+          appBar: signedInHeader(
+            context,
+            backLabel: backLabel,
+            onBack: backLabel == null ? null : goBack,
+          ),
+          body: SafeArea(child: AccessRefresh(child: page)),
+          bottomNavigationBar: actionBar ??
+              NavigationBar(
+                selectedIndex: selected,
+                onDestinationSelected: goToIndex,
+                destinations: kCustomerNavDestinations,
+              ),
         );
       },
     );
@@ -633,22 +661,33 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
     } catch (e) {
       final retry = otpRetryAfterMs(e);
       if (retry != null) _startOtpCooldown(retry);
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not send the code. Check your connection, then try again."));
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
   }
 
+  void _showVerifyError(String error) {
+    setState(() => _error = error);
+    SemanticsService.announce(error, Directionality.of(context),
+        assertiveness: Assertiveness.assertive);
+  }
+
   Future<void> _verify() async {
+    final phone = digitsOnly(_phone.text.trim());
+    final challengeId = _challengeId;
+    if (challengeId == null || phone != _challengePhone) {
+      _showVerifyError("Request a code for this phone number first.");
+      return;
+    }
     setState(() {
       _verifying = true;
       _error = null;
     });
-    final phone = digitsOnly(_phone.text.trim());
     try {
-      final challengeId = _challengeId;
-      if (challengeId == null || phone != _challengePhone)
-        throw Exception("Request a code for this phone number first.");
       final r = await api.post<Map<String, dynamic>>(
         "/v1/auth/otp/verify",
         data: {
@@ -666,10 +705,8 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
           : AuthorizationSession.home);
     } catch (e) {
       if (mounted) {
-        final error = formatApiError(e);
-        setState(() => _error = error);
-        SemanticsService.announce(error, Directionality.of(context),
-            assertiveness: Assertiveness.assertive);
+        _showVerifyError(plainErrorSentence(e,
+            "Could not sign you in. Check your connection, then try again."));
       }
     } finally {
       if (mounted) setState(() => _verifying = false);
@@ -770,7 +807,10 @@ class _CustomerRegisterUserScreenState
       );
       context.go("/customer/login");
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not create your account. Check your connection, then try again."));
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -876,7 +916,10 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
       }
       setState(() => _members = list);
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not load your team. Check your connection, then try again."));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -900,7 +943,10 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text("Teammate invited.")));
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not invite this teammate. Check your connection, then try again."));
+      }
     } finally {
       if (mounted) setState(() => _inviting = false);
     }
@@ -1053,7 +1099,10 @@ class _CustomerIntegrationsScreenState
       _deliveries = _mapList(r.data?["recentDeliveries"]);
       setState(() {});
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not load the integration settings. Check your connection, then try again."));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -1099,7 +1148,10 @@ class _CustomerIntegrationsScreenState
           const SnackBar(content: Text("Integration settings saved.")));
       await _load();
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not save the settings. Check your connection, then try again."));
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1124,7 +1176,10 @@ class _CustomerIntegrationsScreenState
       }
       await _load();
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not create a key. Check your connection, then try again."));
+      }
     } finally {
       if (mounted) setState(() => _creatingKey = false);
     }
@@ -1143,7 +1198,10 @@ class _CustomerIntegrationsScreenState
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text("API key revoked.")));
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not revoke this key. Check your connection, then try again."));
+      }
     }
   }
 
@@ -1167,7 +1225,10 @@ class _CustomerIntegrationsScreenState
       );
       await _load();
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not send the test ping. Check your connection, then try again."));
+      }
     } finally {
       if (mounted) setState(() => _testingWebhook = false);
     }
@@ -1183,7 +1244,10 @@ class _CustomerIntegrationsScreenState
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Delivery queued for retry.")));
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not retry this delivery. Check your connection, then try again."));
+      }
     }
   }
 
@@ -1456,7 +1520,10 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
           content: Text("Account created — sign in with your phone.")));
       context.go("/customer/login");
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            "Could not register your company. Check your connection, then try again."));
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -1588,15 +1655,6 @@ NvStatusLabel _laneStatusLabel(String status) {
   };
 }
 
-/// formatApiError's own sentences, but never its "HTTP n" or server-address fallbacks.
-String _plainError(Object error, String fallback) {
-  if (error is! DioException || serverNeverAnswered(error)) return fallback;
-  final sentence = formatApiError(error);
-  return sentence.startsWith("HTTP ") || sentence.startsWith("Cannot reach")
-      ? fallback
-      : sentence;
-}
-
 String _apiErrorCode(Object error) {
   final body = error is DioException ? error.response?.data : null;
   return body is Map ? body["error"]?.toString() ?? "" : "";
@@ -1628,6 +1686,30 @@ Widget _laneCard(Map<String, dynamic> lane, {required VoidCallback onOpen}) {
   );
 }
 
+/// Lane cards in a grid on a desktop (wb-lanes), one under another on a phone.
+List<Widget> _laneCards(BuildContext context, List<Map<String, dynamic>> lanes,
+    {required void Function(Map<String, dynamic> lane) onOpen}) {
+  final cards = [
+    for (final lane in lanes) _laneCard(lane, onOpen: () => onOpen(lane))
+  ];
+  if (!customerIsDesktop(context)) return cards;
+  return [
+    LayoutBuilder(builder: (context, constraints) {
+      const gap = NvSpace.s4;
+      final fit = ((constraints.maxWidth + gap) /
+              (CustomerBreakpoints.laneCardMin + gap))
+          .floor();
+      final columns = fit < 1 ? 1 : fit;
+      final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+      return Wrap(spacing: gap, children: [
+        for (final card in cards) SizedBox(width: width, child: card),
+      ]);
+    }),
+  ];
+}
+
+String _laneCount(int count) => count == 1 ? "1 lane" : "$count lanes";
+
 enum _LaneView { browse, match }
 
 class CustomerTripsScreen extends StatefulWidget {
@@ -1649,6 +1731,29 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final viewSwitch = SegmentedButton<_LaneView>(
+      segments: const [
+        ButtonSegment(value: _LaneView.browse, label: Text("Browse all")),
+        ButtonSegment(value: _LaneView.match, label: Text("Match my route")),
+      ],
+      selected: {_view},
+      showSelectedIcon: false,
+      onSelectionChanged: (chosen) => setState(() => _view = chosen.first),
+      style: ButtonStyle(
+        minimumSize: const WidgetStatePropertyAll(Size(0, NvSpace.targetMin)),
+        textStyle: const WidgetStatePropertyAll(NvText.bodyStrong),
+        backgroundColor: WidgetStateProperty.resolveWith((states) =>
+            states.contains(WidgetState.selected)
+                ? NvColors.card
+                : NvColors.sunken),
+        foregroundColor: WidgetStateProperty.resolveWith((states) =>
+            states.contains(WidgetState.selected)
+                ? NvColors.navyInk
+                : NvColors.slate),
+        side: const WidgetStatePropertyAll(
+            BorderSide(color: NvColors.controlBorder)),
+      ),
+    );
     return CustomerScaffold(
       title: "Find a lane",
       subtitle: "Pick a lane going your way.",
@@ -1657,32 +1762,14 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: NvSpace.s2),
-          SegmentedButton<_LaneView>(
-            segments: const [
-              ButtonSegment(value: _LaneView.browse, label: Text("Browse all")),
-              ButtonSegment(
-                  value: _LaneView.match, label: Text("Match my route")),
-            ],
-            selected: {_view},
-            showSelectedIcon: false,
-            onSelectionChanged: (chosen) =>
-                setState(() => _view = chosen.first),
-            style: ButtonStyle(
-              minimumSize:
-                  const WidgetStatePropertyAll(Size(0, NvSpace.targetMin)),
-              textStyle: const WidgetStatePropertyAll(NvText.bodyStrong),
-              backgroundColor: WidgetStateProperty.resolveWith((states) =>
-                  states.contains(WidgetState.selected)
-                      ? NvColors.card
-                      : NvColors.sunken),
-              foregroundColor: WidgetStateProperty.resolveWith((states) =>
-                  states.contains(WidgetState.selected)
-                      ? NvColors.navyInk
-                      : NvColors.slate),
-              side: const WidgetStatePropertyAll(
-                  BorderSide(color: NvColors.controlBorder)),
-            ),
-          ),
+          // On a desktop the switch keeps to the width of the Match search column.
+          if (customerIsDesktop(context))
+            Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                    width: CustomerBreakpoints.sideColumn, child: viewSwitch))
+          else
+            viewSwitch,
           Expanded(
             // Both views stay alive, so a match search survives a look at Browse. Offstage, unlike
             // IndexedStack, also hides the other view from screen readers and finders.
@@ -1728,8 +1815,15 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
       final r = await api.get<Map<String, dynamic>>("/anchor-trips");
       final raw = r.data?["trips"];
       if (!mounted) return;
-      setState(() => _lanes =
-          raw is List ? raw.whereType<Map<String, dynamic>>().toList() : []);
+      final lanes = raw is List
+          ? raw.whereType<Map<String, dynamic>>().toList()
+          : <Map<String, dynamic>>[];
+      setState(() => _lanes = lanes);
+      _announce(
+          context,
+          lanes.isEmpty
+              ? "No lanes are open right now."
+              : _laneCount(lanes.length));
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     } finally {
@@ -1771,13 +1865,12 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
                 title: "No lanes are open right now.",
                 help: "New lanes appear here when carriers publish them."),
           ] else
-            for (final lane in _lanes)
-              _laneCard(lane,
-                  onOpen: () => context.go(Uri(
-                      path: "/customer/book",
-                      queryParameters: {
-                        "anchorTripId": lane["id"]?.toString() ?? ""
-                      }).toString())),
+            ..._laneCards(context, _lanes,
+                onOpen: (lane) => context.go(Uri(
+                        path: "/customer/book",
+                        queryParameters: {
+                          "anchorTripId": lane["id"]?.toString() ?? ""
+                        }).toString())),
         ],
       ),
     );
@@ -1891,10 +1984,27 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.symmetric(vertical: NvSpace.s3),
-      children: _editing ? _form() : _results(),
-    );
+    const padding = EdgeInsets.symmetric(vertical: NvSpace.s3);
+    if (!customerIsDesktop(context)) {
+      return ListView(
+        padding: padding,
+        children: _editing ? _form() : [..._searchSummary(), ..._laneResults()],
+      );
+    }
+    // On a desktop the search sits beside its results (wb-lanes).
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SizedBox(
+        width: CustomerBreakpoints.sideColumn,
+        child: ListView(
+            padding: padding, children: _editing ? _form() : _searchSummary()),
+      ),
+      const SizedBox(width: NvSpace.s6),
+      Expanded(
+        child: ListView(
+            padding: padding,
+            children: _searchedWeightKg == null ? const [] : _laneResults()),
+      ),
+    ]);
   }
 
   List<Widget> _form() => [
@@ -1927,7 +2037,7 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
         ],
       ];
 
-  List<Widget> _results() => [
+  List<Widget> _searchSummary() => [
         _SearchSummary(
           rows: [
             ("Pickup", _searchedPickup!.words),
@@ -1938,6 +2048,9 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
           onChange: () => setState(() => _editing = true),
         ),
         const SizedBox(height: NvSpace.s3),
+      ];
+
+  List<Widget> _laneResults() => [
         if (_lanes.isEmpty)
           _NoMatchBox(
             title: _emptyTitle(_searchedWeightKg!),
@@ -1949,8 +2062,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
               liveRegion: true,
               child:
                   Text(_resultLine(_lanes.length), style: NvText.caption)),
-          for (final lane in _lanes)
-            _laneCard(lane, onOpen: () => context.go(_bookPath(lane))),
+          ..._laneCards(context, _lanes,
+              onOpen: (lane) => context.go(_bookPath(lane))),
         ],
       ];
 }
@@ -2209,7 +2322,7 @@ class _CustomerBookShipmentScreenState
           "Price for ${formatKg(weightKg)}: $spokenRupees rupees. This is the full price.");
     } catch (error) {
       if (mounted) {
-        setState(() => _actionError = _plainError(
+        setState(() => _actionError = plainErrorSentence(
             error, "Could not get a price. Check your connection, then try again."));
       }
     } finally {
@@ -2335,7 +2448,7 @@ class _CustomerBookShipmentScreenState
       } else if (code == "anchor_trip_not_open") {
         setState(() => _quote = null);
       } else {
-        setState(() => _actionError = _plainError(
+        setState(() => _actionError = plainErrorSentence(
             error, "Could not book. Check your connection, then try again."));
       }
       // The room shown is from when the screen opened; after a room refusal, show what is left now.
@@ -2351,13 +2464,29 @@ class _CustomerBookShipmentScreenState
   Widget build(BuildContext context) {
     final lane = _lane;
     final laneOpen = lane != null && lane["status"]?.toString() == "OPEN";
+    // On a desktop the price and Pay sit together in the side column (wb-book).
+    final desktop = customerIsDesktop(context);
     return CustomerScaffold(
       title: "Book space",
       subtitle: "Check the price, then pay.",
       currentPath: "/customer/book",
-      actionBar: lane == null
-          ? const SizedBox.shrink()
-          : NvActionBar(child: _actionBar(laneOpen)),
+      actionBar: desktop
+          ? null
+          : lane == null
+              ? const SizedBox.shrink()
+              : NvActionBar(child: _actionBar(laneOpen)),
+      sideBuilder: desktop && lane != null
+          ? (_) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (laneOpen && _pricePaise != null) ...[
+                    _PriceCard(pricePaise: _pricePaise!),
+                    const SizedBox(height: NvSpace.s4),
+                  ],
+                  _actionBar(laneOpen),
+                ],
+              )
+          : null,
       bodyBuilder: (_) => ListView(
         padding: const EdgeInsets.symmetric(vertical: NvSpace.s3),
         children: [
@@ -2387,8 +2516,10 @@ class _CustomerBookShipmentScreenState
                 changeLabel: "Change weight, pickup or drop",
                 onChange: _clearPrice,
               ),
-              const SizedBox(height: NvSpace.s4),
-              _PriceCard(pricePaise: _pricePaise!),
+              if (!desktop) ...[
+                const SizedBox(height: NvSpace.s4),
+                _PriceCard(pricePaise: _pricePaise!),
+              ],
             ],
           ],
         ],
@@ -2703,6 +2834,17 @@ DateTime? _momentFromUtcMs(Object? value) => value is num
 String _dateAndTime(DateTime moment) =>
     "${formatDate(moment)}, ${formatTimeIst(moment)}";
 
+typedef _ShipmentRow = ({
+  String route,
+  String? date,
+  String? weight,
+  String carrier,
+  NvStatusLabel status,
+  String? next,
+  bool needsYou,
+  VoidCallback open,
+});
+
 class CustomerShipmentsScreen extends StatefulWidget {
   const CustomerShipmentsScreen({super.key});
 
@@ -2762,7 +2904,8 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
     });
   }
 
-  Widget _card(Map<String, dynamic> shipment) {
+  /// What a card or a table row says about [shipment], the same on a phone and a desktop.
+  _ShipmentRow _row(Map<String, dynamic> shipment) {
     final lane = laneOfShipment(shipment, _lanesById);
     final tripStatus = lane?["status"]?.toString();
     final progress = shipmentProgress(shipment, tripStatus: tripStatus);
@@ -2772,25 +2915,126 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
             tripStatus: tripStatus) !=
         null;
     final id = shipment["id"]?.toString() ?? "";
-    final next = progress.next;
+    return (
+      route: shipmentRouteName(shipment, lane: lane, withDate: false) ??
+          "Shipment",
+      date: _laneStartWords(lane),
+      weight: _weightWords(shipment),
+      carrier: _carrierOf(shipment),
+      status: needsYou
+          ? const NvStatusLabel("Needs you", tone: NvStatusTone.attention)
+          : NvStatusLabel(progress.statusWord, tone: progress.statusTone),
+      next: progress.next,
+      needsYou: needsYou,
+      open: () {
+        if (id.isNotEmpty) context.go("/customer/shipments/$id");
+      },
+    );
+  }
+
+  Widget _card(Map<String, dynamic> shipment) {
+    final row = _row(shipment);
     return Padding(
       padding: const EdgeInsets.only(top: NvSpace.s3),
       child: NvListCard(
-        title: shipmentRouteName(shipment, lane: lane, withDate: false) ??
-            "Shipment",
-        status: needsYou
-            ? const NvStatusLabel("Needs you", tone: NvStatusTone.attention)
-            : NvStatusLabel(progress.statusWord, tone: progress.statusTone),
-        subtitle: [
-          _laneStartWords(lane),
-          _weightWords(shipment),
-          _carrierOf(shipment),
-        ].whereType<String>().join(" · "),
-        next: next == null ? null : "$next.",
-        needsYou: needsYou,
-        onOpen: () {
-          if (id.isNotEmpty) context.go("/customer/shipments/$id");
-        },
+        title: row.route,
+        status: row.status,
+        subtitle:
+            [row.date, row.weight, row.carrier].whereType<String>().join(" · "),
+        next: row.next == null ? null : "${row.next}.",
+        needsYou: row.needsYou,
+        onOpen: row.open,
+      ),
+    );
+  }
+
+  /// The desktop list (wb-shipments): one row per shipment, its route the link that opens it.
+  /// A window narrower than the columns scrolls the table sideways inside its own box.
+  Widget _table(List<Map<String, dynamic>> shipments) {
+    Widget cell(Widget child) => Padding(
+        padding: const EdgeInsets.symmetric(
+            horizontal: NvSpace.s3, vertical: NvSpace.s2),
+        child: child);
+    Widget words(String? text) => cell(Text(text ?? "", style: NvText.body));
+    Widget columnName(String text) => cell(Semantics(
+        header: true,
+        child: Text(text,
+            style: NvText.caption
+                .copyWith(fontWeight: FontWeight.w700, color: NvColors.ink))));
+    return Padding(
+      padding: const EdgeInsets.only(top: NvSpace.s3),
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Container(
+            width: constraints.maxWidth < CustomerBreakpoints.tableMin
+                ? CustomerBreakpoints.tableMin
+                : constraints.maxWidth,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+                color: NvColors.card,
+                borderRadius: BorderRadius.circular(NvRadius.card),
+                border: Border.all(color: NvColors.line)),
+            child: Table(
+              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+              columnWidths: const {
+                0: FlexColumnWidth(3),
+                1: FlexColumnWidth(1.2),
+                2: FlexColumnWidth(1.2),
+                3: FlexColumnWidth(2),
+                4: FlexColumnWidth(2),
+                5: FlexColumnWidth(3.5),
+              },
+              children: [
+                TableRow(
+                  decoration: const BoxDecoration(color: NvColors.sunken),
+                  children: [
+                    for (final name in [
+                      "Route",
+                      "Date",
+                      "Weight",
+                      "Carrier",
+                      "Status",
+                      "Next"
+                    ])
+                      columnName(name),
+                  ],
+                ),
+                for (final row in shipments.map(_row))
+                  TableRow(
+                    decoration: const BoxDecoration(
+                        border: Border(top: BorderSide(color: NvColors.line))),
+                    children: [
+                      cell(Semantics(
+                        link: true,
+                        child: InkWell(
+                          onTap: row.open,
+                          borderRadius: BorderRadius.circular(NvRadius.sm),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                                minHeight: NvSpace.targetMin),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(row.route,
+                                  style: NvText.bodyStrong.copyWith(
+                                      color: NvColors.navyInk,
+                                      decoration: TextDecoration.underline)),
+                            ),
+                          ),
+                        ),
+                      )),
+                      words(row.date),
+                      words(row.weight),
+                      words(row.carrier),
+                      cell(Align(
+                          alignment: Alignment.centerLeft, child: row.status)),
+                      words(row.next),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -2851,14 +3095,21 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
               child: Text(words,
                   style: NvText.heading.copyWith(color: NvColors.ink))),
         );
+    final desktop = customerIsDesktop(context);
     return [
       if (active.isNotEmpty) ...[
         heading("Active (${active.length})"),
-        for (final shipment in active) _card(shipment),
+        if (desktop)
+          _table(active)
+        else
+          for (final shipment in active) _card(shipment),
       ],
       if (done.isNotEmpty) ...[
         heading("Done"),
-        for (final shipment in done) _card(shipment),
+        if (desktop)
+          _table(done)
+        else
+          for (final shipment in done) _card(shipment),
       ],
     ];
   }
@@ -2904,6 +3155,7 @@ class _CustomerShipmentDetailScreenState
   DateTime? _lastLoadedAt;
   num _savedAtUtcMs = 0;
   Timer? _poll;
+  final _titleFocus = FocusNode();
 
   // Only a refresh the server never answered keeps what was loaded, so a half-typed e-way bill form
   // survives weak signal. An answered refusal (401, 403, 404) means this person may no longer see it.
@@ -2917,7 +3169,7 @@ class _CustomerShipmentDetailScreenState
     _payment = null;
     _trip = null;
     _liveLocation = null;
-    _error = _plainError(e,
+    _error = plainErrorSentence(e,
         "Could not load this shipment. Check your connection and pull down to try again.");
   }
 
@@ -3010,7 +3262,7 @@ class _CustomerShipmentDetailScreenState
       });
     } catch (e) {
       if (!mounted || identity != _signedInIdentity()) return;
-      setState(() => _trackingError = _plainError(e,
+      setState(() => _trackingError = plainErrorSentence(e,
           "Could not load the trip. Check your connection and pull down to try again."));
     }
   }
@@ -3067,11 +3319,19 @@ class _CustomerShipmentDetailScreenState
     _load().then((_) {
       if (mounted) _schedulePoll();
     });
+    // After Pay and book, a screen reader starts on the new shipment's title (accessibility.md).
+    if (widget.shipmentId == lastBookedShipmentId) {
+      lastBookedShipmentId = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _titleFocus.requestFocus();
+      });
+    }
   }
 
   @override
   void dispose() {
     _poll?.cancel();
+    _titleFocus.dispose();
     super.dispose();
   }
 
@@ -3126,6 +3386,7 @@ class _CustomerShipmentDetailScreenState
             panel: EwayBillCard(
                 key: const ValueKey("eway-bill-card"),
                 shipment: shipment,
+                portalButtonInPanel: customerIsDesktop(context),
                 onSaved: _takeSavedShipment));
       case ShipmentStepName.billCheck:
         return NvStep(
@@ -3322,13 +3583,15 @@ class _CustomerShipmentDetailScreenState
     );
   }
 
-  List<Widget> _content(Map<String, dynamic> shipment) {
-    final progress =
-        shipmentProgress(shipment, tripStatus: _trip?["status"]?.toString());
+  List<Widget> _content(
+      Map<String, dynamic> shipment, ShipmentProgress progress, bool desktop) {
     final map = progress.cancelled ? null : _trackingMap(shipment);
     return [
-      _summary(shipment, progress),
-      const SizedBox(height: NvSpace.s5),
+      if (!desktop) ...[
+        _summary(shipment, progress),
+        const SizedBox(height: NvSpace.s5),
+      ] else
+        const SizedBox(height: NvSpace.s2),
       if (progress.cancelled)
         _cancelled()
       else ...[
@@ -3362,19 +3625,28 @@ class _CustomerShipmentDetailScreenState
   @override
   Widget build(BuildContext context) {
     final shipment = _shipment;
-    // Part 1 of the e-way bill: the portal is the shipper's one primary action, kept in view.
+    final desktop = customerIsDesktop(context);
+    final progress = shipment == null
+        ? null
+        : shipmentProgress(shipment, tripStatus: _trip?["status"]?.toString());
+    // Part 1 of the e-way bill: the portal is the shipper's one primary action, kept in view. On a
+    // desktop it sits in the e-way bill step instead (wb-shipment).
     final portalIsPrimary = shipment != null &&
         shipment["status"] == "BOOKED" &&
         ewayBillStageOf(shipment) == EwayBillStage.none &&
         shipperCanWriteEwayBill(shipment);
     return CustomerScaffold(
       title: _title,
+      titleFocus: _titleFocus,
       currentPath: "/customer/shipments/${widget.shipmentId}",
-      actionBar: portalIsPrimary
+      actionBar: portalIsPrimary && !desktop
           ? const NvActionBar(
               child: EwayBillPortalButton(
                   label: "Open the e-way bill portal",
                   kind: NvButtonKind.primary))
+          : null,
+      sideBuilder: desktop && shipment != null
+          ? (_) => _summary(shipment, progress!)
           : null,
       bodyBuilder: (_) => _loading && shipment == null
           ? const NvStepList(
@@ -3396,7 +3668,8 @@ class _CustomerShipmentDetailScreenState
                     Text(_refreshFailedLine, style: NvText.caption)
                   else
                     const SizedBox.shrink(),
-                  if (shipment != null) ..._content(shipment),
+                  if (shipment != null)
+                    ..._content(shipment, progress!, desktop),
                 ],
               ),
             ),

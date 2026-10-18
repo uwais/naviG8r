@@ -32,10 +32,18 @@ bool shipperCanWriteEwayBill(Map<String, dynamic> shipment) =>
 /// The words of the shipper's e-way bill step. The bill is made on the government portal; this
 /// only holds the details the shipper types in and shows what NaviG8r staff saw when they looked
 /// the bill up. It sits inside the shipment's step list; the portal button for part 1 is the
-/// screen's primary action, in its action bar.
+/// screen's primary action, in its action bar on a phone and in this panel on a desktop.
 class EwayBillCard extends StatefulWidget {
-  const EwayBillCard({required this.shipment, this.onSaved, super.key});
+  const EwayBillCard(
+      {required this.shipment,
+      this.onSaved,
+      this.portalButtonInPanel = false,
+      super.key});
   final Map<String, dynamic> shipment;
+
+  /// Puts part 1's "Open the e-way bill portal" in this panel, for a desktop that has no action
+  /// bar to hold it.
+  final bool portalButtonInPanel;
 
   /// The shipment the server returned after a save, so the screen's steps move on at once.
   final ValueChanged<Map<String, dynamic>>? onSaved;
@@ -56,6 +64,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
   bool _busy = false;
   String? _error;
   String? _formSummary;
+  final _formSummaryFocus = FocusNode();
   String? _numberError;
   String? _gstinError;
   num _savedAtUtcMs = 0;
@@ -120,6 +129,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
     _gstin.dispose();
     _invoice.dispose();
     _note.dispose();
+    _formSummaryFocus.dispose();
     super.dispose();
   }
 
@@ -218,8 +228,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
     setState(() => _error = null);
     if (_formHasFieldErrors()) {
       setState(() {});
-      SemanticsService.announce(_formSummary!, direction,
-          assertiveness: Assertiveness.assertive);
+      _showFormSummary(direction);
       return;
     }
     if (_number.text.trim().isEmpty ||
@@ -227,8 +236,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
         _gstin.text.trim().isEmpty ||
         _invoice.text.trim().isEmpty) {
       setState(() => _formSummary = 'Fill in all four details to save.');
-      SemanticsService.announce(_formSummary!, direction,
-          assertiveness: Assertiveness.assertive);
+      _showFormSummary(direction);
       return;
     }
     setState(() => _formSummary = null);
@@ -238,6 +246,16 @@ class _EwayBillCardState extends State<EwayBillCard> {
       'billDate': date,
       'makerGstin': _gstin.text,
       'invoiceNumber': _invoice.text,
+    });
+  }
+
+  // A failed save says how many details need fixing, then focus moves to that summary
+  // (accessibility.md, e-way bill form).
+  void _showFormSummary(TextDirection direction) {
+    SemanticsService.announce(_formSummary!, direction,
+        assertiveness: Assertiveness.assertive);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _formSummaryFocus.requestFocus();
     });
   }
 
@@ -371,6 +389,11 @@ class _EwayBillCardState extends State<EwayBillCard> {
       const Text(
           'Make it on loading day, before the goods move: the bill is valid from when the truck is entered.',
           style: NvText.body),
+      if (canEdit && widget.portalButtonInPanel) ...[
+        const SizedBox(height: NvSpace.s3),
+        const EwayBillPortalButton(
+            label: 'Open the e-way bill portal', kind: NvButtonKind.primary),
+      ],
       ...actions,
     ];
   }
@@ -581,7 +604,9 @@ class _EwayBillCardState extends State<EwayBillCard> {
           style: NvText.body),
       if (_formSummary != null) ...[
         const SizedBox(height: NvSpace.s3),
-        NvMessage(_formSummary!, tone: NvMessageTone.problem),
+        Focus(
+            focusNode: _formSummaryFocus,
+            child: NvMessage(_formSummary!, tone: NvMessageTone.problem)),
       ],
       const SizedBox(height: NvSpace.s4),
       NvField(

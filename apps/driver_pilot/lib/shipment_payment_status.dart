@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'authorization_session.dart';
 import 'pilot_api.dart';
+import 'plain_error_sentence.dart';
 import 'ui/format.dart';
 
 class ShipmentPaymentStatus extends StatefulWidget {
@@ -66,7 +67,10 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
       if (!mounted || scope != AuthorizationSession.scopeKey) return;
       await widget.onAccepted?.call();
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            'Could not accept delivery. Check your connection, then try again.'));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

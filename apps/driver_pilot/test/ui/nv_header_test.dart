@@ -194,4 +194,39 @@ void main() {
     expect(find.text('Sharma Textiles'), findsOneWidget,
         reason: 'the company is still shown');
   });
+
+  testWidgets(
+      'with navigation, the links come first and the account button sits at the right end',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: DriverTheme.theme(),
+      home: Scaffold(
+        appBar: NvHeader(
+          company: 'Sharma Textiles',
+          person: 'Priya Raman',
+          role: 'Shipper',
+          phone: '+91 98450 12345',
+          companies: const [],
+          currentCompanyId: null,
+          onSwitch: (_) async => null,
+          onSignOut: () {},
+          navigation: const Text('Top links'),
+        ),
+      ),
+    ));
+    final links = tester.getRect(find.text('Top links'));
+    final account = tester.getRect(find.byType(InkWell));
+    expect(links.left, lessThan(account.left),
+        reason: 'wb-*: the links sit before the account button');
+    expect(account.right, greaterThan(1280 - 2 * NvSpace.s4),
+        reason: 'wb-*: the account button sits at the right end of the bar');
+    expect(tester.takeException(), isNull);
+
+    await mountHeader(tester, companyHeader());
+    expect(tester.getRect(find.byType(InkWell)).left, lessThan(NvSpace.s6),
+        reason: 'without navigation the phone header is unchanged');
+  });
 }

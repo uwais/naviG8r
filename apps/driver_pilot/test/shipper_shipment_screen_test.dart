@@ -10,7 +10,9 @@ import 'package:driver_pilot/eway_bill_card.dart';
 import 'package:driver_pilot/notification_center.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/ui/format.dart';
+import 'package:driver_pilot/ui/nv_action_bar.dart';
 import 'package:driver_pilot/ui/nv_field.dart';
+import 'package:driver_pilot/ui/nv_list_card.dart';
 import 'package:driver_pilot/ui/nv_step_list.dart';
 import 'package:driver_pilot/ui/pending_copy.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +22,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'support/mock_api.dart';
+import 'support/shipper_screen_checks.dart';
 
 final bookedAt = DateTime.utc(2026, 10, 17, 3, 30);
 final laneStart = DateTime.utc(2026, 10, 18, 3, 30);
@@ -82,12 +85,12 @@ class FakeServer {
   final answers = <String, Object>{};
 }
 
-/// A phone 360 dp wide, signed in as a Sharma Textiles shipper who may write the bill and add
-/// the truck. [height] is 800 for "visible without scrolling" checks; taller elsewhere, because the
-/// test font draws every letter a full square wide.
+/// A phone 360 dp wide, or [width] for the desktop layout, signed in as a Sharma Textiles shipper
+/// who may write the bill and add the truck. [height] is 800 for "visible without scrolling"
+/// checks; taller elsewhere, because the test font draws every letter a full square wide.
 Future<FakeServer> showShipperApp(WidgetTester tester, String start,
-    {double height = 3000}) async {
-  tester.view.physicalSize = Size(360, height);
+    {double height = 3000, double width = 360}) async {
+  tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   FlutterSecureStorage.setMockInitialValues({'access_token': 'synthetic'});
@@ -112,7 +115,8 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
   api.dio.httpClientAdapter = MockApiAdapter((request) {
     server.requests.add(request);
     final answer = server.answers[request.uri.path];
-    return jsonResponse(answer ?? {});
+    // A refusal is given as its own jsonResponse with a status code.
+    return answer is ResponseBody ? answer : jsonResponse(answer ?? {});
   });
   final router = GoRouter(initialLocation: start, routes: [
     GoRoute(
@@ -141,10 +145,11 @@ Future<FakeServer> showShipment(
     WidgetTester tester, Map<String, dynamic> shipment,
     {Map<String, dynamic>? trip,
     Map<String, dynamic>? payment,
-    double height = 3000}) async {
+    double height = 3000,
+    double width = 360}) async {
   final server = await showShipperApp(
       tester, '/customer/shipments/${shipment['id']}',
-      height: height);
+      height: height, width: width);
   server.answers['/shipments/${shipment['id']}'] = {
     'shipment': shipment,
     if (payment != null) 'payment': payment,
@@ -162,22 +167,6 @@ Future<void> leave(WidgetTester tester) =>
 
 Finder entry(String label) => find.descendant(
     of: find.widgetWithText(NvField, label), matching: find.byType(TextField));
-
-/// Records what a screen reader is told.
-List<String> watchAnnouncements(WidgetTester tester) {
-  final announced = <String>[];
-  tester.binding.defaultBinaryMessenger.setMockDecodedMessageHandler<dynamic>(
-      SystemChannels.accessibility, (message) async {
-    if ((message as Map)['type'] == 'announce') {
-      announced.add((message['data'] as Map)['message'] as String);
-    }
-    return null;
-  });
-  addTearDown(() => tester.binding.defaultBinaryMessenger
-      .setMockDecodedMessageHandler<dynamic>(
-          SystemChannels.accessibility, null));
-  return announced;
-}
 
 List<String> watchClipboard(WidgetTester tester) {
   final copied = <String>[];
@@ -197,6 +186,10 @@ void main() {
   textSizeTests();
   stepPanelTests();
   paymentHoldTests();
+  desktopTests();
+  focusTests();
+  plainErrorTests();
+  doubleTextAt800Tests();
 
   group('Shipment screen (5a)', () {
     testWidgets('the title is the route, never the carrier name',
@@ -836,5 +829,308 @@ void paymentHoldTests() {
     expect(find.text('Accept delivery'), findsOneWidget,
         reason: 'the existing accept-delivery action stays');
     await leave(tester);
+  });
+}
+
+const noCancelLine =
+    'Booked shipments cannot be cancelled in the app; to change one, contact ${PendingCopy.changeOrCancelContact}.';
+
+/// A shipment waiting on the shipper's e-way bill: the carrier accepted and named the truck.
+Map<String, dynamic> get needsBill => booking(extra: {
+      'assignedTruckNumber': 'KA01AB1234',
+      'carrierTransporterId': '29ABCDE1234F1Z5',
+    });
+
+void desktopTests() {
+  group('Desktop width (PR 9)', () {
+    testWidgets(
+        'at 1280 the details, Messages and the contact line sit beside the steps, and the portal is in the step',
+        (tester) async {
+      await showShipment(tester, needsBill,
+          trip: lane(), width: 1280, height: 900);
+      final steps = tester.getRect(find.byType(NvStepList));
+      for (final words in ['Messages', noCancelLine]) {
+        expect(tester.getRect(find.text(words)).left, greaterThan(steps.right),
+            reason: 'wb-shipment: "$words" sits in the side column');
+      }
+      final portal = find.text('Open the e-way bill portal');
+      expect(find.descendant(of: find.byType(NvStepList), matching: portal),
+          findsOneWidget,
+          reason: 'wb-shipment: the portal button sits in the e-way bill step');
+      expect(tester.getRect(portal).bottom, lessThanOrEqualTo(900),
+          reason: 'decisions.md 8: the primary action shows without scrolling');
+      expect(find.byType(NvActionBar), findsNothing,
+          reason: 'desktop: no bottom action bar');
+      expect(find.text('Bengaluru to Chennai'), findsOneWidget,
+          reason: 'the same title as the phone');
+      await leave(tester);
+    });
+
+    testWidgets(
+        'at 1280 the shipments list is a table inside its own sideways-scrolling box',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/shipments',
+          width: 1280, height: 900);
+      final waiting = booking(
+          id: 'shp_waiting',
+          status: 'PENDING_CARRIER_ACCEPT',
+          carrier: 'Deccan Movers',
+          extra: {'anchorTripId': 'lane-3'});
+      server.answers['/shipments'] = {
+        'shipments': [needsBill, waiting]
+      };
+      server.answers['/anchor-trips'] = {
+        'trips': [
+          lane(),
+          {...lane(), 'id': 'lane-3', 'destCity': 'Mysuru'},
+        ]
+      };
+      await tester.pumpAndSettle();
+      final table = find.byType(Table);
+      for (final column in [
+        'Route',
+        'Date',
+        'Weight',
+        'Carrier',
+        'Status',
+        'Next'
+      ]) {
+        expect(find.descendant(of: table, matching: find.text(column)),
+            findsOneWidget,
+            reason: 'wb-shipments: the "$column" column');
+      }
+      expect(
+          find.ancestor(
+              of: table,
+              matching: find.byWidgetPredicate((widget) =>
+                  widget is SingleChildScrollView &&
+                  widget.scrollDirection == Axis.horizontal)),
+          findsOneWidget,
+          reason: 'PR 9: the table scrolls sideways inside its own box');
+      expect(find.byType(NvListCard), findsNothing,
+          reason: 'desktop: rows, not cards');
+      expect(find.text('Active (2)'), findsOneWidget,
+          reason: 'the same heading as the phone');
+      expect(find.text('You make the e-way bill'), findsOneWidget,
+          reason: 'screens.md: the Next column comes from the step mapping');
+      expect(find.text('Needs you'), findsOneWidget);
+      expect(find.textContaining('shp_'), findsNothing, reason: 'never an ID');
+
+      server.answers['/shipments/shp_waiting'] = {'shipment': waiting};
+      await tester.tap(find.text('Bengaluru to Mysuru'));
+      await tester.pumpAndSettle();
+      expect(
+          find.text(
+              'Waiting for Deccan Movers to accept. Your payment is on hold; it is collected after delivery.'),
+          findsOneWidget,
+          reason: 'the route link opens the shipment');
+      await leave(tester);
+    });
+  });
+}
+
+void focusTests() {
+  group('Focus moves (PR 10)', () {
+    testWidgets("after Pay and book, focus starts on the new shipment's title",
+        (tester) async {
+      lastBookedShipmentId = 'shp_9f2c41';
+      addTearDown(() => lastBookedShipmentId = null);
+      await showShipment(tester, booking(status: 'PENDING_CARRIER_ACCEPT'),
+          trip: lane());
+      expect(
+          Focus.of(tester.element(find.text('Bengaluru to Chennai')))
+              .hasPrimaryFocus,
+          isTrue,
+          reason:
+              "accessibility.md: after Pay and book, focus moves to the shipment's H1");
+      expect(lastBookedShipmentId, isNull,
+          reason: 'only the first opening after booking moves focus');
+      await leave(tester);
+    });
+
+    testWidgets('a failed bill save moves focus to the error summary',
+        (tester) async {
+      await showShipment(tester, needsBill, trip: lane());
+      await tester.tap(find.text('I have made it. Enter the details'));
+      await tester.pumpAndSettle();
+      await tester.enterText(entry('E-way bill number'), '34120098765');
+      await tester.tap(find.text('Save e-way bill'));
+      await tester.pumpAndSettle();
+      expect(
+          Focus.of(tester.element(
+                  find.text('1 detail needs fixing before you can save.')))
+              .hasPrimaryFocus,
+          isTrue,
+          reason:
+              'accessibility.md: on a failed save, focus moves to the error summary');
+      await leave(tester);
+    });
+  });
+}
+
+void plainErrorTests() {
+  group('No HTTP text (PR 10)', () {
+    testWidgets('a refused Accept delivery says so in words', (tester) async {
+      final server = await showShipment(
+          tester,
+          booking(status: 'PENDING_RELEASE', ewayBill: billWithTruck, extra: {
+            'podAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+          }),
+          trip: lane(status: 'COMPLETED', started: leftAt));
+      server.answers['/shipments/shp_9f2c41/accept-pod'] =
+          jsonResponse({'error': 'boom'}, 500);
+      await tester.tap(find.text('Accept delivery'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Accept delivery')));
+      await tester.pumpAndSettle();
+      expect(
+          find.text(
+              'Could not accept delivery. Check your connection, then try again.'),
+          findsOneWidget,
+          reason: 'a failure is a plain sentence');
+      expect(find.textContaining('HTTP'), findsNothing,
+          reason: 'decisions.md 7: no "HTTP 500" in the app');
+      await leave(tester);
+    });
+
+    testWidgets('messages that fail to load say so in words', (tester) async {
+      final server = await showShipment(
+          tester, booking(status: 'PENDING_CARRIER_ACCEPT'),
+          trip: lane());
+      server.answers['/v1/shipments/shp_9f2c41/conversation/timeline'] =
+          jsonResponse({'error': 'boom'}, 500);
+      await tester.tap(find.text('Messages'));
+      await tester.pumpAndSettle();
+      expect(
+          find.text(
+              'Could not load messages. Check your connection, then try again.'),
+          findsOneWidget,
+          reason: 'a failure is a plain sentence');
+      expect(find.textContaining('HTTP'), findsNothing,
+          reason: 'decisions.md 7: no raw codes');
+      await leave(tester);
+    });
+  });
+}
+
+void doubleTextAt800Tests() {
+  group('200% text at 360 x 800 (PR 10)', () {
+    testWidgets('every shipment state fits, scrolled top to bottom',
+        (tester) async {
+      useDoubleTextSize(tester);
+      final states = <String,
+          (
+        Map<String, dynamic> shipment,
+        Map<String, dynamic> trip,
+        Map<String, dynamic>? payment
+      )>{
+        'waiting': (booking(status: 'PENDING_CARRIER_ACCEPT'), lane(), null),
+        'part 1': (needsBill, lane(), null),
+        'bill without truck': (
+          booking(
+              ewayBill: billNoTruck,
+              extra: {'assignedTruckNumber': 'KA01AB1234'}),
+          lane(),
+          null
+        ),
+        'checking': (booking(ewayBill: billWithTruck), lane(), null),
+        'problem': (
+          booking(ewayBill: {
+            ...billWithTruck,
+            'check': {'result': 'PROBLEM', 'problemReason': 'NOT_FOUND'}
+          }),
+          lane(),
+          null
+        ),
+        'not needed': (booking(ewayBill: notNeededBill), lane(), null),
+        'in transit': (
+          booking(ewayBill: notNeededBill),
+          lane(status: 'IN_PROGRESS', started: leftAt),
+          null
+        ),
+        'delivery confirmed': (
+          booking(status: 'PENDING_RELEASE', ewayBill: billWithTruck, extra: {
+            'podAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+            'paymentHoldUntilUtcMs': deliveredAt
+                .add(const Duration(hours: 48))
+                .millisecondsSinceEpoch,
+          }),
+          lane(status: 'COMPLETED', started: leftAt),
+          null
+        ),
+        'delivered': (
+          booking(status: 'DELIVERED', ewayBill: billWithTruck, extra: {
+            'podAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+            'podAcceptedAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+          }),
+          lane(status: 'COMPLETED', started: leftAt),
+          {'status': 'CAPTURED', 'amountPaise': 264000}
+        ),
+        'cancelled': (
+          booking(status: 'FAILED_CARRIER_REFUNDED'),
+          lane(),
+          {'status': 'REFUNDED', 'amountPaise': 264000}
+        ),
+      };
+      for (final MapEntry(key: name, value: (shipment, trip, payment))
+          in states.entries) {
+        await showShipment(tester, shipment,
+            trip: trip, payment: payment, height: 800);
+        await expectNoOverflowToTheEnd(tester, 'the shipment, $name');
+        await leave(tester);
+      }
+    });
+
+    testWidgets('the bill form, the shipments list and Updates fit',
+        (tester) async {
+      useDoubleTextSize(tester);
+      await showShipment(tester, needsBill, trip: lane(), height: 800);
+      await scrollTo(tester, find.text('I have made it. Enter the details'));
+      await tester.tap(find.text('I have made it. Enter the details'));
+      await tester.pumpAndSettle();
+      await expectNoOverflowToTheEnd(tester, 'the bill form');
+      await leave(tester);
+
+      final server =
+          await showShipperApp(tester, '/customer/shipments', height: 800);
+      server.answers['/shipments'] = {
+        'shipments': [
+          needsBill,
+          booking(id: 'shp_done', status: 'DELIVERED'),
+        ]
+      };
+      server.answers['/anchor-trips'] = {
+        'trips': [lane()]
+      };
+      server.answers['/v1/notifications/shipments'] = {
+        'shipments': [
+          {
+            'shipmentId': 'shp_9f2c41',
+            'latestAtUtcMs': leftAt.millisecondsSinceEpoch,
+            'unreadCount': 2
+          },
+          {
+            'shipmentId': 'shp_gone',
+            'latestAtUtcMs': bookedAt.millisecondsSinceEpoch,
+            'unreadCount': 0
+          },
+        ],
+        'unreadCount': 2
+      };
+      await tester.pumpAndSettle();
+      await expectNoOverflowToTheEnd(tester, 'Shipments');
+
+      await tester.tap(find.text('Home').last);
+      await tester.pumpAndSettle();
+      await scrollTo(tester, find.text('Updates'));
+      await tester.tap(find.text('Updates'));
+      await tester.pumpAndSettle();
+      expect(find.byType(NotificationInboxScreen), findsOneWidget);
+      await expectNoOverflowToTheEnd(tester, 'Updates');
+      // Closes the inbox, whose 30 second poll would otherwise outlive the test.
+      await leave(tester);
+    });
   });
 }
