@@ -47,7 +47,7 @@ import {
 } from "./razorpayPayouts.ts";
 import { emitIntegrationEvent } from "./integrationWebhooks.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
-import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
+import { assignedDriverMaySee, assignedTruckNumber, callerMayReportTripLocation, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -1163,6 +1163,13 @@ export function reportAnchorTripLocation(
       detail: "Mark the load as started before sending live location.",
       status: trip.status,
     });
+  }
+  // Opening the trip is enough for the office app to start sending this phone's position. That point
+  // would replace the truck's, so only the phone in the truck may write it.
+  if (!callerMayReportTripLocation(trip, userId)) {
+    throw new ApiError("location_not_from_driver", {
+      detail: "Only the driver on this trip can send its location.",
+    }, 403);
   }
   const point: GeoPoint = { lat: params.lat, lng: params.lng };
   assertGeoPoint(point, "location");

@@ -302,6 +302,64 @@ void main() {
       expect(find.text(tripNoLongerYours), findsOneWidget);
     });
 
+    testWidgets(
+        'an office phone does not share its location for a trip named to someone else',
+        (tester) async {
+      signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
+      api.dio.httpClientAdapter = MockApiAdapter((request) {
+        if (request.path == '/v1/pilot/anchor-trips/trip-a') {
+          return jsonResponse({
+            'trip': {
+              'id': 'trip-a',
+              'status': 'IN_PROGRESS',
+              'assignedDriverUserId': 'driver-one',
+            }
+          });
+        }
+        return jsonResponse({
+          'shipments': [shipmentOnTripA(status: 'PENDING_RELEASE')]
+        });
+      });
+      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      expect(find.text('Load in progress'), findsOneWidget);
+      expect(location.streams, isEmpty,
+          reason: 'the office phone never asks where it is');
+      expect(
+          find.text(
+              'Live GPS is shared with customers while the load is in progress.'),
+          findsNothing,
+          reason: 'this phone is not the truck, so it must not say it is sharing');
+    });
+
+    testWidgets(
+        'the person named on the trip still shares location, driver or owner',
+        (tester) async {
+      for (final subrole in ['DRIVER', 'OWNER']) {
+        signInAsCarrierStaff(subrole: subrole, canAssign: subrole != 'DRIVER');
+        location = FakeLocationService();
+        GeolocatorPlatform.instance = location;
+        api.dio.httpClientAdapter = MockApiAdapter((request) {
+          if (request.path == '/v1/pilot/anchor-trips/trip-a') {
+            return jsonResponse({
+              'trip': {
+                'id': 'trip-a',
+                'status': 'IN_PROGRESS',
+                'assignedDriverUserId': 'carrier-person',
+              }
+            });
+          }
+          return jsonResponse({
+            'shipments': [shipmentOnTripA(status: 'PENDING_RELEASE')]
+          });
+        });
+        await mountScreen(
+            tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+        expect(location.sharing, isTrue, reason: subrole);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      }
+    });
+
     testWidgets('is told the same when confirming delivery answers 404',
         (tester) async {
       signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
