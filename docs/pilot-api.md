@@ -199,7 +199,7 @@ A trip may name one truck and one driver: `assignedVehicleId` and `assignedDrive
 Shipments carry a read-only `assignedTruckNumber` (the trip's truck, same form) for shipper, carrier and ops logins, never for finance, admin or ERP callers. The e-way bill cards compare it with the bill's `truckNumber`.
 
 #### `POST /v1/pilot/anchor-trips/:tripId/location`
-Driver live GPS ping while a trip is in progress (Bearer; trip must belong to your carrier org). The server stores the latest point on the anchor trip (`lastLiveLocation`). The driver app sends pings about every 30s when on the active-trip map screen.
+The phone in the truck sends its position while the trip is `IN_PROGRESS` (Bearer; the trip must belong to the caller's carrier). That phone is the named driver's (`assignedDriverUserId`), or, when the trip names nobody, the person who started it (`startedByUserId`). Anyone else, including an owner or dispatcher who only opened the trip, gets `403 { "error": "location_not_from_driver", "detail": "Only the driver on this trip can send its location." }` and the stored point stays as it was. The server stores the latest accepted point on the anchor trip (`lastLiveLocation`). The driver app sends pings about every 30s from the active-trip screen, and only from that phone.
 
 Body:
 ```json

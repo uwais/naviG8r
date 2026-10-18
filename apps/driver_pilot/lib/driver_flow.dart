@@ -1809,6 +1809,15 @@ String _driverRefusalSentence(Object error) =>
         ? _tripNoLongerAssignedSentence
         : formatApiError(error);
 
+/// This phone is the one in the truck, so its position may be sent as the trip's. A named driver is
+/// that person. A trip that names nobody is from before assignments; the server accepts a location
+/// only from whoever started it.
+bool phoneIsInTheTruck(Map<String, dynamic>? trip, String? userId) {
+  final assigned = trip?["assignedDriverUserId"]?.toString() ?? "";
+  if (assigned.isEmpty) return true;
+  return assigned == userId;
+}
+
 class DriverActiveTripScreen extends StatefulWidget {
   const DriverActiveTripScreen({required this.tripId, super.key});
   final String tripId;
@@ -1844,15 +1853,17 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     _posSub = null;
   }
 
-  /// Location may be shared only while the trip on screen is in progress and still this person's to see.
+  /// Location may be shared only while this phone is the one in the truck, the trip is in progress, and it is still this person's to see.
   bool get _mayShareLocation =>
       mounted &&
       !_tripNoLongerAssigned &&
+      phoneIsInTheTruck(_trip, AuthorizationSession.user?["id"]?.toString()) &&
       _trip?["status"]?.toString() == "IN_PROGRESS";
 
   Future<void> _startLocation() async {
     // One attempt at a time: a load and Start load, or two loads, can both ask while an attempt waits on the phone.
-    if (_posSub != null || _startingLocationSharing) return;
+    // An office phone that only opened a driver's trip must not ask for location or send its own.
+    if (_posSub != null || _startingLocationSharing || !_mayShareLocation) return;
     _startingLocationSharing = true;
     try {
       // Each answer can arrive after the trip was given away or finished, so a check follows each one.
@@ -1967,7 +1978,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   }
 
   Future<void> _maybePostLocation(Position p) async {
-    if (_trip?["status"]?.toString() != "IN_PROGRESS") return;
+    if (!_mayShareLocation) return;
     final now = DateTime.now();
     if (_lastLocationPostAt != null &&
         now.difference(_lastLocationPostAt!) < const Duration(seconds: 30)) {
@@ -2286,7 +2297,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                         ),
                       );
                     }),
-                    if (tripStarted && !_hasActiveShipments) ...[
+                    if (tripStarted &&
+                        !_hasActiveShipments &&
+                        phoneIsInTheTruck(
+                            trip, AuthorizationSession.user?["id"]?.toString())) ...[
                       const SizedBox(height: 8),
                       Text(
                         "Live GPS is shared with customers while the load is in progress.",

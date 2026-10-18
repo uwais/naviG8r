@@ -376,3 +376,40 @@ test("public trip lists and the eligible-trip search carry neither the truck nor
     }
   }
 });
+
+test("an office phone cannot overwrite the truck's location; the named driver can, and a trip that names nobody stays with whoever started it", async t => {
+  const { f, first, secondTripId } = await fleetWithTwoDrivers(t);
+  assert.equal((await assign(f, f.trip.id, first, f.tokens.carrierA)).status, 200);
+  await bookAndAccept(f, f.trip.id);
+  // The office starts the load. Their phone is not the truck's: the trip names the driver.
+  assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/start`, "POST", {}, f.tokens.carrierA)).status, 200);
+  const location = `/v1/pilot/anchor-trips/${f.trip.id}/location`;
+  const fromDriver = await f.request(location, "POST", { lat: 12.97, lng: 77.59 }, first.token);
+  assert.equal(fromDriver.status, 200);
+  assert.equal(f.store.anchorTrips.get(f.trip.id)?.lastLiveLocation?.lat, 12.97);
+
+  registerCustomerUser(f.store, { fullName: "Synthetic Dispatcher", phone: "8000000015" });
+  inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: f.carrierA.org.id, phone: "8000000015", role: "DISPATCHER" });
+  const dispatcherToken = await f.login("8000000015");
+  for (const [who, token] of [["owner", f.tokens.carrierA], ["dispatcher", dispatcherToken]] as const) {
+    const refused = await f.request(location, "POST", { lat: 19.07, lng: 72.87 }, token);
+    assert.deepEqual([refused.status, refused.body.error, refused.body.detail], [403, "location_not_from_driver", "Only the driver on this trip can send its location."], who);
+    assert.equal(f.store.anchorTrips.get(f.trip.id)?.lastLiveLocation?.lat, 12.97, `${who} did not replace the truck's point`);
+  }
+
+  // A trip from before assignments names nobody. The person who started it still sends; the office does not.
+  const legacyId = secondTripId;
+  f.store.anchorTrips.set(legacyId, { ...f.store.anchorTrips.get(legacyId)!, status: "IN_PROGRESS", startedAtUtcMs: Date.now(), startedByUserId: first.userId });
+  const legacy = `/v1/pilot/anchor-trips/${legacyId}/location`;
+  const officeOnLegacy = await f.request(legacy, "POST", { lat: 19.07, lng: 72.87 }, f.tokens.carrierA);
+  assert.equal(officeOnLegacy.status, 403);
+  assert.equal(f.store.anchorTrips.get(legacyId)?.lastLiveLocation, undefined, "the office point was not stored");
+  const starter = await f.request(legacy, "POST", { lat: 12.91, lng: 77.64 }, first.token);
+  assert.equal(starter.status, 200);
+  assert.equal(f.store.anchorTrips.get(legacyId)?.lastLiveLocation?.lat, 12.91);
+
+  f.store.anchorTrips.set(legacyId, { ...f.store.anchorTrips.get(legacyId)!, startedByUserId: f.carrierA.user.id, lastLiveLocation: undefined });
+  const ownerStarted = await f.request(legacy, "POST", { lat: 13.08, lng: 80.27 }, f.tokens.carrierA);
+  assert.equal(ownerStarted.status, 200, "an owner who started a trip that names nobody is the one in the truck");
+  assert.equal(f.store.anchorTrips.get(legacyId)?.lastLiveLocation?.lat, 13.08);
+});
