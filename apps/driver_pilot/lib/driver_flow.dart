@@ -2936,6 +2936,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                   kind: NvButtonKind.secondary,
                   onPressed: () => context.go("/driver/publish")),
             ),
+            gap,
+            const Text(
+                "Your office changes your trips and the truck. Ask them if something is wrong.",
+                style: NvText.caption),
           ],
         ],
       ),

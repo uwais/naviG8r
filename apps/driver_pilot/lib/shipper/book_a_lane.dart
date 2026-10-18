@@ -192,7 +192,7 @@ class _CustomerBookShipmentScreenState
     setState(() => _pricing = true);
     try {
       const notFound =
-          "Could not find this place. Check the name, or drag its pin on the map.";
+          "Could not find this place. Check the name and try again.";
       final pickupPlaced = await _pickup.place(widget.findPlace,
           emptyError: "Enter the pickup place.", notFoundError: notFound);
       final dropPlaced = await _drop.place(widget.findPlace,

@@ -757,6 +757,35 @@ void main() {
       expect(find.text('NEEDS YOU'), findsNothing,
           reason: 'screens.md: in transit, the carrier acts next');
     });
+
+    testWidgets('Home built while signed out loads its task once sign-in lands',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer');
+      CustomerSession.clear();
+      await tester.pumpAndSettle();
+      server.answers['/shipments'] = {
+        'shipments': [
+          booking(extra: {'assignedTruckNumber': 'KA01AB1234'})
+        ]
+      };
+      server.answers['/anchor-trips'] = {
+        'trips': [lane()]
+      };
+      // The sign-in page sits on top of Home, so Home stays built across sign-in.
+      CustomerSession.applyForTest(
+          userFullName: 'Priya Raman',
+          customerOrgId: 'org-sharma',
+          customerOrgName: 'Sharma Textiles',
+          customerRole: 'CUSTOMER_MEMBER');
+      AuthorizationSession.principal!['permissions'] = [
+        ...AuthorizationSession.principal!['permissions'] as List,
+        'eway_bill.write',
+      ];
+      AuthorizationSession.revision.value++;
+      await tester.pumpAndSettle();
+      expect(find.text('Make the e-way bill'), findsOneWidget,
+          reason: 'seen on the emulator: Home stayed empty until pulled');
+    });
   });
 
   group('Updates', () {

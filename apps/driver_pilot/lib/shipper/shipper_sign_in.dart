@@ -148,9 +148,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
       if (token != null) await api.setToken(token);
       await CustomerSession.refresh();
       if (!mounted) return;
-      context.go(AuthorizationSession.hasRole("SHIPPER")
-          ? "/customer/shipments"
-          : AuthorizationSession.home);
+      context.go(AuthorizationSession.home);
     } catch (e) {
       if (mounted) {
         _showVerifyError(plainErrorSentence(e,

@@ -39,7 +39,7 @@ abstract final class AuthorizationSession {
   static String get home => hasRole('SHIPPER')
       ? '/customer'
       : hasRole('CARRIER')
-          ? '/driver/loads'
+          ? '/driver'
           : '/workspace';
   static String get scopeKey => '${user?['id']}:$organizationId';
 

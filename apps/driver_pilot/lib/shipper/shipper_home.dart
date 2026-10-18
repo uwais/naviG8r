@@ -29,17 +29,37 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   Map<String, Map<String, dynamic>> _lanesById = {};
   bool _shipmentsFailed = false;
   int _unreadUpdates = 0;
+  String? _loadedForAccount;
 
   @override
   void initState() {
     super.initState();
+    // Home sits under the sign-in page, so it is built signed out and must load once sign-in lands.
+    CustomerSession.listenable.addListener(_loadWhenTheAccountChanges);
     CustomerSession.refresh().then((_) {
       if (mounted) _load();
     });
   }
 
+  @override
+  void dispose() {
+    CustomerSession.listenable.removeListener(_loadWhenTheAccountChanges);
+    super.dispose();
+  }
+
+  void _loadWhenTheAccountChanges() {
+    if (!CustomerSession.isSignedIn) _loadedForAccount = null;
+    if (mounted &&
+        CustomerSession.isSignedIn &&
+        !AuthorizationSession.switching &&
+        _loadedForAccount != AuthorizationSession.scopeKey) {
+      _load();
+    }
+  }
+
   Future<void> _load() async {
     if (!CustomerSession.isSignedIn) return;
+    _loadedForAccount = AuthorizationSession.scopeKey;
     await Future.wait([_loadShipments(), _loadUnreadUpdates(), _loadLanes()]);
   }
 
