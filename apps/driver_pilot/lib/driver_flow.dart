@@ -2938,7 +2938,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             ),
             gap,
             const Text(
-                "Your office changes your trips and the truck. Ask them if something is wrong.",
+                "Your office assigns your trips. If something about a trip is wrong, ask your office.",
                 style: NvText.caption),
           ],
         ],

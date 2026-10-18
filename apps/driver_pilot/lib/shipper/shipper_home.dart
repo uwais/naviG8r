@@ -66,38 +66,46 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 
   Future<void> _load() async {
-    if (!CustomerSession.isSignedIn) return;
+    if (!CustomerSession.isSignedIn || !CustomerSession.hasCustomerOrg) return;
     _loadedForAccount = AuthorizationSession.scopeKey;
     await Future.wait([_loadShipments(), _loadUnreadUpdates(), _loadLanes()]);
   }
 
+  /// A request sent for one account can come back after another signed in; its answer, or its
+  /// cancel, must not land on the new account's Home.
+  bool _stillShowing(String account) =>
+      mounted && AuthorizationSession.scopeKey == account;
+
   Future<void> _loadShipments() async {
     if (!AuthorizationSession.can("load.read")) return;
+    final account = AuthorizationSession.scopeKey;
     try {
       final r = await api.get<Map<String, dynamic>>("/shipments");
       final raw = r.data?["shipments"];
-      if (!mounted) return;
+      if (!_stillShowing(account)) return;
       setState(() {
         _shipments =
             raw is List ? raw.whereType<Map<String, dynamic>>().toList() : [];
         _shipmentsFailed = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _shipmentsFailed = true);
+      if (_stillShowing(account)) setState(() => _shipmentsFailed = true);
     }
   }
 
   Future<void> _loadLanes() async {
+    final account = AuthorizationSession.scopeKey;
     final lanesById = await loadLanesById();
-    if (mounted) setState(() => _lanesById = lanesById);
+    if (_stillShowing(account)) setState(() => _lanesById = lanesById);
   }
 
   Future<void> _loadUnreadUpdates() async {
     if (!AuthorizationSession.can("notification.read")) return;
+    final account = AuthorizationSession.scopeKey;
     try {
       final r =
           await api.get<Map<String, dynamic>>("/v1/notifications/shipments");
-      if (mounted) {
+      if (_stillShowing(account)) {
         setState(() =>
             _unreadUpdates = (r.data?["unreadCount"] as num?)?.toInt() ?? 0);
       }
