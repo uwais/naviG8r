@@ -6,6 +6,7 @@ import 'package:driver_pilot/driver_session.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/transporter_id_section.dart';
+import 'package:driver_pilot/ui/nv_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,7 +27,10 @@ Future<void> mountSection(WidgetTester tester) async {
       home: Scaffold(body: ListView(children: const [TransporterIdSection()]))));
 }
 
-Finder transporterIdField() => find.widgetWithText(TextField, 'Transporter ID');
+// The label sits above the field (NvField), so the field is found inside the labelled NvField.
+Finder transporterIdField() => find.descendant(
+    of: find.widgetWithText(NvField, 'Transporter ID'),
+    matching: find.byType(TextField));
 
 Future<void> tapChange(WidgetTester tester) async {
   await tester.tap(find.text('Change transporter ID'));
@@ -434,6 +438,8 @@ void main() {
       ]) {
         await tester.enterText(find.widgetWithText(TextField, label), value);
       }
+      // PR 7: the size is a choice with nothing chosen, no longer a field prefilled with MEDIUM.
+      await tester.tap(find.text('Medium'));
       await tester.tap(find.text('Create carrier & continue'));
       await tester.pumpAndSettle();
       return sent;
@@ -443,6 +449,8 @@ void main() {
         (tester) async {
       final sent = await signUp(tester, transporterId: ' 29abcde1234f1z5 ');
       expect((sent.single as Map)['transporterId'], '29abcde1234f1z5');
+      expect((sent.single as Map)['vehicleClass'], 'MEDIUM',
+          reason: 'the size chosen on the chips is the one sent');
       expect(find.text('Code screen'), findsOneWidget);
     });
 

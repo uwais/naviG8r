@@ -3,10 +3,15 @@ import 'package:flutter/material.dart';
 import 'authorization_session.dart';
 import 'driver_session.dart';
 import 'pilot_api.dart';
+import 'refusal_sentence.dart';
+import 'ui/nv_button.dart';
+import 'ui/nv_field.dart';
+import 'ui/nv_section_card.dart';
+import 'ui/tokens.dart';
 
-/// Under the transporter ID field at sign-up and on Profile.
+/// Under the transporter ID field at sign-up and on Profile (spec/copy.md, Profile).
 const transporterIdHelperText =
-    'Your GSTIN, or the TRANSIN from the e-way bill portal. Shippers use it on the e-way bill.';
+    "Your GSTIN, or a TRANSIN if you have no GST registration. Shippers copy it into their e-way bills. It is not the shipper's GSTIN.";
 
 /// The carrier's transporter ID on Profile. The owner and owner-driver add, change or clear it; a dispatcher
 /// reads it; a driver does not see it, and the server does not send it to one. Shippers put it on the e-way
@@ -19,8 +24,8 @@ class TransporterIdSection extends StatefulWidget {
 }
 
 class _TransporterIdSectionState extends State<TransporterIdSection> {
-  // Read once, when Profile opens the section: a refresh started elsewhere on Profile (Save vehicle) empties the
-  // session's copy while it runs, and must not swap the field out mid-edit.
+  // Read once, when Profile opens the section: a refresh started elsewhere on Profile (a pull-down, or saving
+  // the truck) empties the session's copy while it runs, and must not swap the field out mid-edit.
   final _loadedWhenOpened = DriverSession.transporterIdLoaded;
   String? _savedTransporterId = DriverSession.transporterId;
   late final _transporterId =
@@ -67,75 +72,96 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
               ? 'Transporter ID saved.'
               : 'No transporter ID is saved now.')));
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) setState(() => _error = refusalSentence(e));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
-  void _cancel() => setState(() {
-        _transporterId.text = _savedTransporterId ?? '';
-        _error = null;
-        _editing = false;
-      });
+  void _cancel() {
+    if (_saving) return;
+    setState(() {
+      _transporterId.text = _savedTransporterId ?? '';
+      _error = null;
+      _editing = false;
+    });
+  }
+
+  List<Widget> _content() {
+    final saved = _savedTransporterId;
+    const help = Text(transporterIdHelperText, style: NvText.caption);
+    // No field until the saved ID has loaded: an empty one would let Save clear it.
+    if (!_loadedWhenOpened) {
+      return const [
+        Text(
+            'Could not load the transporter ID. Leave Profile and open it again to retry.',
+            style: NvText.body)
+      ];
+    }
+    if (!AuthorizationSession.can('transporter_id.write')) {
+      return [
+        saved == null
+            ? const Text('Not added yet. The carrier owner can add it.',
+                style: NvText.body)
+            : SelectableText(saved, style: NvText.id),
+        const SizedBox(height: NvSpace.s2),
+        help,
+      ];
+    }
+    if (!_editing) {
+      return [
+        SelectableText(saved!, style: NvText.id),
+        const SizedBox(height: NvSpace.s2),
+        help,
+        const SizedBox(height: NvSpace.s3),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: NvButton(
+              label: 'Change transporter ID',
+              kind: NvButtonKind.secondary,
+              onPressed: () {
+                setState(() => _editing = true);
+                // Explicit, not autofocus: autofocus is skipped while another Profile field has the cursor.
+                WidgetsBinding.instance.addPostFrameCallback(
+                    (_) => _transporterIdFocus.requestFocus());
+              }),
+        ),
+      ];
+    }
+    return [
+      NvField(
+        label: 'Transporter ID',
+        controller: _transporterId,
+        focusNode: _transporterIdFocus,
+        identifier: true,
+        textCapitalization: TextCapitalization.characters,
+        help: transporterIdHelperText,
+        errorText: _error,
+        readOnly: _saving,
+      ),
+      const SizedBox(height: NvSpace.s3),
+      Wrap(spacing: NvSpace.s2, runSpacing: NvSpace.s2, children: [
+        NvButton(
+            label: 'Save transporter ID',
+            loading: _saving,
+            loadingLabel: 'Saving',
+            onPressed: _save),
+        if (saved != null)
+          NvButton(
+              label: 'Cancel', kind: NvButtonKind.quiet, onPressed: _cancel),
+      ]),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
     // Holding trip.assign is what makes a login the carrier office: owner, owner-driver or dispatcher.
-    if (!AuthorizationSession.can('trip.assign')) return const SizedBox.shrink();
-    final saved = _savedTransporterId;
-    return Padding(
-        padding: const EdgeInsets.only(top: 24),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('Transporter ID',
-                  style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Text(transporterIdHelperText,
-                  style: Theme.of(context).textTheme.bodySmall),
-              const SizedBox(height: 12),
-              // No field until the saved ID has loaded: an empty one would let Save clear it.
-              if (!_loadedWhenOpened)
-                const Text(
-                    'Could not load the transporter ID. Leave Profile and open it again to retry.')
-              else if (AuthorizationSession.can('transporter_id.write') &&
-                  !_editing) ...[
-                SelectableText(saved!,
-                    style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                    onPressed: () {
-                      setState(() => _editing = true);
-                      // Explicit, not autofocus: autofocus is skipped while another Profile field has the cursor.
-                      WidgetsBinding.instance.addPostFrameCallback(
-                          (_) => _transporterIdFocus.requestFocus());
-                    },
-                    child: const Text('Change transporter ID')),
-              ] else if (AuthorizationSession.can('transporter_id.write')) ...[
-                TextField(
-                    controller: _transporterId,
-                    enabled: !_saving,
-                    focusNode: _transporterIdFocus,
-                    textCapitalization: TextCapitalization.characters,
-                    decoration:
-                        const InputDecoration(labelText: 'Transporter ID')),
-                if (_error != null)
-                  Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(_error!,
-                          style: TextStyle(
-                              color: Theme.of(context).colorScheme.error))),
-                const SizedBox(height: 12),
-                FilledButton(
-                    onPressed: _saving ? null : _save,
-                    child: Text(_saving ? 'Saving…' : 'Save transporter ID')),
-                if (saved != null)
-                  TextButton(
-                      onPressed: _saving ? null : _cancel,
-                      child: const Text('Cancel')),
-              ] else
-                Text(saved ?? 'Not added yet. The carrier owner can add it.'),
-            ]));
+    if (!AuthorizationSession.can('trip.assign')) {
+      return const SizedBox.shrink();
+    }
+    return NvSectionCard(title: 'Transporter ID', children: [
+      const SizedBox(height: NvSpace.s3),
+      ..._content(),
+    ]);
   }
 }

@@ -2752,8 +2752,9 @@ class _ConfirmBookingSheet extends StatelessWidget {
       onPrimary: () => Navigator.of(context).pop(true),
       cancelLabel: "Go back",
       onCancel: () => Navigator.of(context).pop(false),
-      footnote:
+      footer: const Text(
           "Next, you choose how to pay on the payment provider's screen.",
+          style: NvText.caption),
       choices: [
         row("Lane", _laneRoute(lane)),
         row("Carrier", carrier),

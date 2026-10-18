@@ -50,6 +50,13 @@ void signInAsCarrierLogin(
   api.selectOrganization('carrier-a');
 }
 
+/// The carrier's owner: the office plus who may add the bank account, which is how the app tells an owner from
+/// a dispatcher today.
+void signInAsCarrierOwner({List<String> alsoAllowed = const []}) =>
+    signInAsCarrierLogin(
+        office: true,
+        alsoAllowed: ['bank_account.create_token', ...alsoAllowed]);
+
 /// A shipment on trip-a as the carrier shipment list sends it; the amount is sent to the office only.
 Map<String, dynamic> shipmentOnTripA(
         {String status = 'BOOKED', int? netToCarrierPaise}) =>

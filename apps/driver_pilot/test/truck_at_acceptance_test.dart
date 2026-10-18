@@ -1,5 +1,6 @@
 // Accepting a booking whose trip names no truck (owner decision, 16 Oct 2026): the carrier office chooses the
 // truck first, from every Accept button; a driver, or a trip that already names its truck, accepts with one tap.
+// Since the redesign (PR 6) Accept is on the booking screen, not the list, and no truck starts chosen.
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/eway_bill_words.dart';
@@ -13,13 +14,25 @@ import 'support/mock_api.dart';
 const sheetTitle = 'Which truck carries this trip?';
 const acceptWithTruck = 'Accept with this truck';
 const acceptWithoutTruck = 'Accept without a truck';
+const chooseFirst = 'Choose a truck first.';
 const keptTruckSentence =
     'This trip already has truck KA01AB1234, so the booking was accepted with it. To change the truck, use Truck and driver on the trip screen.';
 
+String acceptedWith(String truck) =>
+    'Accepted with $truck. Synthetic Shipper A can make the e-way bill now.';
+
 const twoTrucks = {
   'vehicles': [
-    {'id': 'vehicle-1', 'registrationNumber': 'UP 1 345', 'vehicleClass': 'MEDIUM'},
-    {'id': 'vehicle-2', 'registrationNumber': 'KA02XY9999', 'vehicleClass': 'MEDIUM'},
+    {
+      'id': 'vehicle-1',
+      'registrationNumber': 'UP 1 345',
+      'vehicleClass': 'MEDIUM'
+    },
+    {
+      'id': 'vehicle-2',
+      'registrationNumber': 'KA02XY9999',
+      'vehicleClass': 'MEDIUM'
+    },
   ],
   'drivers': <Object>[],
 };
@@ -40,8 +53,9 @@ class Requests {
   var fleetLoads = 0;
 }
 
-/// Answers the carrier screens' requests: the shipment list, the trip, the truck list and Accept. Accept's reply
-/// carries [tripTruckAfterAccept] as the trip's truck, as the server sends it.
+/// Answers the carrier screens' requests: the shipment list, the trip, the truck list and Accept. The trip
+/// ends up with [tripTruckAfterAccept] when given, as the server sends it, or else with the chosen truck; the
+/// list then holds the booking as accepted with that truck.
 Requests answer(
     {Map<String, dynamic>? shipment,
     Object fleet = twoTrucks,
@@ -49,6 +63,19 @@ Requests answer(
     String? tripTruckAfterAccept}) {
   final requests = Requests();
   final listed = shipment ?? pendingShipment();
+  const registrations = {'vehicle-1': 'UP 1 345', 'vehicle-2': 'KA02XY9999'};
+  Map<String, dynamic> afterAccept() {
+    final body = requests.acceptBodies.last;
+    final chosen = body is Map ? registrations[body['vehicleId']] : null;
+    final truck =
+        tripTruckAfterAccept ?? chosen ?? listed['assignedTruckNumber'];
+    return {
+      ...listed,
+      'status': 'BOOKED',
+      if (truck != null) 'assignedTruckNumber': truck,
+    };
+  }
+
   api.dio.httpClientAdapter = MockApiAdapter((request) {
     if (request.method == 'POST') {
       requests.acceptBodies.add(request.data);
@@ -79,7 +106,7 @@ Requests answer(
       });
     }
     return jsonResponse({
-      'shipments': [listed]
+      'shipments': [requests.acceptBodies.isEmpty ? listed : afterAccept()]
     });
   });
   return requests;
@@ -97,74 +124,95 @@ Future<void> mountScreen(WidgetTester tester, Widget screen) async {
 Finder inSheet(Finder finder) =>
     find.descendant(of: find.byType(BottomSheet), matching: finder);
 
-FilledButton acceptWithTruckButton(WidgetTester tester) =>
-    tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, acceptWithTruck));
+FilledButton sheetPrimary(WidgetTester tester, String label) => tester
+    .widget<FilledButton>(inSheet(find.widgetWithText(FilledButton, label)));
 
-Future<void> tapAcceptOnShipmentsList(WidgetTester tester) async {
-  await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+/// Opens the booking and taps Accept: "Accept" for the office, "Accept booking" on a driver's screen.
+Future<void> tapAcceptOnBooking(WidgetTester tester,
+    {String label = 'Accept'}) async {
+  await mountScreen(
+      tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
+  await tester.tap(find.widgetWithText(FilledButton, label));
   await tester.pumpAndSettle();
 }
 
 void main() {
   group('The carrier office accepting on a trip that names no truck', () {
     testWidgets(
-        'chooses the truck first, from the Shipments list, and Accept sends it',
+        'chooses the truck first, on the booking screen, and Accept sends it',
         (tester) async {
       signInAs(office: true);
       final requests = answer();
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tapAcceptOnShipmentsList(tester);
+      await tapAcceptOnBooking(tester);
       expect(find.text(sheetTitle), findsOneWidget);
       expect(requests.acceptBodies, isEmpty,
           reason: 'nothing is accepted before a truck is chosen');
       expect(inSheet(find.text('UP010345')), findsOneWidget,
           reason: "each truck in the portal's form");
       expect(inSheet(find.text('KA02XY9999')), findsOneWidget);
-      expect(acceptWithTruckButton(tester).onPressed, isNull,
+      expect(inSheet(find.text('Medium truck')), findsNWidgets(2),
+          reason: 'ca-accept-empty: each truck says its size in words');
+      expect(sheetPrimary(tester, acceptWithTruck).onPressed, isNull,
           reason: 'with two trucks none is chosen for the office');
+      expect(inSheet(find.text(chooseFirst)), findsOneWidget,
+          reason: 'PR 6: the disabled Accept says why under it');
       expect(find.text(acceptWithoutTruck), findsNothing);
       await tester.tap(inSheet(find.text('KA02XY9999')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(acceptWithTruck));
+      expect(inSheet(find.text('Accept with KA02XY9999')), findsOneWidget,
+          reason: 'ca-accept-chosen: the button names the chosen truck');
+      expect(inSheet(find.text(chooseFirst)), findsNothing,
+          reason: 'the reason goes once a truck is chosen');
+      await tester.tap(find.text('Accept with KA02XY9999'));
       await tester.pumpAndSettle();
       expect(requests.acceptBodies, [
         {'vehicleId': 'vehicle-2'}
       ]);
       expect(find.text(sheetTitle), findsNothing);
-      expect(find.text('Booking accepted.'), findsOneWidget);
+      expect(find.text(acceptedWith('KA02XY9999')), findsOneWidget,
+          reason:
+              'copy.md accept result: the truck and what the shipper can do now');
     });
 
     testWidgets('Cancel closes the sheet and accepts nothing', (tester) async {
       signInAs(office: true);
       final requests = answer();
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tapAcceptOnShipmentsList(tester);
+      await tapAcceptOnBooking(tester);
       await tester.tap(inSheet(find.text('UP010345')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(find.text(sheetTitle), findsNothing);
       expect(requests.acceptBodies, isEmpty);
-      expect(find.text('Booking accepted.'), findsNothing);
+      expect(find.textContaining('Accepted with'), findsNothing);
     });
 
-    testWidgets('the only truck is already chosen', (tester) async {
+    testWidgets('nothing is chosen even when there is only one truck',
+        (tester) async {
       signInAs(office: true);
       final requests = answer(fleet: {
         'vehicles': [
-          {'id': 'vehicle-1', 'registrationNumber': 'UP1345', 'vehicleClass': 'MEDIUM'}
+          {
+            'id': 'vehicle-1',
+            'registrationNumber': 'UP1345',
+            'vehicleClass': 'MEDIUM'
+          }
         ],
         'drivers': <Object>[],
       });
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tapAcceptOnShipmentsList(tester);
+      await tapAcceptOnBooking(tester);
       expect(
           tester
               .widget<RadioListTile<String>>(find.byType(RadioListTile<String>))
               .groupValue,
-          'vehicle-1');
-      await tester.tap(find.text(acceptWithTruck));
+          isNull,
+          reason:
+              'spec: nothing preselected (RECON gap 28), even with one truck');
+      expect(sheetPrimary(tester, acceptWithTruck).onPressed, isNull,
+          reason: 'Accept waits for a choice');
+      await tester.tap(inSheet(find.text('UP010345')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Accept with UP010345'));
       await tester.pumpAndSettle();
       expect(requests.acceptBodies, [
         {'vehicleId': 'vehicle-1'}
@@ -177,8 +225,7 @@ void main() {
       signInAs(office: true);
       final requests =
           answer(fleet: {'vehicles': <Object>[], 'drivers': <Object>[]});
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tapAcceptOnShipmentsList(tester);
+      await tapAcceptOnBooking(tester);
       expect(
           find.text(
               'No trucks are set up for this carrier yet. You can accept now, but the shipper sees no truck until one is named on the trip screen. Trucks are added by inviting their drivers from Profile.'),
@@ -188,7 +235,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(requests.acceptBodies, [null],
           reason: 'accepted as before this change, with no truck sent');
-      expect(find.text('Booking accepted.'), findsOneWidget);
+      expect(find.text('Booking accepted.'), findsOneWidget,
+          reason: 'with no truck there is none to name');
     });
 
     testWidgets(
@@ -196,10 +244,10 @@ void main() {
         (tester) async {
       signInAs(office: true);
       final requests = answer(fleetStatus: 500);
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tapAcceptOnShipmentsList(tester);
+      await tapAcceptOnBooking(tester);
       expect(find.text('Could not load your trucks.'), findsOneWidget);
-      expect(find.text(acceptWithTruck), findsNothing);
+      expect(sheetPrimary(tester, acceptWithTruck).onPressed, isNull,
+          reason: 'nothing can be accepted without the truck list');
       expect(find.text(acceptWithoutTruck), findsNothing);
       await tester.tap(find.text('Try again'));
       await tester.pumpAndSettle();
@@ -209,44 +257,28 @@ void main() {
       expect(requests.acceptBodies, isEmpty);
     });
 
-    testWidgets('the shipment screen asks for the truck too', (tester) async {
-      signInAs(office: true);
-      final requests = answer();
-      await mountScreen(
-          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      await tester.tap(find.text('Accept booking'));
-      await tester.pumpAndSettle();
-      expect(find.text(sheetTitle), findsOneWidget);
-      await tester.tap(inSheet(find.text('UP010345')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(acceptWithTruck));
-      await tester.pumpAndSettle();
-      expect(requests.acceptBodies, [
-        {'vehicleId': 'vehicle-1'}
-      ]);
-    });
-
-    testWidgets(
-        'is told when the trip got another truck first, and kept it',
+    testWidgets('is told when the trip got another truck first, and kept it',
         (tester) async {
       signInAs(office: true);
       final requests = answer(tripTruckAfterAccept: 'KA01AB1234');
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tapAcceptOnShipmentsList(tester);
+      await tapAcceptOnBooking(tester);
       await tester.tap(inSheet(find.text('KA02XY9999')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(acceptWithTruck));
-      await tester.pumpAndSettle();
+      await tester.tap(find.text('Accept with KA02XY9999'));
+      // Not pumpAndSettle: Accept keeps its loading ring turning while the dialog is up.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
       expect(requests.acceptBodies, [
         {'vehicleId': 'vehicle-2'}
       ]);
       expect(find.text(keptTruckSentence), findsOneWidget);
-      expect(find.text('Booking accepted.'), findsNothing,
+      expect(find.text(acceptedWith('KA01AB1234')), findsNothing,
           reason: 'the office reads which truck the trip has first');
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
       expect(find.text(keptTruckSentence), findsNothing);
-      expect(find.text('Booking accepted.'), findsOneWidget);
+      expect(find.text(acceptedWith('KA01AB1234')), findsOneWidget,
+          reason: 'the result names the truck the trip kept');
     });
 
     testWidgets(
@@ -254,19 +286,18 @@ void main() {
         (tester) async {
       signInAs(office: true);
       answer(tripTruckAfterAccept: 'UP010345');
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tapAcceptOnShipmentsList(tester);
+      await tapAcceptOnBooking(tester);
       await tester.tap(inSheet(find.text('UP010345')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(acceptWithTruck));
+      await tester.tap(find.text('Accept with UP010345'));
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing,
           reason: 'vehicle-1 is registered as "UP 1 345"');
-      expect(find.text('Booking accepted.'), findsOneWidget);
+      expect(find.text(acceptedWith('UP010345')), findsOneWidget);
     });
 
     testWidgets(
-        'and so does the trip screen, whose Truck and driver card then shows that truck',
+        'but not on the trip screen, which since PR 7 lists the booking by its status and opens it there',
         (tester) async {
       signInAs(office: true);
       final requests = answer(fleet: {
@@ -276,22 +307,11 @@ void main() {
         ],
       });
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
-      await tester.tap(find.widgetWithText(TextButton, 'Accept'));
-      await tester.pumpAndSettle();
-      expect(find.text(sheetTitle), findsOneWidget);
-      await tester.tap(inSheet(find.text('KA02XY9999')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(acceptWithTruck));
-      await tester.pumpAndSettle();
-      expect(requests.acceptBodies, [
-        {'vehicleId': 'vehicle-2'}
-      ]);
-      final truckPicker = tester.widget<DropdownButton<String>>(
-          find.descendant(
-              of: find.widgetWithText(InputDecorator, 'Truck'),
-              matching: find.byType(DropdownButton<String>)));
-      expect(truckPicker.value, 'vehicle-2',
-          reason: 'the reloaded trip names the truck, so the picker shows it');
+      expect(find.text('Accept'), findsNothing,
+          reason: 'ca-trip: booking rows carry no buttons');
+      expect(find.text('Waiting for you'), findsOneWidget,
+          reason: 'the booking row says it waits for the office');
+      expect(requests.acceptBodies, isEmpty);
     });
   });
 
@@ -299,8 +319,7 @@ void main() {
     testWidgets('for a driver: no sheet and no truck sent', (tester) async {
       signInAs(office: false);
       final requests = answer();
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tapAcceptOnShipmentsList(tester);
+      await tapAcceptOnBooking(tester, label: 'Accept booking');
       expect(find.text(sheetTitle), findsNothing);
       expect(requests.acceptBodies, [null]);
       expect(requests.fleetLoads, 0);
@@ -311,8 +330,7 @@ void main() {
       signInAs(office: true);
       final requests =
           answer(shipment: pendingShipment(tripTruck: 'KA02XY9999'));
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tapAcceptOnShipmentsList(tester);
+      await tapAcceptOnBooking(tester);
       expect(find.text(sheetTitle), findsNothing);
       expect(requests.acceptBodies, [null]);
       expect(requests.fleetLoads, 0);
