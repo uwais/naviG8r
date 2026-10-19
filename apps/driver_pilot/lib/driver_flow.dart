@@ -4399,10 +4399,6 @@ SnackBar tripPublishedMessage() => DriverSession.carrierRole == "DRIVER"
             "Trip published. Your carrier must assign it to a driver. You will see it under Trips only if it is assigned to you."))
     : const SnackBar(content: Text("Trip published."));
 
-/// Where a pin starts before the place is known: the map needs a starting point, and Publish refuses until the
-/// person has searched for the place or dragged its pin.
-const _pinNotPlacedYet = LatLng(22.5, 79.0);
-
 /// The calendar day in India at [moment], held as midnight UTC so days compare directly.
 DateTime _dayInIndia(DateTime moment) {
   final india = moment.toUtc().add(const Duration(hours: 5, minutes: 30));
@@ -4666,7 +4662,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 labelController: _origin,
                 markerId: "pub_origin",
                 markerHue: BitmapDescriptor.hueOrange,
-                position: _originPos ?? _pinNotPlacedYet,
+                position: _originPos ?? pinNotPlacedYet,
                 onPositionChanged: (p) => setState(() => _originPos = p),
                 showMap: _originPos != null,
                 findPlace: widget.findPlace,
@@ -4678,7 +4674,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 labelController: _dest,
                 markerId: "pub_dest",
                 markerHue: BitmapDescriptor.hueAzure,
-                position: _destPos ?? _pinNotPlacedYet,
+                position: _destPos ?? pinNotPlacedYet,
                 onPositionChanged: (p) => setState(() => _destPos = p),
                 showMap: _destPos != null,
                 findPlace: widget.findPlace,

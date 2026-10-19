@@ -1,10 +1,12 @@
 // PR 4 of the redesign: the shipper Home, Find a lane, and Book with the full price before paying
 // (sh-home, sh-lanes-*, sh-book-*). Names, places and amounts are the mockups' synthetic ones.
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
+import 'package:driver_pilot/location_editor.dart';
 import 'package:driver_pilot/shipper/book_a_lane.dart';
 import 'package:driver_pilot/shipper/find_a_lane.dart';
-import 'package:driver_pilot/shipper/place_input.dart';
 import 'package:driver_pilot/shipper/shipper_home.dart';
 import 'package:driver_pilot/shipper/shipper_routes.dart';
 import 'package:driver_pilot/customer_layout.dart';
@@ -54,17 +56,62 @@ Map<String, dynamic> lane(
 /// What the fake server answers, by path; anything else is an empty 200.
 class FakeServer {
   final requests = <RequestOptions>[];
-  final answers = <String, ResponseBody Function(RequestOptions)>{};
+  final answers = <String, FutureOr<ResponseBody> Function(RequestOptions)>{};
 
   int countOf(String path) =>
       requests.where((request) => request.uri.path == path).length;
+
+  List<Map> sentTo(String path) => [
+        for (final request in requests)
+          if (request.uri.path == path) request.data as Map
+      ];
 
   void answer(String path, Object body, [int status = 200]) =>
       answers[path] = (_) => jsonResponse(body, status);
 }
 
+/// Finds every place at one point, named exactly as typed.
 Future<GeocodeOutcome> findAnyPlace(String place) async =>
-    GeocodeOutcome.ok(const LatLng(12.8, 77.7), place);
+    GeocodeOutcome.ok(const LatLng(12.8, 77.7), place, place);
+
+/// The place box titled [title] (Pickup or Drop) and its text box.
+Finder placeBox(String title) =>
+    find.widgetWithText(LocationEndpointEditor, title);
+Finder placeField(String title) =>
+    find.descendant(of: placeBox(title), matching: find.byType(TextField));
+
+/// Types [words] into a place box and taps its search, as a shipper finds a place.
+Future<void> searchPlace(
+    WidgetTester tester, String title, String words) async {
+  await tester.enterText(placeField(title), words);
+  final search = find.descendant(
+      of: placeBox(title), matching: find.byTooltip('Look up place'));
+  await tester.ensureVisible(search);
+  await tester.pumpAndSettle();
+  await tester.tap(search);
+  await tester.pumpAndSettle();
+}
+
+/// The map pin inside the place box titled [title].
+Marker pinIn(WidgetTester tester, String title) => tester
+    .widget<GoogleMap>(
+        find.descendant(of: placeBox(title), matching: find.byType(GoogleMap)))
+    .markers
+    .single;
+
+/// Lets requests that are answered run while one is still waiting; pumpAndSettle would wait
+/// forever on the waiting button's progress ring.
+Future<void> pumpWhileWaiting(WidgetTester tester) async {
+  for (var frame = 0; frame < 5; frame++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+}
+
+/// The one bottom button on Book.
+NvButton bookButton(WidgetTester tester) => tester.widget<NvButton>(find
+    .descendant(
+        of: find.byType(NvActionBar), matching: find.byType(NvButton))
+    .last);
 
 /// A phone 360 dp wide, or [width] for the desktop layout. [height] is 800 for "visible without
 /// scrolling" checks; taller elsewhere, because the test font draws every letter a full square
@@ -139,19 +186,23 @@ Finder field(String label) => find.descendant(
 const searchedBook =
     '/customer/book?anchorTripId=lane-1&weightKg=80&pickup=Bommasandra%2C+Bengaluru&pickupLat=12.8&pickupLng=77.7&drop=Guindy%2C+Chennai&dropLat=13.0&dropLng=80.2';
 
+/// The fake price: ₹33 a kg, so 80 kg is ₹2,640 and 90 kg is ₹2,970.
+ResponseBody priceByWeight(RequestOptions request) => jsonResponse({
+      'quote': {'grossPaise': ((request.data as Map)['weightKg'] as int) * 3300}
+    });
+
+/// Book opened from a match result; the price comes with no tap.
 Future<FakeServer> showPricedBook(WidgetTester tester,
     {double height = 2000, double width = 360}) async {
   final server =
       await showShipperApp(tester, searchedBook, height: height, width: width);
   server.answer('/anchor-trips/lane-1', {'trip': lane()});
-  server.answer('/shipments/quote', {
-    'quote': {'grossPaise': 264000}
-  });
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('Get price'));
+  server.answers['/shipments/quote'] = priceByWeight;
   await tester.pumpAndSettle();
   return server;
 }
+
+const fullPriceLine = 'This is the full price. Nothing is added at payment.';
 
 void main() {
   group('Home', () {
@@ -315,11 +366,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(field('Weight')).controller!.text, '',
           reason: 'decisions.md 6: nothing preselected, no preset weight');
-      expect(tester.widget<TextField>(field('Pickup')).controller!.text, '',
+      expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
+          '',
           reason: 'no preset pickup');
 
-      await tester.enterText(field('Pickup'), 'Bommasandra, Bengaluru');
-      await tester.enterText(field('Drop'), 'Guindy, Chennai');
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(field('Weight'), '80');
       await tester.tap(find.text('Find matching lanes'));
       await tester.pumpAndSettle();
@@ -341,9 +393,57 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(field('Weight')).controller!.text, '80',
           reason: 'screens.md: Book starts at the searched weight');
-      expect(tester.widget<TextField>(field('Pickup')).controller!.text,
+      expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
           'Bommasandra, Bengaluru',
           reason: 'screens.md: Book starts at the searched pickup');
+      expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7),
+          reason: 'Rishabh: Book keeps the places Match found, pins placed');
+    });
+
+    testWidgets('Match has the search-and-pin place box for pickup and drop',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/trips?tab=match');
+      server.answer('/v1/customer/eligible-anchor-trips', {'trips': []});
+      await tester.pumpAndSettle();
+      expect(placeBox('Pickup'), findsOneWidget,
+          reason: 'Rishabh: Match gets the place box Publish uses');
+      expect(placeBox('Drop'), findsOneWidget);
+      expect(find.byType(GoogleMap), findsNothing,
+          reason: 'a map shows once its place is found');
+
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      expect(find.byType(GoogleMap), findsOneWidget,
+          reason: 'the pickup map opens on its found place');
+      expect(pinIn(tester, 'Pickup').draggable, isTrue,
+          reason: 'the pin can be dragged to the exact spot');
+
+      pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.85, 77.65));
+      await tester.pumpAndSettle();
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await tester.enterText(field('Weight'), '80');
+      await tester.tap(find.text('Find matching lanes'));
+      await tester.pumpAndSettle();
+      final searched = server.requests
+          .lastWhere((request) =>
+              request.uri.path == '/v1/customer/eligible-anchor-trips')
+          .uri
+          .queryParameters;
+      expect(searched['pickupLat'], '12.85',
+          reason: 'the point sent is where the pin is');
+    });
+
+    testWidgets('Match asks for a place that has not been searched',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/trips?tab=match');
+      await tester.pumpAndSettle();
+      await tester.enterText(placeField('Pickup'), 'Bommasandra');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await tester.enterText(field('Weight'), '80');
+      await tester.tap(find.text('Find matching lanes'));
+      await tester.pumpAndSettle();
+      expect(find.text('Search for the pickup place.'), findsOneWidget,
+          reason: 'words with no pin have no point to match');
+      expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
     });
 
     testWidgets('Match with no lanes offers a lower weight or every lane',
@@ -354,8 +454,8 @@ void main() {
         'trips': [lane()]
       });
       await tester.pumpAndSettle();
-      await tester.enterText(field('Pickup'), 'Bommasandra, Bengaluru');
-      await tester.enterText(field('Drop'), 'Guindy, Chennai');
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(field('Weight'), '500');
       await tester.tap(find.text('Find matching lanes'));
       await tester.pumpAndSettle();
@@ -400,11 +500,12 @@ void main() {
     });
 
     testWidgets(
-        'fields start empty without a search, and Pay is absent before a price',
+        'with no search the fields start empty, and Pay is disabled until weight, pickup and drop are in',
         (tester) async {
       final server =
           await showShipperApp(tester, '/customer/book?anchorTripId=lane-1');
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
       await tester.pumpAndSettle();
       expect(find.text('Book space'), findsOneWidget, reason: 'copy.md: title');
       expect(find.text('Check the price, then pay.'), findsOneWidget,
@@ -413,113 +514,214 @@ void main() {
           reason: 'room left from capacity 1000 and booked 895');
       expect(find.text('Up to 105 kg on this lane.'), findsOneWidget,
           reason: 'copy.md: weight help');
-      for (final label in ['Weight', 'Pickup', 'Drop']) {
-        expect(tester.widget<TextField>(field(label)).controller!.text, '',
-            reason: 'screens.md: with no search, $label starts empty');
+      expect(tester.widget<TextField>(field('Weight')).controller!.text, '',
+          reason: 'screens.md: with no search, Weight starts empty');
+      for (final title in ['Pickup', 'Drop']) {
+        expect(tester.widget<TextField>(placeField(title)).controller!.text,
+            '',
+            reason: 'screens.md: with no search, $title starts empty');
       }
-      expect(find.text('Get price'), findsOneWidget,
-          reason: 'copy.md: Get price comes first');
-      expect(find.textContaining('Pay ₹'), findsNothing,
-          reason: 'copy.md: Pay only after a price');
+      expect(find.text('Get price'), findsNothing,
+          reason: 'Rishabh: no Get price step');
+
+      Future<void> expectWaitingFor(String missing) async {
+        await tester.pumpAndSettle();
+        expect(bookButton(tester).onPressed, isNull,
+            reason: 'Pay is disabled until there is a price');
+        expect(bookButton(tester).label, 'Pay');
+        expect(find.text(missing), findsOneWidget,
+            reason: 'the line under Pay says what is missing');
+        expect(server.countOf('/shipments/quote'), 0,
+            reason: 'nothing to price yet');
+      }
+
+      await expectWaitingFor(
+          'To see the price, enter the weight and search for the pickup and drop.');
+      await tester.enterText(field('Weight'), '80');
+      await expectWaitingFor('To see the price, search for the pickup and drop.');
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await expectWaitingFor('To see the price, search for the drop.');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      expect(server.countOf('/shipments/quote'), 1,
+          reason: 'Rishabh: the price comes by itself once everything is in');
+      expect(bookButton(tester).label, 'Pay ₹2,640');
+      expect(bookButton(tester).onPressed, isNotNull);
     });
 
     testWidgets(
-        'the price state shows the full price, the contact line and Pay',
-        (tester) async {
-      final server = await showPricedBook(tester);
-      expect(server.countOf('/shipments/quote'), 1);
-      expect(find.text('₹2,640'), findsOneWidget,
-          reason: 'copy.md: the price, Indian grouping');
-      expect(find.text('This is the full price. Nothing is added at payment.'),
-          findsOneWidget,
-          reason: 'decisions.md 6: full price on the same screen as Pay');
-      expect(
-          find.text(
-              'Changing weight, pickup or drop clears this price, and you get a new one.'),
-          findsOneWidget,
-          reason: 'copy.md: price note');
-      expect(
-          find.text(
-              'Your payment is held when you book and collected after delivery. Booked shipments cannot be cancelled in the app; to change one, contact [NaviG8r contact].'),
-          findsOneWidget,
-          reason:
-              'owner decision: no cancel in the app, the contact sits above Pay');
-      expect(find.text('Pay ₹2,640 and book'), findsOneWidget,
-          reason: 'copy.md: Pay names the amount');
-      expect(find.text('Get price'), findsNothing,
-          reason: 'one primary action at a time');
-    });
-
-    testWidgets('changing the weight clears the price and hides Pay',
+        'Book has the search-and-pin place box, with the pins the match search found',
         (tester) async {
       await showPricedBook(tester);
-      await tester.tap(find.text('Change weight, pickup or drop'));
-      await tester.pumpAndSettle();
-      await tester.enterText(field('Weight'), '90');
-      await tester.pumpAndSettle();
-      expect(find.text('₹2,640'), findsNothing,
-          reason: 'brief A.2: shown price is the charged price');
-      expect(find.textContaining('Pay ₹'), findsNothing,
-          reason: 'screens.md: any change hides Pay');
-      expect(find.text('Get price'), findsOneWidget,
-          reason: 'a new price is one tap away');
+      expect(placeBox('Pickup'), findsOneWidget,
+          reason: 'Rishabh: Book gets the place box Publish uses');
+      expect(placeBox('Drop'), findsOneWidget);
+      expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7),
+          reason: 'the pickup pin is where the match search put it');
+      expect(pinIn(tester, 'Drop').position, const LatLng(13.0, 80.2),
+          reason: 'the drop pin is where the match search put it');
+      expect(pinIn(tester, 'Drop').draggable, isTrue);
     });
 
     testWidgets(
-        'Pay opens the confirm sheet first; only Continue books, and Go back does not',
+        'the price comes without a tap, with every part of it and the contact line beside Pay',
+        (tester) async {
+      final server = await showPricedBook(tester);
+      expect(server.countOf('/shipments/quote'), 1,
+          reason: 'Rishabh: no tap, the price is fetched on its own');
+      expect(find.text('Get price'), findsNothing);
+      expect(find.text('₹2,640'), findsOneWidget,
+          reason: 'copy.md: the price, Indian grouping');
+      expect(find.text(fullPriceLine), findsOneWidget,
+          reason: 'decisions.md 6: full price on the same screen as Pay');
+      expect(
+          find.text('After you pay, Ravi Roadways accepts and names the truck.'),
+          findsOneWidget,
+          reason: 'moved from the confirm sheet onto the screen');
+      expect(
+          find.text(
+              "Pay opens the payment provider's screen, where you choose how to pay."),
+          findsOneWidget,
+          reason: 'moved from the confirm sheet: what Pay does next');
+      expect(find.text('Changing weight, pickup or drop gets a new price.'),
+          findsOneWidget,
+          reason: 'copy.md: price note');
+      expect(find.text(contactAbovePay), findsOneWidget,
+          reason:
+              'owner decision: no cancel in the app, the contact sits above Pay');
+      expect(bookButton(tester).label, 'Pay ₹2,640',
+          reason: 'Rishabh: the one button names the total');
+      final quoted = server.sentTo('/shipments/quote').single;
+      expect(quoted['weightKg'], 80);
+      expect((quoted['pickup'] as Map)['lat'], 12.8,
+          reason: 'the pickup pin from the search is priced');
+    });
+
+    testWidgets('while the price is coming the button says so',
+        (tester) async {
+      final answer = Completer<ResponseBody>();
+      final server = await showShipperApp(tester, searchedBook);
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = (_) => answer.future;
+      await pumpWhileWaiting(tester);
+      expect(find.text('Getting the price'), findsOneWidget,
+          reason: 'Rishabh: say "Getting the price" while fetching');
+      expect(find.textContaining('Pay ₹'), findsNothing);
+      answer.complete(jsonResponse({
+        'quote': {'grossPaise': 264000}
+      }));
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).label, 'Pay ₹2,640');
+    });
+
+    testWidgets('a new weight gets a new price, and Pay follows it',
+        (tester) async {
+      final server = await showPricedBook(tester);
+      await tester.enterText(field('Weight'), '90');
+      await tester.pumpAndSettle();
+      expect(server.sentTo('/shipments/quote').last['weightKg'], 90);
+      expect(find.text('₹2,640'), findsNothing,
+          reason: 'brief A.2: shown price is the charged price');
+      expect(bookButton(tester).label, 'Pay ₹2,970');
+    });
+
+    testWidgets('moving a pin gets a new price, and the pin is what is booked',
         (tester) async {
       final server = await showPricedBook(tester);
       server.answer('/shipments/book', {
         'shipment': {'id': 'shipment-9'},
         'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
       });
-      await tester.tap(find.text('Pay ₹2,640 and book'));
+      pinIn(tester, 'Drop').onDragEnd!(const LatLng(13.05, 80.25));
       await tester.pumpAndSettle();
+      expect(server.countOf('/shipments/quote'), 2,
+          reason: 'a moved pin is a new place to price');
+      expect((server.sentTo('/shipments/quote').last['drop'] as Map)['lat'],
+          13.05);
+      await tester.tap(find.text('Pay ₹2,640'));
+      await tester.pumpAndSettle();
+      final booked = server.sentTo('/shipments/book').single;
+      expect((booked['drop'] as Map)['lat'], 13.05,
+          reason: 'Rishabh: the point sent is the pin\'s point');
+      expect((booked['drop'] as Map)['lng'], 80.25);
+    });
 
-      expect(find.byType(NvSheet), findsOneWidget,
-          reason: 'decisions.md: a confirm sheet before the payment provider');
-      Finder inSheet(String text) =>
-          find.descendant(of: find.byType(NvSheet), matching: find.text(text));
-      expect(inSheet('Pay ₹2,640 to book?'), findsOneWidget,
-          reason: 'copy.md: the sheet asks with the amount');
-      expect(inSheet('You pay'), findsOneWidget,
-          reason: 'copy.md: the sheet names what is paid');
-      expect(inSheet('₹2,640'), findsOneWidget,
-          reason: 'the full price again, before money moves');
-      expect(inSheet('Bengaluru to Chennai'), findsOneWidget,
-          reason: 'copy.md: Lane row');
-      expect(inSheet('80 kg'), findsOneWidget, reason: 'copy.md: Weight row');
-      expect(
-          inSheet(
-              'You cannot cancel in the app. To change the booking, contact [NaviG8r contact].'),
-          findsOneWidget,
-          reason: 'owner decision: the no-cancel line is in the sheet');
-      expect(
-          inSheet(
-              "Next, you choose how to pay on the payment provider's screen."),
-          findsOneWidget,
-          reason: 'copy.md: says what comes next');
-      expect(server.countOf('/shipments/book'), 0,
-          reason: 'nothing is booked before Continue');
+    testWidgets('a late price answer for older inputs is ignored',
+        (tester) async {
+      final answers = <int, Completer<ResponseBody>>{};
+      final server = await showShipperApp(tester, searchedBook);
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = (request) => answers
+          .putIfAbsent((request.data as Map)['weightKg'] as int,
+              () => Completer<ResponseBody>())
+          .future;
+      await pumpWhileWaiting(tester);
+      await tester.enterText(field('Weight'), '90');
+      await pumpWhileWaiting(tester);
+      answers[90]!.complete(jsonResponse({
+        'quote': {'grossPaise': 297000}
+      }));
+      await tester.pumpAndSettle();
+      answers[80]!.complete(jsonResponse({
+        'quote': {'grossPaise': 264000}
+      }));
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).label, 'Pay ₹2,970',
+          reason: 'the 80 kg answer came last but is for weight no longer entered');
+      expect(find.text('₹2,640'), findsNothing);
+    });
 
-      await tester.tap(inSheet('Go back'));
+    testWidgets('Pay opens payment in one tap, with no sheet first',
+        (tester) async {
+      final server = await showPricedBook(tester);
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
+      });
+      await tester.tap(find.text('Pay ₹2,640'));
       await tester.pumpAndSettle();
-      expect(find.byType(NvSheet), findsNothing);
-      expect(server.countOf('/shipments/book'), 0,
-          reason: 'Go back books nothing');
-
-      await tester.tap(find.text('Pay ₹2,640 and book'));
-      await tester.pumpAndSettle();
-      await tester.tap(inSheet('Continue to payment'));
-      await tester.pumpAndSettle();
+      expect(find.byType(NvSheet), findsNothing,
+          reason: 'Rishabh: from a filled form, paying is one tap');
       expect(server.countOf('/shipments/book'), 1,
-          reason: 'Continue runs the existing booking call');
-      final booked = server.requests
-          .lastWhere((request) => request.uri.path == '/shipments/book')
-          .data as Map;
+          reason: 'the one tap runs the existing booking call');
+      final booked = server.sentTo('/shipments/book').single;
       expect(booked['weightKg'], 80, reason: 'the priced weight is booked');
+      expect(booked['pickupAddress'], 'Bommasandra, Bengaluru');
       expect(find.text('Shipment shipment-9'), findsOneWidget,
           reason: 'after booking, the shipment opens');
+    });
+
+    testWidgets('one tap on Pay opens the payment provider with the amount',
+        (tester) async {
+      final opened = <Map>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('razorpay_flutter'), (call) async {
+        if (call.method == 'open') opened.add(call.arguments as Map);
+        return call.method == 'open'
+            ? {
+                'type': 1,
+                'data': {'code': 2, 'message': 'Payment cancelled'}
+              }
+            : null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+              const MethodChannel('razorpay_flutter'), null));
+      final server = await showPricedBook(tester);
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {
+          'status': 'CREATED',
+          'amountPaise': 264000,
+          'razorpayOrderId': 'order_synthetic'
+        },
+        'razorpayKeyId': 'rzp_test_synthetic',
+      });
+      await tester.tap(find.text('Pay ₹2,640'));
+      await tester.pumpAndSettle();
+      expect(opened, hasLength(1),
+          reason: 'Rishabh: Pay goes straight to the payment step');
+      expect(opened.single.toString(), contains('264000'),
+          reason: 'the provider is opened for the amount on Pay');
     });
 
     testWidgets(
@@ -527,9 +729,7 @@ void main() {
         (tester) async {
       final server = await showPricedBook(tester);
       server.answer('/shipments/book', {'error': 'insufficient_capacity'}, 400);
-      await tester.tap(find.text('Pay ₹2,640 and book'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Continue to payment'));
+      await tester.tap(find.text('Pay ₹2,640'));
       await tester.pumpAndSettle();
       expect(
           find.text(
@@ -540,8 +740,6 @@ void main() {
           reason: 'decisions.md 7: no raw codes');
       expect(find.text('Choose another lane'), findsOneWidget,
           reason: 'copy.md: the way to another lane');
-      expect(find.textContaining('Pay ₹'), findsNothing,
-          reason: 'the refused price is cleared');
     });
 
     // The booking exists before checkout opens, so after checkout the shipper goes to it and Pay is
@@ -570,9 +768,7 @@ void main() {
         server.answer(
             '/v1/payments/razorpay/confirm', {'error': 'internal_error'}, 500);
       }
-      await tester.tap(find.text('Pay ₹2,640 and book'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Continue to payment'));
+      await tester.tap(find.text('Pay ₹2,640'));
       await tester.pumpAndSettle();
       return (server, announced);
     }
@@ -629,9 +825,7 @@ void main() {
         'shipment': {'id': 'shipment-9'},
         'payment': {'status': 'CREATED', 'amountPaise': 264000},
       });
-      await tester.tap(find.text('Pay ₹2,640 and book'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Continue to payment'));
+      await tester.tap(find.text('Pay ₹2,640'));
       await tester.pumpAndSettle();
       expect(find.text('Shipment shipment-9'), findsOneWidget);
       expect(
@@ -641,49 +835,53 @@ void main() {
           reason: 'checkout never opened, so nothing was paid');
     });
 
-    testWidgets('a link point off the globe is looked up from its words',
+    testWidgets(
+        'a link point off the globe is never sent; the place waits for a search',
         (tester) async {
       final server = await showShipperApp(
           tester, searchedBook.replaceFirst('pickupLat=12.8', 'pickupLat=NaN'));
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
-      server.answer('/shipments/quote', {
-        'quote': {'grossPaise': 264000}
-      });
+      server.answers['/shipments/quote'] = priceByWeight;
       await tester.pumpAndSettle();
-      expect(find.text('Bommasandra, Bengaluru'), findsWidgets,
+      expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
+          'Bommasandra, Bengaluru',
           reason: 'the words from the link stay');
-      await tester.tap(find.text('Get price'));
+      expect(server.countOf('/shipments/quote'), 0,
+          reason: 'a NaN latitude is never sent');
+      expect(find.text('To see the price, search for the pickup.'),
+          findsOneWidget);
+      await tester.tap(find.descendant(
+          of: placeBox('Pickup'), matching: find.byTooltip('Look up place')));
       await tester.pumpAndSettle();
-      final quoted = server.requests
-          .lastWhere((request) => request.uri.path == '/shipments/quote')
-          .data as Map;
-      expect((quoted['pickup'] as Map)['lat'], 12.8,
-          reason: 'a NaN latitude is never sent; the words were looked up');
+      expect((server.sentTo('/shipments/quote').single['pickup'] as Map)['lat'],
+          12.8,
+          reason: 'the searched place is priced');
     });
 
     testWidgets('a weight over the room left is refused before pricing',
         (tester) async {
-      final server = await showShipperApp(tester, searchedBook);
-      server.answer('/anchor-trips/lane-1', {'trip': lane()});
-      await tester.pumpAndSettle();
+      final server = await showPricedBook(tester);
       await tester.enterText(field('Weight'), '150');
-      await tester.tap(find.text('Get price'));
       await tester.pumpAndSettle();
       expect(
           find.text(
               'This lane does not have room for that weight. Enter a lower weight, or choose another lane.'),
           findsOneWidget,
           reason: 'sh-book-error: the too-heavy sentence under Weight');
-      expect(server.countOf('/shipments/quote'), 0,
+      expect(server.sentTo('/shipments/quote').map((sent) => sent['weightKg']),
+          isNot(contains(150)),
           reason: 'no price for a weight the lane cannot take');
+      expect(bookButton(tester).onPressed, isNull,
+          reason: 'no Pay without a price');
+      expect(find.text('Enter a lower weight to see the price.'),
+          findsOneWidget);
     });
 
-    testWidgets('a server error never shows HTTP text', (tester) async {
+    testWidgets('a server error never shows HTTP text, and Try again re-asks',
+        (tester) async {
       final server = await showShipperApp(tester, searchedBook);
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
       server.answer('/shipments/quote', {'error': 'boom', 'detail': 'x'}, 500);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Get price'));
       await tester.pumpAndSettle();
       expect(find.textContaining('HTTP'), findsNothing,
           reason: 'decisions.md 7: no "HTTP 500" in the app');
@@ -692,6 +890,10 @@ void main() {
               'Could not get a price. Check your connection, then try again.'),
           findsOneWidget,
           reason: 'a plain sentence instead');
+      server.answers['/shipments/quote'] = priceByWeight;
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).label, 'Pay ₹2,640');
     });
 
     testWidgets('a lane that is not open says so instead of offering a price',
@@ -706,22 +908,19 @@ void main() {
               'This lane is no longer taking bookings. Choose another lane.'),
           findsOneWidget,
           reason: 'a full lane cannot be booked');
-      expect(find.text('Get price'), findsNothing,
+      expect(find.textContaining('Pay'), findsNothing,
           reason: 'no price for a lane that takes no bookings');
     });
 
     testWidgets(
-        'Pay and the contact line are on screen without scrolling at 360 x 800',
+        'Pay, the full-price line and the contact line are on screen without scrolling at 360 x 800',
         (tester) async {
       await showPricedBook(tester, height: 800);
-      for (final words in [
-        'Pay ₹2,640 and book',
-        'Your payment is held when you book and collected after delivery. Booked shipments cannot be cancelled in the app; to change one, contact [NaviG8r contact].'
-      ]) {
+      for (final words in ['Pay ₹2,640', fullPriceLine, contactAbovePay]) {
         final shown = tester.getRect(find.text(words));
         expect(shown.top >= 0 && shown.bottom <= 800, isTrue,
             reason:
-                'decisions.md 8: the primary action and the way out show at 360 x 800');
+                'decisions.md 8 and no hidden costs: "$words" shows beside Pay at 360 x 800');
       }
     });
 
@@ -769,7 +968,6 @@ void main() {
 
   desktopTests();
   announcementTests();
-  placeInputTests();
   placeSearchFailureTests();
   doubleTextTests();
 }
@@ -792,10 +990,10 @@ void desktopTests() {
       }
 
       final price = find.text('₹2,640');
-      final pay = find.text('Pay ₹2,640 and book');
+      final pay = find.text('Pay ₹2,640');
       expect(onScreen(price) && onScreen(pay), isTrue,
           reason: 'PR 9: the price card and Pay are on screen together');
-      final fields = tester.getRect(find.text('Change weight, pickup or drop'));
+      final fields = tester.getRect(field('Weight'));
       expect(tester.getRect(price).left, greaterThan(fields.right),
           reason: 'wb-book: the price card sits in the side column');
       expect(tester.getRect(pay).left, greaterThan(fields.right),
@@ -885,9 +1083,13 @@ void desktopTests() {
       });
       await tester.tap(find.text('Match my route'));
       await tester.pumpAndSettle();
-      await tester.enterText(field('Pickup'), 'Bommasandra, Bengaluru');
-      await tester.enterText(field('Drop'), 'Guindy, Chennai');
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      // The pickup map pushes the rest of the search column below 900.
+      await scrollTo(tester, placeField('Drop'));
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await scrollTo(tester, field('Weight'));
       await tester.enterText(field('Weight'), '80');
+      await scrollTo(tester, find.text('Find matching lanes'));
       await tester.tap(find.text('Find matching lanes'));
       await tester.pumpAndSettle();
       final result = tester.getRect(find
@@ -903,7 +1105,7 @@ void desktopTests() {
           reason: 'PR 9: below 1024 there is no top bar');
       expect(
           find.ancestor(
-              of: find.text('Pay ₹2,640 and book'),
+              of: find.text('Pay ₹2,640'),
               matching: find.byType(NvActionBar)),
           findsOneWidget,
           reason: 'phone: Pay stays in the bottom action bar');
@@ -929,25 +1131,6 @@ void desktopTests() {
   });
 }
 
-void placeInputTests() {
-  test(
-      'a dragged pin counts for the words beside it, not for words typed after',
-      () async {
-    final place = PlaceInput(words: 'Bommasandra, Bengaluru');
-    place.pinnedAt(const LatLng(12.9, 77.6));
-    expect(place.placed, isTrue,
-        reason: 'the drag places the words the shipper is looking at');
-    place.words.text = 'Guindy, Chennai';
-    expect(place.placed, isFalse,
-        reason:
-            'new words with the old pin would book one place labelled as another');
-    await place.place(findAnyPlace, emptyError: 'empty');
-    expect(place.point, const LatLng(12.8, 77.7),
-        reason: 'the new words are looked up');
-    place.dispose();
-  });
-}
-
 /// The real place search with no maps key, as a build without MAPS_API_KEY runs it.
 Future<GeocodeOutcome> findWithNoMapsKey(String place) =>
     GoogleGeocodingService.forwardAddress(place, apiKey: '');
@@ -956,16 +1139,19 @@ PlaceFinder failsWith(String status) =>
     (_) async => GeocodeOutcome.fail(status);
 
 void placeSearchFailureTests() {
+  // The sentences that offer the pin: both screens now have a map to drag it on.
   final failures = [
     (
       kind: 'no maps key',
       findPlace: findWithNoMapsKey,
-      sentence: 'Place search is not working right now. Try again later.'
+      sentence:
+          'Place search is not working right now. Drag the pin on the map to the place.'
     ),
     (
       kind: 'no match',
       findPlace: failsWith('ZERO_RESULTS'),
-      sentence: 'Could not find this place. Try a nearby town.'
+      sentence:
+          'Could not find this place. Try a nearby town, or drag the pin on the map to it.'
     ),
     (
       kind: 'no connection',
@@ -976,7 +1162,8 @@ void placeSearchFailureTests() {
     (
       kind: 'a refused key',
       findPlace: failsWith('REQUEST_DENIED'),
-      sentence: 'Place search is not working right now. Try again later.'
+      sentence:
+          'Place search is not working right now. Drag the pin on the map to the place.'
     ),
   ];
 
@@ -985,8 +1172,8 @@ void placeSearchFailureTests() {
     final server = await showShipperApp(tester, '/customer/trips?tab=match',
         findPlace: findPlace);
     await tester.pumpAndSettle();
-    await tester.enterText(field('Pickup'), pickup);
-    await tester.enterText(field('Drop'), drop);
+    await searchPlace(tester, 'Pickup', pickup);
+    await searchPlace(tester, 'Drop', drop);
     await tester.enterText(field('Weight'), '80');
     await tester.tap(find.text('Find matching lanes'));
     await tester.pumpAndSettle();
@@ -1000,8 +1187,11 @@ void placeSearchFailureTests() {
         findPlace: findPlace);
     server.answer('/anchor-trips/lane-1', {'trip': lane()});
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Get price'));
-    await tester.pumpAndSettle();
+    for (final title in ['Pickup', 'Drop']) {
+      await tester.tap(find.descendant(
+          of: placeBox(title), matching: find.byTooltip('Look up place')));
+      await tester.pumpAndSettle();
+    }
     return server;
   }
 
@@ -1011,7 +1201,11 @@ void placeSearchFailureTests() {
         final server = await fillMatch(tester, failure.findPlace);
         expect(find.text(failure.sentence), findsNWidgets(2),
             reason: 'one sentence under Pickup and one under Drop');
+        expect(find.byType(GoogleMap), findsNWidgets(2),
+            reason: 'the map the sentence offers is there to drag the pin on');
         expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
+        expect(find.textContaining('dart-define'), findsNothing,
+            reason: 'no developer hint on a shipper screen');
         if (failure.kind == 'no maps key') {
           expect(find.textContaining('Could not find this place'), findsNothing,
               reason:
@@ -1023,7 +1217,11 @@ void placeSearchFailureTests() {
         final server = await fillBook(tester, failure.findPlace);
         expect(find.text(failure.sentence), findsNWidgets(2),
             reason: 'one sentence under Pickup and one under Drop');
+        expect(find.byType(GoogleMap), findsNWidgets(2),
+            reason: 'the map the sentence offers is there to drag the pin on');
         expect(server.countOf('/shipments/quote'), 0);
+        expect(find.textContaining('dart-define'), findsNothing,
+            reason: 'no developer hint on a shipper screen');
         if (failure.kind == 'no maps key') {
           expect(find.textContaining('Could not find this place'), findsNothing,
               reason:
@@ -1035,25 +1233,37 @@ void placeSearchFailureTests() {
     testWidgets('Match: blank places are asked for, not searched',
         (tester) async {
       var searched = false;
-      await fillMatch(tester, (place) async {
+      final server = await showShipperApp(tester, '/customer/trips?tab=match',
+          findPlace: (place) async {
         searched = true;
         return findAnyPlace(place);
-      }, pickup: '  ', drop: '  ');
+      });
+      await tester.pumpAndSettle();
+      await tester.enterText(placeField('Pickup'), '  ');
+      await tester.enterText(field('Weight'), '80');
+      await tester.tap(find.text('Find matching lanes'));
+      await tester.pumpAndSettle();
       expect(find.text('Enter the pickup place.'), findsOneWidget);
       expect(find.text('Enter the drop place.'), findsOneWidget);
       expect(searched, isFalse);
+      expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
     });
 
     testWidgets('Book: blank places are asked for, not searched',
         (tester) async {
       var searched = false;
-      await fillBook(tester, (place) async {
+      final server = await showShipperApp(
+          tester, '/customer/book?anchorTripId=lane-1&weightKg=80',
+          findPlace: (place) async {
         searched = true;
         return findAnyPlace(place);
-      }, pickup: '', drop: '');
-      expect(find.text('Enter the pickup place.'), findsOneWidget);
-      expect(find.text('Enter the drop place.'), findsOneWidget);
+      });
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      await tester.pumpAndSettle();
+      expect(find.text('To see the price, search for the pickup and drop.'),
+          findsOneWidget);
       expect(searched, isFalse);
+      expect(server.countOf('/shipments/quote'), 0);
     });
   });
 }
@@ -1119,10 +1329,11 @@ void doubleTextTests() {
           },
         ]
       });
-      await scrollTo(tester, field('Pickup'));
-      await tester.enterText(field('Pickup'), 'Bommasandra, Bengaluru');
-      await scrollTo(tester, field('Drop'));
-      await tester.enterText(field('Drop'), 'Guindy, Chennai');
+      await scrollTo(tester, placeField('Pickup'));
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await scrollTo(tester, placeField('Drop'));
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await expectNoOverflowToTheEnd(tester, 'the Match form with both maps');
       await scrollTo(tester, field('Weight'));
       await tester.enterText(field('Weight'), '80');
       await scrollTo(tester, find.text('Find matching lanes'));
@@ -1142,43 +1353,39 @@ void doubleTextTests() {
     });
 
     testWidgets(
-        'Book before a price, with a price, the confirm sheet and too heavy',
+        'Book with no places, with both maps while getting the price, with a price, and too heavy',
         (tester) async {
       useDoubleTextSize(tester);
-      final server = await showShipperApp(tester, searchedBook, height: 800);
+      var server = await showShipperApp(
+          tester, '/customer/book?anchorTripId=lane-1',
+          height: 800);
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
-      server.answer('/shipments/quote', {
-        'quote': {'grossPaise': 264000}
-      });
       await tester.pumpAndSettle();
       await expectNoOverflowToTheEnd(tester, 'Book before a price');
 
-      await tester.tap(find.text('Get price'));
+      await tester.pumpWidget(const SizedBox());
+      final answer = Completer<ResponseBody>();
+      server = await showShipperApp(tester, searchedBook, height: 800);
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = (_) => answer.future;
+      await pumpWhileWaiting(tester);
+      await expectNoOverflowToTheEnd(tester, 'Book getting the price');
+
+      answer.complete(jsonResponse({
+        'quote': {'grossPaise': 264000}
+      }));
       await tester.pumpAndSettle();
       await expectNoOverflowToTheEnd(tester, 'Book with a price');
-
-      await tester.tap(find.text('Pay ₹2,640 and book'));
-      await tester.pumpAndSettle();
-      await expectNoOverflowToTheEnd(tester, 'the confirm sheet',
+      await expectNoOverflowToTheEnd(tester, 'the words beside Pay',
           list: find
               .descendant(
-                  of: find.byType(NvSheet), matching: find.byType(Scrollable))
+                  of: find.byType(NvActionBar),
+                  matching: find.byType(Scrollable))
               .first);
-      await tester.ensureVisible(find.text('Go back'));
-      await tester.tap(find.text('Go back'));
-      await tester.pumpAndSettle();
 
-      // At 200% in the test font the list above the action bar is 16 dp tall, less than this
-      // button, so a tap at its centre lands on the bar; the button's own action runs instead.
-      await scrollTo(tester, find.text('Change weight, pickup or drop'));
-      tester
-          .widget<NvButton>(
-              find.widgetWithText(NvButton, 'Change weight, pickup or drop'))
-          .onPressed!();
-      await tester.pumpAndSettle();
+      server.answers['/shipments/quote'] = priceByWeight;
       await scrollTo(tester, field('Weight'));
       await tester.enterText(field('Weight'), '150');
-      await tester.tap(find.text('Get price'));
       await tester.pumpAndSettle();
       await scrollTo(tester, find.text('Choose another lane'));
       await expectNoOverflowToTheEnd(tester, 'Book too heavy');

@@ -36,8 +36,7 @@ WCAG 2.2 AA. Applies to every screen on this canvas. Contrast values are the des
 | Send code | "Code sent to +91 98450 12345." |
 | Wrong code | Assertive: "That code is not right. Check the SMS and type it again, or send a new code." |
 | Match my route | "2 lanes with room for 80 kg, closest to your route first." or the empty message |
-| Get price | "Price for 80 kg: 2,640 rupees. This is the full price." |
-| Change weight, pickup or drop | "Price cleared. Get a new price before paying." |
+| A price arrives on Book | "Price for 80 kg: 2,640 rupees. This is the full price." |
 | Too heavy | Assertive: "This lane does not have room for that weight. Enter a lower weight, or choose another lane." |
 | Pay and book returns | "Booked. Waiting for Ravi Roadways to accept." Focus moves to the shipment's H1. |
 | E-way bill answer | "Saved: this load needs an e-way bill." |

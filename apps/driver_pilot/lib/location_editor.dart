@@ -1,5 +1,5 @@
-// Size note: just over 500 lines, all one concern: the maps the screens share, including the
-// place editor, and reading a map point out of server data. Splitting would part that one concern.
+// One concern: the maps the screens share, including the place editor, and reading a map point
+// out of server data.
 import "dart:math" as math;
 
 import "package:flutter/material.dart";
@@ -234,106 +234,9 @@ LatLngBounds? _boundsForPoints(List<LatLng> points) {
   return LatLngBounds(southwest: LatLng(minLat, minLng), northeast: LatLng(maxLat, maxLng));
 }
 
-/// Anchor trip corridor (thick orange) vs your shipment pickup→drop (thinner blue). A pickup or
-/// drop not placed yet has no pin. With [onPickupMoved] or [onDropMoved] that pin can be dragged.
-/// Needs at least one point.
-Widget bookShipmentRouteMap({
-  Key? key,
-  LatLng? shipmentPickup,
-  LatLng? shipmentDrop,
-  LatLng? anchorOrigin,
-  LatLng? anchorDestination,
-  ValueChanged<LatLng>? onPickupMoved,
-  ValueChanged<LatLng>? onDropMoved,
-}) {
-  final hasAnchor = anchorOrigin != null && anchorDestination != null;
-  final polylines = <Polyline>{
-    if (hasAnchor)
-      Polyline(
-        polylineId: const PolylineId("anchor_trip_leg"),
-        points: [anchorOrigin, anchorDestination],
-        color: const Color(0xFFE65100),
-        width: 9,
-        startCap: Cap.roundCap,
-        endCap: Cap.roundCap,
-        jointType: JointType.round,
-      ),
-    if (shipmentPickup != null && shipmentDrop != null)
-      Polyline(
-        polylineId: const PolylineId("shipment_leg"),
-        points: [shipmentPickup, shipmentDrop],
-        color: const Color(0xFF0D47A1),
-        width: 4,
-        startCap: Cap.roundCap,
-        endCap: Cap.roundCap,
-        jointType: JointType.round,
-      ),
-  };
-
-  final markers = <Marker>{
-    if (hasAnchor) ...[
-      Marker(
-        markerId: const MarkerId("book_map_anchor_start"),
-        position: anchorOrigin,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        infoWindow: const InfoWindow(title: "Anchor trip start"),
-      ),
-      Marker(
-        markerId: const MarkerId("book_map_anchor_end"),
-        position: anchorDestination,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
-        infoWindow: const InfoWindow(title: "Anchor trip end"),
-      ),
-    ],
-    if (shipmentPickup != null)
-      Marker(
-        markerId: const MarkerId("book_map_ship_pickup"),
-        position: shipmentPickup,
-        draggable: onPickupMoved != null,
-        onDragEnd: onPickupMoved,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-        infoWindow: const InfoWindow(title: "Your pickup"),
-      ),
-    if (shipmentDrop != null)
-      Marker(
-        markerId: const MarkerId("book_map_ship_drop"),
-        position: shipmentDrop,
-        draggable: onDropMoved != null,
-        onDragEnd: onDropMoved,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-        infoWindow: const InfoWindow(title: "Your drop"),
-      ),
-  };
-
-  final allPoints = <LatLng>[
-    if (hasAnchor) ...[anchorOrigin, anchorDestination],
-    if (shipmentPickup != null) shipmentPickup,
-    if (shipmentDrop != null) shipmentDrop,
-  ];
-  final bounds = _boundsForPoints(allPoints);
-  final initialTarget = allPoints.first;
-
-  return SizedBox(
-    key: key,
-    height: 240,
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: GoogleMap(
-        initialCameraPosition: CameraPosition(target: initialTarget, zoom: 6),
-        markers: markers,
-        polylines: polylines,
-        myLocationButtonEnabled: false,
-        zoomControlsEnabled: true,
-        onMapCreated: (controller) async {
-          if (bounds == null) return;
-          try {
-            await controller.moveCamera(CameraUpdate.newLatLngBounds(bounds, 56));
-          } catch (_) {}
-        },
-      ),
-    ),
-  );
-}
+/// Where a pin starts before the place is known: the map needs a starting point, and the screens
+/// refuse to go on until the person has searched for the place or dragged its pin.
+const pinNotPlacedYet = LatLng(22.5, 79.0);
 
 /// Place search + draggable pin; [labelController] is sent to your API as city/label text.
 class LocationEndpointEditor extends StatefulWidget {
