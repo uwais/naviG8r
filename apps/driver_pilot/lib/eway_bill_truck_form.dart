@@ -13,8 +13,8 @@ int validUntilUtcMsFromIndiaTime(DateTime date, TimeOfDay time) =>
         .subtract(indiaTimeOffset)
         .millisecondsSinceEpoch;
 
-/// Part B of an e-way bill: the truck number and valid-until time, copied from the government portal
-/// after the truck was added to the bill there. Used by the shipper's card and the carrier's card.
+/// Part B of an e-way bill: the truck number and valid-until time, copied from the bill after the
+/// truck was added to it. Used by the shipper's card and the carrier's card.
 class EwayBillTruckForm extends StatefulWidget {
   const EwayBillTruckForm(
       {required this.path,
@@ -23,6 +23,7 @@ class EwayBillTruckForm extends StatefulWidget {
       required this.clearsCheck,
       this.current,
       this.assignedTruckNumber,
+      this.lead,
       super.key});
   final String path;
   final void Function(Map<String, dynamic> shipment) onSaved;
@@ -35,6 +36,9 @@ class EwayBillTruckForm extends StatefulWidget {
   /// The truck the carrier named for the trip. It fills the field ahead of the bill's own truck, because
   /// after a breakdown it is the truck the bill should now carry.
   final String? assignedTruckNumber;
+
+  /// The first line, saying where the truck was added. Without one it names the portal.
+  final String? lead;
 
   @override
   State<EwayBillTruckForm> createState() => _EwayBillTruckFormState();
@@ -143,7 +147,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
     final time = _time;
     final filledFromTrip = widget.assignedTruckNumber?.isNotEmpty == true;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text(
+      Text(widget.lead ??
           'Add the truck to the bill on the $ewayBillPortalName first, then copy the truck number and the valid-until time from it.'),
       const SizedBox(height: 12),
       TextField(

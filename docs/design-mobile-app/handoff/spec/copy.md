@@ -71,19 +71,32 @@ Every visible string, by screen. Brackets mark text the team still has to supply
 | Steps | Booked and paid · Carrier accepts and names the truck · E-way bill · Bill check · On the way · Delivered | Each with who: You, [Carrier], NaviG8r staff |
 | Waiting | Waiting for [Carrier] to accept. Your payment is on hold; it is collected after delivery. | Brief A.3 |
 | Step 0 | Does this load need an e-way bill? · [one line from the team] · Yes, make one · No e-way bill needed · [Carrier] sees your answer before accepting. | Neither preselected |
-| Before acceptance | You can make the bill once the carrier accepts and names the truck. We will send you an update. | True after PR #153 |
-| Step 1 | Make the bill on the government portal. Copy these two in: · Truck number · Portal field: Vehicle No. (Part B) · Carrier's transporter ID · Portal field: Transporter ID. Not your GSTIN. · Make it on loading day, before the goods move: the bill is valid from when the truck is entered. · Open the e-way bill portal · I have made it. Enter the details | No transporter ID: "[Carrier] has not added one. Leave Transporter ID empty. Only you, the bill's maker, can then change the truck." |
-| Step 2 | E-WAY BILL · PART 2 OF 2 · Enter the bill's details · Copy these four from the bill on the portal. · E-way bill number · 12 digits, at the top of the bill. · Bill date · Your GSTIN · The GSTIN that made the bill. Not the carrier's transporter ID. · Invoice number · Save e-way bill · NaviG8r staff then check it on the portal. |  |
+| Before acceptance | You can make the bill once the carrier accepts and names the truck. We will send you an update. · Transporter name · [Carrier] · Carrier's transporter ID · After [Carrier] accepts · Truck number · After [Carrier] accepts · Copy all | True after PR #153. The ID and truck are sent only once accepted |
+| Step 1 | Make the bill in your billing software or on the e-way bill site. Copy these in: · Transporter name · Portal field: Transporter Name · Carrier's transporter ID · Portal field: Transporter ID. Not your GSTIN. · Truck number · Portal field: Vehicle No. (Part B) · Copy all · Open the e-way bill portal · Make it on loading day, before the goods move: the bill is valid from when the truck is entered. · I have made it. Enter the details | No transporter ID: "[Carrier] has not added one. Leave Transporter ID empty. Only you, the bill's maker, can then change the truck." Copy all copies "Transporter name: · Transporter ID: · Mode: Road · Vehicle number:", one per line, only the known ones; announced "Transport details copied." |
+| Step 2 | E-WAY BILL · PART 2 OF 2 · Enter the bill's details · Copy these four from the bill. · E-way bill number · 12 digits, at the top of the bill. · Bill date · Your GSTIN · The GSTIN that made the bill. Not the carrier's transporter ID. · Invoice number · Save e-way bill · NaviG8r staff then check it on the portal. |  |
 | Step 2 errors | [n] details need fixing before you can save. · This has [n] digits. An e-way bill number has 12. · This is the carrier's transporter ID. Enter the GSTIN that made the bill. |  |
-| Step 3 | Bill [number] saved. The truck is not on it yet. · Add the truck on the portal before the goods move, then enter it here. · Portal: Update Part B, Vehicle No. · The bill's validity starts when the truck is added: one day per 200 km, ending at midnight India time. · Add truck | Shipper or carrier |
+| Step 3 | Bill [number] saved. The truck is not on it yet. · Add the truck in your billing software or on the e-way bill site before the goods move, then enter it here. · The step 1 rows and Copy all, with the truck's field as Portal: Update Part B, Vehicle No. · The bill's validity starts when the truck is added: one day per 200 km, ending at midnight India time. · Add truck | Shipper or carrier |
 | Step 4 | E-way bill saved. Nothing more for you to do until delivery. · NaviG8r staff check the bill on the portal by hand. We will tell you if anything needs fixing. |  |
-| Step 4 problem | E-way bill needs a fix · NaviG8r staff found a difference · The [field] on the portal's bill is [value]. You entered [value]. · If the portal is right, fix it here. If the bill itself is wrong, change it on the portal first. · Fix the details · Ask NaviG8r staff |  |
-| Footnote | NaviG8r never makes or changes an e-way bill. You make it on the portal. | Once per screen, small |
+| Step 4 problem | E-way bill needs a fix · NaviG8r staff found a difference · The [field] on the portal's bill is [value]. You entered [value]. · If the portal is right, fix it here. If the bill itself is wrong, change it in your billing software or on the e-way bill site first. · Fix the details · Ask NaviG8r staff |  |
+| Footnote | NaviG8r never makes or changes an e-way bill. You make it in your billing software or on the e-way bill site. | Once per screen, small |
 | Not needed | E-way bill: not needed · You said so on [date]. [Carrier] saw this before accepting. · Change |  |
 | On the way | Left [pickup] on [date] at [time] IST. [Carrier] confirms when it is delivered. · Message [Carrier] |  |
 | Delivered | [Carrier] confirmed delivery and added proof of delivery. Your payment of ₹[amount] is collected now. · View proof of delivery · Book another shipment | Open item 8 (payment issue) |
 | Cancelled | This shipment was cancelled · NaviG8r operations cancelled it on [date] at your request. · You paid · Refunded · Refunds reach your account in the time your bank or payment app takes. · Questions about this refund? Contact [NaviG8r contact]. | Replaces the system code |
 | Updates | [Carrier] accepted your shipment · [Route, date]. You can make the e-way bill now. · Your shipment is on the way · E-way bill checked · Delivered · Proof of delivery is ready. | Named by route and date |
+
+```
+DARK PATTERN SCREEN — shipper e-way bill transport details and Copy all — 2026-10-18
+Screened: the Before acceptance, Step 1, Step 3, Step 4 problem and Footnote rows above
+Verdict: PASS
+Findings: none. No ranking, cost, urgency, default, exit, decline button, money or new data
+  asked for; the rows show only what the server already sends, unknown values say when they
+  arrive, Copy all copies only known values, and the wording now names billing software
+  as well as the site instead of implying the site is the only place.
+Accepted risks: none
+Open check: Transporter name is the carrier's display name in NaviG8r; if a carrier's
+  display name differs from its registered name, the bill could carry the display name.
+```
 
 ## Copy: carrier office and driver
 

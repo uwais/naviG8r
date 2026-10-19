@@ -469,7 +469,7 @@ void main() {
           reason: 'sh-ewb-portal: whose step, and which part');
       expect(
           find.text(
-              'Make the bill on the government portal. Copy these two in:'),
+              'Make the bill in your billing software or on the e-way bill site. Copy these in:'),
           findsOneWidget);
       expect(find.text('Portal field: Vehicle No. (Part B)'), findsOneWidget,
           reason: 'testers could not tell where each value goes on the portal');
