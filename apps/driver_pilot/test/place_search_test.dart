@@ -1,4 +1,6 @@
 // Place search on Publish: each failure is named for what it was, and a found place has a short name.
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/location_editor.dart';
@@ -208,6 +210,55 @@ void main() {
       await dragPin(tester);
       expect(field.text, 'Kolar');
       expect(find.text('Kolar, Karnataka, India'), findsOneWidget);
+    });
+
+    testWidgets('a pin dragged where the town lookup fails keeps the name and asks to check it',
+        (tester) async {
+      final field = await mountEditor(tester,
+          findTown: (point) async => GeocodeOutcome.fail('NETWORK'));
+      field.text = 'Hoskote';
+      await dragPin(tester);
+      expect(field.text, 'Hoskote',
+          reason: 'reviewer: a dropped connection emptied a name that may still be right');
+      expect(
+          find.text('Could not check the name at the pin. Check it is still right.'),
+          findsOneWidget);
+    });
+
+    testWidgets('a slow town lookup does not overwrite a newer drag', (tester) async {
+      final answers = <Completer<GeocodeOutcome>>[];
+      final field = await mountEditor(tester, findTown: (point) {
+        answers.add(Completer<GeocodeOutcome>());
+        return answers.last.future;
+      });
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      map.markers.single.onDragEnd!(const LatLng(13.2, 78.1));
+      map.markers.single.onDragEnd!(const LatLng(13.1, 78.2));
+      answers[1].complete(GeocodeOutcome.ok(const LatLng(13.1, 78.2), 'Kolar, Karnataka, India', 'Kolar'));
+      await tester.pumpAndSettle();
+      answers[0].complete(GeocodeOutcome.ok(const LatLng(13.2, 78.1), 'Malur, Karnataka, India', 'Malur'));
+      await tester.pumpAndSettle();
+      expect(field.text, 'Kolar',
+          reason: 'reviewer: the first drag answered last and put back the town the pin had left');
+      expect(find.text('Kolar, Karnataka, India'), findsOneWidget);
+    });
+
+    testWidgets('a slow town lookup does not overwrite a newer search', (tester) async {
+      final answer = Completer<GeocodeOutcome>();
+      final field = await mountEditor(tester,
+          findPlace: (place) async =>
+              GeocodeOutcome.ok(const LatLng(13.0, 77.8), 'Hoskote, Karnataka, India', 'Hoskote'),
+          findTown: (point) => answer.future);
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      map.markers.single.onDragEnd!(const LatLng(13.2, 78.1));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), 'Hoskote');
+      await tester.tap(find.byTooltip('Look up place'));
+      await tester.pumpAndSettle();
+      answer.complete(GeocodeOutcome.ok(const LatLng(13.2, 78.1), 'Malur, Karnataka, India', 'Malur'));
+      await tester.pumpAndSettle();
+      expect(field.text, 'Hoskote');
+      expect(find.text('Updating address from pin…'), findsNothing);
     });
 
     testWidgets('without a maps key a dragged pin keeps the name typed by hand',

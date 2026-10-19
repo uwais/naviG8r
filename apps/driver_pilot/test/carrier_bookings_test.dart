@@ -510,6 +510,50 @@ void main() {
         reason: 'spec: works at 360 dp and 200% text');
   });
 
+  testWidgets(
+      'a card says the e-way bill time has passed once its valid-until time has gone, until the booking closes',
+      (tester) async {
+    signInAsOwner();
+    final gone = DateTime.utc(2020).millisecondsSinceEpoch;
+    answer(bookings: [
+      {
+        ...shipmentOnTripA(),
+        'id': 'shipment-l',
+        'customerOrgName': 'Lapsed Shipper',
+        'ewayBill': {
+          'kind': 'BILL',
+          'billNumber': '341200987654',
+          'truckNumber': 'KA01AB1234',
+          'check': {'result': 'FOUND'},
+          'validUntilUtcMs': gone,
+        },
+      },
+      {
+        ...delivered(),
+        'status': 'DELIVERED',
+        'ewayBill': {
+          'kind': 'BILL',
+          'billNumber': '341200987655',
+          'truckNumber': 'KA01AB1234',
+          'check': {'result': 'FOUND'},
+          'validUntilUtcMs': gone,
+        },
+      },
+    ], trips: [
+      trip()
+    ]);
+    await mountRouted(tester, const DriverShipmentsScreen());
+    await tester.tap(find.text('Active'));
+    await tester.pumpAndSettle();
+    expect(find.text('18 Oct · 120 kg · E-way bill time has passed'),
+        findsOneWidget,
+        reason: 'review: the card said "E-way bill checked" after the valid-until time');
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    expect(find.text('18 Oct · 120 kg · E-way bill checked'), findsOneWidget,
+        reason: 'a delivered booking needs the bill no more');
+  });
+
   group('The booking screen', () {
     test('its title is never "Proof of delivery" before delivery', () {
       expect(driverShellTitle('/driver/shipment/shipment-a'),

@@ -160,7 +160,14 @@ class _SignInScreenState extends State<SignInScreen> {
           },
         );
         final token = r.data?["accessToken"] as String?;
-        if (token != null) await api.setToken(token);
+        if (token == null || token.isEmpty) {
+          if (mounted) {
+            _showVerifyError(
+                "Could not sign you in. Check your connection, then try again.");
+          }
+          return;
+        }
+        await api.setToken(token);
         _codeAccepted = true;
       }
       await CustomerSession.refresh();

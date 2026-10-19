@@ -1,5 +1,7 @@
 // PR 7 of the redesign: the office's Trips list, trip screen with the start sheet, Publish and Profile
 // (mockups ca-trips, ca-trip, ca-assign, ca-start, ca-publish, ca-profile, ca-vehicle-sheet).
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_session.dart';
@@ -642,6 +644,33 @@ void main() {
         expect(fieldTexts(tester), ['', '', ''],
             reason: 'a sign-out ends the draft, even for the same account');
         expect(find.text('Choose a date'), findsNWidgets(2));
+      });
+
+      testWidgets('leaving while a publish is still sending keeps no draft to send again',
+          (tester) async {
+        final server = signInWith(Server(allowed: ownerAllowed));
+        final answered = api.dio.httpClientAdapter as MockApiAdapter;
+        final publishAnswer = Completer<ResponseBody>();
+        api.dio.httpClientAdapter = MockApiAdapter((request) {
+          if (request.method == 'GET') return answered.handle(request);
+          server.sent.add(request);
+          return publishAnswer.future;
+        });
+        final router =
+            await mount(tester, publish(), size: const Size(800, 3000));
+        await fillIn(tester);
+        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(server.sent, hasLength(1));
+        router.go('/driver/loads');
+        await tester.pumpAndSettle();
+        router.go('/screen');
+        await tester.pumpAndSettle();
+        expect(fieldTexts(tester), ['', '', ''],
+            reason: 'review: the kept draft let the same trip be published twice');
+        publishAnswer.complete(jsonResponse({'trip': null}));
+        await tester.pumpAndSettle();
       });
 
       testWidgets('a draft kept past midnight drops the days that have gone',
