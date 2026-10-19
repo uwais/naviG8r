@@ -28,6 +28,11 @@ class _CustomerIntegrationsScreenState
   List<Map<String, dynamic>> _deliveries = [];
   String _paymentPolicy = "portal_checkout";
 
+  static const _paymentPolicyLabels = {
+    "portal_checkout": "Portal checkout (Razorpay in customer web)",
+    "erp_preauthorized": "ERP pre-authorized (book without portal checkout)",
+  };
+
   @override
   void initState() {
     super.initState();
@@ -317,16 +322,18 @@ class _CustomerIntegrationsScreenState
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 value: _paymentPolicy,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: "Payment policy"),
-                items: const [
-                  DropdownMenuItem(
-                      value: "portal_checkout",
-                      child:
-                          Text("Portal checkout (Razorpay in customer web)")),
-                  DropdownMenuItem(
-                      value: "erp_preauthorized",
-                      child: Text(
-                          "ERP pre-authorized (book without portal checkout)")),
+                // The open menu shows each choice in full, wrapping if it must;
+                // the closed field keeps the chosen one to a single line.
+                selectedItemBuilder: (_) => [
+                  for (final label in _paymentPolicyLabels.values)
+                    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+                items: [
+                  for (final policy in _paymentPolicyLabels.entries)
+                    DropdownMenuItem(
+                        value: policy.key, child: Text(policy.value)),
                 ],
                 onChanged: (v) {
                   if (v != null) setState(() => _paymentPolicy = v);
@@ -347,11 +354,14 @@ class _CustomerIntegrationsScreenState
                     ),
                   ),
                   const SizedBox(width: 8),
-                  OutlinedButton(
-                    onPressed: _saving
-                        ? null
-                        : () => _saveConnection(regenerateWebhookSecret: true),
-                    child: const Text("Rotate secret"),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _saving
+                          ? null
+                          : () =>
+                              _saveConnection(regenerateWebhookSecret: true),
+                      child: const Text("Rotate secret"),
+                    ),
                   ),
                 ],
               ),
@@ -376,11 +386,14 @@ class _CustomerIntegrationsScreenState
                 label: const Text("Send test ping"),
               ),
               const SizedBox(height: 24),
-              Row(
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
                 children: [
-                  const Expanded(
-                      child: Text("API keys",
-                          style: TextStyle(fontWeight: FontWeight.w600))),
+                  const Text("API keys",
+                      style: TextStyle(fontWeight: FontWeight.w600)),
                   FilledButton.tonal(
                     onPressed: _creatingKey ? null : _createApiKey,
                     child: _creatingKey
