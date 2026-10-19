@@ -34,8 +34,9 @@ bool shipperCanWriteEwayBill(Map<String, dynamic> shipment) =>
 
 /// The words of the shipper's e-way bill step. The bill is made in the shipper's billing software
 /// or on the e-way bill site; this only holds the details the shipper types in and shows what
-/// NaviG8r staff saw when they looked the bill up. It sits inside the shipment's step list; the portal button for part 1 is the
-/// screen's primary action, in its action bar on a phone and in this panel on a desktop.
+/// NaviG8r staff saw when they looked the bill up. It sits inside the shipment's step list; the
+/// portal button for part 1 is the screen's primary action, in its action bar on a phone and in
+/// this panel on a desktop.
 class EwayBillCard extends StatefulWidget {
   const EwayBillCard(
       {required this.shipment,

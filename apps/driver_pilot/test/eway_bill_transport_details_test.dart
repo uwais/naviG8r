@@ -3,8 +3,10 @@
 // clipboard, and that the words name billing software as well as the e-way bill site.
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/eway_bill_card.dart';
+import 'package:driver_pilot/eway_bill_transport_details.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -199,5 +201,33 @@ void main() {
         of: find.text('Copy all'), matching: find.byType(OutlinedButton));
     expect(tester.getSize(copyAll).height, greaterThanOrEqualTo(48),
         reason: '48 dp target');
+  });
+
+  testWidgets('a screen reader hears what Copy all copies', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final copied = watchClipboard(tester);
+    await mountCard(
+        tester,
+        EwayBillCard(
+            shipment: carriedBy(shipment(status: 'PENDING_CARRIER_ACCEPT'))));
+    final copyAll = find.bySemanticsLabel('Copy all transport details');
+    expect(copyAll, findsOneWidget);
+    expect(tester.getSemantics(copyAll).hasFlag(SemanticsFlag.isButton), isTrue,
+        reason: 'it is still announced as a button');
+    await tester.tap(copyAll);
+    await tester.pump();
+    expect(copied, hasLength(1));
+    await tester.pump(const Duration(seconds: 3));
+    semantics.dispose();
+  });
+
+  testWidgets('Copy all is hidden when no detail is known yet', (tester) async {
+    await mountCard(
+        tester,
+        const EwayBillTransportDetails(
+            carrierName: null, carrierAccepted: false));
+    expect(find.text('Transporter name'), findsOneWidget);
+    expect(find.text('Copy all'), findsNothing,
+        reason: 'it would copy only "Mode: Road"');
   });
 }

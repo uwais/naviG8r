@@ -145,13 +145,16 @@ class _EwayBillTransportDetailsState extends State<EwayBillTransportDetails> {
               label: 'Truck number',
               value: truck,
               portalField: widget.truckPortalField),
-        const SizedBox(height: NvSpace.s2),
-        NvButton(
-            label: 'Copy all',
-            successLabel: _copied ? 'Copied' : null,
-            kind: NvButtonKind.secondary,
-            fullWidth: true,
-            onPressed: _copyAll),
+        if (name != null || transporterId != null || truck != null) ...[
+          const SizedBox(height: NvSpace.s2),
+          NvButton(
+              label: 'Copy all',
+              semanticsLabel: 'Copy all transport details',
+              successLabel: _copied ? 'Copied' : null,
+              kind: NvButtonKind.secondary,
+              fullWidth: true,
+              onPressed: _copyAll),
+        ],
         if (_copyFailed)
           Semantics(
             liveRegion: true,

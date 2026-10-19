@@ -17,6 +17,7 @@ class NvButton extends StatelessWidget {
     this.loading = false,
     this.loadingLabel,
     this.successLabel,
+    this.semanticsLabel,
     this.forDriver = false,
     this.fullWidth = false,
   }) : assert(
@@ -41,6 +42,10 @@ class NvButton extends StatelessWidget {
 
   /// Shown with a tick instead of [label], such as "Saved" or "Copied".
   final String? successLabel;
+
+  /// What a screen reader hears instead of [label] when the label alone does not say what the
+  /// button acts on, such as "Copy all transport details" for "Copy all".
+  final String? semanticsLabel;
 
   /// Driver primaries are 56 dp tall, for one-handed use in a cab.
   final bool forDriver;
@@ -70,12 +75,15 @@ class NvButton extends StatelessWidget {
     } else if (showsSuccess) {
       marker = const Icon(Icons.check, size: 18);
     }
+    final spokenWords = words == label ? semanticsLabel : null;
     final content = marker == null
-        ? Text(words, textAlign: TextAlign.center)
+        ? Text(words, textAlign: TextAlign.center, semanticsLabel: spokenWords)
         : Row(mainAxisSize: MainAxisSize.min, children: [
             ExcludeSemantics(child: marker),
             const SizedBox(width: NvSpace.s2),
-            Flexible(child: Text(words, textAlign: TextAlign.center)),
+            Flexible(
+                child: Text(words,
+                    textAlign: TextAlign.center, semanticsLabel: spokenWords)),
           ]);
 
     final height = forDriver ? NvSpace.targetDriver : NvSpace.targetMin;
