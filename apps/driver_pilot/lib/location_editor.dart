@@ -375,6 +375,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   bool _lookupBusy = false;
   bool _reverseBusy = false;
   String? _hintLine;
+  // A failed search still opens the map, so the pin can be dragged to a place Google cannot find.
+  bool _searchTried = false;
 
   @override
   void initState() {
@@ -386,7 +388,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   void didUpdateWidget(covariant LocationEndpointEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
     // A hidden map is disposed, and its controller with it.
-    if (!widget.showMap) _map = null;
+    if (!widget.showMap && !_searchTried) _map = null;
     final o = oldWidget.position;
     final n = widget.position;
     if (o.latitude != n.latitude || o.longitude != n.longitude) {
@@ -402,9 +404,13 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     });
     final outcome = await widget.findPlace(widget.labelController.text);
     if (!mounted) return;
-    setState(() => _lookupBusy = false);
+    setState(() {
+      _lookupBusy = false;
+      _searchTried = true;
+    });
     if (!outcome.isOk) {
-      setState(() => _hintLine = outcome.errorMessage ?? outcome.status ?? "Look up failed.");
+      setState(() => _hintLine =
+          "Could not find this place. Try a nearby town, or drag the pin on the map to it.");
       if (outcome.status == "NO_API_KEY" && mounted && widget.showApiKeyHint) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -482,14 +488,15 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
           const SizedBox(height: 4),
           Text("Updating address from pin…", style: Theme.of(context).textTheme.bodySmall),
         ],
-        if (widget.showMap) ...[
+        if (widget.showMap || _searchTried) ...[
           const SizedBox(height: 8),
           SizedBox(
             height: 220,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: GoogleMap(
-                initialCameraPosition: CameraPosition(target: _pos, zoom: 12),
+                // Zoomed out when no place is known yet, so the pin can be dragged across the country.
+                initialCameraPosition: CameraPosition(target: _pos, zoom: widget.showMap ? 12 : 5),
                 markers: {
                   Marker(
                     markerId: MarkerId(widget.markerId),

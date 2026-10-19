@@ -568,6 +568,27 @@ void main() {
       expect(find.text('Bengaluru, Karnataka'), findsWidgets);
     });
 
+    testWidgets('a place search that finds nothing still opens the map to drag the pin',
+        (tester) async {
+      signInWith(Server(allowed: ownerAllowed));
+      await mount(
+          tester,
+          DriverPublishTripScreen(
+              findPlace: (place) async => GeocodeOutcome.fail('ZERO_RESULTS')),
+          size: const Size(800, 3000));
+      await tester.enterText(find.byType(TextField).first, 'Kurudumale');
+      await tester.tap(find.byTooltip('Look up place').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(GoogleMap), findsOneWidget,
+          reason: 'without the map, a place Google cannot find could never be set');
+      expect(
+          find.text(
+              'Could not find this place. Try a nearby town, or drag the pin on the map to it.'),
+          findsOneWidget);
+      expect(find.textContaining('ZERO_RESULTS'), findsNothing,
+          reason: 'no raw codes');
+    });
+
     testWidgets(
         'at 360 by 640 with the keyboard open the form scrolls, and Publish and its message are reachable',
         (tester) async {
