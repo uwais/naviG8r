@@ -108,6 +108,9 @@ Carrier card, same title, read only:
 - Bill: number in groups of four, the same check line as the shipper's (with the same date and "may have
   changed since"), and "Shown as the shipper entered it. naviG8r has not made or changed this bill, and has not
   checked the truck or the expiry." A problem adds "The shipper can see this on their shipment."
+- Bill without the truck (since 18 Oct 2026): "[Shipper] has not added the truck to the bill yet." With the truck:
+  "Truck on the bill: KA01AB1234" and "Valid until: ...". No form, no date or time pickers, no portal button: the
+  carrier only reads the bill.
 - Who sees it (changed 15 Oct 2026, `trip-assignment-scope.md`): the carrier's owner, owner-driver and dispatcher
   see every shipment of that carrier, so any of them sees any bill number and note on it. A driver sees only the
   shipments on trips naming them.
@@ -123,33 +126,34 @@ link out to and come back from. This brings back, from the cut list, the truck n
 
 | Who | Part |
 |---|---|
-| Shipper | Makes the bill on the portal (Part A), copies its four details into the app. May also add the truck. |
-| Carrier owner or dispatcher | The carrier named on the bill: adds its truck to the bill on the portal (Part B), then types the truck number and valid-until into the app. |
+| Shipper | Makes the bill (Part A), copies its four details into the app, then adds the truck to it (Part B) in its billing software or on the e-way bill site and enters the truck number and valid-until in the app. |
+| Carrier owner, owner-driver or dispatcher | Names the truck when accepting. Reads the bill only: its number, whether the truck is on it, valid-until and the ops check. Pays any check-post fine, so it must see that state. |
 | Driver | Read only: the number in large type, truck, valid-until, the ops line, and "Expires in N hours" only under 12 hours. Quotes the number at a check-post. |
 | Ops | Looks the bill up on the portal's search page with the four details, then records found or problem. |
 
-**Changed 16 Oct 2026 (owner decision): Part A and Part B in one shipper visit.** When an office login accepts a booking whose trip names no truck, it chooses the trip's truck first (a carrier with no trucks yet accepts without one); from acceptance until the bill has a truck or the driver confirms delivery, the shipper's card shows "For the e-way bill" with that truck in the portal's form and, once the carrier has added it, the carrier's transporter ID, each with Copy. Entering the transporter ID assigns the bill to the carrier, which can then change the truck or extend the bill itself, so the carrier office needs the portal only for those two (CBIC e-way bill FAQ, 2019). Routes and fields: `docs/pilot-api.md`.
+**Changed 16 Oct 2026 (owner decision): Part A and Part B in one shipper visit.** When an office login accepts a booking whose trip names no truck, it chooses the trip's truck first (a carrier with no trucks yet accepts without one); from acceptance until the bill has a truck or the driver confirms delivery, the shipper's card shows "For the e-way bill" with that truck in the portal's form and, once the carrier has added it, the carrier's transporter ID, each with Copy. Entering the transporter ID assigns the bill to the carrier, which the rules let change the truck or extend the bill itself (CBIC e-way bill FAQ, 2019); since 18 Oct 2026 the app gives the carrier no way to record either, and the shipper adds the truck. Routes and fields: `docs/pilot-api.md`.
 
 New data on the record: `truckNumber` (6 to 12 letters and digits, spaces and hyphens removed, upper case),
 `validUntilUtcMs`. Both are shown to shipper, ops and carrier logins. Adding or changing them clears the ops check
-(same rule as every other detail). New permission `eway_bill.add_truck`: SHIPPER, and CARRIER for owner, owner-driver
-and dispatcher only (not DRIVER). It is an allow-list of subroles, so a new subrole gets nothing until named. New routes: `POST /shipments/:id/eway-bill/truck` (shipper) and
-`POST /v1/pilot/carrier/shipments/:id/eway-bill/truck` (carrier), body `{ truckNumber, validUntilUtcMs }`, only on a
-`BILL`. Audit `EWAY_BILL_TRUCK_ADDED` (state words only). Since 15 Oct 2026 a trip can name its truck
+(same rule as every other detail). Permission `eway_bill.add_truck`: SHIPPER only (customer admin and member), since
+18 Oct 2026; before that the carrier's owner, owner-driver and dispatcher held it too. It is an allow-list of subroles, so a new subrole gets nothing until named. Route: `POST /shipments/:id/eway-bill/truck` (shipper),
+body `{ truckNumber, validUntilUtcMs }`, only on a `BILL`. The old carrier route
+`POST /v1/pilot/carrier/shipments/:id/eway-bill/truck` now answers `403 { "error": "forbidden" }` to every login that can see the shipment, so an
+older carrier app gets a refusal rather than a 404. Audit `EWAY_BILL_TRUCK_ADDED` (state words only). Since 15 Oct 2026 a trip can name its truck
 (`trip-assignment-scope.md`): when the bill's truck and the trip's differ once both are in the portal's form
 (`UP1345` and `UP010345` match; the rule is in `docs/pilot-api.md`), both cards add one plain sentence under the truck
 lines, worded for who is reading:
 
 - Carrier office (owner, owner-driver, dispatcher): "The e-way bill shows KA01AB1234. The truck on this trip is
-  KA02XY9999. Check which one is right; if the e-way bill is wrong, update it on the portal, then here." ("practice
-  portal" or "government portal", as everywhere else.)
+  KA02XY9999. Check which one is right; if the e-way bill is wrong, ask the shipper to change it." (Since 18 Oct
+  2026; it used to send the office to the portal.)
 - Shipper: "The e-way bill shows KA01AB1234. Your carrier has assigned KA02XY9999 to this trip. Ask your carrier which
-  truck is right." The shipper is not sent to the portal: the carrier chose the truck, and once the transporter has
-  updated the vehicle the practice portal refuses the supplier (an assumed rule, listed in the guide's box).
+  truck is right; if the e-way bill is wrong, change it in your billing software or on the e-way bill site, then
+  here." (Since 18 Oct 2026, when the shipper became the one who adds the truck.)
 - Driver: "The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your carrier."
 
 No sentence shows once the shipment is delivered, accepted or refunded, since the bill can no longer change. The
-carrier's truck form, and since 16 Oct 2026 the shipper's, starts with the trip's truck in the portal's form, with
+shipper's truck form (the only one since 18 Oct 2026) starts with the trip's truck in the portal's form, with
 "Filled in from the truck on this trip. Change it if the e-way bill shows a different truck." under the field. A wrong truck is replaced with Change truck; removing a truck is left out
 of the demo.
 
@@ -201,5 +205,7 @@ accounting advice:
   delete them, with an audit row, on a data protection (DPDP) request. Nothing purges them after six months and
   there is no OpsAdmin delete yet. Still open: when the six months start (booking, delivery or bill date) and
   exactly what is deleted.
-- Who adds the truck (Part B): answered, the dispatcher or the owner, which is what is built (owner, owner-driver
-  and dispatcher; a driver only reads). Still open: validity extension, which the answer did not cover.
+- Who adds the truck (Part B): answered, the dispatcher or the owner. Replaced 18 Oct 2026, see below. Still open:
+  validity extension, which the answer did not cover.
+
+Decided 18 Oct 2026 (owner: Rishabh, replacing Uwais's 15 Oct answer above): the carrier names the truck when accepting; the shipper adds it to the e-way bill (Part B) in its billing software or on the e-way bill site and records it in the app; every carrier login (owner, dispatcher, owner-driver, driver) only reads the bill.

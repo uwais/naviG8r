@@ -311,20 +311,18 @@ void main() {
     expect(find.text('TYPED-FOR-A'), findsNothing,
         reason: 'nothing typed for the old shipment carries over');
 
-    signInAsCarrier(canAddTruck: true);
+    signInAsCarrier(office: true);
     await mountCard(
         tester, EwayBillCarrierCard(shipment: shipment(bill: savedBill)));
-    await tester.tap(find.text('Add truck'));
-    await tester.pump();
-    expect(find.text('Save truck'), findsOneWidget, reason: 'form open');
+    expect(find.text('1234 5678 9012'), findsOneWidget);
     await mountCard(
         tester,
         EwayBillCarrierCard(shipment: {
           ...shipment(bill: {'kind': 'BILL', 'billNumber': '999988887777'}),
           'id': 'shipment-b'
         }));
-    expect(find.text('Save truck'), findsNothing,
-        reason: 'the old shipment\'s truck form closed');
+    expect(find.text('1234 5678 9012'), findsNothing,
+        reason: 'the old shipment\'s bill is gone');
     expect(find.text('9999 8888 7777'), findsOneWidget,
         reason: 'the new shipment\'s bill shows');
   });

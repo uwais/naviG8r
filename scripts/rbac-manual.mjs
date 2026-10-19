@@ -119,13 +119,13 @@ store.shipments.get("load-a-with-bill").ewayBill = {
   kind: "BILL", billNumber: "123456789012", billDate: "2026-10-01", makerGstin: "29ABCDE1234F1Z5",
   invoiceNumber: "SYN/2026/001", enteredAtUtcMs: now, enteredByUserId: "user-shipper-a",
 };
-// A second bill whose carrier has already added the truck, so every row state shows at first sign-in.
+// A second bill whose shipper has already added the truck, so every row state shows at first sign-in.
 // The portal holds it too, with the same truck. The valid-until is imported from the portal, so the two match
 // when this script starts the server; a server started separately after --seed-only computes its own.
 store.shipments.get("load-a-with-truck").ewayBill = {
   kind: "BILL", billNumber: "234567890123", billDate: "2026-10-02", makerGstin: "29ABCDE1234F1Z5",
   invoiceNumber: "SYN/2026/002", enteredAtUtcMs: now, enteredByUserId: "user-shipper-a",
-  truckNumber: "KA01AB1234", validUntilUtcMs: SEEDED_TRUCK_VALID_UNTIL_UTC_MS, truckEnteredByUserId: "user-carrier-a",
+  truckNumber: "KA01AB1234", validUntilUtcMs: SEEDED_TRUCK_VALID_UNTIL_UTC_MS, truckEnteredByUserId: "user-shipper-a",
 };
 migrateAuthorization(store);
 store.membershipRoles.set("user-all:platform", ["ADMIN", "OPS", "FINANCE"]);

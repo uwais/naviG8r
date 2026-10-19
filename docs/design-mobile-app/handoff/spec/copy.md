@@ -106,8 +106,8 @@ Tabs for the office: Home, Bookings, Trips, Publish, Profile. Tabs for drivers: 
 
 | Element | Copy | Notes |
 |---|---|---|
-| Home | Home · NEEDS YOU · Accept a booking · [Shipper], [weight], on your [route] trip, [date]. · Review booking · Add the truck to an e-way bill · Assign a driver · Today | Signed-in home has no sign-in, register or developer links |
-| Bookings list | Bookings · Needs you ([n]) · Active · Done · [Shipper] · [pickup] to [drop] · [date] · [weight] · E-way bill: needed \| not needed · Next: [action]. | Whole card opens |
+| Home | Home · NEEDS YOU · Accept a booking · [Shipper], [weight], on your [route] trip, [date]. · Review booking · Assign a driver · Today | Signed-in home has no sign-in, register or developer links. No add-truck task: the shipper adds the truck (owner decision, 18 Oct 2026) |
+| Bookings list | Bookings · Needs you ([n]) · Active · Done · [Shipper] · [pickup] to [drop] · [date] · [weight] · E-way bill: needed \| not needed · Next: [action]. · Truck not on bill · Next: [Shipper] adds the truck to the e-way bill. | Whole card opens. A bill without the truck is Active, not Needs you |
 | Booking title | BOOKING · [Shipper] | Was "Proof of delivery" |
 | Booking facts | Pickup · Drop · Weight · E-way bill: Needed. [Shipper] makes it. \| Not needed (shipper said so). |  |
 | Steps | Accept and choose the truck · Truck on the e-way bill · Driver assigned and trip started · Confirm delivery · Payment released |  |
@@ -115,7 +115,7 @@ Tabs for the office: Home, Bookings, Trips, Publish, Profile. Tabs for drivers: 
 | Accept sheet | Which truck carries this trip? · [route], [dates]. [Shipper] puts this truck number on the e-way bill. · Accept with this truck (disabled) · Choose a truck first. · Accept with [truck] · Cancel | No truck preselected |
 | Accept result | Accepted with [truck]. [Shipper] can make the e-way bill now. · Could not accept. Check your connection and try again. | Announced |
 | No trucks | You have no trucks yet. Add one to accept bookings. · Add truck |  |
-| Truck on bill | [Shipper] made the bill without it · Add the truck on the portal before the goods move, then enter it here. · E-way bill number · Portal: Update Part B, find the bill by this number · Truck number · Portal field: Vehicle No. · Add truck · Open the e-way bill portal |  |
+| Truck on bill | [Shipper] has not added the truck to the bill yet. · Truck on the bill: [truck] · Valid until: [date], [time] IST · [ops check line] | Read only for every carrier login: no form, no pickers, no portal button (owner decision, 18 Oct 2026) |
 | Confirm delivery | When the goods are handed over at [drop], add a photo of the signed delivery note, then confirm. · Proof of delivery · Add photo · Confirm delivery · Add the proof of delivery first. |  |
 | Payment (owner only) | Awaiting payment release · NaviG8r operations check the proof of delivery, then release the payment to your bank account ending [4 digits]. · Shipper paid · NaviG8r commission · You receive · Only owners see payment amounts. Dispatchers and drivers do not. | All three amounts together |
 | Same, dispatcher | Delivery confirmed · Nothing more for you to do on this booking. · NaviG8r operations check the proof of delivery. The owner sees the payment. | No amounts |
@@ -127,7 +127,7 @@ Tabs for the office: Home, Bookings, Trips, Publish, Profile. Tabs for drivers: 
 | Trips list | Trips · Open · In transit · Done · Dates · Room left · Bookings · [truck] · [driver] \| No driver yet · Truck chosen when you accept the first booking | No View or Start on the card |
 | Trip | TRIP · [route] · [status] · [dates] · [size] truck · Room left: [n] kg of [capacity] kg · Truck and driver · Not assigned · Assign driver · Bookings on this trip ([n]) |  |
 | Start (disabled) | Start the trip · Start trip · Assign a driver first. Then start on loading day. | Start lives only here |
-| Start sheet | Start [route] now? · Truck · Driver · Bookings · [Shipper]'s e-way bill does not have the truck yet. Add it on the portal before these goods move. · Start trip · Add the truck first · Not yet · Starting tells each shipper their goods are on the way. | Warning only when true |
+| Start sheet | Start [route] now? · Truck · Driver · Bookings · [Shipper]'s e-way bill does not have the truck yet. [Shipper] adds it. Without the truck, the bill is not valid for moving the goods. · Start trip · Not yet · Starting tells each shipper their goods are on the way. | Warning only when true; it informs, it does not ask the carrier to act |
 | Assign sheet | Who drives this trip? · [route], [dates], truck [truck]. The driver sees the trip and the e-way bill, never the payment. · Assign [name] · Cancel · Add a driver to your company | No driver preselected |
 | Publish | Publish a trip · Shippers can book space on it once it is published. · From · To · Leaves · Arrives by · Truck size: Small, Medium, Large · Room for shippers · The weight you can carry for shippers on this trip. · You choose the truck when you accept the first booking. · Publish trip | Fields start empty |
 | Profile | Company · Approved by NaviG8r · Transporter ID · Your GSTIN, or a TRANSIN if you have no GST registration. Shippers copy it into their e-way bills. It is not the shipper's GSTIN. · Trucks ([n]) · Add truck · Drivers ([n]) · Add driver · Manage drivers · Bank details (owner only) · Account ending [4 digits] · Team · Invite · Dispatchers accept bookings and assign drivers. They do not see payments. | No developer lab |

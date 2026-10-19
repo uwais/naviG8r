@@ -14,7 +14,7 @@ int validUntilUtcMsFromIndiaTime(DateTime date, TimeOfDay time) =>
         .millisecondsSinceEpoch;
 
 /// Part B of an e-way bill: the truck number and valid-until time, copied from the bill after the
-/// truck was added to it. Used by the shipper's card and the carrier's card.
+/// truck was added to it. Used by the shipper's card; the carrier only reads the bill.
 class EwayBillTruckForm extends StatefulWidget {
   const EwayBillTruckForm(
       {required this.path,

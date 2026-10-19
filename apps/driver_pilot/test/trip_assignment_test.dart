@@ -8,7 +8,6 @@ import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/eway_bill_card.dart';
 import 'package:driver_pilot/eway_bill_carrier_card.dart';
-import 'package:driver_pilot/eway_bill_portal_link.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/trip_assignment_card.dart';
 import 'package:driver_pilot/unassigned_driver_notice.dart';
@@ -623,20 +622,22 @@ void main() {
     Map<String, dynamic> onTrip(String truck) =>
         {...shipment(bill: billWithTruck), 'assignedTruckNumber': truck};
     final forCarrierOffice =
-        'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right; if the e-way bill is wrong, update it on the $ewayBillPortalName, then here.';
+        'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right; if the e-way bill is wrong, ask the shipper to change it.';
 
     testWidgets(
-        'the carrier office is asked to check which truck is right and fix the bill',
+        'the carrier office is asked to check which truck is right and to ask the shipper about the bill',
         (tester) async {
-      signInAsCarrier(canAddTruck: true);
+      signInAsCarrier(office: true);
       await mountCard(
           tester, EwayBillCarrierCard(shipment: onTrip('KA02XY9999')));
       expect(find.text(forCarrierOffice), findsOneWidget);
+      expect(find.textContaining('update it on the'), findsNothing,
+          reason: 'the carrier is not sent to the portal to change the bill');
     });
 
     testWidgets('a driver gets the facts and is told to tell the carrier',
         (tester) async {
-      signInAsCarrier(canAddTruck: false);
+      signInAsCarrier(office: false);
       await mountCard(
           tester, EwayBillCarrierCard(shipment: onTrip('KA02XY9999')));
       expect(
@@ -647,20 +648,19 @@ void main() {
     });
 
     testWidgets(
-        'the shipper is told what the carrier assigned and asked to check with them, not sent to the portal',
+        'the shipper is told what the carrier assigned, to check with them, and that the bill is theirs to change',
         (tester) async {
       signInAsShipper(permissions: ['eway_bill.write', 'eway_bill.add_truck']);
       await mountCard(tester, EwayBillCard(shipment: onTrip('KA02XY9999')));
       expect(
           find.text(
-              'The e-way bill shows KA01AB1234. Your carrier has assigned KA02XY9999 to this trip. Ask your carrier which truck is right.'),
+              'The e-way bill shows KA01AB1234. Your carrier has assigned KA02XY9999 to this trip. Ask your carrier which truck is right; if the e-way bill is wrong, change it in your billing software or on the e-way bill site, then here.'),
           findsOneWidget);
-      expect(find.textContaining('portal, then here'), findsNothing);
     });
 
     testWidgets('once the shipment is closed nobody is asked about the trucks',
         (tester) async {
-      signInAsCarrier(canAddTruck: true);
+      signInAsCarrier(office: true);
       await mountCard(
           tester,
           EwayBillCarrierCard(shipment: {
@@ -672,19 +672,20 @@ void main() {
 
     testWidgets('the same truck, written differently, says nothing extra',
         (tester) async {
-      signInAsCarrier(canAddTruck: true);
+      signInAsCarrier(office: true);
       await mountCard(
           tester, EwayBillCarrierCard(shipment: onTrip('ka 01-ab 1234')));
       expect(find.textContaining('The truck on this trip'), findsNothing);
     });
 
-    testWidgets("the carrier's Add truck form starts with the trip's truck",
+    testWidgets(
+        "the shipper's Add truck form starts with the truck the carrier named at acceptance",
         (tester) async {
-      signInAsCarrier(canAddTruck: true);
+      signInAsShipper(permissions: ['eway_bill.write', 'eway_bill.add_truck']);
       await mountCard(
           tester,
-          EwayBillCarrierCard(shipment: {
-            ...shipment(bill: {'kind': 'BILL', 'billNumber': '123456789012'}),
+          EwayBillCard(shipment: {
+            ...shipment(bill: savedBill),
             'assignedTruckNumber': 'KA02XY9999'
           }));
       await tester.tap(find.text('Add truck'));
@@ -703,12 +704,8 @@ void main() {
 
     testWidgets('a form not filled in from the trip says nothing about it',
         (tester) async {
-      signInAsCarrier(canAddTruck: true);
-      await mountCard(
-          tester,
-          EwayBillCarrierCard(
-              shipment: shipment(
-                  bill: {'kind': 'BILL', 'billNumber': '123456789012'})));
+      signInAsShipper(permissions: ['eway_bill.write', 'eway_bill.add_truck']);
+      await mountCard(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
       await tester.tap(find.text('Add truck'));
       await tester.pump();
       expect(find.textContaining('Filled in from the truck'), findsNothing);

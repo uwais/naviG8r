@@ -7,7 +7,6 @@ import 'package:driver_pilot/eway_bill_carrier_card.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
@@ -65,71 +64,82 @@ void main() {
   });
 
   testWidgets(
-      'a carrier owner sees the truck buttons and the portal, and saves on the carrier path',
+      'a carrier office reads a bill without the truck: the shipper adds it, no form, no pickers, no portal',
       (tester) async {
-    signInAsCarrier(canAddTruck: true);
-    final launcher = RecordingLauncher();
-    UrlLauncherPlatform.instance = launcher;
-    String? path;
+    signInAsCarrier(office: true);
+    final requests = <String>[];
     api.dio.httpClientAdapter = MockApiAdapter((request) {
-      path = request.path;
-      return jsonResponse({
-        'shipment': shipment(
-            bill: withTruck({'kind': 'BILL', 'billNumber': '123456789012'}))
-      });
+      requests.add(request.path);
+      return jsonResponse({});
     });
     await mountCard(
         tester,
         EwayBillCarrierCard(
             shipment: shipment(
                 bill: {'kind': 'BILL', 'billNumber': '123456789012'})));
+    expect(find.text('1234 5678 9012'), findsOneWidget,
+        reason: 'the carrier still sees which bill it is');
     expect(
-        find.text(
-            'Add the truck on the portal before the goods move, then enter it here.'),
+        find.text('Synthetic Shipper A has not added the truck to the bill yet.'),
         findsOneWidget,
-        reason: 'ca-booking-truck: the carrier is told its part');
-    expect(find.text('E-way bill number'), findsOneWidget,
-        reason: 'ca-booking-truck: the bill number is a copy row');
-    expect(find.text('Portal: Update Part B, find the bill by this number'),
-        findsOneWidget,
-        reason: 'the copy row says where it goes on the portal');
+        reason:
+            'owner decision 18 Oct 2026: the shipper adds the truck; the carrier is told, not asked');
+    expect(find.text('Not checked yet.'), findsOneWidget,
+        reason: 'the ops check state shows');
     expect(find.textContaining('has not checked the truck or the expiry'),
         findsOneWidget,
         reason: 'no truck yet, so the original caveat stays');
-    expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget,
-        reason:
-            'owners and dispatchers can add the truck; it is the step\'s primary action');
-    expect(find.text('Open the government e-way bill portal'), findsOneWidget,
-        reason: 'the owner gets the portal link');
-    await tester.tap(find.text('Open the government e-way bill portal'));
-    await tester.pump();
-    expect(launcher.opened, ['https://ewaybillgst.gov.in'],
-        reason: 'the portal link opens the portal address');
-    await tester.tap(find.text('Add truck'));
-    await tester.pump();
-    await tester.enterText(
-        find.widgetWithText(TextField, 'Truck number'), 'KA01AB1234');
-    await chooseTodayAtLastMinute(tester);
-    await tester.tap(find.text('Save truck'));
-    await tester.pumpAndSettle();
-    expect(path, '/v1/pilot/carrier/shipments/shipment-a/eway-bill/truck');
-    expect(find.text('Truck: KA01AB1234'), findsOneWidget,
-        reason: 'the saved truck shows');
+    for (final words in [
+      'Add truck',
+      'Change truck',
+      'Save truck',
+      'Add the truck on the portal before the goods move, then enter it here.',
+      'Portal: Update Part B, find the bill by this number',
+      'Open the government e-way bill portal',
+      'Valid until, date in India: choose the date',
+      'Time in India: choose the time',
+    ]) {
+      expect(find.text(words), findsNothing, reason: 'read only: "$words"');
+    }
+    expect(find.byType(TextField), findsNothing, reason: 'no truck form');
+    expect(find.byType(OutlinedButton), findsNothing,
+        reason: 'no date or time picker buttons');
+    expect(find.byType(FilledButton), findsNothing, reason: 'read only');
+    expect(find.byType(TextButton), findsNothing, reason: 'read only');
+    expect(requests, isEmpty, reason: 'the card never writes to the server');
+  });
+
+  testWidgets(
+      'a carrier office reads the truck and valid-until on the bill, with nothing to change',
+      (tester) async {
+    signInAsCarrier(office: true);
+    await mountCard(
+        tester,
+        EwayBillCarrierCard(
+            shipment: shipment(
+                bill: withTruck(
+                    {'kind': 'BILL', 'billNumber': '123456789012'}))));
+    expect(find.text('Truck on the bill: KA01AB1234'), findsOneWidget,
+        reason: 'the truck the shipper put on the bill');
+    expect(
+        find.textContaining(
+            RegExp(r'^Valid until: 16 Oct( 2026)?, 23:59 IST$')),
+        findsOneWidget,
+        reason: 'the valid-until time the shipper entered');
     expect(
         find.text(
             'Shown as entered in NaviG8r. NaviG8r has not made or changed this bill, and has not checked it against the portal.'),
         findsOneWidget,
         reason: 'with a truck, the caveat names the portal');
-    expect(find.textContaining('has not checked the truck or the expiry'),
-        findsNothing,
-        reason: 'the old caveat no longer fits');
-    expect(find.widgetWithText(OutlinedButton, 'Change truck'), findsOneWidget,
-        reason: 'the truck can be changed');
+    expect(find.text('Change truck'), findsNothing, reason: 'read only');
+    expect(find.text('Open the government e-way bill portal'), findsNothing,
+        reason: 'nothing for the carrier to do on the portal');
+    expect(find.byType(OutlinedButton), findsNothing, reason: 'read only');
   });
 
-  testWidgets('the 15 second refresh never wipes a carrier half typed truck',
+  testWidgets('the 15 second refresh shows the truck once the shipper adds it',
       (tester) async {
-    signInAsCarrier(canAddTruck: true);
+    signInAsCarrier(office: true);
     final bill = {'kind': 'BILL', 'billNumber': '123456789012'};
     final current = ValueNotifier(shipment(bill: bill));
     await mountRefreshingCard(
@@ -137,34 +147,21 @@ void main() {
         current,
         (value) =>
             EwayBillCarrierCard(key: const ValueKey('card'), shipment: value));
-    await tester.tap(find.text('Add truck'));
+    expect(
+        find.text('Synthetic Shipper A has not added the truck to the bill yet.'),
+        findsOneWidget);
+    current.value = shipment(bill: withTruck(bill));
     await tester.pump();
-    await tester.enterText(
-        find.widgetWithText(TextField, 'Truck number'), 'HALF-TYPED');
-    current.value = {...shipment(bill: bill), 'extra': 1};
-    await tester.pump();
-    expect(find.text('HALF-TYPED'), findsOneWidget,
-        reason: 'typed text survives a refresh');
-  });
-
-  testWidgets('a carrier owner gets no truck buttons once delivered',
-      (tester) async {
-    signInAsCarrier(canAddTruck: true);
-    await mountCard(
-        tester,
-        EwayBillCarrierCard(
-            shipment: shipment(
-                status: 'DELIVERED',
-                bill: {'kind': 'BILL', 'billNumber': '123456789012'})));
-    expect(find.text('Add truck'), findsNothing,
-        reason: 'locked once delivered');
-    expect(find.text('Open the government e-way bill portal'), findsNothing,
-        reason: 'nothing to do on the portal once delivered');
+    expect(find.text('Truck on the bill: KA01AB1234'), findsOneWidget,
+        reason: 'the card shows what the server now holds');
+    expect(
+        find.text('Synthetic Shipper A has not added the truck to the bill yet.'),
+        findsNothing);
   });
 
   testWidgets('a driver sees the truck lines but no buttons and no portal link',
       (tester) async {
-    signInAsCarrier(canAddTruck: false);
+    signInAsCarrier(office: false);
     await mountCard(
         tester,
         EwayBillCarrierCard(
@@ -173,7 +170,7 @@ void main() {
                     {'kind': 'BILL', 'billNumber': '123456789012'}))));
     expect(find.text('1234 5678 9012'), findsOneWidget,
         reason: 'the number to quote at a check-post');
-    expect(find.text('Truck: KA01AB1234'), findsOneWidget,
+    expect(find.text('Truck on the bill: KA01AB1234'), findsOneWidget,
         reason: 'the truck on the bill');
     expect(
         find.textContaining(
@@ -194,8 +191,10 @@ void main() {
             key: UniqueKey(),
             shipment: shipment(
                 bill: {'kind': 'BILL', 'billNumber': '123456789012'})));
-    expect(find.text('Truck not added yet.'), findsOneWidget,
-        reason: 'a driver is not told to add it');
+    expect(
+        find.text('Synthetic Shipper A has not added the truck to the bill yet.'),
+        findsOneWidget,
+        reason: 'a driver is told who adds it, not asked to');
   });
 
   testWidgets(
@@ -243,7 +242,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('1234 5678 9012'), findsOneWidget,
         reason: 'the bill shows on the detail screen');
-    expect(find.text('Truck: KA01AB1234'), findsOneWidget,
+    expect(find.text('Truck on the bill: KA01AB1234'), findsOneWidget,
         reason: 'the driver sees the truck');
     expect(
         find.text('The valid-until time entered has passed. Check the portal.'),
@@ -258,9 +257,9 @@ void main() {
   });
 
   testWidgets(
-      'the carrier detail screen fits a 360 by 640 phone for an owner with a truck on the bill',
+      'the carrier detail screen fits a 360 by 640 phone for an owner with a truck on the bill, read only',
       (tester) async {
-    signInAsCarrier(canAddTruck: true);
+    signInAsCarrier(office: true);
     api.dio.httpClientAdapter = MockApiAdapter((request) => jsonResponse({
           'shipments': [
             {
@@ -298,17 +297,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('1234 5678 9012'), findsOneWidget,
         reason: 'the bill shows on the detail screen');
-    expect(find.text('Truck: KA01AB1234'), findsOneWidget,
+    expect(find.text('Truck on the bill: KA01AB1234'), findsOneWidget,
         reason: 'the truck shows');
     expect(find.textContaining('Expires in'), findsOneWidget,
         reason: 'the countdown shows inside the last 12 hours');
     expect(find.textContaining('The details here did not match the portal'),
         findsOneWidget,
         reason: 'the longest check line');
-    expect(find.text('Change truck'), findsOneWidget,
-        reason: 'the owner can change the truck');
-    expect(find.text('Open the government e-way bill portal'), findsOneWidget,
-        reason: 'the owner has the portal link');
+    expect(find.text('Change truck'), findsNothing,
+        reason: 'the shipper changes the truck on the bill, not the carrier');
+    expect(find.text('Open the government e-way bill portal'), findsNothing,
+        reason: 'nothing for the carrier to do on the portal');
     expect(find.text('Truck on the e-way bill'), findsOneWidget,
         reason: 'the bill shows inside its step on the booking screen');
     expect(tester.takeException(), isNull,

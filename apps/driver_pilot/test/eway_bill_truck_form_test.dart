@@ -19,10 +19,10 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({'access_token': 'test'});
     api = Api('http://test');
     AuthorizationSession.clear();
-    AuthorizationSession.user = {'id': 'carrier-owner'};
+    AuthorizationSession.user = {'id': 'shipper'};
     AuthorizationSession.principal = {
-      'organizationId': 'carrier-a',
-      'roles': ['CARRIER'],
+      'organizationId': 'shipper-a',
+      'roles': ['SHIPPER'],
       'permissions': ['eway_bill.add_truck']
     };
   });
@@ -42,7 +42,7 @@ void main() {
         home: Scaffold(
             body: ListView(children: [
           EwayBillTruckForm(
-              path: '/v1/pilot/carrier/shipments/shipment-a/eway-bill/truck',
+              path: '/shipments/shipment-a/eway-bill/truck',
               clearsCheck: clearsCheck,
               current: current,
               onSaved: savedShipments.add,
@@ -77,11 +77,11 @@ void main() {
     List<String> linesAt(Duration before) =>
         ewayBillTruckLines(bill(), now: validUntil.subtract(before));
     expect(linesAt(const Duration(days: 1)),
-        ['Truck: KA01AB1234', 'Valid until: 16 Oct, 23:59 IST'],
+        ['Truck on the bill: KA01AB1234', 'Valid until: 16 Oct, 23:59 IST'],
         reason:
             'a day out: truck and time, no countdown; copy.md Formats: no year this year, time as 16:40 IST');
     expect(linesAt(const Duration(hours: 12)),
-        ['Truck: KA01AB1234', 'Valid until: 16 Oct, 23:59 IST'],
+        ['Truck on the bill: KA01AB1234', 'Valid until: 16 Oct, 23:59 IST'],
         reason: 'exactly 12 hours out: still no countdown');
     expect(linesAt(const Duration(days: 366))[1],
         'Valid until: 16 Oct 2026, 23:59 IST',
@@ -184,7 +184,7 @@ void main() {
         reason: 'the date button shows date and time together');
     await tester.tap(find.text('Save truck'));
     await tester.pumpAndSettle();
-    expect(path, '/v1/pilot/carrier/shipments/shipment-a/eway-bill/truck');
+    expect(path, '/shipments/shipment-a/eway-bill/truck');
     expect(sent, {'truckNumber': 'ka 01 ab 1234', 'validUntilUtcMs': expected},
         reason: 'the server tidies the number; the time is India time');
     expect(
@@ -275,8 +275,8 @@ void main() {
         isNull,
         reason: 'a second tap while saving does nothing');
     AuthorizationSession.principal = {
-      'organizationId': 'carrier-b',
-      'roles': ['CARRIER'],
+      'organizationId': 'shipper-b',
+      'roles': ['SHIPPER'],
       'permissions': ['eway_bill.add_truck']
     };
     answer.complete(jsonResponse({'shipment': <String, dynamic>{}}));

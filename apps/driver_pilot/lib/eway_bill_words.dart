@@ -12,7 +12,7 @@ import 'ui/format.dart';
 List<String> ewayBillTruckLines(Map<String, dynamic> bill, {DateTime? now}) {
   final truck = bill['truckNumber'];
   if (truck is! String || truck.isEmpty) return const [];
-  final lines = ['Truck: $truck'];
+  final lines = ['Truck on the bill: $truck'];
   final validUntil = bill['validUntilUtcMs'];
   if (validUntil is! num) return lines;
   final validUntilMoment =
@@ -57,7 +57,7 @@ String portalTruckNumber(String truck) {
 }
 
 /// Who reads the sentence about an e-way bill and a trip that name different trucks. Each is told only what they
-/// can do.
+/// can do: the shipper changes the bill, the carrier office changes the trip's truck.
 enum TruckMismatchReader { carrierOffice, shipper, driver }
 
 /// One plain sentence when the truck on the bill is not the truck the carrier assigned to the trip, or null
@@ -76,9 +76,9 @@ String? ewayBillTruckMismatchSentence(
   if (portalTruckNumber(onBill) == portalTruckNumber(onTrip)) return null;
   return switch (reader) {
     TruckMismatchReader.carrierOffice =>
-      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Check which one is right; if the e-way bill is wrong, update it on the $ewayBillPortalName, then here.',
+      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Check which one is right; if the e-way bill is wrong, ask the shipper to change it.',
     TruckMismatchReader.shipper =>
-      'The e-way bill shows $onBill. Your carrier has assigned $onTrip to this trip. Ask your carrier which truck is right.',
+      'The e-way bill shows $onBill. Your carrier has assigned $onTrip to this trip. Ask your carrier which truck is right; if the e-way bill is wrong, change it in your billing software or on the e-way bill site, then here.',
     TruckMismatchReader.driver =>
       'The e-way bill shows $onBill. The truck on this trip is $onTrip. Tell your carrier.',
   };

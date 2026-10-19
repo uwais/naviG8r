@@ -62,11 +62,12 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>Ops: <a href="/ops/beta">/ops/beta</a>. Sign in as 8000000005.</li>
 <li>Tap Send code and the code fills in for you.</li>
 <li>On the practice site you choose who you are on <a href="/demo/eway-portal/sign-in">Choose who you are</a>: Supplier (Synthetic Shipper A), Transporter (Synthetic Carrier A, Transporter ID 29TRNSP1234A1Z7) or Someone else. There is no password. Switch user is at the top of every page.</li>
+<li>In naviG8r the shipper makes the bill and adds the truck to it (Part B); the carrier only reads the bill. The Transporter user is here only to try the portal's own rules in Step 6.</li>
 </ul>
 <h2>Which shipment to use</h2>
 <ul>
 <li>The seeded shipment load-a-with-bill already has a bill (1234 5678 9012) that names Synthetic Carrier A as transporter and has no vehicle yet.</li>
-<li>The seeded shipment load-a-with-truck has a bill (2345 6789 0123) whose transporter already added vehicle KA01AB1234, valid up to 20 hours after the demo server started.</li>
+<li>The seeded shipment load-a-with-truck has a bill (2345 6789 0123) whose supplier already added vehicle KA01AB1234, valid up to 20 hours after the demo server started.</li>
 <li>The shipment load-a-booked has no bill yet. It is the one that follows this whole guide.</li>
 </ul>
 <h2>Step 1. Shipper generates the bill</h2>
@@ -79,13 +80,14 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>The bill says Part B not entered: not valid for movement. Copy the bill number, the supplier GSTIN and the document number, and note the bill date.</li>
 <li>Back in the app, tap Add e-way bill. The supplier GSTIN goes in GSTIN of whoever made the bill and the document number in Invoice number. Pick the bill date the practice site showed. Tap Save e-way bill.</li>
 </ol>
-<h2>Step 2. Carrier (owner) adds the vehicle</h2>
+<h2>Step 2. Shipper adds the truck to the bill</h2>
 <ol>
-<li>Open the shipment in Shipments and tap Open the practice e-way bill portal.</li>
-<li>Switch user to Transporter, then choose <a href="/demo/eway-portal/vehicle">Update vehicle (Part B)</a>.</li>
+<li>The shipment's card now says the bill is saved and the truck is not on it yet, and shows the carrier's truck for this trip, KA01AB1234.</li>
+<li>Tap Open the practice e-way bill portal. Still the Supplier, choose <a href="/demo/eway-portal/vehicle">Update vehicle (Part B)</a>.</li>
 <li>Type the bill number and vehicle KA01AB1234, choose the reason First Time, then tap Update vehicle.</li>
 <li>The page shows Valid up to: one day per 200 km, so 350 km gives two days, ending at 23:59 India time.</li>
-<li>Switch back to the app. Tap Add truck, paste the vehicle number, choose the Valid until date and time to match, then tap Save truck.</li>
+<li>Switch back to the app. Tap Add truck: the truck number is already filled in. Choose the Valid until date and time to match, then tap Save truck.</li>
+<li>Signed in as the owner, 8000000003, the booking only reads: the truck on the bill and its Valid until, with no Add truck button. Before this step it said Synthetic Shipper A has not added the truck to the bill yet.</li>
 </ol>
 <h2>Step 3. Ops verifies the bill</h2>
 <ol>
@@ -107,18 +109,18 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>Still as 8000000009, open Profile and tap Save vehicle: it is refused, because that truck is assigned to a trip that is not finished. Only the carrier can change it.</li>
 <li>Sign out and sign in as 8000000013 (Synthetic Driver B). Loads shows only the Hoskote to Kolar trip, and Shipments only its one shipment, 150 kg.</li>
 <li>Sign in as the owner, 8000000003. Loads shows both trips. Open Synthetic Origin to Synthetic Destination: its Truck and driver card shows KA01AB1234 and Synthetic Driver A. Choose truck KA02XY9999 and tap Save. The card says it saved, that the driver is not sent a message, and that the trip shows on their Loads screen when they pull down to refresh.</li>
-<li>Open load-a-with-truck. Its e-way bill card now says the e-way bill shows KA01AB1234 and the truck on this trip is KA02XY9999, and asks you to check which one is right and, if the e-way bill is wrong, to update it on the practice portal, then here. Change truck opens with KA02XY9999 filled in from the trip.</li>
-<li>Sign in as the shipper, 8000000001, and open load-a-with-truck: the card says your carrier has assigned KA02XY9999 to this trip and to ask your carrier which truck is right. It names no driver. Signed in as 8000000009, the same shipment gives the two numbers and says to tell your carrier.</li>
+<li>Open load-a-with-truck. Its e-way bill card now says the e-way bill shows KA01AB1234 and the truck on this trip is KA02XY9999, and asks you to check which one is right and, if the e-way bill is wrong, to ask the shipper to change it. There is no Change truck button.</li>
+<li>Sign in as the shipper, 8000000001, and open load-a-with-truck: the card says your carrier has assigned KA02XY9999 to this trip, to ask your carrier which truck is right, and if the e-way bill is wrong to change it, then here. It names no driver. Change truck opens with KA02XY9999 filled in from the trip. Signed in as 8000000009, the same shipment gives the two numbers and says to tell your carrier.</li>
 <li>As the owner, choose KA01AB1234 again on the trip, and the sentences go away.</li>
 <li>A driver with no trip (invite one from the owner's Profile, then sign in as them): Loads says Your carrier has not assigned you a trip yet. Ask your carrier to assign one.</li>
 </ol>
 <h2>Step 6. What to try next</h2>
 <ol>
 <li>Switch user to Someone else and open the bill's details from the home page: it is refused.</li>
-<li>Switch user to Supplier and try Update vehicle on the same bill: it is refused, because the transporter already updated it.</li>
-<li>As the Transporter, change the vehicle with reason Break Down: the Valid up to stays the same.</li>
+<li>As the Supplier, change the vehicle on your bill with reason Break Down: the Valid up to stays the same.</li>
+<li>The real rules also let the transporter named on a bill update its vehicle. Generate a second bill as the Supplier naming Transporter ID 29TRNSP1234A1Z7 and no vehicle. Switch user to Transporter and update its vehicle, then switch back to Supplier and try Update vehicle: it is refused, because the transporter already updated it. naviG8r does not use this; the shipper adds the truck.</li>
 <li>As the Supplier, generate a second bill and cancel it on <a href="/demo/eway-portal/cancel">Cancel an e-way bill</a>. Verify then says Cancelled.</li>
-<li>As the Transporter, try <a href="/demo/eway-portal/extend">Extend validity</a> on 234567890123: it is refused until that bill expires, and works only in the eight hours after.</li>
+<li>As the Transporter, try <a href="/demo/eway-portal/extend">Extend validity</a> on that second bill: it is refused until it expires, and works only in the eight hours after.</li>
 <li>Verify the seeded bills: 123456789012, 1 Oct 2026, 29ABCDE1234F1Z5, SYN/2026/001 (Part B not entered), and 234567890123, 2 Oct 2026, 29ABCDE1234F1Z5, SYN/2026/002 (vehicle KA01AB1234).</li>
 </ol>
 ${RULES_MODELLED}

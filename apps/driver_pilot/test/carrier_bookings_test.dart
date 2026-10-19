@@ -46,7 +46,6 @@ Map<String, dynamic> trip(
 const officeWork = [
   'carrier.offer_accept',
   'trip.assign',
-  'eway_bill.add_truck',
   'pod.upload',
 ];
 
@@ -213,10 +212,11 @@ void main() {
       expect(
           find.widgetWithText(FilledButton, 'Review booking'), findsOneWidget,
           reason: 'the first task has the one primary button');
-      expect(find.text('Add the truck to an e-way bill'), findsOneWidget,
-          reason: 'the next task is a row');
-      expect(find.text('Hosur to Coimbatore · Lakshmi Foods'), findsOneWidget,
-          reason: 'ca-home: route and shipper under the task');
+      expect(find.text('Add the truck to an e-way bill'), findsNothing,
+          reason:
+              'owner decision 18 Oct 2026: the shipper adds the truck, so it is never the carrier\'s task');
+      expect(find.text('Hosur to Coimbatore · Lakshmi Foods'), findsNothing,
+          reason: 'no task row for the missing truck');
       expect(find.text('Assign a driver'), findsNWidgets(2),
           reason: 'both booked trips wait for a driver');
       expect(find.text('Today'), findsOneWidget,
@@ -282,24 +282,21 @@ void main() {
           bookings: [pending(), truckMissing(), active, delivered()],
           trips: [trip()]);
       await mountRouted(tester, const DriverShipmentsScreen());
-      expect(find.text('Needs you (2)'), findsOneWidget,
-          reason: 'copy.md: Needs you ([n])');
+      expect(find.text('Needs you (1)'), findsOneWidget,
+          reason:
+              'copy.md: Needs you ([n]); a missing truck is the shipper\'s to add, so it is not counted');
       expect(find.text('Active'), findsOneWidget);
       expect(find.text('Done'), findsOneWidget);
       expect(find.text('Synthetic Shipper A'), findsOneWidget);
       expect(find.text('Waiting for you'), findsOneWidget,
           reason: 'ca-bookings: status word, never PENDING_CARRIER_ACCEPT');
-      expect(find.text('Peenya, Bengaluru to Hosur'), findsNWidgets(2),
+      expect(find.text('Peenya, Bengaluru to Hosur'), findsOneWidget,
           reason: '[pickup] to [drop]');
       expect(find.text('18 Oct · 120 kg'), findsOneWidget,
           reason:
               'the trip date and the weight; no e-way bill answer is stored yet');
-      expect(find.text('Truck not on bill'), findsOneWidget);
-      expect(find.text('120 kg · E-way bill: needed'), findsOneWidget,
-          reason: 'a saved bill means the bill is needed');
       final nextLines = screenWords(tester);
       expect(nextLines, contains('Next: accept and choose the truck.'));
-      expect(nextLines, contains('Next: add the truck to the e-way bill.'));
       expect(find.byType(FilledButton), findsNothing,
           reason:
               'ca-bookings: the whole card opens; Accept is on the booking');
@@ -311,6 +308,18 @@ void main() {
       expect(find.text('Active Shipper'), findsOneWidget);
       expect(find.text('Accepted'), findsOneWidget);
       expect(find.text('Synthetic Shipper A'), findsNothing);
+      expect(find.text('Lakshmi Foods'), findsOneWidget,
+          reason: 'a booking whose bill lacks the truck is active, not waiting on the carrier');
+      expect(find.text('Truck not on bill'), findsOneWidget,
+          reason: 'the carrier pays check-post fines, so it still sees the state');
+      expect(find.text('120 kg · E-way bill: needed'), findsOneWidget,
+          reason: 'a saved bill means the bill is needed');
+      final activeNextLines = screenWords(tester);
+      expect(activeNextLines,
+          contains('Next: Lakshmi Foods adds the truck to the e-way bill.'),
+          reason: 'the carrier is told who acts, not asked to');
+      expect(activeNextLines,
+          isNot(contains('Next: add the truck to the e-way bill.')));
 
       await tester.tap(find.text('Done'));
       await tester.pumpAndSettle();
@@ -411,7 +420,7 @@ void main() {
     });
 
     testWidgets(
-        'a bill without the truck puts the bill and the truck on copy rows',
+        'a bill without the truck is the shipper\'s to fix: the office reads it, with no form or copy rows',
         (tester) async {
       signInAsOwner();
       answer(bookings: [
@@ -422,18 +431,25 @@ void main() {
       await mountBooking(tester);
       expect(find.text('Accepted with KA01AB1234'), findsOneWidget,
           reason: 'ca-booking-truck: the done accept step names the truck');
+      expect(find.text('Lakshmi Foods'), findsWidgets,
+          reason: 'the step names the shipper as who acts');
       expect(find.text('You · Lakshmi Foods made the bill without it'),
+          findsNothing,
+          reason: 'the carrier is not asked to add the truck');
+      expect(find.text('Lakshmi Foods has not added the truck to the bill yet.'),
           findsOneWidget,
-          reason: 'copy.md: [Shipper] made the bill without it');
-      expect(find.text('E-way bill number'), findsOneWidget,
-          reason: 'copy row: bill number');
+          reason: 'the state in words');
       expect(find.text('2718 4402 1196'), findsOneWidget,
           reason: 'in groups of four, in the mono face');
-      expect(find.text('Truck number'), findsOneWidget,
-          reason: 'copy row: truck number');
-      expect(find.text('Portal field: Vehicle No.'), findsOneWidget);
-      expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget,
-          reason: 'ca-booking-truck primary');
+      for (final words in [
+        'E-way bill number',
+        'Truck number',
+        'Portal field: Vehicle No.',
+        'Add truck',
+        'Open the government e-way bill portal',
+      ]) {
+        expect(find.text(words), findsNothing, reason: 'read only: "$words"');
+      }
     });
 
     testWidgets(

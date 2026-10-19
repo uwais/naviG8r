@@ -604,8 +604,9 @@ void main() {
               ewayBill: billNoTruck,
               extra: {'assignedTruckNumber': 'KA01AB1234'}),
           trip: lane());
-      expect(find.text('You or Ravi Roadways'), findsOneWidget,
-          reason: 'screens.md: either may add the truck');
+      expect(find.text('You or Ravi Roadways'), findsNothing,
+          reason:
+              'owner decision 18 Oct 2026: the shipper adds the truck, the carrier only reads the bill');
       expect(
           find.text('Bill 3412 0098 7654 saved. The truck is not on it yet.'),
           findsOneWidget,
@@ -618,6 +619,18 @@ void main() {
           findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget,
           reason: 'sh-ewb-truck primary');
+      await tester.tap(find.widgetWithText(FilledButton, 'Add truck'));
+      await tester.pumpAndSettle();
+      expect(
+          tester
+              .widget<TextField>(find.widgetWithText(TextField, 'Truck number'))
+              .controller!
+              .text,
+          'KA01AB1234',
+          reason: 'filled in from the truck the carrier named at acceptance');
+      expect(find.text('Valid until, date in India: choose the date'),
+          findsOneWidget,
+          reason: 'the shipper enters the valid-until printed on their bill');
       await leave(tester);
     });
 
