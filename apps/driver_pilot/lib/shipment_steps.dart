@@ -107,9 +107,12 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
   final waitingForCarrier = status == "PENDING_CARRIER_ACCEPT";
   final delivered = status == "PENDING_RELEASE" || status == "DELIVERED";
   // Delivery confirmed and the payment held: the shipper's acceptance ends the 48-hour hold early.
+  // The server's paymentReady turns true when the hold is over, and then accepting changes nothing.
+  // It is the rule Finance's release uses, so a wrong phone clock cannot move the task.
   final awaitingAcceptance = status == "PENDING_RELEASE" &&
       shipment["podAtUtcMs"] is num &&
-      shipment["podAcceptedAtUtcMs"] == null;
+      shipment["podAcceptedAtUtcMs"] == null &&
+      shipment["paymentReady"] != true;
   final inTransit = status == "BOOKED" &&
       (tripStatus == "IN_PROGRESS" || tripStatus == "COMPLETED");
 

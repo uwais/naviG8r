@@ -278,6 +278,16 @@ void main() {
           taskFor({...awaitingAcceptance, 'podAcceptedAtUtcMs': 2}), isNull,
           reason: 'once accepted, nothing is left for the shipper');
     });
+
+    test('the 48-hour hold is over: nothing is left for the shipper', () {
+      final holdOver = {...awaitingAcceptance, 'paymentReady': true};
+      final progress = shipmentProgress(holdOver);
+      expect(progress.actor, ShipmentActor.nobody);
+      expect(progress.next, isNull,
+          reason: 'accepting no longer changes when payment is released');
+      expect(taskFor(holdOver), isNull,
+          reason: 'review: a delivery from three days ago stayed first on Home');
+    });
   });
 }
 

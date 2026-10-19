@@ -799,6 +799,34 @@ void main() {
       await leave(tester);
     });
 
+    testWidgets(
+        'once the 48-hour hold is over, an e-way bill task is the Home task again',
+        (tester) async {
+      final holdOver = booking(
+          id: 'shp_delivered',
+          status: 'PENDING_RELEASE',
+          ewayBill: billWithTruck,
+          extra: {
+            'anchorTripId': 'lane-2',
+            'podAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+            'paymentReady': true,
+          });
+      final server = await showShipperApp(tester, '/customer');
+      server.answers['/shipments'] = {
+        'shipments': [holdOver, booking()]
+      };
+      server.answers['/anchor-trips'] = {
+        'trips': [
+          lane(),
+          {...lane(status: 'COMPLETED'), 'id': 'lane-2', 'destCity': 'Mysuru'},
+        ]
+      };
+      await tester.pumpAndSettle();
+      expect(find.text('Make the e-way bill'), findsOneWidget,
+          reason: 'review: accepting changes nothing once payment can be released');
+      expect(find.text('Accept delivery'), findsNothing);
+    });
+
     testWidgets('the Accept delivery task fits 360 x 800 at 200% text',
         (tester) async {
       useDoubleTextSize(tester);
@@ -840,6 +868,31 @@ void main() {
       expect(find.text('Done'), findsNothing);
       expect(find.text('Needs you'), findsOneWidget);
       expect(find.text('Next: You accept the delivery.'), findsOneWidget);
+    });
+
+    testWidgets('the list moves a delivery to Done once its hold is over',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/shipments');
+      server.answers['/shipments'] = {
+        'shipments': [
+          booking(
+              status: 'PENDING_RELEASE',
+              ewayBill: billWithTruck,
+              extra: {
+                'podAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+                'paymentReady': true,
+              }),
+        ]
+      };
+      server.answers['/anchor-trips'] = {
+        'trips': [lane(status: 'COMPLETED')]
+      };
+      await tester.pumpAndSettle();
+      expect(find.text('Needs you'), findsNothing,
+          reason: 'review: accepting changes nothing once payment can be released');
+      expect(find.text('Next: You accept the delivery.'), findsNothing);
+      expect(find.text('Active (1)'), findsNothing);
+      expect(find.text('Done'), findsOneWidget);
     });
 
     testWidgets(

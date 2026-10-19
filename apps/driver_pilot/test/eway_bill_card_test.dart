@@ -112,8 +112,8 @@ void main() {
       "the bill date goes up to India's today when the phone is still on yesterday",
       (tester) async {
     // 9:50 pm on 18 Oct in US Eastern is 7:20 am on 19 Oct in India, as on the recorded run.
-    ewayBillClock = () => DateTime.utc(2026, 10, 19, 1, 50);
-    addTearDown(() => ewayBillClock = DateTime.now);
+    ewayBillNow = () => DateTime.utc(2026, 10, 19, 1, 50);
+    addTearDown(() => ewayBillNow = DateTime.now);
     Map? sent;
     api.dio.httpClientAdapter = MockApiAdapter((request) {
       sent = request.data as Map;
