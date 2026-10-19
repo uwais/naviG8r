@@ -13,8 +13,7 @@ void main() {
     Widget page(String path) => Text('Page $path');
     final router = GoRouter(initialLocation: at, routes: [
       ShellRoute(
-        builder: (_, state, child) => DriverShell(
-            title: 'Test', currentPath: state.uri.path, child: child),
+        builder: (_, state, child) => DriverShell(currentPath: state.uri.path, child: child),
         routes: [
           GoRoute(
             path: '/driver',
