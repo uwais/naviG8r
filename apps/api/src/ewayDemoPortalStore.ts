@@ -60,7 +60,7 @@ function addSeededBills(): void {
     transportReason: "Supply",
     transporterId: TRANSPORTER_ID,
     distanceKm: 360,
-    vehicleUpdates: [{ vehicleNumber: "KA01AB1234", reasonCode: "4", remark: "", byPersonaKey: "transporter", atUtcMs: Date.now() }],
+    vehicleUpdates: [{ vehicleNumber: "KA01AB1234", reasonCode: "4", remark: "", byPersonaKey: "supplier", atUtcMs: Date.now() }],
     extensions: [],
     validUpToUtcMs: SEEDED_TRUCK_VALID_UNTIL_UTC_MS,
     cancelledAtUtcMs: null,

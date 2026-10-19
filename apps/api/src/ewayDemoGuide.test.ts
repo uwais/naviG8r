@@ -51,6 +51,13 @@ test("guide has the new steps, the rules box with sources, and only local links"
   for (const link of links) assert.ok(link.startsWith("/") || link.startsWith("http://127.0.0.1"), link);
 });
 
+test("Step 6 extends the bill the Transporter updated, not the cancelled one", async () => {
+  const guide = await get("/demo/eway-guide");
+  assert.ok(guide.text.includes("generate a third bill and cancel it"));
+  assert.ok(guide.text.includes("on the second bill, the one the Transporter updated"));
+  assert.ok(!guide.text.includes("that second bill"));
+});
+
 test("guide addresses follow the Host the visitor used, escaped", async () => {
   const guideFor = (host: string) => new Promise<string>((resolve, reject) => {
     const request = httpRequest(baseUrl + "/demo/eway-guide", { headers: { host } }, (response) => {

@@ -37,8 +37,9 @@ void signInAsShipper({List<String> permissions = const ['eway_bill.write']}) {
   api.selectOrganization('shipper-a');
 }
 
-/// A carrier login: owners and dispatchers can add the truck, drivers cannot.
-void signInAsCarrier({required bool canAddTruck}) {
+/// A carrier login: the office (owner or dispatcher) names the trip's truck and driver, a driver
+/// cannot. Neither adds the truck to the e-way bill; only the shipper does.
+void signInAsCarrier({required bool office}) {
   AuthorizationSession.user = {'id': 'carrier-person'};
   AuthorizationSession.principal = {
     'organizationId': 'carrier-a',
@@ -48,7 +49,7 @@ void signInAsCarrier({required bool canAddTruck}) {
       'carrier.offer_accept',
       'pod.upload',
       'conversation.read',
-      if (canAddTruck) 'eway_bill.add_truck'
+      if (office) 'trip.assign'
     ]
   };
 }

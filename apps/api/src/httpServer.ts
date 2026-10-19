@@ -1335,9 +1335,8 @@ export async function createApp(options: {
         return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
       }
       if (method === "POST" && /^\/v1\/pilot\/carrier\/shipments\/[^/]+\/eway-bill\/truck$/.test(url.pathname)) {
-        const shipment = addEwayBillTruck(store, url.pathname.split("/")[5]!, (await readJson(req, 8 * 1024)) ?? {});
-        await persist();
-        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
+        // Kept so an older carrier app gets "forbidden", not "not found": the shipper adds the truck (owner decision, 18 Oct 2026).
+        throw new AuthorizationError("forbidden");
       }
       if (method === "GET" && url.pathname === "/ops/eway-bills") {
         return json(res, 200, { ...listEwayBillsForOps(store), portalAddress: ewayPortalAddress() });

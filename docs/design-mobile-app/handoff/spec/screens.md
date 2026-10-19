@@ -42,7 +42,7 @@ Header on every signed-in screen: one button = company name (title) + "Person ·
 | `sh-ewb-portal` | Accepted, truck known, no bill yet | Open the e-way bill portal | Truck number (portal format) and carrier transporter ID, each with Copy |
 | `sh-ewb-details` | "I have made it" | Save e-way bill | Bill number, bill date, maker GSTIN, invoice number |
 | `sh-ewb-details-error` | Validation fails | Save e-way bill | 12-digit check; GSTIN equal to carrier transporter ID is an error |
-| `sh-ewb-truck` | Bill saved, truck not on it | Add truck | Either shipper or carrier may add |
+| `sh-ewb-truck` | Bill saved, truck not on it | Add truck | The shipper adds it in its billing software or on the e-way bill site, then enters it here; truck filled in from acceptance (owner decision, 18 Oct 2026) |
 | `sh-ewb-checking` | Bill + truck saved, ops not checked | (none) | Bill number, truck, valid-until |
 | `sh-ewb-problem` | Ops marked a problem | Fix the details | Shows ops' message. If the API has no structured "difference", show the ops note text |
 | `sh-ship-transit` | In transit | Message carrier | Truck, driver name, bill number |
@@ -61,7 +61,7 @@ Header on every signed-in screen: one button = company name (title) + "Person ·
 | `ca-booking-new` | Awaiting carrier acceptance | Accept | Title "Booking", never "Proof of delivery". Shows the shipper's e-way bill answer |
 | `ca-accept-empty` | Tap Accept | Accept with this truck (disabled) | Truck list from fleet. Nothing preselected (PR #153 behaviour) |
 | `ca-accept-chosen` | A truck picked | Accept with [truck] | |
-| `ca-booking-truck` | Bill exists without truck | Add truck | |
+| `ca-booking-truck` | Bill exists without truck | (none: read only) | "[Shipper] has not added the truck to the bill yet." The carrier only reads the bill (owner decision, 18 Oct 2026) |
 | `ca-booking-deliver` | In transit | Confirm delivery | Disabled until proof of delivery photo added |
 | `ca-booking-owner` | Delivery confirmed, owner | (none) | Owner only: shipper paid, commission, you receive, together |
 | `ca-booking-dispatcher` | Same, dispatcher | (none) | No amounts. Status "Delivery confirmed" |
@@ -95,7 +95,7 @@ Compute steps from the booking status and e-way bill fields. One function, unit 
 | Awaiting carrier acceptance | no answer | E-way bill question | You | You say if it needs an e-way bill |
 | Awaiting carrier acceptance | needed / not needed | Carrier accepts | Carrier | [Carrier] accepts and names the truck |
 | Accepted | needed, no bill | E-way bill part 1 | You | You make the e-way bill |
-| Accepted | bill, no truck | Truck on bill | You or carrier | Add the truck to the e-way bill |
+| Accepted | bill, no truck | Truck on bill | You | You add the truck to the e-way bill |
 | Accepted | bill + truck, not checked | Bill check | NaviG8r staff | NaviG8r staff check the bill |
 | Accepted | ops problem | E-way bill fix | You | You fix the e-way bill |
 | Accepted | checked or not needed | On the way (waiting) | Carrier | [Carrier] starts the trip |

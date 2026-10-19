@@ -7,7 +7,7 @@ import "ui/nv_step_list.dart" show NvStepState;
 // shipment screen, the shipments list "Next:" line and the Home "Needs you" card all read this.
 
 /// Who acts on the current step.
-enum ShipmentActor { shipper, carrier, shipperOrCarrier, staff, nobody }
+enum ShipmentActor { shipper, carrier, staff, nobody }
 
 /// Where the shipper's e-way bill stands. There is no stored "yes, it needs one" answer, so
 /// no bill at all is [none] (RECON gap 1).
@@ -144,10 +144,11 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
         ShipmentActor.shipper,
         "You make the e-way bill"
       ),
+    // The shipper adds the truck; the carrier only reads the bill (owner decision, 18 Oct 2026).
     EwayBillStage.billWithoutTruck => (
         ShipmentStepName.ewayBill,
-        ShipmentActor.shipperOrCarrier,
-        "Add the truck to the e-way bill"
+        ShipmentActor.shipper,
+        "You add the truck to the e-way bill"
       ),
     EwayBillStage.awaitingCheck => (
         ShipmentStepName.billCheck,
@@ -166,16 +167,14 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
       ),
   };
 
-  final task =
-      actor == ShipmentActor.shipper || actor == ShipmentActor.shipperOrCarrier
-          ? switch (stage) {
-              EwayBillStage.none => "Make the e-way bill",
-              EwayBillStage.billWithoutTruck =>
-                "Add the truck to the e-way bill",
-              EwayBillStage.problem => "Fix the e-way bill",
-              _ => null,
-            }
-          : null;
+  final task = actor == ShipmentActor.shipper
+      ? switch (stage) {
+          EwayBillStage.none => "Make the e-way bill",
+          EwayBillStage.billWithoutTruck => "Add the truck to the e-way bill",
+          EwayBillStage.problem => "Fix the e-way bill",
+          _ => null,
+        }
+      : null;
 
   final (String statusWord, NvStatusTone statusTone) = switch (status) {
     _ when delivered => ("Delivered", NvStatusTone.good),
@@ -225,9 +224,7 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
               ? "E-way bill: not needed"
               : "E-way bill",
           ewayBillState,
-          who: stage == EwayBillStage.billWithoutTruck
-              ? "You or $carrier"
-              : "You"),
+          who: "You"),
       // Only a saved bill is checked; a flagged one is fixed on the e-way bill step first.
       if (stage == EwayBillStage.awaitingCheck ||
           stage == EwayBillStage.checked)

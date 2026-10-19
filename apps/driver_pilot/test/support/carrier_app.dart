@@ -16,7 +16,8 @@ import 'package:go_router/go_router.dart';
 import 'carrier_fixtures.dart';
 import 'mock_api.dart';
 
-/// What the server lets a DRIVER do (api/rbac.ts): no payment.read, no trip.assign, no eway_bill.add_truck.
+/// What the server lets a DRIVER do (api/rbac.ts): no payment.read, no trip.assign. No carrier login has
+/// eway_bill.add_truck; the shipper adds the truck.
 const driverAllowed = [
   'organization.profile.read',
   'load.read',
@@ -40,7 +41,6 @@ const ownerAllowed = [
   'payment.read',
   'bank_account.create_token',
   'conversation.read',
-  'eway_bill.add_truck',
   'trip.assign',
   'transporter_id.write',
 ];

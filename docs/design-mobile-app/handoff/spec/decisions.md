@@ -22,6 +22,7 @@
 | Pull to refresh replaces the refresh icon | Frees the header |
 | Start trip only on the trip screen, behind a confirm sheet | A slip on the list started trips |
 | Start sheet warns when a booking's bill has no truck | Uses existing bill fields only |
+| The shipper adds the truck to the e-way bill; every carrier login only reads it (Rishabh, 18 Oct 2026, replacing Uwais's 15 Oct answer) | The shipper makes the bill, so it holds Part B too; the carrier pays check-post fines, so it still sees the bill's state |
 | Confirm sheet before the payment provider | The brief could not check what the payment step shows; this guarantees the full price and the no-cancel rule are seen before money moves |
 | Price clears on any change to weight, pickup or drop | Brief A.2: the price shown is the price charged |
 | E-way bill step 0 can be answered before acceptance | Brief B: the carrier sees the answer before accepting |

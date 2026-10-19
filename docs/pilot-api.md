@@ -344,7 +344,7 @@ Lists users + memberships for a customer org. Requires `CUSTOMER_ADMIN` on that 
 
 ### E-way bill (link-out demo)
 
-The shipper types in an e-way bill made on the government portal, or says none is needed. Ops looks it up by hand and records what it saw. naviG8r never makes, changes or verifies a bill. Design and copy: `docs/design-eway-bill/contract.md`. The record is `shipment.ewayBill`, cut by role: shipper and ops get everything except user ids, carrier logins (owner, dispatcher, driver) get only the kind, the bill number, the "not needed" reason and the check, finance and admin get nothing. ERP integration responses never carry it. **Database mode:** the `ShipmentRow."ewayBill"` JSONB column must exist first (`ALTER TABLE "ShipmentRow" ADD COLUMN "ewayBill" JSONB;`), or every shipment read fails.
+The shipper types in an e-way bill made on the government portal, or says none is needed. Ops looks it up by hand and records what it saw. naviG8r never makes, changes or verifies a bill. Design and copy: `docs/design-eway-bill/contract.md`. The record is `shipment.ewayBill`, cut by role: shipper and ops get everything except user ids, carrier logins (owner, dispatcher, driver) get only the kind, the bill number, the truck and valid-until, the "not needed" reason and the check, finance and admin get nothing. ERP integration responses never carry it. **Database mode:** the `ShipmentRow."ewayBill"` JSONB column must exist first (`ALTER TABLE "ShipmentRow" ADD COLUMN "ewayBill" JSONB;`), or every shipment read fails.
 
 #### `POST /shipments/:id/eway-bill`
 
@@ -360,6 +360,12 @@ Response `200 { "shipment": { ..., "ewayBill": {...} } }`. Refusals: `400 { "err
 #### `POST /shipments/:id/eway-bill/remove`
 
 Shipper. Back to "nothing added". Removing twice is harmless. Same response and `409` as above.
+
+#### `POST /shipments/:id/eway-bill/truck`
+
+Shipper (`eway_bill.add_truck`: customer admin and member), own shipment, until delivery is accepted, only on a `BILL` (`409 eway_bill_not_entered` otherwise). Body `{ "truckNumber": "KA01AB1234", "validUntilUtcMs": 1792000000000 }`, typed in after the shipper added the truck to the bill (Part B). Clears ops' check. Same response as above; refusals `400 { "error": "invalid_eway_truck", "detail": "a sentence", "field": "truckNumber" }`, `409 eway_bill_locked`. Audit row `EWAY_BILL_TRUCK_ADDED`, state words only.
+
+**Carriers only read the bill (owner decision, 18 Oct 2026).** Every carrier login (owner, owner-driver, dispatcher, driver) gets `403 { "error": "forbidden" }` here, and the old carrier route `POST /v1/pilot/carrier/shipments/:id/eway-bill/truck` answers the same `403` to everyone who can see the shipment (others still get `404`), so an older carrier app is refused rather than told `404`.
 
 #### `GET /ops/eway-bills`
 

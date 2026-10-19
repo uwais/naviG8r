@@ -366,7 +366,7 @@ void main() {
   testWidgets(
       'the carrier detail screen says when it cannot load, instead of a spinner forever',
       (tester) async {
-    signInAsCarrier(canAddTruck: true);
+    signInAsCarrier(office: true);
     var connectionDrops = true;
     api.dio.httpClientAdapter = MockApiAdapter((_) {
       if (connectionDrops) {
@@ -404,7 +404,7 @@ void main() {
   testWidgets(
       'the carrier detail screen does not blame the connection when the server answered',
       (tester) async {
-    signInAsCarrier(canAddTruck: true);
+    signInAsCarrier(office: true);
     api.dio.httpClientAdapter =
         MockApiAdapter((_) => jsonResponse({'error': 'internal'}, 500));
     tester.view.physicalSize = const Size(800, 3000);

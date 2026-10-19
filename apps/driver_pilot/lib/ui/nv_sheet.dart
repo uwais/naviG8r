@@ -73,7 +73,7 @@ class NvSheet extends StatelessWidget {
   /// Defaults to closing the sheet.
   final VoidCallback? onCancel;
 
-  /// A second way forward between the primary and Cancel, for example "Add the truck first".
+  /// A second way forward between the primary and Cancel.
   /// Shown only with [onSecondary].
   final String? secondaryLabel;
   final VoidCallback? onSecondary;

@@ -881,21 +881,18 @@ _BookingGroup _bookingGroup(Map<String, dynamic> booking) {
   if (status == "PENDING_RELEASE" || status == "DELIVERED") {
     return _BookingGroup.done;
   }
-  if (status == "PENDING_CARRIER_ACCEPT" ||
-      (_truckMissingFromBill(booking) &&
-          AuthorizationSession.can("eway_bill.add_truck"))) {
-    return _BookingGroup.needsYou;
-  }
+  if (status == "PENDING_CARRIER_ACCEPT") return _BookingGroup.needsYou;
   return _BookingGroup.active;
 }
 
-/// The "Next:" line on a card waiting on the office, or null when nothing waits on it.
+/// The "Next:" line on a card, or null when nothing is waiting. The shipper adds the truck to the
+/// e-way bill, so that card only says so (owner decision, 18 Oct 2026).
 String? _bookingNextWords(Map<String, dynamic> booking) {
   if (booking["status"] == "PENDING_CARRIER_ACCEPT") {
     return "accept and choose the truck.";
   }
-  if (_bookingGroup(booking) == _BookingGroup.needsYou) {
-    return "add the truck to the e-way bill.";
+  if (_truckMissingFromBill(booking)) {
+    return "${_shipperName(booking)} adds the truck to the e-way bill.";
   }
   return null;
 }
@@ -953,7 +950,7 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
 
   Future<void> _open(Map<String, dynamic> booking) async {
     await context.push("/driver/shipment/${booking["id"]}");
-    // Accepting or adding a truck there moves the booking between groups.
+    // Accepting there moves the booking between groups.
     if (mounted) _load();
   }
 
@@ -1042,7 +1039,8 @@ class _OfficeTask {
   final String path;
 }
 
-/// In the order they block the work: accept, then the truck on the bill, then a driver for a booked trip.
+/// In the order they block the work: accept, then a driver for a booked trip. The truck on the e-way bill
+/// is the shipper's to add, so it is never a task here.
 /// Each kind needs the permission that does it, so nobody is sent to a task they cannot do.
 List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
   final tasks = <_OfficeTask>[];
@@ -1061,17 +1059,6 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
             ? "$who."
             : "$who, on your $route trip${start == null ? "" : ", ${formatDate(start)}"}.",
         actionLabel: "Review booking",
-        path: "/driver/shipment/${booking["id"]}",
-      ));
-    }
-  }
-  if (AuthorizationSession.can("eway_bill.add_truck")) {
-    for (final booking in loaded.bookings.where(_truckMissingFromBill)) {
-      final route = _tripRoute(loaded.tripsById[booking["anchorTripId"]]);
-      tasks.add(_OfficeTask(
-        title: "Add the truck to an e-way bill",
-        detail: [if (route != null) route, _shipperName(booking)].join(" · "),
-        actionLabel: "Open booking",
         path: "/driver/shipment/${booking["id"]}",
       ));
     }
@@ -1910,8 +1897,7 @@ class _DriverShipmentDetailScreenState
     const title = "Truck on the e-way bill";
     final shipper = _shipperName(s);
     if (pending) {
-      return NvStep(
-          title: title, who: "$shipper, or you", state: NvStepState.later);
+      return NvStep(title: title, who: shipper, state: NvStepState.later);
     }
     final bill = _ewayBillOf(s);
     final card = EwayBillCarrierCard(shipment: s);
@@ -1928,29 +1914,22 @@ class _DriverShipmentDetailScreenState
           who: "Not needed (shipper said so).",
           state: NvStepState.done);
     }
-    final canAddTruck =
-        AuthorizationSession.can("eway_bill.add_truck") && !ewayBillIsClosed(s);
     if (_truckMissingFromBill(s)) {
-      return canAddTruck
-          ? NvStep(
-              title: title,
-              who: "You · $shipper made the bill without it",
-              state: NvStepState.yours,
-              panel: card)
-          : NvStep(
-              title: title,
-              who: "$shipper, or your office",
-              state: NvStepState.waiting,
-              panel: card);
+      return NvStep(
+          title: title, who: shipper, state: NvStepState.waiting, panel: card);
     }
     final check = bill["check"];
     final flagged = check is Map && check["result"] == "PROBLEM";
     final mismatch = ewayBillTruckMismatchSentence(s, bill,
             reader: TruckMismatchReader.carrierOffice) !=
         null;
+    // Only the shipper can fix the bill; a wrong truck on the trip is the office's own to change.
     if ((flagged || mismatch) && !ewayBillIsClosed(s)) {
       return NvStep(
-          title: title, who: "You", state: NvStepState.problem, panel: card);
+          title: title,
+          who: flagged ? shipper : "You or $shipper",
+          state: NvStepState.problem,
+          panel: card);
     }
     final number = bill["billNumber"];
     final validUntil = bill["validUntilUtcMs"];
@@ -3030,22 +3009,14 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     final trip = _trip;
     if (trip == null) return;
     final missingTruck = _acceptedBookings.where(_truckMissingFromBill).toList();
-    final choice = await showNvSheet<_StartChoice>(
+    final start = await showNvSheet<bool>(
         context: context,
         builder: (_) => _StartTripSheet(
             trip: trip,
             accepted: _acceptedBookings,
             missingTruck: missingTruck));
-    if (!mounted) return;
-    switch (choice) {
-      case _StartChoice.start:
-        await _startTrip();
-      case _StartChoice.addTruck:
-        await context.push("/driver/shipment/${missingTruck.first["id"]}");
-        if (mounted) await _load();
-      case null:
-        return;
-    }
+    if (!mounted || start != true) return;
+    await _startTrip();
   }
 
   Future<void> _maybePostLocation(Position p) async {
@@ -3610,10 +3581,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   }
 }
 
-enum _StartChoice { start, addTruck }
-
 /// "Start [route] now?": what starting the trip takes on the road, and a warning for each accepted booking whose
-/// e-way bill does not have the truck yet. Closes with the choice; the screen then starts the trip.
+/// e-way bill does not have the truck yet. Closes with true to start; the screen then starts the trip.
 class _StartTripSheet extends StatelessWidget {
   const _StartTripSheet(
       {required this.trip, required this.accepted, required this.missingTruck});
@@ -3645,8 +3614,6 @@ class _StartTripSheet extends StatelessWidget {
         .map((booking) => booking["weightKg"])
         .whereType<num>()
         .fold<num>(0, (sum, kg) => sum + kg);
-    final canAddTruck = missingTruck.isNotEmpty &&
-        AuthorizationSession.can("eway_bill.add_truck");
     return NvSheet(
       title: "Start ${_tripRoute(trip) ?? "this trip"} now?",
       choices: [
@@ -3657,17 +3624,14 @@ class _StartTripSheet extends StatelessWidget {
         const Divider(height: 1, color: NvColors.line),
         _fact("Bookings", "${accepted.length} · ${formatKg(totalKg)}"),
         for (final booking in missingTruck)
-          NvMessage("Add it on the portal before these goods move.",
+          NvMessage(
+              "${_shipperName(booking)} adds it. Without the truck, the bill is not valid for moving the goods.",
               title:
                   "${_shipperName(booking)}'s e-way bill does not have the truck yet.",
               tone: NvMessageTone.attention),
       ],
       primaryLabel: "Start trip",
-      onPrimary: () => Navigator.of(context).pop(_StartChoice.start),
-      secondaryLabel: canAddTruck ? "Add the truck first" : null,
-      onSecondary: canAddTruck
-          ? () => Navigator.of(context).pop(_StartChoice.addTruck)
-          : null,
+      onPrimary: () => Navigator.of(context).pop(true),
       cancelLabel: "Not yet",
       footer: const Text("Starting tells each shipper their goods are on the way.",
           style: NvText.caption),

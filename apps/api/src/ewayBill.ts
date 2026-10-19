@@ -63,8 +63,8 @@ export function saveEwayBill(store: Store, shipmentId: string, input: Record<str
 }
 
 /**
- * Part B: the truck and the valid-until time, typed in after the truck was added to the bill on the portal.
- * The shipper may do it for its own shipment, and so may the shipment's carrier (owner or dispatcher, not a driver).
+ * Part B: the truck and the valid-until time, typed in after the shipper added the truck to the bill on the portal.
+ * Only the shipper does it; the carrier and its drivers read it (owner decision, 18 Oct 2026).
  * Any change clears ops' check, like every other detail.
  */
 export function addEwayBillTruck(store: Store, shipmentId: string, input: Record<string, unknown>): Shipment {

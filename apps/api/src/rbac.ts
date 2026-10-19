@@ -9,7 +9,7 @@ export const ROLES = ["SHIPPER", "CARRIER", "OPS", "FINANCE", "ADMIN"] as const;
 export type Role = typeof ROLES[number];
 export const ROLE_PERMISSIONS = {
   SHIPPER: ["organization.profile.read", "organization.member.invite", "load.create", "load.read", "pod.accept", "payment.read", "payment.checkout", "kyc.status_read", "audit.read", "integration.manage", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request", "eway_bill.write", "eway_bill.add_truck"],
-  CARRIER: ["organization.profile.read", "organization.member.invite", "load.read", "trip.publish", "load.status_update", "carrier.offer_accept", "pod.upload", "payment.read", "bank_account.create_token", "kyc.status_read", "audit.read", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request", "eway_bill.add_truck", "trip.assign", "transporter_id.write"],
+  CARRIER: ["organization.profile.read", "organization.member.invite", "load.read", "trip.publish", "load.status_update", "carrier.offer_accept", "pod.upload", "payment.read", "bank_account.create_token", "kyc.status_read", "audit.read", "notification.read", "conversation.read", "conversation.send", "conversation.escalation_request", "trip.assign", "transporter_id.write"],
   OPS: ["directory.read", "fleet.read", "carrier.onboard", "organization.profile.read", "load.create", "load.read", "trip.publish", "load.status_update", "pod.upload", "payment.read", "kyc.status_read", "kyc.verify", "audit.read", "conversation.support_read", "conversation.support_send", "eway_bill.check"],
   FINANCE: ["directory.read", "organization.profile.read", "load.read", "payment.read", "payment.capture", "payment.refund", "settlement.release", "kyc.status_read", "audit.read"],
   ADMIN: ["directory.read", "fleet.read", "organization.profile.read", "load.read", "payment.read", "user.role_manage", "kyc.status_read", "audit.read", "conversation.escalation_approve"],
@@ -45,9 +45,9 @@ export function effectivePermissions(roles: Role[], subrole: string): string[] {
   return [...new Set(roles.flatMap(r => [...(ROLE_PERMISSIONS[r] ?? [])]))].filter(p => {
     if (p === "organization.member.invite") return ["CUSTOMER_ADMIN", "OWNER_DRIVER", "OWNER", "DISPATCHER"].includes(subrole);
     if (p === "integration.manage") return subrole === "CUSTOMER_ADMIN";
-    // A driver only reads the bill; the owner or dispatcher is the carrier's voice on it.
-    // SHIPPER and CARRIER are the legacy role strings legacyRoles still maps.
-    if (p === "eway_bill.add_truck") return ["CUSTOMER_ADMIN", "CUSTOMER_MEMBER", "OWNER_DRIVER", "OWNER", "DISPATCHER", "SHIPPER", "CARRIER"].includes(subrole);
+    // The shipper adds the truck to the bill it made; every carrier login only reads it (owner decision, 18 Oct 2026).
+    // SHIPPER is the legacy role string legacyRoles still maps.
+    if (p === "eway_bill.add_truck") return ["CUSTOMER_ADMIN", "CUSTOMER_MEMBER", "SHIPPER"].includes(subrole);
     // Naming a trip's truck and driver is the carrier office's job; a driver only reads it.
     if (p === "trip.assign") return ["OWNER_DRIVER", "OWNER", "DISPATCHER", "CARRIER"].includes(subrole);
     if (p === "bank_account.create_token") return ["OWNER_DRIVER", "OWNER"].includes(subrole);

@@ -75,14 +75,15 @@ void main() {
       expect(progress.statusWord, 'Accepted');
     });
 
-    test('accepted, bill but no truck: the shipper or the carrier adds it', () {
+    test('accepted, bill but no truck: the shipper adds it', () {
       final progress = shipmentProgress(shipment('BOOKED', bill));
       expect(progress.current, ShipmentStepName.ewayBill);
-      expect(progress.actor, ShipmentActor.shipperOrCarrier);
-      expect(progress.next, 'Add the truck to the e-way bill');
+      expect(progress.actor, ShipmentActor.shipper);
+      expect(progress.next, 'You add the truck to the e-way bill');
       expect(progress.task, 'Add the truck to the e-way bill');
-      expect(progress.steps[2].who, 'You or Ravi Roadways',
-          reason: 'screens.md: either shipper or carrier may add the truck');
+      expect(progress.steps[2].who, 'You',
+          reason:
+              'owner decision 18 Oct 2026: the shipper adds the truck, the carrier only reads the bill');
     });
 
     test('accepted, bill and truck, not checked: NaviG8r staff check it', () {
@@ -257,7 +258,7 @@ void main() {
       expect(
           taskFor({'status': 'BOOKED', 'ewayBill': bill}, canAddTruck: false),
           isNull,
-          reason: 'no eway_bill.add_truck, the carrier adds it');
+          reason: 'no eway_bill.add_truck, no truck task');
     });
   });
 }

@@ -23,7 +23,6 @@ const ownerAllowed = [
   'trip.assign',
   'trip.publish',
   'load.status_update',
-  'eway_bill.add_truck',
   'organization.member.invite',
   'transporter_id.write',
   'bank_account.create_token',
@@ -34,7 +33,6 @@ const dispatcherAllowed = [
   'trip.assign',
   'trip.publish',
   'load.status_update',
-  'eway_bill.add_truck',
   'organization.member.invite',
 ];
 
@@ -474,16 +472,17 @@ void main() {
         expect(find.text(warning),
             withMissingTruck ? findsOneWidget : findsNothing,
             reason: 'decisions.md: warning only when true');
-        expect(find.text('Add the truck first'),
-            withMissingTruck ? findsOneWidget : findsNothing);
+        expect(
+            find.text(
+                'Mehta Hardware adds it. Without the truck, the bill is not valid for moving the goods.'),
+            withMissingTruck ? findsOneWidget : findsNothing,
+            reason: 'the carrier is told who adds it, not asked to');
+        expect(find.text('Add the truck first'), findsNothing,
+            reason: 'owner decision 18 Oct 2026: the shipper adds the truck');
         expect(inSheet(find.textContaining('Sharma Textiles')), findsNothing,
             reason: "Sharma's bill has the truck");
-        if (withMissingTruck) {
-          await tester.tap(find.text('Add the truck first'));
-          await tester.pumpAndSettle();
-          expect(find.text('Opened /driver/shipment/mehta'), findsOneWidget,
-              reason: 'opens the booking whose bill needs the truck');
-        }
+        await tester.tap(find.text('Not yet'));
+        await tester.pumpAndSettle();
       }
     });
   });
