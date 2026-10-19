@@ -12,7 +12,7 @@ import 'ui/tokens.dart';
 /// may assign trips) accepts a booking whose trip names no truck, it chooses the truck first, so the shipper has
 /// it for the e-way bill from acceptance (owner decision, 16 Oct 2026). A driver, or a trip that already names its
 /// truck, accepts with one tap as before; for a carrier with no trucks set up yet the sheet says so and offers to
-/// accept without one. [tripInWords] names the trip in the sheet, for example "Bengaluru to Chennai, 18 – 19 Oct".
+/// accept without one. [tripInWords] names the trip in the sheet, for example "Bengaluru to Chennai, leaves 18 – 19 Oct".
 /// [onSending] runs just before the request, after any truck choice, so a screen shows it is busy only while the
 /// request is out. False when the office cancelled and nothing was sent; a refusal throws. A trip given a truck
 /// since the screen loaded (on the trip screen, or by another login) keeps it, as the server ignores the choice

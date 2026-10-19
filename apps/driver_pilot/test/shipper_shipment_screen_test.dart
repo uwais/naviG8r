@@ -28,6 +28,10 @@ import 'support/shipper_screen_checks.dart';
 
 final bookedAt = DateTime.utc(2026, 10, 17, 3, 30);
 final laneStart = DateTime.utc(2026, 10, 18, 3, 30);
+
+/// The lane's dates as every screen shows them: the days the truck can leave.
+final laneLeaves =
+    'Leaves ${formatDateRange(laneStart, DateTime.parse('2026-10-19T12:00:00.000Z'))}';
 final leftAt = DateTime.utc(2026, 10, 18, 0, 40);
 final deliveredAt = DateTime.utc(2026, 10, 19, 8, 50);
 
@@ -241,6 +245,8 @@ void main() {
           reason: 'sh-ship-waiting: when it was booked and what is held');
       expect(find.text('Messages'), findsOneWidget,
           reason: 'copy.md summary: Messages');
+      expect(find.textContaining('· $laneLeaves ·'), findsOneWidget,
+          reason: 'the summary says when the truck leaves, never an arrival');
       await leave(tester);
     });
 
@@ -291,9 +297,9 @@ void main() {
           reason: 'copy.md not needed');
       expect(
           find.text(
-              'Nothing for you to do now. Ravi Roadways starts the trip on ${formatDate(laneStart)}.'),
+              'Nothing for you to do now. Ravi Roadways starts the trip. The truck ${laneLeaves.replaceFirst('Leaves', 'leaves')}.'),
           findsOneWidget,
-          reason: 'sh-ship-noewb: who acts next, and when');
+          reason: 'sh-ship-noewb: who acts next, and the days the truck can leave');
       await leave(tester);
     });
 
@@ -720,6 +726,8 @@ void main() {
           findsOneWidget);
       expect(find.text('Bengaluru to Mysuru'), findsOneWidget,
           reason: 'copy.md: a shipment is named by its route');
+      expect(find.textContaining(RegExp('^$laneLeaves · ')), findsNWidgets(3),
+          reason: 'each card says when its truck leaves');
       expect(find.textContaining('shp_'), findsNothing, reason: 'never an ID');
       server.answers['/shipments/shp_waiting'] = {
         'shipment': (server.answers['/shipments'] as Map)['shipments'][2],
@@ -1200,6 +1208,9 @@ void desktopTests() {
             findsOneWidget,
             reason: 'wb-shipments: the "$column" column');
       }
+      expect(find.descendant(of: table, matching: find.text(laneLeaves)),
+          findsNWidgets(2),
+          reason: 'each row says when its truck leaves');
       expect(
           find.ancestor(
               of: table,

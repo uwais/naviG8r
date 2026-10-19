@@ -579,7 +579,7 @@ class _LaneSummary extends StatelessWidget {
               style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
           const SizedBox(height: NvSpace.s1),
           Wrap(spacing: NvSpace.s1, children: [
-            Text(dates == null ? carrier : "$carrier · $dates",
+            Text(dates == null ? carrier : "$carrier · Leaves $dates",
                 style: NvText.caption),
             if (room != null)
               Text("Room left: ${roomLeftWords(room)}",
@@ -671,7 +671,7 @@ class _ConfirmBookingSheet extends StatelessWidget {
       choices: [
         row("Lane", laneRoute(lane)),
         row("Carrier", carrier),
-        if (dates != null) row("Dates", dates),
+        if (dates != null) row("Leaves", dates),
         row("Weight", formatKg(weightKg)),
         row("You pay", price, strong: true),
         const SizedBox(height: NvSpace.s2),
