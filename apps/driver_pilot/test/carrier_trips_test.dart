@@ -690,6 +690,107 @@ void main() {
           reason: 'no raw codes');
     });
 
+    for (final (status, sentence) in [
+      (
+        'NETWORK',
+        'Could not reach the map service. Check your connection, then search again.'
+      ),
+      (
+        'REQUEST_DENIED',
+        'Place search is not working right now. Drag the pin on the map to the place.'
+      ),
+      (
+        'OVER_QUERY_LIMIT',
+        'Place search is not working right now. Drag the pin on the map to the place.'
+      ),
+    ]) {
+      testWidgets('a search that fails with $status says what went wrong',
+          (tester) async {
+        signInWith(Server(allowed: ownerAllowed));
+        await mount(
+            tester,
+            DriverPublishTripScreen(
+                findPlace: (place) async => GeocodeOutcome.fail(status)),
+            size: const Size(800, 3000));
+        await tester.enterText(find.byType(TextField).first, 'Hoskote');
+        await tester.tap(find.byTooltip('Look up place').first);
+        await tester.pumpAndSettle();
+        expect(find.text(sentence), findsOneWidget,
+            reason: 'tester: the first Hoskote search said it could not find the place');
+        expect(find.textContaining('Could not find this place'), findsNothing);
+        expect(find.textContaining(status), findsNothing,
+            reason: 'no raw codes');
+      });
+    }
+
+    testWidgets(
+        'a found place fills the field with its short name and publishes it as the city',
+        (tester) async {
+      final server = signInWith(Server(allowed: ownerAllowed));
+      const addresses = {
+        'hoskote': 'Hoskote, Karnataka 562114, India',
+        'kolar': 'Kolar, Karnataka, India',
+      };
+      await mount(
+          tester,
+          DriverPublishTripScreen(
+              findPlace: (place) async => GeocodeOutcome.ok(
+                  const LatLng(13.07, 77.79), addresses[place.toLowerCase()]!)),
+          size: const Size(800, 3000));
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'hoskote');
+      await tester.tap(find.byTooltip('Look up place').at(0));
+      await tester.pumpAndSettle();
+      await tester.enterText(fields.at(1), 'kolar');
+      await tester.tap(find.byTooltip('Look up place').at(1));
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<TextField>(fields.at(0)).controller!.text, 'Hoskote');
+      expect(tester.widget<TextField>(fields.at(1)).controller!.text, 'Kolar');
+      expect(find.text('Hoskote, Karnataka 562114, India'), findsOneWidget,
+          reason: 'the full address stays visible under the field');
+
+      await tester.tap(find.text('Choose a date').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Choose a date'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Medium'));
+      await tester.enterText(
+          find.descendant(
+              of: find.widgetWithText(Column, 'Room for shippers'),
+                  matching: find.byType(TextField))
+              .first,
+          '500');
+      await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+      await tester.pumpAndSettle();
+
+      final published = server.sent.single.data as Map<String, dynamic>;
+      expect(published['originCity'], 'Hoskote',
+          reason: 'tester: the lane read "Hoskote, Karnataka 562114, India to Kolar, Karnataka, India"');
+      expect(published['destCity'], 'Kolar');
+      expect((published['origin'] as Map)['label'], 'Hoskote');
+    });
+
+    testWidgets('a found place whose address starts empty keeps what was typed',
+        (tester) async {
+      signInWith(Server(allowed: ownerAllowed));
+      await mount(
+          tester,
+          DriverPublishTripScreen(
+              findPlace: (place) async =>
+                  GeocodeOutcome.ok(const LatLng(13.07, 77.79), ', Karnataka, India')),
+          size: const Size(800, 3000));
+      final from = find.byType(TextField).first;
+      await tester.enterText(from, 'Hoskote');
+      await tester.tap(find.byTooltip('Look up place').first);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(from).controller!.text, 'Hoskote');
+    });
+
     testWidgets(
         'at 360 by 640 with the keyboard open the form scrolls, and Publish and its message are reachable',
         (tester) async {
