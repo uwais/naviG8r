@@ -1,5 +1,6 @@
 import "dart:async";
 
+import "package:dio/dio.dart" show DioException;
 import "package:flutter/foundation.dart" show kReleaseMode;
 import "package:flutter/material.dart";
 import "package:flutter/semantics.dart";
@@ -13,6 +14,24 @@ import "ui/format.dart";
 import "ui/sign_in_code_page.dart";
 import "ui/sign_in_phone_page.dart";
 import "shipper/announce.dart";
+
+/// What Send code says for each answer to a code request. Only a request that got no answer blames
+/// the connection. The server already says when a number has no account, so this does too.
+String _sendCodeErrorSentence(Object error) {
+  if (serverNeverAnswered(error)) {
+    return "Could not send the code. Check your connection, then try again.";
+  }
+  final body = error is DioException ? error.response?.data : null;
+  return switch (body is Map ? body["error"] : null) {
+    "user_not_found" =>
+      "No account uses this number. Check the number, or register below.",
+    "account_inactive" =>
+      "This account is no longer active, so it cannot sign in. Contact NaviG8r if this is wrong.",
+    "invalid_phone" => "Enter a 10-digit mobile number.",
+    "otp_rate_limited" => formatApiError(error),
+    _ => "Could not send the code right now. Try again in a few minutes.",
+  };
+}
 
 /// The one sign-in, for shippers and carriers alike. It asks nothing about the person; after the
 /// code the app lands by the account's role (AuthorizationSession.home).
@@ -124,10 +143,7 @@ class _SignInScreenState extends State<SignInScreen> {
     } catch (e) {
       final retry = otpRetryAfterMs(e);
       if (retry != null) _startOtpCooldown(retry);
-      if (mounted) {
-        setState(() => _error = plainErrorSentence(e,
-            "Could not send the code. Check your connection, then try again."));
-      }
+      if (mounted) setState(() => _error = _sendCodeErrorSentence(e));
     } finally {
       if (mounted) setState(() => _sending = false);
     }
