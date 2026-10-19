@@ -36,6 +36,7 @@ for (const path of ["/ops", "/ops/v2"]) {
     assert.ok(row.textContent.includes(question), row.textContent);
     assert.equal(page.visibleButton("Release payment", row), undefined, "the button waits behind the question");
     assert.equal(page.focused?.textContent, "Cancel", "a stray Enter cancels rather than releases");
+    assert.equal(page.focused?.parent?.className, "ask", "the question's buttons get the 48 px rule");
 
     await page.click(page.visibleButton("Cancel", row)!);
     assert.equal(row.textContent.includes(question), false, "Cancel takes the question away");
@@ -48,8 +49,18 @@ for (const path of ["/ops", "/ops/v2"]) {
     assert.equal(f.store.shipments.get(id)!.status, "DELIVERED");
     assert.equal(page.nativeDialogs, 0, "no browser confirm or alert");
     assert.equal(page.byId("error").textContent, "");
+    assert.equal(page.focused, page.byId("released"), "focus lands on the result, not on a removed button");
+    assert.equal(page.focused?.textContent, `Payment released for shipment ${id}.`);
   });
 }
+
+test("the question's buttons are at least 48 px tall on /ops and /ops/v1 (checked in the served CSS, not by layout)", async t => {
+  const f = await httpFixture(t);
+  for (const path of ["/ops", "/ops/v1"]) {
+    const html = await (await fetch(f.base + path)).text();
+    assert.match(html, /\.ask button\{min-height:48px\}/, path);
+  }
+});
 
 test("/ops: a payment released elsewhere is not offered for release again", async t => {
   const f = await httpFixture(t);
@@ -100,4 +111,27 @@ test("/ops/v1: Release payment asks in the page, not in a browser dialog, and a 
   assert.equal(page.byId("notice").textContent, "Release payment completed. " + id);
   form = releaseForm(page);
   assert.ok(page.visibleButton("Release payment", form), "the rebuilt form is ready for the next one");
+});
+
+test("/ops/v1: a shipment that is not ready, or already released, gets a plain sentence instead of the question", async t => {
+  const f = await httpFixture(t);
+  const held = (await f.book()).body.shipment.id as string;
+  assert.equal((await f.request(`/v1/pilot/carrier/shipments/${held}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  assert.equal((await f.request(`/shipments/${held}/driver-pod`, "POST", {}, f.tokens.carrierA)).status, 200);
+  const { id: released } = await readyToRelease(f);
+  assert.equal((await f.request(`/ops/shipments/${released}/release`, "POST", {}, f.tokens.finance)).status, 200);
+  const page = await openAsFinance(f, "/ops/v1");
+  const cases = [
+    [held, `Shipment ${held} can't be released yet: the shipper must accept the proof of delivery, or the 48-hour hold must end. Nothing was released.`],
+    [released, `Shipment ${released} is not waiting for payment release; it may have been released already. Nothing was released.`],
+  ];
+  for (const [id, sentence] of cases) {
+    const form = releaseForm(page);
+    fill(form, { shipmentId: id, reason: "POD_REVIEWED" });
+    await page.click(page.visibleButton("Release payment", form)!);
+    assert.equal(page.byId("error").textContent, sentence);
+    assert.equal(page.visibleButton("Confirm release", form), undefined, "no question about money that cannot move");
+    assert.ok(page.visibleButton("Release payment", form), "the form stays usable");
+  }
+  assert.equal(page.releaseRequests().length, 0);
 });

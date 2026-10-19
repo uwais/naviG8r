@@ -288,11 +288,9 @@ test("POD hold is enforced in V1 and release appears in the delivered view", asy
   await f.getByLabel("Shipment ID").fill("load-a-hold");
   await f.getByLabel("Reason code").fill("POD_REVIEWED");
   await f.getByRole("button", { name: "Release payment" }).click();
-  await expect(f.getByRole("group")).toContainText(/^Release ₹[\d,.]+ to .+ for .+\?/);
-  await f.getByRole("button", { name: "Confirm release" }).click();
-  await expect(page.locator("#error")).toContainText("payment_hold_active");
+  await expect(page.locator("#error")).toContainText("Shipment load-a-hold can't be released yet");
+  await expect(f.getByRole("button", { name: "Confirm release" })).toHaveCount(0);
   await screenshot(page, "11-payment-hold");
-  // The API returns 403 for an active hold; refresh the principal before retrying.
   await page.getByRole("button", { name: "Refresh access" }).click();
   await f.getByLabel("Shipment ID").fill("load-a-expired");
   await f.getByLabel("Reason code").fill("HOLD_EXPIRED");

@@ -137,7 +137,7 @@ function ewayCheckRow(shipment) {
   const realPortal = ewayPortalAddress === 'https://ewaybillgst.gov.in';
   // The practice site's Verify page reads the four details from the link and looks the bill up; the real portal cannot.
   const portalHref = realPortal ? ewayPortalAddress
-    : ewayPortalAddress + '/check?' + new URLSearchParams({ number: bill.billNumber, billDate: bill.billDate, gstin: bill.makerGstin, invoiceNumber: bill.invoiceNumber });
+    : ewayPortalAddress + '/check?' + new URLSearchParams(Object.entries({ number: bill.billNumber, billDate: bill.billDate, gstin: bill.makerGstin, invoiceNumber: bill.invoiceNumber }).filter(([, value]) => value));
   const link = element('a', { href: portalHref, target: '_blank', rel: 'noopener noreferrer', text: realPortal ? 'Open the government portal' : 'Open the practice portal' });
   const found = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Mark as found on the portal' });
   const problem = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Report a problem' });
