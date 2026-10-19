@@ -70,7 +70,9 @@ Future<GeocodeOutcome> findAnyPlace(String place) async =>
 /// scrolling" checks; taller elsewhere, because the test font draws every letter a full square
 /// wide and lists build only what shows.
 Future<FakeServer> showShipperApp(WidgetTester tester, String start,
-    {double height = 2000, double width = 360}) async {
+    {double height = 2000,
+    double width = 360,
+    PlaceFinder findPlace = findAnyPlace}) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -107,12 +109,12 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
               path: 'trips',
               builder: (_, state) => CustomerTripsScreen(
                   startWithMatch: state.uri.queryParameters['tab'] == 'match',
-                  findPlace: findAnyPlace)),
+                  findPlace: findPlace)),
           GoRoute(
               path: 'book',
               builder: (_, state) => CustomerBookShipmentScreen.fromQuery(
                   state.uri.queryParameters,
-                  findPlace: findAnyPlace)),
+                  findPlace: findPlace)),
           GoRoute(
               path: 'shipments',
               builder: (_, __) => const Text('Shipments list')),
@@ -768,6 +770,7 @@ void main() {
   desktopTests();
   announcementTests();
   placeInputTests();
+  placeSearchFailureTests();
   doubleTextTests();
 }
 
@@ -938,11 +941,120 @@ void placeInputTests() {
     expect(place.placed, isFalse,
         reason:
             'new words with the old pin would book one place labelled as another');
-    await place.place(findAnyPlace,
-        emptyError: 'empty', notFoundError: 'not found');
+    await place.place(findAnyPlace, emptyError: 'empty');
     expect(place.point, const LatLng(12.8, 77.7),
         reason: 'the new words are looked up');
     place.dispose();
+  });
+}
+
+/// The real place search with no maps key, as a build without MAPS_API_KEY runs it.
+Future<GeocodeOutcome> findWithNoMapsKey(String place) =>
+    GoogleGeocodingService.forwardAddress(place, apiKey: '');
+
+PlaceFinder failsWith(String status) =>
+    (_) async => GeocodeOutcome.fail(status);
+
+void placeSearchFailureTests() {
+  final failures = [
+    (
+      kind: 'no maps key',
+      findPlace: findWithNoMapsKey,
+      sentence: 'Place search is not working right now. Try again later.'
+    ),
+    (
+      kind: 'no match',
+      findPlace: failsWith('ZERO_RESULTS'),
+      sentence: 'Could not find this place. Try a nearby town.'
+    ),
+    (
+      kind: 'no connection',
+      findPlace: failsWith('NETWORK'),
+      sentence:
+          'Could not reach the map service. Check your connection, then search again.'
+    ),
+    (
+      kind: 'a refused key',
+      findPlace: failsWith('REQUEST_DENIED'),
+      sentence: 'Place search is not working right now. Try again later.'
+    ),
+  ];
+
+  Future<FakeServer> fillMatch(WidgetTester tester, PlaceFinder findPlace,
+      {String pickup = 'gurugram', String drop = 'jaipur'}) async {
+    final server = await showShipperApp(tester, '/customer/trips?tab=match',
+        findPlace: findPlace);
+    await tester.pumpAndSettle();
+    await tester.enterText(field('Pickup'), pickup);
+    await tester.enterText(field('Drop'), drop);
+    await tester.enterText(field('Weight'), '80');
+    await tester.tap(find.text('Find matching lanes'));
+    await tester.pumpAndSettle();
+    return server;
+  }
+
+  Future<FakeServer> fillBook(WidgetTester tester, PlaceFinder findPlace,
+      {String pickup = 'gurugram', String drop = 'jaipur'}) async {
+    final server = await showShipperApp(tester,
+        '/customer/book?anchorTripId=lane-1&weightKg=80&pickup=$pickup&drop=$drop',
+        findPlace: findPlace);
+    server.answer('/anchor-trips/lane-1', {'trip': lane()});
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Get price'));
+    await tester.pumpAndSettle();
+    return server;
+  }
+
+  group('a failed place search says what failed', () {
+    for (final failure in failures) {
+      testWidgets('Match: ${failure.kind}', (tester) async {
+        final server = await fillMatch(tester, failure.findPlace);
+        expect(find.text(failure.sentence), findsNWidgets(2),
+            reason: 'one sentence under Pickup and one under Drop');
+        expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
+        if (failure.kind == 'no maps key') {
+          expect(find.textContaining('Could not find this place'), findsNothing,
+              reason:
+                  'Uwais: "gurugram" and "jaipur" were called unknown places when the app had no maps key');
+        }
+      });
+
+      testWidgets('Book: ${failure.kind}', (tester) async {
+        final server = await fillBook(tester, failure.findPlace);
+        expect(find.text(failure.sentence), findsNWidgets(2),
+            reason: 'one sentence under Pickup and one under Drop');
+        expect(server.countOf('/shipments/quote'), 0);
+        if (failure.kind == 'no maps key') {
+          expect(find.textContaining('Could not find this place'), findsNothing,
+              reason:
+                  'Uwais: "gurugram" and "jaipur" were called unknown places when the app had no maps key');
+        }
+      });
+    }
+
+    testWidgets('Match: blank places are asked for, not searched',
+        (tester) async {
+      var searched = false;
+      await fillMatch(tester, (place) async {
+        searched = true;
+        return findAnyPlace(place);
+      }, pickup: '  ', drop: '  ');
+      expect(find.text('Enter the pickup place.'), findsOneWidget);
+      expect(find.text('Enter the drop place.'), findsOneWidget);
+      expect(searched, isFalse);
+    });
+
+    testWidgets('Book: blank places are asked for, not searched',
+        (tester) async {
+      var searched = false;
+      await fillBook(tester, (place) async {
+        searched = true;
+        return findAnyPlace(place);
+      }, pickup: '', drop: '');
+      expect(find.text('Enter the pickup place.'), findsOneWidget);
+      expect(find.text('Enter the drop place.'), findsOneWidget);
+      expect(searched, isFalse);
+    });
   });
 }
 
