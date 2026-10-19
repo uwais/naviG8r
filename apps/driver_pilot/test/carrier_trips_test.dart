@@ -605,7 +605,7 @@ void main() {
         router.go('/screen');
         await tester.pumpAndSettle();
         expect(fieldTexts(tester),
-            ['Hoskote, Karnataka', 'Kolar, Karnataka', '1000'],
+            ['Hoskote', 'Kolar', '1000'],
             reason: 'owner run: leaving Publish wiped the form');
         expect(find.byType(GoogleMap), findsNWidgets(2),
             reason: 'both places keep their points');
@@ -658,7 +658,7 @@ void main() {
         router.go('/screen');
         await tester.pumpAndSettle();
         expect(fieldTexts(tester),
-            ['Hoskote, Karnataka', 'Kolar, Karnataka', '1000'],
+            ['Hoskote', 'Kolar', '1000'],
             reason: 'the places and the room are still good');
         expect(find.text('Choose a date'), findsNWidgets(2),
             reason: 'review: yesterday was restored and sent to the server');
