@@ -11,6 +11,7 @@ Every visible string, by screen. Brackets mark text the team still has to supply
 | Thing | Format | Never |
 |---|---|---|
 | Date | 18 Oct · 18 – 19 Oct · 18 Oct 2026 when the year is not this year, or in a form | 2026-10-17, 10/17 |
+| A trip's dates | Leaves 18 – 19 Oct · Leaves 18 Oct when both are one day. The first and last day the truck can leave (windowStart, windowEnd), India time. Mid-sentence: "leaves 18 – 19 Oct" (Rishabh, 19 Oct 2026) | Arrives by, any arrival or delivery date |
 | Time | 16:40 IST (24-hour) | 7:41 AM |
 | Money | ₹2,640 (Indian grouping, no paise unless paise matter, tabular figures) | ₹4704.35 net, "Net to carrier: ₹45" |
 | Weight, room | 80 kg · Room left: 105 kg | Capacity 1000 kg (895 kg reserved) |
@@ -46,7 +47,7 @@ Every visible string, by screen. Brackets mark text the team still has to supply
 | Browse note | Every open lane, not sorted by distance. To see the closest to your route first, use Match my route. | Browse is not ranked |
 | Match form | Pickup · Drop (place boxes: City or area · search · map pin) · Weight · Find matching lanes · Enter the [pickup \| drop] place. · Search for the [pickup \| drop] place. | Same place box as Publish (Rishabh, 19 Oct 2026) |
 | Match result line | [n] lanes with room for [weight] kg, closest to your route first. | Announced |
-| Lane card | [From] to [To] · [Carrier] · [Size] truck · Dates · Room left · [Open \| Full] | Full lane: "Room left: None" |
+| Lane card | [From] to [To] · [Carrier] · [Size] truck · Leaves · Room left · [Open \| Full] | Full lane: "Room left: None" |
 | Empty, match | No lanes pass near this route with room for [weight] kg. · Try a lower weight, or browse all lanes. · Change weight · Browse all lanes |  |
 | Empty, browse | No lanes are open right now. · New lanes appear here when carriers publish them. |  |
 | Loading, error | Loading lanes. · Could not load lanes. Check your connection, then try again. · Try again |  |
@@ -56,6 +57,7 @@ Every visible string, by screen. Brackets mark text the team still has to supply
 | Element | Copy | Notes |
 |---|---|---|
 | Title, sub | Book space · Check the price, then pay. |  |
+| Lane | [From] to [To] · [Carrier] · Leaves [dates] · Room left: [n] kg |  |
 | Fields | Weight · Up to [room] kg on this lane. · Pickup · Drop (place boxes: City or area · search · map pin) | Start at the searched values and pins, else empty. Same place box as Publish |
 | Price | Price · ₹[amount] · After you pay, [Carrier] accepts and names the truck. · Pay opens the payment provider's screen, where you choose how to pay. · Changing weight, pickup or drop gets a new price. | Fetched by itself once weight, pickup and drop are in (Rishabh, 19 Oct 2026). Tax line only if question 5 says so |
 | Above Pay | This is the full price. Nothing is added at payment. · Your payment is held when you book and collected after delivery. Booked shipments cannot be cancelled in the app; to change one, contact [NaviG8r contact]. | Open item 6 (contact) |
@@ -95,7 +97,7 @@ Open check: the label booked is the words in the place box; if the shipper types
 
 | Element | Copy | Notes |
 |---|---|---|
-| Summary | [From] to [To] · [Status] · [pickup locality] to [drop locality] · [weight] · [dates] · [carrier] · Messages · Change or cancel | Title is the route, not the carrier |
+| Summary | [From] to [To] · [Status] · [pickup locality] to [drop locality] · [weight] · Leaves [dates] · [carrier] · Messages · Change or cancel | Title is the route, not the carrier |
 | Steps | Booked and paid · Carrier accepts and names the truck · E-way bill · Bill check · On the way · Delivered | Each with who: You, [Carrier], NaviG8r staff |
 | Waiting | Waiting for [Carrier] to accept. Your payment is on hold; it is collected after delivery. | Brief A.3 |
 | Step 0 | Does this load need an e-way bill? · [one line from the team] · Yes, make one · No e-way bill needed · [Carrier] sees your answer before accepting. | Neither preselected |
@@ -134,13 +136,13 @@ Tabs for the office: Home, Bookings, Trips, Publish, Profile. Tabs for drivers: 
 
 | Element | Copy | Notes |
 |---|---|---|
-| Home | Home · NEEDS YOU · Accept a booking · [Shipper], [weight], on your [route] trip, [date]. · Review booking · Assign a driver · Today | Signed-in home has no sign-in, register or developer links. No add-truck task: the shipper adds the truck (owner decision, 18 Oct 2026) |
-| Bookings list | Bookings · Needs you ([n]) · Active · Done · [Shipper] · [pickup] to [drop] · [date] · [weight] · E-way bill: needed \| not needed · Next: [action]. · Truck not on bill · Next: [Shipper] adds the truck to the e-way bill. | Whole card opens. A bill without the truck is Active, not Needs you |
+| Home | Home · NEEDS YOU · Accept a booking · [Shipper], [weight], on your [route] trip, leaves [dates]. · Review booking · Assign a driver · [route] · Leaves [dates] · Start a trip · Today | Signed-in home has no sign-in, register or developer links. No add-truck task: the shipper adds the truck (owner decision, 18 Oct 2026) |
+| Bookings list | Bookings · Needs you ([n]) · Active · Done · [Shipper] · [pickup] to [drop] · Leaves [dates] · [weight] · E-way bill: needed \| not needed · Next: [action]. · Truck not on bill · Next: [Shipper] adds the truck to the e-way bill. | Whole card opens. A bill without the truck is Active, not Needs you |
 | Booking title | BOOKING · [Shipper] | Was "Proof of delivery" |
 | Booking facts | Pickup · Drop · Weight · E-way bill: Needed. [Shipper] makes it. \| Not needed (shipper said so). |  |
 | Steps | Accept and choose the truck · Truck on the e-way bill · Driver assigned and trip started · Confirm delivery · Payment released |  |
-| Accept panel | On your trip [route], [dates]. After this, [n] kg of room is left. · Accept · Decline | Decline is neutral, no guilt |
-| Accept sheet | Which truck carries this trip? · [route], [dates]. [Shipper] puts this truck number on the e-way bill. · Accept with this truck (disabled) · Choose a truck first. · Accept with [truck] · Cancel | No truck preselected |
+| Accept panel | Your [route] trip leaves [dates]. After this, [n] kg of room is left. · Accept · Decline | Decline is neutral, no guilt. Worded so Accept still shows without scrolling at 360 x 800 |
+| Accept sheet | Which truck carries this trip? · [route], leaves [dates]. [Shipper] puts this truck number on the e-way bill. · Accept with this truck (disabled) · Choose a truck first. · Accept with [truck] · Cancel | No truck preselected |
 | Accept result | Accepted with [truck]. [Shipper] can make the e-way bill now. · Could not accept. Check your connection and try again. | Announced |
 | No trucks | You have no trucks yet. Add one to accept bookings. · Add truck |  |
 | Truck on bill | [Shipper] has not added the truck to the bill yet. · Truck on the bill: [truck] · Valid until: [date], [time] IST · [ops check line] | Read only for every carrier login: no form, no pickers, no portal button (owner decision, 18 Oct 2026) |
@@ -152,14 +154,28 @@ Tabs for the office: Home, Bookings, Trips, Publish, Profile. Tabs for drivers: 
 
 | Element | Copy | Notes |
 |---|---|---|
-| Trips list | Trips · Open · In transit · Done · Dates · Room left · Bookings · [truck] · [driver] \| No driver yet · Truck chosen when you accept the first booking | No View or Start on the card |
-| Trip | TRIP · [route] · [status] · [dates] · [size] truck · Room left: [n] kg of [capacity] kg · Truck and driver · Not assigned · Assign driver · Bookings on this trip ([n]) |  |
+| Trips list | Trips · Open · In transit · Done · Leaves · Room left · Bookings · [truck] · [driver] \| No driver yet · Truck chosen when you accept the first booking | No View or Start on the card |
+| Trip | TRIP · [route] · [status] · Leaves [dates] · [size] truck · Room left: [n] kg of [capacity] kg · Truck and driver · Not assigned · Assign driver · Bookings on this trip ([n]) |  |
 | Start (disabled) | Start the trip · Start trip · Assign a driver first. Then start on loading day. | Start lives only here |
 | Start sheet | Start [route] now? · Truck · Driver · Bookings · [Shipper]'s e-way bill does not have the truck yet. [Shipper] adds it. Without the truck, the bill is not valid for moving the goods. · Start trip · Not yet · Starting tells each shipper their goods are on the way. | Warning only when true; it informs, it does not ask the carrier to act |
-| Assign sheet | Who drives this trip? · [route], [dates], truck [truck]. The driver sees the trip and the e-way bill, never the payment. · Assign [name] · Cancel · Add a driver to your company | No driver preselected |
-| Publish | Publish a trip · Shippers can book space on it once it is published. · From · To · Leaves · Arrives by · Truck size: Small, Medium, Large · Room for shippers · The weight you can carry for shippers on this trip. · You choose the truck when you accept the first booking. · Publish trip | Fields start empty |
+| Assign sheet | Who drives this trip? · [route], leaves [dates], truck [truck]. The driver sees the trip and the e-way bill, never the payment. · Assign [name] · Cancel · Add a driver to your company | No driver preselected |
+| Publish | Publish a trip · Shippers can book space on it once it is published. · From · To · [route map, pins named "From and To"] · Leaves between · and · Choose a date · Truck size: Small, Medium, Large · Room for shippers · The weight you can carry for shippers on this trip. · You choose the truck when you accept the first booking. · Publish trip · Choose the first day the truck can leave. · Choose the last day the truck can leave. | Fields start empty. The two days are the first and last day the truck can leave; there is no arrival date (Rishabh, 19 Oct 2026). The last day may be the first, never before it, and no day before today in India. The route map shows only once From and To both have a point. A screen reader hears "First day the truck can leave" and "Last day the truck can leave" |
 | Profile | Company · Approved by NaviG8r · Transporter ID · Your GSTIN, or a TRANSIN if you have no GST registration. Shippers copy it into their e-way bills. It is not the shipper's GSTIN. · Trucks ([n]) · Add truck · Drivers ([n]) · Add driver · Manage drivers · Bank details (owner only) · Account ending [4 digits] · Team · Invite · Dispatchers accept bookings and assign drivers. They do not see payments. | No developer lab |
 | Truck | Truck · Registration number · As on the registration certificate. Spaces are removed for the e-way bill. · Truck size · [Size guide from the team] · Save truck · Remove this truck · You are asked to confirm before anything is removed. · Remove truck | Replaces "Vehicle class (SMALL\|MEDIUM\|LARGE)" |
+
+```
+DARK PATTERN SCREEN — a trip's dates as a departure window, and the Publish route map — 2026-10-19
+Screened: the "A trip's dates" format row, and the Lane card, Lane, Confirm sheet, Summary,
+  Home, Bookings list, Accept panel, Accept sheet, Trips list, Trip, Assign sheet and Publish rows
+Verdict: PASS
+Findings: none. No ranking, cost, urgency, exit, decline button, money or new data changes.
+  No day is chosen for the carrier; the route map only shows the two places already entered.
+  The words now promise less, not more: they say when the truck can leave and never imply an
+  arrival, where a single date before read as the day it goes.
+Accepted risks: none
+Open check: the server does not close or hide a trip once its last leaving day has passed,
+  so a lane can still show "Leaves 18 – 19 Oct" and take bookings after 19 Oct.
+```
 
 ### Driver
 

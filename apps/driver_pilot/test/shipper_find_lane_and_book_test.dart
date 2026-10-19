@@ -327,6 +327,8 @@ void main() {
           reason: 'copy.md: lane card route');
       expect(find.text('Ravi Roadways · Medium truck'), findsOneWidget,
           reason: 'copy.md: carrier and size on the card');
+      expect(find.text('Leaves'), findsNWidgets(2),
+          reason: 'the dates are when the truck leaves, never an arrival');
       expect(find.text('105 kg'), findsOneWidget,
           reason: 'room left = capacity 1000 minus booked 895');
       expect(find.text('Capacity 1000 kg (895 kg reserved)'), findsNothing,
@@ -512,6 +514,8 @@ void main() {
           reason: 'copy.md: sub');
       expect(find.text('Room left: 105 kg'), findsOneWidget,
           reason: 'room left from capacity 1000 and booked 895');
+      expect(find.text('Ravi Roadways · Leaves 18 – 19 Oct'), findsOneWidget,
+          reason: 'the dates are when the truck leaves, never an arrival');
       expect(find.text('Up to 105 kg on this lane.'), findsOneWidget,
           reason: 'copy.md: weight help');
       expect(tester.widget<TextField>(field('Weight')).controller!.text, '',

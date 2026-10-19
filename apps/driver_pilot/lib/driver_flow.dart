@@ -702,7 +702,7 @@ String? _tripRoute(Map<String, dynamic>? trip) {
 DateTime? _tripStart(Map<String, dynamic>? trip) =>
     DateTime.tryParse(trip?["windowStart"]?.toString() ?? "");
 
-/// "18 – 19 Oct", or null when the trip is not known.
+/// "18 – 19 Oct": the first and last day the truck can leave. Null when the trip is not known.
 String? _tripDates(Map<String, dynamic>? trip) {
   final start = _tripStart(trip);
   if (start == null) return null;
@@ -710,12 +710,18 @@ String? _tripDates(Map<String, dynamic>? trip) {
   return end == null ? formatDate(start) : formatDateRange(start, end);
 }
 
-/// "Bengaluru to Chennai, 18 – 19 Oct", or null when the trip is not known.
+/// "Leaves 18 – 19 Oct", or "Leaves 18 Oct" for one day. The trip's dates are never an arrival.
+String? _tripLeaves(Map<String, dynamic>? trip) {
+  final dates = _tripDates(trip);
+  return dates == null ? null : "Leaves $dates";
+}
+
+/// "Bengaluru to Chennai, leaves 18 – 19 Oct", or null when the trip is not known.
 String? _tripInWords(Map<String, dynamic>? trip) {
   final route = _tripRoute(trip);
   if (route == null) return null;
   final dates = _tripDates(trip);
-  return dates == null ? route : "$route, $dates";
+  return dates == null ? route : "$route, leaves $dates";
 }
 
 bool _tripStarted(Map<String, dynamic>? trip) =>
@@ -987,11 +993,11 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
     final status = _bookingStatus(booking, trip);
     final pickup = booking["pickupAddress"]?.toString() ?? "";
     final drop = booking["dropAddress"]?.toString() ?? "";
-    final start = _tripStart(trip);
+    final leaves = _tripLeaves(trip);
     final weight = _weightWords(booking);
     final billWords = _ewayBillCardWords(booking);
     final details = [
-      if (start != null) formatDate(start),
+      if (leaves != null) leaves,
       if (weight != null) weight,
       if (billWords != null) billWords,
     ];
@@ -1075,7 +1081,7 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
         .where((booking) => booking["status"] == "PENDING_CARRIER_ACCEPT")) {
       final trip = loaded.tripsById[booking["anchorTripId"]];
       final route = _tripRoute(trip);
-      final start = _tripStart(trip);
+      final dates = _tripDates(trip);
       final weight = _weightWords(booking);
       final who =
           [_shipperName(booking), if (weight != null) weight].join(", ");
@@ -1083,7 +1089,7 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
         title: "Accept a booking",
         detail: route == null
             ? "$who."
-            : "$who, on your $route trip${start == null ? "" : ", ${formatDate(start)}"}.",
+            : "$who, on your $route trip${dates == null ? "" : ", leaves $dates"}.",
         actionLabel: "Review booking",
         path: "/driver/shipment/${booking["id"]}",
       ));
@@ -1099,13 +1105,11 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
               reserved > 0 &&
               (driver is! String || driver.isEmpty);
       if (!waitingForDriver) continue;
-      final start = _tripStart(trip);
+      final leaves = _tripLeaves(trip);
       tasks.add(_OfficeTask(
         title: "Assign a driver",
-        detail: [
-          _tripRoute(trip) ?? "Trip",
-          if (start != null) formatDate(start)
-        ].join(" · "),
+        detail: [_tripRoute(trip) ?? "Trip", if (leaves != null) leaves]
+            .join(" · "),
         actionLabel: "Open trip",
         path: "/driver/trip/${trip["id"]}/active",
       ));
@@ -1129,7 +1133,7 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
       if (!readyToStart) continue;
       tasks.add(_OfficeTask(
         title: "Start a trip",
-        detail: [_tripRoute(trip) ?? "Trip", formatDate(start)].join(" · "),
+        detail: [_tripRoute(trip) ?? "Trip", _tripLeaves(trip)!].join(" · "),
         actionLabel: "Open trip",
         path: "/driver/trip/${trip["id"]}/active",
       ));
@@ -1454,7 +1458,7 @@ class _DriverTodayState extends State<_DriverToday> {
   Widget _laterTripCard(Map<String, dynamic> trip) {
     final truck = _nonEmpty(trip["assignedTruckNumber"]);
     final details = [
-      if (_tripDates(trip) != null) _tripDates(trip)!,
+      if (_tripLeaves(trip) != null) _tripLeaves(trip)!,
       if (truck != null) portalTruckNumber(truck),
     ];
     return NvListCard(
@@ -1815,11 +1819,11 @@ class _DriverShipmentDetailScreenState
         ],
       ];
     } else {
-      final start = _tripStart(_trip);
+      final leaves = _tripLeaves(_trip);
       final summary = [
         if (pickup.isNotEmpty && drop.isNotEmpty) "$pickup to $drop",
         if (weight != null) weight,
-        if (start != null) formatDate(start),
+        if (leaves != null) leaves,
       ].join(" · ");
       details = [
         Wrap(
@@ -1911,7 +1915,9 @@ class _DriverShipmentDetailScreenState
     final onTrip = route == null
         ? null
         : [
-            "On your trip $route${dates == null ? "" : ", $dates"}.",
+            dates == null
+                ? "On your trip $route."
+                : "Your $route trip leaves $dates.",
             if (roomLeft != null && roomLeft >= 0)
               "After this, ${formatKg(roomLeft)} of room is left.",
           ].join(" ");
@@ -2284,7 +2290,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
       title: _tripRoute(trip) ?? "Trip",
       status: status,
       facts: [
-        if (dates != null) NvFact("Dates", dates),
+        if (dates != null) NvFact("Leaves", dates),
         if (room != null)
           NvFact("Room left", room == 0 ? "None" : formatKg(room)),
         if (counts != null) NvFact("Bookings", "${counts[trip["id"]] ?? 0}"),
@@ -3474,7 +3480,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   Widget _tripSummary(Map<String, dynamic> trip) {
     final status = _tripStatusLabel(trip);
     final details = [
-      if (_tripDates(trip) != null) _tripDates(trip)!,
+      if (_tripLeaves(trip) != null) _tripLeaves(trip)!,
       if (_truckSizeWords(trip["vehicleClass"]) != null)
         _truckSizeWords(trip["vehicleClass"])!,
     ];
@@ -4420,8 +4426,8 @@ typedef _PublishDraft = ({
   LatLng? fromPoint,
   String to,
   LatLng? toPoint,
-  DateTime? leaves,
-  DateTime? arrivesBy,
+  DateTime? firstLeavingDay,
+  DateTime? lastLeavingDay,
   String? truckSize,
   String room,
 });
@@ -4450,9 +4456,9 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   final _dest = TextEditingController();
   LatLng? _originPos;
   LatLng? _destPos;
-  // Calendar days in India, held as midnight UTC.
-  DateTime? _leaves;
-  DateTime? _arrivesBy;
+  // The days the truck can leave: calendar days in India, held as midnight UTC. There is no arrival day.
+  DateTime? _firstLeavingDay;
+  DateTime? _lastLeavingDay;
   String? _truckSize;
   final _room = TextEditingController();
   bool _submitting = false;
@@ -4473,8 +4479,10 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
       _originPos = draft.fromPoint;
       _dest.text = draft.to;
       _destPos = draft.toPoint;
-      _leaves = notGone(draft.leaves) ? draft.leaves : null;
-      _arrivesBy = notGone(draft.arrivesBy) ? draft.arrivesBy : null;
+      _firstLeavingDay =
+          notGone(draft.firstLeavingDay) ? draft.firstLeavingDay : null;
+      _lastLeavingDay =
+          notGone(draft.lastLeavingDay) ? draft.lastLeavingDay : null;
       _truckSize = draft.truckSize;
       _room.text = draft.room;
     }
@@ -4492,8 +4500,8 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
             fromPoint: _originPos,
             to: _dest.text,
             toPoint: _destPos,
-            leaves: _leaves,
-            arrivesBy: _arrivesBy,
+            firstLeavingDay: _firstLeavingDay,
+            lastLeavingDay: _lastLeavingDay,
             truckSize: _truckSize,
             room: _room.text,
           );
@@ -4513,10 +4521,10 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     }
   }
 
-  Future<void> _chooseDay({required bool leaves}) async {
+  Future<void> _chooseDay({required bool firstDay}) async {
     final today = _todayInIndia();
-    final earliest = leaves ? today : (_leaves ?? today);
-    final current = leaves ? _leaves : _arrivesBy;
+    final earliest = firstDay ? today : (_firstLeavingDay ?? today);
+    final current = firstDay ? _firstLeavingDay : _lastLeavingDay;
     final picked = await showDatePicker(
       context: context,
       initialDate:
@@ -4527,12 +4535,14 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     if (picked == null || !mounted) return;
     final day = DateTime.utc(picked.year, picked.month, picked.day);
     setState(() {
-      if (leaves) {
-        _leaves = day;
-        // An arrival before the new departure no longer makes sense.
-        if (_arrivesBy != null && _arrivesBy!.isBefore(day)) _arrivesBy = null;
+      if (firstDay) {
+        _firstLeavingDay = day;
+        // A last day before the new first day no longer makes sense.
+        if (_lastLeavingDay != null && _lastLeavingDay!.isBefore(day)) {
+          _lastLeavingDay = null;
+        }
       } else {
-        _arrivesBy = day;
+        _lastLeavingDay = day;
       }
     });
   }
@@ -4545,8 +4555,12 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     if (_dest.text.trim().isEmpty || _destPos == null) {
       return "Search for the To place so shippers can find this trip.";
     }
-    if (_leaves == null) return "Choose the day the trip leaves.";
-    if (_arrivesBy == null) return "Choose the day the trip arrives by.";
+    if (_firstLeavingDay == null) {
+      return "Choose the first day the truck can leave.";
+    }
+    if (_lastLeavingDay == null) {
+      return "Choose the last day the truck can leave.";
+    }
     if (_truckSize == null) return _chooseTruckSizeSentence;
     final room = int.tryParse(_room.text.trim()) ?? 0;
     if (room <= 0) return "Enter the room for shippers in kg.";
@@ -4573,9 +4587,9 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
         return;
       }
       const india = Duration(hours: 5, minutes: 30);
-      // The whole of both days, in India time, as the pickup window always was.
-      final windowStart = _leaves!.subtract(india);
-      final windowEnd = _arrivesBy!
+      // The window runs from the start of the first leaving day to the end of the last, in India time.
+      final windowStart = _firstLeavingDay!.subtract(india);
+      final windowEnd = _lastLeavingDay!
           .add(const Duration(days: 1))
           .subtract(india)
           .subtract(const Duration(seconds: 1));
@@ -4614,19 +4628,22 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     }
   }
 
-  Widget _day(String label, DateTime? day, {required bool leaves}) =>
+  /// [label] reads across the two pickers as "Leaves between [day] and [day]"; a screen reader, which reads
+  /// one picker at a time, says [spokenLabel] instead.
+  Widget _day(String label, String spokenLabel, DateTime? day,
+          {required bool firstDay}) =>
       MergeSemantics(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(label, style: NvText.bodyStrong),
+            Text(label, style: NvText.bodyStrong, semanticsLabel: spokenLabel),
             const SizedBox(height: 6),
             NvButton(
               label: day == null
                   ? "Choose a date"
                   : formatDate(day, withYear: true),
               kind: NvButtonKind.secondary,
-              onPressed: () => _chooseDay(leaves: leaves),
+              onPressed: () => _chooseDay(firstDay: firstDay),
               fullWidth: true,
             ),
           ],
@@ -4679,12 +4696,24 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 showMap: _destPos != null,
                 findPlace: widget.findPlace,
               ),
+              if (_originPos != null && _destPos != null) ...[
+                gap,
+                NvMap(
+                  map: routePreviewMap(a: _originPos!, b: _destPos!),
+                  pinsLabel: "From and To",
+                ),
+              ],
               gap,
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(child: _day("Leaves", _leaves, leaves: true)),
+                Expanded(
+                    child: _day("Leaves between",
+                        "First day the truck can leave", _firstLeavingDay,
+                        firstDay: true)),
                 const SizedBox(width: NvSpace.s3),
                 Expanded(
-                    child: _day("Arrives by", _arrivesBy, leaves: false)),
+                    child: _day("and", "Last day the truck can leave",
+                        _lastLeavingDay,
+                        firstDay: false)),
               ]),
               gap,
               NvChoiceChips<String>(

@@ -17,7 +17,7 @@ import "announce.dart";
 
 typedef _ShipmentRow = ({
   String route,
-  String? date,
+  String? leaves,
   String? weight,
   String carrier,
   NvStatusLabel status,
@@ -104,7 +104,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
     return (
       route: shipmentRouteName(shipment, lane: lane, withDate: false) ??
           "Shipment",
-      date: laneStartWords(lane),
+      leaves: laneLeaves(lane),
       weight: weightWords(shipment),
       carrier: carrierOf(shipment),
       status: needsYou
@@ -126,7 +126,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
         title: row.route,
         status: row.status,
         subtitle:
-            [row.date, row.weight, row.carrier].whereType<String>().join(" · "),
+            [row.leaves, row.weight, row.carrier].whereType<String>().join(" · "),
         next: row.next == null ? null : "${row.next}.",
         needsYou: row.needsYou,
         onOpen: row.open,
@@ -209,7 +209,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
                           ),
                         ),
                       )),
-                      words(row.date),
+                      words(row.leaves),
                       words(row.weight),
                       words(row.carrier),
                       cell(Align(

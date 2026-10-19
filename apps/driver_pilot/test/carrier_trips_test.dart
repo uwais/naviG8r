@@ -12,6 +12,7 @@ import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/transporter_id_section.dart';
 import 'package:driver_pilot/ui/nv_action_bar.dart';
 import 'package:driver_pilot/ui/nv_button.dart';
+import 'package:driver_pilot/ui/nv_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
@@ -261,7 +262,9 @@ void main() {
           reason: 'ca-trips opens on Open');
       expect(find.text('Bengaluru to Chennai'), findsNWidgets(3),
           reason: 'the open and full trips, not the one in transit');
-      expect(find.text('18 – 19 Oct'), findsOneWidget, reason: 'Dates fact');
+      expect(find.text('18 – 19 Oct'), findsOneWidget, reason: 'Leaves fact');
+      expect(find.text('Leaves'), findsNWidgets(3),
+          reason: 'each card says the days the truck leaves, not an arrival');
       expect(find.text('25 kg'), findsOneWidget,
           reason: 'Room left 1000 - 975');
       expect(find.text('None'), findsOneWidget,
@@ -329,13 +332,20 @@ void main() {
       expect(find.text('TRIP'), findsOneWidget);
       expect(find.text('Bengaluru to Chennai'), findsOneWidget);
       expect(find.text('Open'), findsOneWidget);
-      expect(find.text('18 – 19 Oct · Medium truck'), findsOneWidget);
+      expect(find.text('Leaves 18 – 19 Oct · Medium truck'), findsOneWidget,
+          reason: 'the dates are when the truck leaves, not an arrival');
       expect(find.text('Room left: 25 kg of 1,000 kg'), findsOneWidget,
           reason:
               'copy.md: Room left: [n] kg of [capacity] kg; mockup ca-trip groups thousands, "1,000 kg"');
       expect(find.text('Truck and driver'), findsOneWidget);
       expect(find.text('Bookings on this trip (1)'), findsOneWidget);
       expect(find.text('Sharma Textiles · 80 kg'), findsOneWidget);
+      await tester.tap(find.text('Assign driver'));
+      await tester.pumpAndSettle();
+      expect(
+          inSheet(find.textContaining('Bengaluru to Chennai, leaves 18 – 19 Oct')),
+          findsOneWidget,
+          reason: 'the assign sheet names the trip by the days it leaves');
     });
 
     testWidgets('Start is disabled with its reason until a driver is assigned',
@@ -503,7 +513,7 @@ void main() {
           reason:
               'spec: From and To start empty (the mockup shows them filled)');
       expect(find.text('Choose a date'), findsNWidgets(2),
-          reason: 'Leaves and Arrives by start empty');
+          reason: 'both leaving days start empty');
       expect(
           tester
               .widgetList<ChoiceChip>(find.byType(ChoiceChip))
@@ -569,6 +579,226 @@ void main() {
       expect(find.text('Bengaluru, Karnataka'), findsWidgets);
     });
 
+    group('the route map', () {
+      const hoskote = LatLng(13.07, 77.79);
+      const kolar = LatLng(13.13, 78.13);
+      Widget publish() => DriverPublishTripScreen(
+          findPlace: (place) async => GeocodeOutcome.ok(
+              place == 'Hoskote' ? hoskote : kolar, '$place, Karnataka'));
+
+      testWidgets('shows both pins and the line once From and To both have a point',
+          (tester) async {
+        signInWith(Server(allowed: ownerAllowed));
+        await mount(tester, publish(), size: const Size(800, 3000));
+        expect(find.byType(NvMap), findsNothing, reason: 'no point yet');
+        await tester.enterText(find.byType(TextField).at(0), 'Hoskote');
+        await tester.tap(find.byTooltip('Look up place').at(0));
+        await tester.pumpAndSettle();
+        expect(find.byType(NvMap), findsNothing,
+            reason: 'with one point there is no route to show');
+        await tester.enterText(find.byType(TextField).at(1), 'Kolar');
+        await tester.tap(find.byTooltip('Look up place').at(1));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(NvMap), findsOneWidget,
+            reason: 'Uwais: one map with both places');
+        expect(find.text('From and To'), findsOneWidget,
+            reason: 'the pins are named in words, not by colour alone');
+        final map = tester.widget<GoogleMap>(find.descendant(
+            of: find.byType(NvMap), matching: find.byType(GoogleMap)));
+        expect(map.markers.map((pin) => pin.position), [hoskote, kolar]);
+        expect(map.polylines.single.points, [hoskote, kolar],
+            reason: 'a straight line between the two places');
+        final toBox = tester.getRect(find.byType(LocationEndpointEditor).at(1));
+        expect(tester.getRect(find.byType(NvMap)).top,
+            greaterThan(toBox.bottom),
+            reason: 'below the From and To place boxes');
+      });
+    });
+
+    group('the departure window', () {
+      // 01:30 on 20 Apr in India while it is still 19 Apr in UTC, so "today" must be India's.
+      setUp(() => currentTime = () => DateTime.utc(2026, 4, 19, 20));
+      tearDown(() => currentTime = DateTime.now);
+
+      Widget publish() => DriverPublishTripScreen(
+          findPlace: (place) async =>
+              GeocodeOutcome.ok(const LatLng(13.07, 77.8), '$place, Karnataka'));
+
+      Finder picker(String label) => find.descendant(
+          of: find.ancestor(
+              of: find.text(label), matching: find.byType(MergeSemantics)),
+          matching: find.byType(OutlinedButton));
+
+      DatePickerDialog openDialog(WidgetTester tester) =>
+          tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+
+      /// Opens the picker under [label] and taps [day] of the month it shows, then OK.
+      Future<void> chooseDay(WidgetTester tester, String label, String day) async {
+        await tester.tap(picker(label));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(day));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> fillAllButDays(WidgetTester tester) async {
+        for (final (index, place) in [(0, 'Hoskote'), (1, 'Kolar')]) {
+          await tester.enterText(find.byType(TextField).at(index), place);
+          await tester.tap(find.byTooltip('Look up place').at(index));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.widgetWithText(ChoiceChip, 'Medium'));
+        await tester.enterText(find.byType(TextField).last, '500');
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('reads "Leaves between [day] and [day]", with no day chosen',
+          (tester) async {
+        signInWith(Server(allowed: ownerAllowed));
+        final semantics = tester.ensureSemantics();
+        await mount(tester, publish(), size: const Size(800, 3000));
+        expect(find.text('Arrives by'), findsNothing,
+            reason: 'Rishabh: a trip has no arrival date');
+        final first = tester.getTopLeft(find.text('Leaves between'));
+        final last = tester.getTopLeft(find.text('and'));
+        expect(first.dy, last.dy, reason: 'the two labels share a line');
+        expect(first.dx, lessThan(last.dx), reason: 'read left to right');
+        expect(
+            [picker('Leaves between'), picker('and')].map((button) =>
+                tester.widget<Text>(find.descendant(
+                    of: button, matching: find.byType(Text))).data),
+            ['Choose a date', 'Choose a date'],
+            reason: 'no day is chosen for the carrier');
+        expect(find.bySemanticsLabel(RegExp('First day the truck can leave')),
+            findsOneWidget,
+            reason: 'a screen reader hears each picker on its own');
+        expect(find.bySemanticsLabel(RegExp('Last day the truck can leave')),
+            findsOneWidget);
+        semantics.dispose();
+      });
+
+      testWidgets(
+          'the first day cannot be before India\'s today, and the last cannot be before the first',
+          (tester) async {
+        signInWith(Server(allowed: ownerAllowed));
+        await mount(tester, publish(), size: const Size(800, 3000));
+        await tester.tap(picker('Leaves between'));
+        await tester.pumpAndSettle();
+        expect(openDialog(tester).firstDate, DateTime(2026, 4, 20),
+            reason: 'days before today in India are refused');
+        await tester.tap(find.text('24'));
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(picker('and'));
+        await tester.pumpAndSettle();
+        expect(openDialog(tester).firstDate, DateTime(2026, 4, 24),
+            reason: 'the last day cannot be before the first');
+        await tester.tap(find.text('23'));
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+        expect(find.text('24 Apr 2026'), findsNWidgets(2),
+            reason: 'the 23rd could not be chosen; the last day may equal the first');
+      });
+
+      testWidgets('Publish asks for the first day, then the last, and sends nothing',
+          (tester) async {
+        final server = signInWith(Server(allowed: ownerAllowed));
+        await mount(tester, publish(), size: const Size(800, 3000));
+        await fillAllButDays(tester);
+        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.pumpAndSettle();
+        expect(find.text('Choose the first day the truck can leave.'),
+            findsOneWidget);
+
+        await chooseDay(tester, 'Leaves between', '24');
+        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.pumpAndSettle();
+        expect(find.text('Choose the last day the truck can leave.'),
+            findsOneWidget);
+        expect(find.text('Choose the first day the truck can leave.'),
+            findsNothing);
+        expect(server.sent, isEmpty);
+      });
+
+      for (final (lastDay, windowEnd) in [
+        ('25', '2026-04-25T23:59:59+05:30'),
+        ('24', '2026-04-24T23:59:59+05:30'),
+      ]) {
+        testWidgets(
+            'leaving between the 24th and the ${lastDay}th sends that window as windowStart and windowEnd',
+            (tester) async {
+          final server = signInWith(Server(allowed: ownerAllowed));
+          await mount(tester, publish(), size: const Size(800, 3000));
+          await fillAllButDays(tester);
+          await chooseDay(tester, 'Leaves between', '24');
+          await chooseDay(tester, 'and', lastDay);
+          await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+          await tester.pumpAndSettle();
+          final published = server.sent.single.data as Map<String, dynamic>;
+          expect(published['windowStart'], '2026-04-24T00:00:00+05:30',
+              reason: 'the start of the first day the truck can leave, in India');
+          expect(published['windowEnd'], windowEnd,
+              reason: 'the end of the last day the truck can leave, in India');
+        });
+      }
+
+      testWidgets('going to another tab and back keeps both leaving days',
+          (tester) async {
+        final server = signInWith(Server(allowed: ownerAllowed));
+        final router =
+            await mount(tester, publish(), size: const Size(800, 3000));
+        await fillAllButDays(tester);
+        await chooseDay(tester, 'Leaves between', '24');
+        await chooseDay(tester, 'and', '26');
+        router.go('/driver/loads');
+        await tester.pumpAndSettle();
+        router.go('/screen');
+        await tester.pumpAndSettle();
+        expect(
+            find.descendant(
+                of: picker('Leaves between'), matching: find.text('24 Apr 2026')),
+            findsOneWidget);
+        expect(find.descendant(of: picker('and'), matching: find.text('26 Apr 2026')),
+            findsOneWidget);
+        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.pumpAndSettle();
+        final published = server.sent.single.data as Map<String, dynamic>;
+        expect([published['windowStart'], published['windowEnd']],
+            ['2026-04-24T00:00:00+05:30', '2026-04-26T23:59:59+05:30']);
+      });
+
+      testWidgets('filled in, with the route map, Publish fits 360 dp at 200% text',
+          (tester) async {
+        signInWith(Server(allowed: ownerAllowed));
+        final router =
+            await mount(tester, publish(), size: const Size(800, 3000));
+        await fillAllButDays(tester);
+        await chooseDay(tester, 'Leaves between', '24');
+        await chooseDay(tester, 'and', '26');
+        router.go('/driver/loads');
+        await tester.pumpAndSettle();
+        // The kept draft fills the form again at the large text size.
+        await mount(tester, publish(), textScale: 2);
+        expect(tester.takeException(), isNull,
+            reason: 'brief 7: 200% text, Publish filled in');
+        final form = find.byType(Scrollable).first;
+        await tester.scrollUntilVisible(find.byType(NvMap), 200,
+            scrollable: form);
+        expect(tester.takeException(), isNull);
+        await tester.scrollUntilVisible(find.text('24 Apr 2026'), 200,
+            scrollable: form);
+        expect(tester.takeException(), isNull);
+        await tester.scrollUntilVisible(
+            find.text('You choose the truck when you accept the first booking.'),
+            200,
+            scrollable: form);
+        expect(tester.takeException(), isNull);
+      });
+    });
+
     group('the draft', () {
       Widget publish() => DriverPublishTripScreen(
           findPlace: (place) async =>
@@ -609,10 +839,10 @@ void main() {
         expect(fieldTexts(tester),
             ['Hoskote', 'Kolar', '1000'],
             reason: 'owner run: leaving Publish wiped the form');
-        expect(find.byType(GoogleMap), findsNWidgets(2),
-            reason: 'both places keep their points');
+        expect(find.byType(GoogleMap), findsNWidgets(3),
+            reason: 'both places keep their points, so their maps and the route map show');
         expect(find.text('Choose a date'), findsNothing,
-            reason: 'both days are kept');
+            reason: 'both leaving days are kept');
         expect(
             tester
                 .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Medium'))
@@ -694,7 +924,8 @@ void main() {
         await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
         await tester.pumpAndSettle();
         expect(server.sent, isEmpty);
-        expect(find.text('Choose the day the trip leaves.'), findsOneWidget);
+        expect(find.text('Choose the first day the truck can leave.'),
+            findsOneWidget);
       });
     });
 

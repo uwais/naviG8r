@@ -110,9 +110,9 @@ void main() {
       final later = carrierTrip('trip-later', startsInDays: 2);
       expect(
           find.text(
-              '${formatDateRange(DateTime.parse(later['windowStart'] as String), DateTime.parse(later['windowEnd'] as String))} · KA01AB1234'),
+              'Leaves ${formatDateRange(DateTime.parse(later['windowStart'] as String), DateTime.parse(later['windowEnd'] as String))} · KA01AB1234'),
           findsOneWidget,
-          reason: 'dr-today: a later trip says its dates and truck');
+          reason: 'dr-today: a later trip says the days it leaves and its truck');
       expect(find.text('Sign in with phone'), findsNothing,
           reason: 'the signed-in home has no sign-in or developer links');
 

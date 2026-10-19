@@ -61,9 +61,11 @@ String? shipmentRouteName(Map<String, dynamic> shipment,
   return pickup.isEmpty || drop.isEmpty ? null : "$pickup to $drop";
 }
 
-String? laneStartWords(Map<String, dynamic>? lane) {
-  final start = DateTime.tryParse(lane?["windowStart"]?.toString() ?? "");
-  return start == null ? null : formatDate(start);
+/// "Leaves 24 – 25 Apr", or "Leaves 24 Apr" for one day: a lane's dates are when the truck can leave,
+/// never an arrival.
+String? laneLeaves(Map<String, dynamic>? lane) {
+  final dates = lane == null ? null : laneDates(lane);
+  return dates == null ? null : "Leaves $dates";
 }
 
 String? weightWords(Map<String, dynamic> shipment) {

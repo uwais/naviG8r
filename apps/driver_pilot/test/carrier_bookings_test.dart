@@ -206,10 +206,10 @@ void main() {
           reason: 'accepting blocks everything after it, so it comes first');
       expect(
           find.text(
-              'Synthetic Shipper A, 120 kg, on your Bengaluru to Chennai trip, 18 Oct.'),
+              'Synthetic Shipper A, 120 kg, on your Bengaluru to Chennai trip, leaves 18 – 19 Oct.'),
           findsOneWidget,
           reason:
-              'copy.md: [Shipper], [weight], on your [route] trip, [date].');
+              'copy.md: [Shipper], [weight], on your [route] trip, leaves [dates]. The dates are when the truck leaves');
       expect(
           find.widgetWithText(FilledButton, 'Review booking'), findsOneWidget,
           reason: 'the first task has the one primary button');
@@ -220,6 +220,9 @@ void main() {
           reason: 'no task row for the missing truck');
       expect(find.text('Assign a driver'), findsNWidgets(2),
           reason: 'both booked trips wait for a driver');
+      expect(find.text('Hosur to Coimbatore · Leaves 18 – 19 Oct'),
+          findsOneWidget,
+          reason: 'the task says the days the trip leaves');
       expect(find.text('Today'), findsOneWidget,
           reason: 'ca-home: the trips on the road');
       expect(find.text('Bengaluru to Mysuru'), findsOneWidget);
@@ -282,9 +285,9 @@ void main() {
           reason: 'only the trip whose day has come and has an accepted booking');
       expect(
           find.text(
-              'Bengaluru to Chennai · ${formatDate(DateTime.parse(today))}'),
+              'Bengaluru to Chennai · Leaves ${formatDateRange(DateTime.parse(today), DateTime.parse(_windowEnd))}'),
           findsOneWidget,
-          reason: 'names the trip and its date');
+          reason: 'names the trip and the days it can leave');
       await tester.tap(find.widgetWithText(FilledButton, 'Open trip'));
       await tester.pumpAndSettle();
       expect(find.text('Trip page trip-today'), findsOneWidget,
@@ -367,9 +370,9 @@ void main() {
           reason: 'ca-bookings: status word, never PENDING_CARRIER_ACCEPT');
       expect(find.text('Peenya, Bengaluru to Hosur'), findsOneWidget,
           reason: '[pickup] to [drop]');
-      expect(find.text('18 Oct · 120 kg'), findsOneWidget,
+      expect(find.text('Leaves 18 – 19 Oct · 120 kg'), findsOneWidget,
           reason:
-              'the trip date and the weight; no e-way bill answer is stored yet');
+              'the days the truck can leave and the weight; no e-way bill answer is stored yet');
       final nextLines = screenWords(tester);
       expect(nextLines, contains('Next: accept and choose the truck.'));
       expect(find.byType(FilledButton), findsNothing,
@@ -390,7 +393,7 @@ void main() {
       expect(find.text('120 kg'), findsOneWidget,
           reason:
               'the status and Next: already say the truck is missing, so the card adds no bill words');
-      expect(find.text('18 Oct · 120 kg · Truck on the e-way bill'),
+      expect(find.text('Leaves 18 – 19 Oct · 120 kg · Truck on the e-way bill'),
           findsOneWidget,
           reason: "the booking's own step words for a bill with the truck");
       expect(find.textContaining('E-way bill: needed'), findsNothing,
@@ -445,9 +448,10 @@ void main() {
     await mountRouted(tester, const DriverShipmentsScreen());
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
-    expect(find.text('18 Oct · 120 kg · E-way bill checked'), findsOneWidget,
+    expect(find.text('Leaves 18 – 19 Oct · 120 kg · E-way bill checked'),
+        findsOneWidget,
         reason: "owner run: the booking's own steps say the bill was checked");
-    expect(find.text('18 Oct · 120 kg · Truck on the e-way bill'),
+    expect(find.text('Leaves 18 – 19 Oct · 120 kg · Truck on the e-way bill'),
         findsOneWidget,
         reason: 'a bill with the truck, not checked yet');
     expect(find.textContaining('E-way bill: needed'), findsNothing,
@@ -498,7 +502,7 @@ void main() {
     expect(find.text('Wrong Truck Shipper'), findsOneWidget);
     expect(find.textContaining('Truck on the e-way bill'), findsNothing,
         reason: 'review: ops flagged one bill and the other names another truck');
-    expect(find.text('18 Oct · 120 kg · E-way bill has a problem'),
+    expect(find.text('Leaves 18 – 19 Oct · 120 kg · E-way bill has a problem'),
         findsNWidgets(2),
         reason: "the booking's own steps show a problem for both");
 
@@ -545,12 +549,13 @@ void main() {
     await mountRouted(tester, const DriverShipmentsScreen());
     await tester.tap(find.text('Active'));
     await tester.pumpAndSettle();
-    expect(find.text('18 Oct · 120 kg · E-way bill time has passed'),
+    expect(find.text('Leaves 18 – 19 Oct · 120 kg · E-way bill time has passed'),
         findsOneWidget,
         reason: 'review: the card said "E-way bill checked" after the valid-until time');
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
-    expect(find.text('18 Oct · 120 kg · E-way bill checked'), findsOneWidget,
+    expect(find.text('Leaves 18 – 19 Oct · 120 kg · E-way bill checked'),
+        findsOneWidget,
         reason: 'a delivered booking needs the bill no more');
   });
 
@@ -606,7 +611,7 @@ void main() {
           reason: "ca-booking-new shows the shipper's e-way bill answer");
       expect(
           find.text(
-              'On your trip Bengaluru to Chennai, 18 – 19 Oct. After this, 25 kg of room is left.'),
+              'Your Bengaluru to Chennai trip leaves 18 – 19 Oct. After this, 25 kg of room is left.'),
           findsOneWidget,
           reason: 'copy.md accept panel, from the trip the booking is on');
       final accept = find.widgetWithText(FilledButton, 'Accept');
@@ -620,6 +625,22 @@ void main() {
       expect(find.text('Decline'), findsNothing,
           reason: 'no decline endpoint exists, so no Decline button');
       expect(tester.takeException(), isNull, reason: 'no overflow at 360 dp');
+    });
+
+    testWidgets('the truck sheet names the trip by the days it leaves',
+        (tester) async {
+      signInAsOwner();
+      answer(bookings: [pending()], trips: [trip()]);
+      await mountBooking(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+      await tester.pumpAndSettle();
+      expect(
+          find.descendant(
+              of: find.byType(BottomSheet),
+              matching: find.textContaining(
+                  'Bengaluru to Chennai, leaves 18 – 19 Oct.')),
+          findsOneWidget,
+          reason: 'the dates are when the truck leaves, never an arrival');
     });
 
     testWidgets('Accept says why it is disabled for a carrier not yet approved',
@@ -699,6 +720,8 @@ void main() {
       await mountBooking(tester);
       expect(find.widgetWithText(OutlinedButton, 'Open trip'), findsOneWidget,
           reason: 'assigning and starting happen on the trip screen');
+      expect(find.textContaining('120 kg · Leaves 18 – 19 Oct'), findsOneWidget,
+          reason: 'the summary says the days the truck leaves');
       expect(
           find.widgetWithText(FilledButton, 'Confirm delivery'), findsNothing,
           reason:

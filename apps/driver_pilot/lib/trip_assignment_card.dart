@@ -22,7 +22,7 @@ class TripAssignmentCard extends StatefulWidget {
       super.key});
   final Map<String, dynamic> trip;
 
-  /// "Bengaluru to Chennai, 18 – 19 Oct", to name the trip in the sheet.
+  /// "Bengaluru to Chennai, leaves 18 – 19 Oct", to name the trip in the sheet.
   final String? tripInWords;
 
   /// The trip as the server saved it, so the screen can offer Start once a driver is named.

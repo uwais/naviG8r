@@ -641,7 +641,7 @@ class _LaneSummary extends StatelessWidget {
               style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
           const SizedBox(height: NvSpace.s1),
           Wrap(spacing: NvSpace.s1, children: [
-            Text(dates == null ? carrier : "$carrier · $dates",
+            Text(dates == null ? carrier : "$carrier · Leaves $dates",
                 style: NvText.caption),
             if (room != null)
               Text("Room left: ${roomLeftWords(room)}",

@@ -45,7 +45,7 @@ Widget _laneCard(Map<String, dynamic> lane, {required VoidCallback onOpen}) {
       subtitle:
           "$carrier · ${vehicleClassLabel(lane["vehicleClass"]?.toString())}",
       facts: [
-        if (dates != null) NvFact("Dates", dates),
+        if (dates != null) NvFact("Leaves", dates),
         if (room != null) NvFact("Room left", roomLeftWords(room)),
       ],
       onOpen: onOpen,

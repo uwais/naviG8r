@@ -328,7 +328,7 @@ class _CustomerShipmentDetailScreenState
                 style: NvText.body));
       case ShipmentStepName.onTheWay:
         final started = _momentFromUtcMs(_trip?["startedAtUtcMs"]);
-        final laneStart = laneStartWords(_trip);
+        final laneDays = _trip == null ? null : laneDates(_trip!);
         final pickup = shipment["pickupAddress"]?.toString() ?? "";
         final String sentence;
         if (progress.inTransit) {
@@ -336,9 +336,9 @@ class _CustomerShipmentDetailScreenState
               ? "$carrier confirms when it is delivered."
               : "Left $pickup on ${formatDate(started)} at ${formatTimeIst(started)}. $carrier confirms when it is delivered.";
         } else {
-          sentence = laneStart == null
+          sentence = laneDays == null
               ? "Nothing for you to do now. $carrier starts the trip."
-              : "Nothing for you to do now. $carrier starts the trip on $laneStart.";
+              : "Nothing for you to do now. $carrier starts the trip. The truck leaves $laneDays.";
         }
         return NvStep(
             title: step.title,
@@ -362,7 +362,7 @@ class _CustomerShipmentDetailScreenState
     final facts = [
       shipmentRouteName(shipment, withDate: false),
       weightWords(shipment),
-      if (_trip != null) laneDates(_trip!),
+      laneLeaves(_trip),
       carrierOf(shipment),
     ].whereType<String>().join(" · ");
     final externalId = shipment["externalLoadId"]?.toString() ?? "";
