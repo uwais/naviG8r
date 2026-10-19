@@ -1,9 +1,9 @@
 /** V1 is a separate presentation over the same authenticated APIs as V2.
  *  Over 500 lines because markup and script are one screen: the script reads the element ids the markup defines,
- *  and moving the script out would only make a file of about 760 lines that needs this same note. */
+ *  and moving the script out would only make a file of about 840 lines that needs this same note. */
 export function adminDashboardV1Html(operations = false): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NaviG8r · Full dashboard</title><style>
-*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#182c45;font:15px system-ui,-apple-system,sans-serif}button,input,select{font:inherit}a{color:#225a9c}button,a,input,select{outline-offset:4px}button{cursor:pointer;border:1px solid #c6d1df;border-radius:8px;background:white;padding:10px 15px;color:#203754;font-weight:600}button:hover{background:#edf3f9}button:disabled{opacity:.55;cursor:default}.primary{background:#153d66;color:white;border-color:#153d66}.primary:hover{background:#21517d}.danger{color:#a02d34}header{background:#102d4e;color:white;padding:20px 32px;display:flex;gap:24px;align-items:center;justify-content:space-between}header a{color:#d5e9ff}header strong{font-size:23px;letter-spacing:-.6px}header small{color:#bdd0e4}.badge{display:inline-block;padding:4px 8px;border-radius:5px;background:#d9e9fa;color:#204770;font-size:12px}.header-links{display:flex;gap:20px;align-items:center}main{max-width:1600px;margin:auto;padding:28px 32px}h1{font-size:30px;letter-spacing:-.7px;margin:0 0 6px}h2{font-size:19px;margin:0 0 16px}h3{font-size:16px;margin:0 0 12px}.muted{color:#5c6c80;font-size:13px}.card{background:white;border:1px solid #dce3ec;border-radius:12px;padding:22px;box-shadow:0 2px 5px #17324c04}.login{max-width:430px;margin:7vh auto}.login p{line-height:1.6}label{display:block;font-size:13px;font-weight:600;margin:12px 0 5px}input,select{width:100%;padding:10px;border:1px solid #b8c6d6;border-radius:7px;background:white;color:#182c45;min-width:0}input[type=checkbox]{width:auto}.login button{margin-top:16px}.session{display:flex;align-items:end;gap:18px;margin:22px 0}.session>div{max-width:430px;flex:1}.session label{margin-top:0}.notice{padding:12px 16px;border-radius:8px;margin:14px 0;overflow-wrap:anywhere}.notice:empty{display:none}#error{background:#fcecee;color:#8e2430}#notice{background:#e4f4ef;color:#1f6750}.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0}.tabs button[aria-selected=true]{background:#153d66;color:white;border-color:#153d66}.toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:18px}.toolbar>div{flex:1;min-width:180px}.table-wrap{overflow:auto;max-height:590px}table{border-collapse:collapse;width:100%;min-width:650px;font-size:13px}th{text-align:left;background:#f0f4f8;color:#53657b;padding:12px;position:sticky;top:0;white-space:nowrap}td{border-bottom:1px solid #e8edf3;padding:13px 12px;max-width:250px;overflow-wrap:anywhere;vertical-align:top}tbody tr:hover{background:#f8fafc}.pagination{display:flex;gap:12px;align-items:center;justify-content:flex-end;margin-top:18px}.pagination span{margin-right:auto}.grid{display:grid;align-items:start;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin:18px 0}.grid form{display:flex;flex-direction:column}.grid form button{margin-top:18px;align-self:start}.grid p{line-height:1.5}.section-title{margin-top:30px}.review-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid #e3eaf2;padding:14px 0}.review-row>div{flex:1;min-width:200px}.review-row small{display:block;color:#526078;margin-top:5px}details{margin-top:16px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f3f6fa;padding:14px;border-radius:6px;max-height:280px;overflow:auto}[hidden]{display:none!important}footer{margin-top:28px;color:#66788b;font-size:12px}@media(max-width:650px){header{padding:18px;align-items:start}.header-links{flex-direction:column;gap:8px;align-items:end}main{padding:20px 14px}h1{font-size:25px}.session{flex-wrap:wrap}.session>div{min-width:100%}.grid{grid-template-columns:1fr}.card{padding:17px}.tabs{gap:6px}.tabs button{padding:8px 10px;font-size:13px}}
+*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#182c45;font:15px system-ui,-apple-system,sans-serif}button,input,select{font:inherit}a{color:#225a9c}button,a,input,select{outline-offset:4px}button{cursor:pointer;border:1px solid #c6d1df;border-radius:8px;background:white;padding:10px 15px;color:#203754;font-weight:600}button:hover{background:#edf3f9}button:disabled{opacity:.55;cursor:default}.primary{background:#153d66;color:white;border-color:#153d66}.primary:hover{background:#21517d}.danger{color:#a02d34}header{background:#102d4e;color:white;padding:20px 32px;display:flex;gap:24px;align-items:center;justify-content:space-between}header a{color:#d5e9ff}header strong{font-size:23px;letter-spacing:-.6px}header small{color:#bdd0e4}.badge{display:inline-block;padding:4px 8px;border-radius:5px;background:#d9e9fa;color:#204770;font-size:12px}.header-links{display:flex;gap:20px;align-items:center}main{max-width:1600px;margin:auto;padding:28px 32px}h1{font-size:30px;letter-spacing:-.7px;margin:0 0 6px}h2{font-size:19px;margin:0 0 16px}h3{font-size:16px;margin:0 0 12px}.muted{color:#5c6c80;font-size:13px}.card{background:white;border:1px solid #dce3ec;border-radius:12px;padding:22px;box-shadow:0 2px 5px #17324c04}.login{max-width:430px;margin:7vh auto}.login p{line-height:1.6}label{display:block;font-size:13px;font-weight:600;margin:12px 0 5px}input,select{width:100%;padding:10px;border:1px solid #b8c6d6;border-radius:7px;background:white;color:#182c45;min-width:0}input[type=checkbox]{width:auto}.login button{margin-top:16px}.session{display:flex;align-items:end;gap:18px;margin:22px 0}.session>div{max-width:430px;flex:1}.session label{margin-top:0}.notice{padding:12px 16px;border-radius:8px;margin:14px 0;overflow-wrap:anywhere}.notice:empty{display:none}#error{background:#fcecee;color:#8e2430}#notice{background:#e4f4ef;color:#1f6750}.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0}.tabs button[aria-selected=true]{background:#153d66;color:white;border-color:#153d66}.toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:18px}.toolbar>div{flex:1;min-width:180px}.table-wrap{overflow:auto;max-height:590px}table{border-collapse:collapse;width:100%;min-width:650px;font-size:13px}th{text-align:left;background:#f0f4f8;color:#53657b;padding:12px;position:sticky;top:0;white-space:nowrap}td{border-bottom:1px solid #e8edf3;padding:13px 12px;max-width:250px;overflow-wrap:anywhere;vertical-align:top}tbody tr:hover{background:#f8fafc}.pagination{display:flex;gap:12px;align-items:center;justify-content:flex-end;margin-top:18px}.pagination span{margin-right:auto}.grid{display:grid;align-items:start;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin:18px 0}.grid form{display:flex;flex-direction:column}.grid form button{margin-top:18px;align-self:start}.grid p{line-height:1.5}.section-title{margin-top:30px}.review-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid #e3eaf2;padding:14px 0}.review-row>div{flex:1;min-width:200px}.review-row small{display:block;color:#526078;margin-top:5px}details{margin-top:16px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f3f6fa;padding:14px;border-radius:6px;max-height:280px;overflow:auto}.ask{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.ask p{flex-basis:100%;margin:12px 0 0;font-weight:600}.ask button{min-height:48px}[hidden]{display:none!important}footer{margin-top:28px;color:#66788b;font-size:12px}@media(max-width:650px){header{padding:18px;align-items:start}.header-links{flex-direction:column;gap:8px;align-items:end}main{padding:20px 14px}h1{font-size:25px}.session{flex-wrap:wrap}.session>div{min-width:100%}.grid{grid-template-columns:1fr}.card{padding:17px}.tabs{gap:6px}.tabs button{padding:8px 10px;font-size:13px}}
 </style></head><body><header><div><strong>NaviG8r</strong><br><small>Operations & administration · V1</small></div><div class="header-links"><a href="${operations ? "/ops/v2" : "/admin/v2"}">Compact dashboard (V2)</a><a href="/workflow">Shipment / POD workspace</a></div></header><main>
 <section id="login" class="card login"><span class="badge">FULL DASHBOARD</span><h1 style="margin-top:16px">Welcome back</h1><p class="muted">Sign in to manage your authorized operations, accounts and payments.</p><form id="send-code"><label for="phone">Phone number</label><input id="phone" autocomplete="tel" required placeholder="10-digit phone number"><button class="primary" id="send-otp">Send code</button></form><form id="verify-code"><label for="code">Verification code</label><input id="code" autocomplete="one-time-code" required placeholder="6-digit code"><button>Sign in</button></form></section>
 <div id="error" class="notice" role="alert"></div><div id="notice" class="notice" role="status"></div>
@@ -372,7 +372,7 @@ $("next").onclick = perform(async () => {
   offset += 15;
   await table();
 });
-function form(title, permission, description, fields, submit) {
+function form(title, permission, description, fields, submit, askInPage) {
   if (!can(permission)) return;
   const f = document.createElement("form");
   f.className = "card";
@@ -405,8 +405,19 @@ function form(title, permission, description, fields, submit) {
   b.textContent = title;
   f.append(b);
   f.onsubmit = perform(async () => {
-    if (saving) return;
+    // A hidden button means a question is open; Enter in a field must not ask a second time.
+    if (saving || b.hidden) return;
     const data = Object.fromEntries(new FormData(f));
+    if (askInPage) {
+      b.disabled = true;
+      let asked;
+      try {
+        asked = await askInPage(data);
+      } finally {
+        b.disabled = false;
+      }
+      return showQuestion(f, b, asked, () => send(data));
+    }
     if (
       !confirm(
         title +
@@ -415,6 +426,9 @@ function form(title, permission, description, fields, submit) {
       )
     )
       return;
+    await send(data);
+  });
+  async function send(data) {
     saving = true;
     b.disabled = true;
     try {
@@ -430,9 +444,49 @@ function form(title, permission, description, fields, submit) {
       saving = false;
       b.disabled = false;
     }
-  });
+  }
   $("actions").append(f);
 }
+// The question replaces the form's button until it is answered, and goes if a field changes, so what is
+// confirmed is always what the question says.
+function showQuestion(f, b, asked, onConfirm) {
+  const ask = document.createElement("div"),
+    question = document.createElement("p"),
+    yes = document.createElement("button"),
+    no = document.createElement("button");
+  ask.className = "ask";
+  ask.setAttribute("role", "group");
+  ask.setAttribute("aria-label", asked.question);
+  question.textContent = asked.question;
+  yes.type = no.type = "button";
+  yes.className = "primary";
+  yes.textContent = asked.confirmLabel;
+  no.textContent = "Cancel";
+  ask.append(question, yes, no);
+  const close = () => {
+    ask.remove();
+    f.oninput = null;
+    b.hidden = false;
+  };
+  no.onclick = () => {
+    close();
+    b.focus();
+  };
+  f.oninput = close;
+  yes.onclick = perform(async () => {
+    close();
+    await onConfirm();
+  });
+  b.hidden = true;
+  f.append(ask);
+  no.focus();
+}
+const rupees = (paise) =>
+  "₹" +
+  (paise / 100).toLocaleString("en-IN", {
+    minimumFractionDigits: paise % 100 ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
 function reasonHeaders(d) {
   return {
     "x-reason-code": d.reason,
@@ -671,6 +725,34 @@ function actions() {
         {},
         reasonHeaders(d),
       ),
+    async (d) => {
+      const detail = await request(
+          "/ops/shipments/" + encodeURIComponent(d.shipmentId),
+        ),
+        s = detail.shipment;
+      // Any ID can be typed here, so the question is asked only about money that can move now.
+      if (s.status !== "PENDING_RELEASE")
+        throw Error("Shipment " + s.id + " is not waiting for payment release; it may have been released already. Nothing was released.");
+      if (!s.paymentReady)
+        throw Error("Shipment " + s.id + " can't be released yet: the shipper must accept the proof of delivery, or the 48-hour hold must end. Nothing was released.");
+      const route =
+          s.pickupAddress && s.dropAddress
+            ? s.pickupAddress + " to " + s.dropAddress
+            : "shipment " + s.id;
+      return {
+        question:
+          "Release " +
+          (Number.isFinite(s.netToCarrierPaise)
+            ? rupees(s.netToCarrierPaise)
+            : "payment") +
+          " to " +
+          detail.carrierOrgName +
+          " for " +
+          route +
+          "?",
+        confirmLabel: "Confirm release",
+      };
+    },
   );
   form(
     "Fail and refund",
