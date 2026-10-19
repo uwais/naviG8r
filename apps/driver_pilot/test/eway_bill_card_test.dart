@@ -20,7 +20,7 @@ Finder entry(String label) => find.descendant(
     of: find.widgetWithText(NvField, label), matching: find.byType(TextField));
 
 const partOneLead =
-    'Make the bill on the government portal. Copy these two in:';
+    'Make the bill in your billing software or on the e-way bill site. Copy these in:';
 
 void main() {
   setUp(signInAsShipper);
@@ -68,9 +68,8 @@ void main() {
     await tester.pump();
     expect(find.text("Enter the bill's details"), findsOneWidget,
         reason: 'copy.md step 2 heading');
-    expect(find.text('Copy these four from the bill on the portal.'),
-        findsOneWidget,
-        reason: 'copy.md step 2: all four come from the portal');
+    expect(find.text('Copy these four from the bill.'), findsOneWidget,
+        reason: 'copy.md step 2: all four come from the bill');
     expect(find.text('12 digits, at the top of the bill.'), findsOneWidget,
         reason: 'copy.md step 2: where the number is');
     expect(
@@ -214,7 +213,7 @@ void main() {
             'no stored note or difference (RECON gap 7), so the reason sentence stands in');
     expect(
         find.text(
-            'If the portal is right, fix it here. If the bill itself is wrong, change it on the portal first.'),
+            'If the portal is right, fix it here. If the bill itself is wrong, change it in your billing software or on the e-way bill site first.'),
         findsOneWidget,
         reason: 'copy.md step 4 problem: which side to fix');
     await tester.tap(find.widgetWithText(FilledButton, 'Fix the details'));

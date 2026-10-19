@@ -8,13 +8,13 @@ import 'authorization_session.dart';
 import 'eway_bill_closed.dart';
 import 'eway_bill_error_text.dart';
 import 'eway_bill_portal_link.dart';
+import 'eway_bill_transport_details.dart';
 import 'eway_bill_truck_form.dart';
 import 'eway_bill_words.dart';
 import 'pilot_api.dart';
 import 'ui/format.dart';
 import 'ui/nv_button.dart';
 import 'ui/nv_choice.dart';
-import 'ui/nv_copy_row.dart';
 import 'ui/nv_field.dart';
 import 'ui/nv_message.dart';
 import 'ui/tokens.dart';
@@ -22,7 +22,7 @@ import 'ui/tokens.dart';
 enum _Mode { viewing, addingBill, statingNotNeeded, addingTruck }
 
 const ewayBillFootnote =
-    'NaviG8r never makes or changes an e-way bill. You make it on the portal.';
+    'NaviG8r never makes or changes an e-way bill. You make it in your billing software or on the e-way bill site.';
 
 /// True for the shipper who booked this shipment, holding eway_bill.write, while the server
 /// still takes changes to its bill.
@@ -32,10 +32,11 @@ bool shipperCanWriteEwayBill(Map<String, dynamic> shipment) =>
     shipment['customerOrgId'] == AuthorizationSession.organizationId &&
     !ewayBillIsClosed(shipment);
 
-/// The words of the shipper's e-way bill step. The bill is made on the government portal; this
-/// only holds the details the shipper types in and shows what NaviG8r staff saw when they looked
-/// the bill up. It sits inside the shipment's step list; the portal button for part 1 is the
-/// screen's primary action, in its action bar on a phone and in this panel on a desktop.
+/// The words of the shipper's e-way bill step. The bill is made in the shipper's billing software
+/// or on the e-way bill site; this only holds the details the shipper types in and shows what
+/// NaviG8r staff saw when they looked the bill up. It sits inside the shipment's step list; the
+/// portal button for part 1 is the screen's primary action, in its action bar on a phone and in
+/// this panel on a desktop.
 class EwayBillCard extends StatefulWidget {
   const EwayBillCard(
       {required this.shipment,
@@ -82,9 +83,9 @@ class _EwayBillCardState extends State<EwayBillCard> {
   bool get _canAddTruck =>
       _canEdit && AuthorizationSession.can('eway_bill.add_truck');
 
-  String get _carrier {
+  String? get _carrierName {
     final name = widget.shipment['carrierDisplayName']?.toString() ?? '';
-    return name.trim().isEmpty ? 'The carrier' : name;
+    return name.trim().isEmpty ? null : name.trim();
   }
 
   /// The carrier's transporter ID, sent to shippers only once the carrier has accepted.
@@ -347,6 +348,9 @@ class _EwayBillCardState extends State<EwayBillCard> {
         const Text(
             'You can make the bill once the carrier accepts and names the truck. We will send you an update.',
             style: NvText.body),
+        const SizedBox(height: NvSpace.s3),
+        EwayBillTransportDetails(
+            carrierName: _carrierName, carrierAccepted: false),
         ...actions,
       ];
     }
@@ -360,43 +364,26 @@ class _EwayBillCardState extends State<EwayBillCard> {
         ...actions,
       ];
     }
-    final truck = _tripTruck;
-    final transporterId = _transporterId;
     return [
-      Text('Make the bill on the $ewayBillPortalName. Copy these two in:',
+      Text(
+          'Make the bill in your billing software or on the e-way bill site. Copy these in:',
           style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
       const SizedBox(height: NvSpace.s3),
-      truck == null
-          ? const NvCopyRow(
-              label: 'Truck number',
-              state: NvCopyRowState.notYet,
-              noValueWords: 'Not chosen yet',
-              guidance: 'Shown once the carrier accepts and names the truck.')
-          : NvCopyRow(
-              label: 'Truck number',
-              value: truck,
-              portalField: 'Portal field: Vehicle No. (Part B)'),
-      const SizedBox(height: NvSpace.s2),
-      transporterId == null
-          ? NvCopyRow(
-              label: "Carrier's transporter ID",
-              state: NvCopyRowState.empty,
-              noValueWords: '$_carrier has not added one.',
-              guidance:
-                  "Leave Transporter ID empty. Only you, the bill's maker, can then change the truck.")
-          : NvCopyRow(
-              label: "Carrier's transporter ID",
-              value: transporterId,
-              portalField: 'Portal field: Transporter ID. Not your GSTIN.'),
-      const SizedBox(height: NvSpace.s3),
-      const Text(
-          'Make it on loading day, before the goods move: the bill is valid from when the truck is entered.',
-          style: NvText.body),
+      EwayBillTransportDetails(
+          carrierName: _carrierName,
+          carrierAccepted: true,
+          transporterId: _transporterId,
+          truckNumber: _tripTruck),
+      // Above the loading-day line so a 900 dp tall desktop still shows it without scrolling.
       if (canEdit && widget.portalButtonInPanel) ...[
         const SizedBox(height: NvSpace.s3),
         const EwayBillPortalButton(
             label: 'Open the e-way bill portal', kind: NvButtonKind.primary),
       ],
+      const SizedBox(height: NvSpace.s3),
+      const Text(
+          'Make it on loading day, before the goods move: the bill is valid from when the truck is entered.',
+          style: NvText.body),
       ...actions,
     ];
   }
@@ -451,7 +438,6 @@ class _EwayBillCardState extends State<EwayBillCard> {
 
   List<Widget> _billWithoutTruck(Map<String, dynamic> bill) {
     final number = bill['billNumber'];
-    final truck = _tripTruck;
     final canAddTruck = _canAddTruck;
     return [
       Text.rich(TextSpan(style: NvText.body, children: [
@@ -464,15 +450,17 @@ class _EwayBillCardState extends State<EwayBillCard> {
       if (canAddTruck) ...[
         const SizedBox(height: NvSpace.s3),
         Text(
-            'Add the truck on the portal before the goods move, then enter it here.',
+            'Add the truck in your billing software or on the e-way bill site before the goods move, then enter it here.',
             style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
       ],
-      if (truck != null && widget.shipment['status'] == 'BOOKED') ...[
+      if (widget.shipment['status'] == 'BOOKED') ...[
         const SizedBox(height: NvSpace.s3),
-        NvCopyRow(
-            label: 'Truck number',
-            value: truck,
-            portalField: 'Portal: Update Part B, Vehicle No.'),
+        EwayBillTransportDetails(
+            carrierName: _carrierName,
+            carrierAccepted: true,
+            transporterId: _transporterId,
+            truckNumber: _tripTruck,
+            truckPortalField: 'Portal: Update Part B, Vehicle No.'),
       ],
       const SizedBox(height: NvSpace.s3),
       const Text(
@@ -501,7 +489,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
         Text(ewayBillCheckLine(bill, forShipper: true), style: NvText.body),
         const SizedBox(height: NvSpace.s2),
         const Text(
-            'If the portal is right, fix it here. If the bill itself is wrong, change it on the portal first.',
+            'If the portal is right, fix it here. If the bill itself is wrong, change it in your billing software or on the e-way bill site first.',
             style: NvText.body),
         if (_canEdit) ...[
           const SizedBox(height: NvSpace.s3),
@@ -603,8 +591,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
           header: true,
           child: const Text("Enter the bill's details", style: NvText.heading)),
       const SizedBox(height: NvSpace.s1),
-      const Text('Copy these four from the bill on the portal.',
-          style: NvText.body),
+      const Text('Copy these four from the bill.', style: NvText.body),
       if (_formSummary != null) ...[
         const SizedBox(height: NvSpace.s3),
         Focus(
@@ -709,6 +696,8 @@ class _EwayBillCardState extends State<EwayBillCard> {
               path: '/shipments/${widget.shipment['id']}/eway-bill/truck',
               current: bill,
               assignedTruckNumber: _tripTruck,
+              lead:
+                  'Add the truck to the bill in your billing software or on the e-way bill site first, then copy the truck number and the valid-until time from it.',
               clearsCheck: bill?['check'] is Map,
               onSaved: _showSaved,
               onCancel: _cancel),
