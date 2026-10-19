@@ -297,7 +297,7 @@ test("POD hold is enforced in V1 and release appears in the delivered view", asy
   await f.getByRole("button", { name: "Release payment" }).click();
   await f.getByRole("button", { name: "Confirm release" }).click();
   await expect(page.locator("#notice")).toContainText(
-    "Release payment completed",
+    "Payment released for shipment load-a-expired: ₹",
   );
   await page.getByRole("button", { name: "Recently delivered" }).click();
   await expect(page.locator("#table")).toContainText("load-a-expired");
@@ -373,7 +373,7 @@ test("V2 shipper POD acceptance and finance release still work after V1 submissi
     .locator("article")
     .filter({ hasText: "load-a-booked" });
   await financeRow.getByRole("button", { name: "Release payment" }).click();
-  await expect(financeRow.getByRole("group")).toContainText(/^Release ₹[\d,.]+ to .+ for .+\?/);
+  await expect(financeRow.getByRole("group")).toContainText(/^Release payment for .+\? ₹[\d,.]+ is credited to .+'s ledger and paid out in the payout batch, not sent now\./);
   await financeRow.getByRole("button", { name: "Confirm release" }).click();
   await expect(financeRow).toHaveCount(0);
   await screenshot(page, "17-v2-payment-release");

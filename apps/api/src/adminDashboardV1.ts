@@ -416,7 +416,9 @@ function form(title, permission, description, fields, submit, askInPage) {
       } finally {
         b.disabled = false;
       }
-      return showQuestion(f, b, asked, () => send(data));
+      // A field edited while the details loaded would leave the question describing the old values.
+      if (JSON.stringify(Object.fromEntries(new FormData(f))) !== JSON.stringify(data)) return;
+      return showQuestion(f, b, asked, () => send(data, asked.done));
     }
     if (
       !confirm(
@@ -428,18 +430,25 @@ function form(title, permission, description, fields, submit, askInPage) {
       return;
     await send(data);
   });
-  async function send(data) {
+  async function send(data, done) {
     saving = true;
     b.disabled = true;
     try {
       const out = await submit(data, f);
-      await load();
-      $("notice").textContent =
+      const result =
+        done ||
         title +
-        " completed. " +
-        (out.org?.displayName
-          ? out.org.displayName + " · " + out.org.id
-          : out.shipment?.id || out.trip?.id || "");
+          " completed. " +
+          (out.org?.displayName
+            ? out.org.displayName + " · " + out.org.id
+            : out.shipment?.id || out.trip?.id || "");
+      // load() clears the notice before it can fail, so the result is written after it either way.
+      try {
+        await load();
+        $("notice").textContent = result;
+      } catch {
+        $("notice").textContent = result + (done ? " Released" : " Done") + ", but the list could not refresh. Reload the page.";
+      }
     } finally {
       saving = false;
       b.disabled = false;
@@ -735,22 +744,19 @@ function actions() {
         throw Error("Shipment " + s.id + " is not waiting for payment release; it may have been released already. Nothing was released.");
       if (!s.paymentReady)
         throw Error("Shipment " + s.id + " can't be released yet: the shipper must accept the proof of delivery, or the 48-hour hold must end. Nothing was released.");
+      if (!Number.isFinite(s.netToCarrierPaise))
+        throw Error("Release is off for this shipment: the server did not send the amount. Nothing was released.");
       const route =
           s.pickupAddress && s.dropAddress
             ? s.pickupAddress + " to " + s.dropAddress
-            : "shipment " + s.id;
+            : "shipment " + s.id,
+        credit = rupees(s.netToCarrierPaise);
       return {
         question:
-          "Release " +
-          (Number.isFinite(s.netToCarrierPaise)
-            ? rupees(s.netToCarrierPaise)
-            : "payment") +
-          " to " +
-          detail.carrierOrgName +
-          " for " +
-          route +
-          "?",
+          "Release payment for " + route + "? " + credit + " is credited to " + detail.carrierOrgName +
+          "'s ledger and paid out in the payout batch, not sent now.",
         confirmLabel: "Confirm release",
+        done: "Payment released for shipment " + s.id + ": " + credit + " credited to " + detail.carrierOrgName + "'s ledger.",
       };
     },
   );
