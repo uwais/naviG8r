@@ -57,7 +57,8 @@ String portalTruckNumber(String truck) {
 }
 
 /// Who reads the sentence about an e-way bill and a trip that name different trucks. Each is told only what they
-/// can do: the shipper changes the bill, the carrier office changes the trip's truck.
+/// can do: the shipper changes the bill, the carrier office changes the trip's truck. Once the transporter named on
+/// a bill has updated its truck on the portal, the shipper may be refused there, so both are told that case.
 enum TruckMismatchReader { carrierOffice, shipper, driver }
 
 /// One plain sentence when the truck on the bill is not the truck the carrier assigned to the trip, or null
@@ -76,9 +77,9 @@ String? ewayBillTruckMismatchSentence(
   if (portalTruckNumber(onBill) == portalTruckNumber(onTrip)) return null;
   return switch (reader) {
     TruckMismatchReader.carrierOffice =>
-      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Check which one is right; if the e-way bill is wrong, ask the shipper to change it.',
+      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Check which one is right; if the e-way bill is wrong, ask the shipper to change it. If you updated the truck on the e-way bill site yourself, change it there and tell the shipper.',
     TruckMismatchReader.shipper =>
-      'The e-way bill shows $onBill. Your carrier has assigned $onTrip to this trip. Ask your carrier which truck is right; if the e-way bill is wrong, change it in your billing software or on the e-way bill site, then here.',
+      'The e-way bill shows $onBill. Your carrier has assigned $onTrip to this trip. Ask your carrier which truck is right; if the e-way bill is wrong, change it in your billing software or on the e-way bill site, then here. If the site refuses, your carrier may have updated it; ask them to change it.',
     TruckMismatchReader.driver =>
       'The e-way bill shows $onBill. The truck on this trip is $onTrip. Tell your carrier.',
   };

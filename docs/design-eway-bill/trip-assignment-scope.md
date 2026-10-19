@@ -95,9 +95,10 @@ Owners, owner-drivers and dispatchers keep all of it, unchanged, as do shippers,
   spaces and case: `UP1345` on the bill matches `UP010345` on the trip. `assignedTruckNumber` is sent in that form.
 - A driver on a trip sees the truck and driver line on the trip screen, read only.
 - When the e-way bill's truck and the trip's differ, each reader gets their own sentence: the carrier office is asked
-  to check which is right and, if the e-way bill is wrong, to update it on the portal and then in the app; the
-  shipper is told what the carrier assigned and asked to check with the carrier; a driver is told the two numbers and
-  to tell the carrier. Once the shipment is delivered, accepted or refunded, no sentence shows.
+  to check which is right and, if the e-way bill is wrong, to ask the shipper to change it (or to change it on the
+  portal itself if it updated the truck there); the shipper is told what the carrier assigned, asked to check with
+  the carrier, and to change the bill in its billing software or on the e-way bill site, then in the app; a driver is
+  told the two numbers and to tell the carrier. Once the shipment is delivered, accepted or refunded, no sentence shows.
 - A driver with no trip sees "Your carrier has not assigned you a trip yet. Ask your carrier to assign one.", and the
   bar above the list shows only the carrier's name.
 - Trips from before this change (approved 15 Oct 2026): a trip that names no driver stays with the driver who started

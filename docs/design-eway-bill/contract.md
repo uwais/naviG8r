@@ -145,11 +145,14 @@ older carrier app gets a refusal rather than a 404. Audit `EWAY_BILL_TRUCK_ADDED
 lines, worded for who is reading:
 
 - Carrier office (owner, owner-driver, dispatcher): "The e-way bill shows KA01AB1234. The truck on this trip is
-  KA02XY9999. Check which one is right; if the e-way bill is wrong, ask the shipper to change it." (Since 18 Oct
-  2026; it used to send the office to the portal.)
+  KA02XY9999. Check which one is right; if the e-way bill is wrong, ask the shipper to change it. If you updated the
+  truck on the e-way bill site yourself, change it there and tell the shipper." (Since 18 Oct 2026; it used to send
+  the office to the portal. The last sentence covers a carrier that updated Part B on the portal itself, which can
+  stop the shipper changing it.)
 - Shipper: "The e-way bill shows KA01AB1234. Your carrier has assigned KA02XY9999 to this trip. Ask your carrier which
   truck is right; if the e-way bill is wrong, change it in your billing software or on the e-way bill site, then
-  here." (Since 18 Oct 2026, when the shipper became the one who adds the truck.)
+  here. If the site refuses, your carrier may have updated it; ask them to change it." (Since 18 Oct 2026, when the
+  shipper became the one who adds the truck.)
 - Driver: "The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your carrier."
 
 No sentence shows once the shipment is delivered, accepted or refunded, since the bill can no longer change. The

@@ -109,8 +109,8 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>Still as 8000000009, open Profile and tap Save vehicle: it is refused, because that truck is assigned to a trip that is not finished. Only the carrier can change it.</li>
 <li>Sign out and sign in as 8000000013 (Synthetic Driver B). Loads shows only the Hoskote to Kolar trip, and Shipments only its one shipment, 150 kg.</li>
 <li>Sign in as the owner, 8000000003. Loads shows both trips. Open Synthetic Origin to Synthetic Destination: its Truck and driver card shows KA01AB1234 and Synthetic Driver A. Choose truck KA02XY9999 and tap Save. The card says it saved, that the driver is not sent a message, and that the trip shows on their Loads screen when they pull down to refresh.</li>
-<li>Open load-a-with-truck. Its e-way bill card now says the e-way bill shows KA01AB1234 and the truck on this trip is KA02XY9999, and asks you to check which one is right and, if the e-way bill is wrong, to ask the shipper to change it. There is no Change truck button.</li>
-<li>Sign in as the shipper, 8000000001, and open load-a-with-truck: the card says your carrier has assigned KA02XY9999 to this trip, to ask your carrier which truck is right, and if the e-way bill is wrong to change it, then here. It names no driver. Change truck opens with KA02XY9999 filled in from the trip. Signed in as 8000000009, the same shipment gives the two numbers and says to tell your carrier.</li>
+<li>Open load-a-with-truck. Its e-way bill card now says the e-way bill shows KA01AB1234 and the truck on this trip is KA02XY9999, and asks you to check which one is right and, if the e-way bill is wrong, to ask the shipper to change it, or to change it on the portal yourself if you updated the truck there. There is no Change truck button.</li>
+<li>Sign in as the shipper, 8000000001, and open load-a-with-truck: the card says your carrier has assigned KA02XY9999 to this trip, to ask your carrier which truck is right, and if the e-way bill is wrong to change it, then here, or to ask your carrier if the site refuses. It names no driver. Change truck opens with KA02XY9999 filled in from the trip. Signed in as 8000000009, the same shipment gives the two numbers and says to tell your carrier.</li>
 <li>As the owner, choose KA01AB1234 again on the trip, and the sentences go away.</li>
 <li>A driver with no trip (invite one from the owner's Profile, then sign in as them): Loads says Your carrier has not assigned you a trip yet. Ask your carrier to assign one.</li>
 </ol>
@@ -119,8 +119,8 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>Switch user to Someone else and open the bill's details from the home page: it is refused.</li>
 <li>As the Supplier, change the vehicle on your bill with reason Break Down: the Valid up to stays the same.</li>
 <li>The real rules also let the transporter named on a bill update its vehicle. Generate a second bill as the Supplier naming Transporter ID 29TRNSP1234A1Z7 and no vehicle. Switch user to Transporter and update its vehicle, then switch back to Supplier and try Update vehicle: it is refused, because the transporter already updated it. naviG8r does not use this; the shipper adds the truck.</li>
-<li>As the Supplier, generate a second bill and cancel it on <a href="/demo/eway-portal/cancel">Cancel an e-way bill</a>. Verify then says Cancelled.</li>
-<li>As the Transporter, try <a href="/demo/eway-portal/extend">Extend validity</a> on that second bill: it is refused until it expires, and works only in the eight hours after.</li>
+<li>As the Supplier, generate a third bill and cancel it on <a href="/demo/eway-portal/cancel">Cancel an e-way bill</a>. Verify then says Cancelled.</li>
+<li>As the Transporter, try <a href="/demo/eway-portal/extend">Extend validity</a> on the second bill, the one the Transporter updated: it is refused until it expires, and works only in the eight hours after.</li>
 <li>Verify the seeded bills: 123456789012, 1 Oct 2026, 29ABCDE1234F1Z5, SYN/2026/001 (Part B not entered), and 234567890123, 2 Oct 2026, 29ABCDE1234F1Z5, SYN/2026/002 (vehicle KA01AB1234).</li>
 </ol>
 ${RULES_MODELLED}

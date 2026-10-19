@@ -622,7 +622,7 @@ void main() {
     Map<String, dynamic> onTrip(String truck) =>
         {...shipment(bill: billWithTruck), 'assignedTruckNumber': truck};
     final forCarrierOffice =
-        'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right; if the e-way bill is wrong, ask the shipper to change it.';
+        'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right; if the e-way bill is wrong, ask the shipper to change it. If you updated the truck on the e-way bill site yourself, change it there and tell the shipper.';
 
     testWidgets(
         'the carrier office is asked to check which truck is right and to ask the shipper about the bill',
@@ -654,7 +654,7 @@ void main() {
       await mountCard(tester, EwayBillCard(shipment: onTrip('KA02XY9999')));
       expect(
           find.text(
-              'The e-way bill shows KA01AB1234. Your carrier has assigned KA02XY9999 to this trip. Ask your carrier which truck is right; if the e-way bill is wrong, change it in your billing software or on the e-way bill site, then here.'),
+              'The e-way bill shows KA01AB1234. Your carrier has assigned KA02XY9999 to this trip. Ask your carrier which truck is right; if the e-way bill is wrong, change it in your billing software or on the e-way bill site, then here. If the site refuses, your carrier may have updated it; ask them to change it.'),
           findsOneWidget);
     });
 
