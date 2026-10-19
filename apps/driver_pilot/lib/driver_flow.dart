@@ -2903,6 +2903,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   bool _completing = false;
   bool _tripNoLongerAssigned = false;
   bool _startingLocationSharing = false;
+  bool _sharingStoppedOnThisPhone = false;
   // The stop the driver has just confirmed, shown at the top until the screen loads again (dr-done).
   Map<String, dynamic>? _justDelivered;
 
@@ -2916,6 +2917,14 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   void _stopLocationSharing() {
     _posSub?.cancel();
     _posSub = null;
+  }
+
+  /// A running stream outlives the trip it started on, so each new copy of the trip is checked: an owner who was
+  /// driving and gives the trip to another driver stops sending this phone's position at once.
+  void _stopSharingIfNotInTheTruck() {
+    if (_posSub == null || _phoneIsInTheTruck) return;
+    _stopLocationSharing();
+    setState(() => _sharingStoppedOnThisPhone = true);
   }
 
   /// The phone in the truck: a driver's, or an owner's who is the trip's driver. An office phone that
@@ -3106,6 +3115,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       final t = r.data?["trip"];
       if (!mounted) return;
       setState(() => _trip = t is Map<String, dynamic> ? t : null);
+      _stopSharingIfNotInTheTruck();
       // Also restarts sharing once the office gives the trip back. Not awaited, so a permission dialog never
       // holds up the load.
       if (_trip?["status"]?.toString() == "IN_PROGRESS") _startLocation();
@@ -3564,7 +3574,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   key: ValueKey(trip["id"]),
                   trip: trip,
                   tripInWords: _tripInWords(trip),
-                  onAssigned: (saved) => setState(() => _trip = saved),
+                  onAssigned: (saved) {
+                    setState(() => _trip = saved);
+                    _stopSharingIfNotInTheTruck();
+                  },
                   onAddDriver: DriverSession.canInviteDrivers
                       ? () => context.push("/driver/fleet")
                       : null,
@@ -3588,7 +3601,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                     tone: NvMessageTone.good),
               // An owner driving the trip shares this phone's location, and is told so as a driver is.
               if (status == "IN_PROGRESS" && _phoneIsInTheTruck)
-                const Text(_locationSharedSentence, style: NvText.caption),
+                const Text(_locationSharedSentence, style: NvText.caption)
+              else if (status == "IN_PROGRESS" && _sharingStoppedOnThisPhone)
+                const NvMessage(
+                    "Location sharing has stopped on this phone. You are no longer this trip's driver.",
+                    tone: NvMessageTone.info),
             ],
           ),
         ),

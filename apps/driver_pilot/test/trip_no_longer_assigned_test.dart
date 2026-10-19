@@ -1,5 +1,5 @@
 // A driver's screens once the server's answer has changed under them: a trip given to someone else since they
-// opened it, and the shipment screen after Confirm delivery.
+// opened it, an owner's phone once they no longer drive the trip, and the shipment screen after Confirm delivery.
 import 'dart:async';
 
 import 'package:driver_pilot/driver_flow.dart';
@@ -64,6 +64,9 @@ Future<void> pullDown(WidgetTester tester) async {
   await tester.fling(find.byType(ListView), const Offset(0, 1200), 1000);
   await tester.pumpAndSettle();
 }
+
+Finder inSheet(Finder finder) =>
+    find.descendant(of: find.byType(BottomSheet), matching: finder);
 
 /// A driver of an approved carrier, so Accept, Start and Confirm delivery are on offer.
 void signInAsApprovedDriver() => signInAsCarrierLogin(
@@ -320,6 +323,123 @@ void main() {
       await tester.tap(find.text('Confirm delivery'));
       await tester.pumpAndSettle();
       expect(find.text(tripNoLongerYours), findsOneWidget);
+    });
+  });
+
+  group('An owner driving a trip in transit', () {
+    const sharedLine =
+        'Your location is shared with the shippers while this trip is in transit.';
+    const stoppedLine =
+        "Location sharing has stopped on this phone. You are no longer this trip's driver.";
+    Map<String, dynamic> tripDrivenBy(String driver) => {
+          'id': 'trip-a',
+          'status': 'IN_PROGRESS',
+          'assignedVehicleId': 'vehicle-1',
+          'assignedTruckNumber': 'KA01AB1234',
+          'assignedDriverUserId': driver,
+        };
+    final somewhere = Position(
+        latitude: 12.97,
+        longitude: 77.59,
+        timestamp: DateTime(2026, 10, 19),
+        accuracy: 5,
+        altitude: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        headingAccuracy: 0,
+        speed: 0,
+        speedAccuracy: 0);
+
+    /// The office answers as the trip stands, with the owner and a second driver in the fleet, and keeps every
+    /// position this phone sends.
+    List<Object?> answerAsTheOffice(Map<String, dynamic> Function() trip) {
+      final positionsSent = <Object?>[];
+      api.dio.httpClientAdapter = MockApiAdapter((request) {
+        switch (request.path) {
+          case '/v1/pilot/anchor-trips/trip-a':
+            return jsonResponse({'trip': trip()});
+          case '/v1/pilot/anchor-trips/trip-a/location':
+            positionsSent.add(request.data);
+            return jsonResponse(<String, Object>{});
+          case '/v1/pilot/anchor-trips/trip-a/assignment':
+            return jsonResponse(
+                {'trip': tripDrivenBy('driver-2'), 'driverBusy': false});
+          case '/v1/pilot/carrier/fleet':
+            return jsonResponse({
+              'vehicles': [
+                {
+                  'id': 'vehicle-1',
+                  'registrationNumber': 'KA01AB1234',
+                  'vehicleClass': 'MEDIUM'
+                }
+              ],
+              'drivers': [
+                {'userId': 'carrier-person', 'displayName': 'Synthetic Owner'},
+                {'userId': 'driver-2', 'displayName': 'Synthetic Driver Two'},
+              ],
+            });
+        }
+        return jsonResponse({
+          'shipments': [shipmentOnTripA(status: 'PENDING_RELEASE')]
+        });
+      });
+      return positionsSent;
+    }
+
+    testWidgets(
+        'stops sharing the moment they assign another driver from the trip screen, and is told so',
+        (tester) async {
+      signInAsCarrierOwner(alsoAllowed: ['trip.assign', 'load.status_update']);
+      final positionsSent =
+          answerAsTheOffice(() => tripDrivenBy('carrier-person'));
+      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      expect(location.sharing, isTrue, reason: 'the owner is the driver');
+      expect(find.text(sharedLine), findsOneWidget);
+
+      await tester.tap(find.text('Assign driver'));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('KA01AB1234')));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('Synthetic Driver Two')));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('Assign Synthetic Driver Two')));
+      await tester.pumpAndSettle();
+
+      expect(location.sharing, isFalse,
+          reason: "this phone is no longer in the truck, so it stops listening");
+      location.streams.single.add(somewhere);
+      await tester.pumpAndSettle();
+      expect(positionsSent, isEmpty,
+          reason: "the office's position is never sent as the truck's");
+      expect(find.text(sharedLine), findsNothing);
+      expect(find.text(stoppedLine), findsOneWidget);
+    });
+
+    testWidgets(
+        'stops sharing when a pull-down shows the trip was given to another driver elsewhere, and is told so',
+        (tester) async {
+      signInAsCarrierOwner(alsoAllowed: ['trip.assign', 'load.status_update']);
+      var driver = 'carrier-person';
+      final positionsSent = answerAsTheOffice(() => tripDrivenBy(driver));
+      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      expect(location.sharing, isTrue);
+
+      driver = 'driver-2';
+      await pullDown(tester);
+      expect(location.sharing, isFalse);
+      location.streams.single.add(somewhere);
+      await tester.pumpAndSettle();
+      expect(positionsSent, isEmpty);
+      expect(find.text(sharedLine), findsNothing);
+      expect(find.text(stoppedLine), findsOneWidget);
+
+      driver = 'carrier-person';
+      await pullDown(tester);
+      expect(location.streams, hasLength(2),
+          reason: 'given back to the owner, the phone shares again');
+      expect(location.sharing, isTrue);
+      expect(find.text(sharedLine), findsOneWidget);
+      expect(find.text(stoppedLine), findsNothing);
     });
   });
 
