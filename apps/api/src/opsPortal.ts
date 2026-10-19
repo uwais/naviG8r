@@ -78,15 +78,18 @@ async function askToRelease(row,button,shipmentId){
  try{detail=await request('/ops/shipments/'+encodeURIComponent(shipmentId));}finally{button.disabled=false;}
  const s=detail.shipment;
  if(s.status!=='PENDING_RELEASE'||!s.paymentReady) throw Error('This payment is no longer waiting for release. Reload to see where it stands.');
- const route=s.pickupAddress&&s.dropAddress?s.pickupAddress+' to '+s.dropAddress:'shipment '+s.id;
+ if(!Number.isFinite(s.netToCarrierPaise)) throw Error('Release is off for this shipment: the server did not send the amount. Nothing was released.');
+ const route=s.pickupAddress&&s.dropAddress?s.pickupAddress+' to '+s.dropAddress:'shipment '+s.id, credit=rupees(s.netToCarrierPaise);
  const ask=document.createElement('div'),question=document.createElement('p'),confirmRelease=document.createElement('button'),cancel=document.createElement('button');
- question.textContent='Release '+(Number.isFinite(s.netToCarrierPaise)?rupees(s.netToCarrierPaise):'payment')+' to '+detail.carrierOrgName+' for '+route+'?';
+ question.textContent='Release payment for '+route+'? '+credit+' is credited to '+detail.carrierOrgName+"'s ledger and paid out in the payout batch, not sent now.";
  confirmRelease.textContent='Confirm release';cancel.textContent='Cancel';
  ask.className='ask';ask.setAttribute('role','group');ask.setAttribute('aria-label',question.textContent);ask.append(question,confirmRelease,cancel);
  cancel.onclick=()=>{ask.remove();button.hidden=false;button.focus();};
- confirmRelease.onclick=perform(async()=>{confirmRelease.disabled=cancel.disabled=true;try{await request('/ops/shipments/'+encodeURIComponent(shipmentId)+'/release','POST',{});}finally{confirmRelease.disabled=cancel.disabled=false;}await loadWorkspace();
+ confirmRelease.onclick=perform(async()=>{confirmRelease.disabled=cancel.disabled=true;try{await request('/ops/shipments/'+encodeURIComponent(shipmentId)+'/release','POST',{});}finally{confirmRelease.disabled=cancel.disabled=false;}
   // The reload removes the row and its buttons, so focus moves to the result instead of being dropped.
-  $('released').textContent='Payment released for shipment '+shipmentId+'.';$('released').focus();});
+  // The result is shown before the reload so a failed reload cannot hide a release that went through.
+  $('released').textContent='Payment released for shipment '+shipmentId+': '+credit+' credited to '+detail.carrierOrgName+"'s ledger.";$('released').focus();
+  try{await loadWorkspace();}catch(e){$('released').textContent+=' Released, but the list could not refresh. Reload the page.';}});
  button.hidden=true;row.append(ask);cancel.focus();
 }
 const kycLabels={SUBMITTED:'Bank details submitted',NOT_STARTED:'No bank details yet',REJECTED:'Rejected'};

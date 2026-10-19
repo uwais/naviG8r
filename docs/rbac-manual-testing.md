@@ -149,7 +149,7 @@ await rbacCall('/v1/pilot/carrier/payout-setup', 'POST', { orgId: 'carrier-a' })
 1. As **Finance**, confirm the hold blocks `load-a-hold` (step 4).
 2. Sign in as **Shipper A** and click **Accept POD** on `load-a-hold`.
 3. Sign in as **Finance** again. Its release button should now be enabled.
-4. Click **Release payment**. Nothing is sent yet: the row asks "Release ₹… to Synthetic Carrier A for …?". Click **Cancel** once and check the shipment is still listed, then click **Release payment** and **Confirm release**. The shipment leaves the pending-release list and the page says "Payment released for shipment load-a-hold."
+4. Click **Release payment**. Nothing is sent yet: the row asks "Release payment for …? ₹… is credited to Synthetic Carrier A's ledger and paid out in the payout batch, not sent now." Click **Cancel** once and check the shipment is still listed, then click **Release payment** and **Confirm release**. The shipment leaves the pending-release list and the page says "Payment released for shipment load-a-hold: ₹… credited to Synthetic Carrier A's ledger."
 5. As Finance, verify:
 
 ```js

@@ -12,7 +12,12 @@ async function readyToRelease(f: Awaited<ReturnType<typeof httpFixture>>) {
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
   assert.equal((await f.request(`/shipments/${id}/driver-pod`, "POST", {}, f.tokens.carrierA)).status, 200);
   assert.equal((await f.request(`/shipments/${id}/accept-pod`, "POST", {}, f.tokens.shipperA)).status, 200);
-  return { id, question: `Release ${rupees(f.store.shipments.get(id)!.netToCarrierPaise)} to Synthetic Carrier A for shipment ${id}?` };
+  const credit = rupees(f.store.shipments.get(id)!.netToCarrierPaise);
+  return {
+    id,
+    question: `Release payment for shipment ${id}? ${credit} is credited to Synthetic Carrier A's ledger and paid out in the payout batch, not sent now.`,
+    result: `Payment released for shipment ${id}: ${credit} credited to Synthetic Carrier A's ledger.`,
+  };
 }
 
 async function openAsFinance(f: Awaited<ReturnType<typeof httpFixture>>, path: string) {
@@ -26,7 +31,7 @@ async function openAsFinance(f: Awaited<ReturnType<typeof httpFixture>>, path: s
 for (const path of ["/ops", "/ops/v2"]) {
   test(`${path}: Release payment first asks in the page; only Confirm release sends the money`, async t => {
     const f = await httpFixture(t);
-    const { id, question } = await readyToRelease(f);
+    const { id, question, result } = await readyToRelease(f);
     const page = await openAsFinance(f, path);
     const row = page.byId("shipments").children.find(article => article.textContent.includes(id))!;
     assert.ok(row, "the ready shipment is listed");
@@ -50,7 +55,7 @@ for (const path of ["/ops", "/ops/v2"]) {
     assert.equal(page.nativeDialogs, 0, "no browser confirm or alert");
     assert.equal(page.byId("error").textContent, "");
     assert.equal(page.focused, page.byId("released"), "focus lands on the result, not on a removed button");
-    assert.equal(page.focused?.textContent, `Payment released for shipment ${id}.`);
+    assert.equal(page.focused?.textContent, result);
   });
 }
 
@@ -84,7 +89,7 @@ function fill(form: FakeElement, values: Record<string, string>) {
 
 test("/ops/v1: Release payment asks in the page, not in a browser dialog, and a changed field drops the question", async t => {
   const f = await httpFixture(t);
-  const { id, question } = await readyToRelease(f);
+  const { id, question, result } = await readyToRelease(f);
   const page = await openAsFinance(f, "/ops/v1");
   let form = releaseForm(page);
   fill(form, { shipmentId: id, reason: "POD_REVIEWED" });
@@ -108,7 +113,7 @@ test("/ops/v1: Release payment asks in the page, not in a browser dialog, and a 
   await page.click(page.visibleButton("Confirm release", form)!);
   assert.deepEqual(page.releaseRequests().map(request => request.path), [`/ops/shipments/${id}/release`]);
   assert.equal(f.store.shipments.get(id)!.status, "DELIVERED");
-  assert.equal(page.byId("notice").textContent, "Release payment completed. " + id);
+  assert.equal(page.byId("notice").textContent, result);
   form = releaseForm(page);
   assert.ok(page.visibleButton("Release payment", form), "the rebuilt form is ready for the next one");
 });
@@ -133,5 +138,80 @@ test("/ops/v1: a shipment that is not ready, or already released, gets a plain s
     assert.equal(page.visibleButton("Confirm release", form), undefined, "no question about money that cannot move");
     assert.ok(page.visibleButton("Release payment", form), "the form stays usable");
   }
+  assert.equal(page.releaseRequests().length, 0);
+});
+
+/** After the release request is sent, every read fails, as if the network dropped once the money moved. */
+function failReadsAfterRelease(page: FakePage) {
+  page.run(`(() => {
+    const sendRequest = fetch;
+    let releaseSent = false;
+    fetch = (path, init = {}) => {
+      if (releaseSent && (init.method ?? "GET") === "GET") return Promise.reject(new TypeError("Failed to fetch"));
+      if (path.endsWith("/release")) releaseSent = true;
+      return sendRequest(path, init);
+    };
+  })()`);
+}
+
+for (const path of ["/ops", "/ops/v2"]) {
+  test(`${path}: a release that worked is reported even when the list cannot refresh`, async t => {
+    const f = await httpFixture(t);
+    const { id, result } = await readyToRelease(f);
+    const page = await openAsFinance(f, path);
+    const row = page.byId("shipments").children.find(article => article.textContent.includes(id))!;
+    failReadsAfterRelease(page);
+    await page.click(page.visibleButton("Release payment", row)!);
+    await page.click(page.visibleButton("Confirm release", row)!);
+    assert.equal(f.store.shipments.get(id)!.status, "DELIVERED");
+    assert.equal(page.byId("released").textContent, result + " Released, but the list could not refresh. Reload the page.");
+    assert.equal(page.byId("error").textContent, "");
+  });
+}
+
+test("/ops/v1: a release that worked is reported even when the list cannot refresh", async t => {
+  const f = await httpFixture(t);
+  const { id, result } = await readyToRelease(f);
+  const page = await openAsFinance(f, "/ops/v1");
+  const form = releaseForm(page);
+  fill(form, { shipmentId: id, reason: "POD_REVIEWED" });
+  failReadsAfterRelease(page);
+  await page.click(page.visibleButton("Release payment", form)!);
+  await page.click(page.visibleButton("Confirm release", form)!);
+  assert.equal(f.store.shipments.get(id)!.status, "DELIVERED");
+  assert.equal(page.byId("notice").textContent, result + " Released, but the list could not refresh. Reload the page.");
+  assert.equal(page.byId("error").textContent, "");
+});
+
+test("/ops and /ops/v1: with no amount from the server, Release payment says so and asks nothing", async t => {
+  const f = await httpFixture(t);
+  const sentence = "Release is off for this shipment: the server did not send the amount. Nothing was released.";
+  for (const path of ["/ops", "/ops/v1"]) {
+    const { id } = await readyToRelease(f);
+    const page = await openAsFinance(f, path);
+    f.store.shipments.get(id)!.netToCarrierPaise = NaN;
+    let within: FakeElement;
+    if (path === "/ops") within = page.byId("shipments").children.find(article => article.textContent.includes(id))!;
+    else fill((within = releaseForm(page)), { shipmentId: id, reason: "POD_REVIEWED" });
+    await page.click(page.visibleButton("Release payment", within)!);
+    assert.equal(page.byId("error").textContent, sentence, path);
+    assert.equal(page.visibleButton("Confirm release", within), undefined, path);
+    assert.ok(page.visibleButton("Release payment", within), path);
+  }
+});
+
+test("/ops/v1: a field changed while the shipment details load drops the question instead of asking about old values", async t => {
+  const f = await httpFixture(t);
+  const { id, question } = await readyToRelease(f);
+  const page = await openAsFinance(f, "/ops/v1");
+  const form = releaseForm(page);
+  fill(form, { shipmentId: id, reason: "POD_REVIEWED" });
+  const asking = form.onsubmit!({ preventDefault() {} });
+  fill(form, { shipmentId: "load-typed-later" });
+  await asking;
+  await page.settle();
+  assert.equal(form.textContent.includes(question), false, form.textContent);
+  assert.equal(page.visibleButton("Confirm release", form), undefined);
+  assert.ok(page.visibleButton("Release payment", form), "the form stays usable");
   assert.equal(page.releaseRequests().length, 0);
 });
