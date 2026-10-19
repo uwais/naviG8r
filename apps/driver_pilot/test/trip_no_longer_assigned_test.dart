@@ -28,6 +28,10 @@ class FakeLocationService extends GeolocatorPlatform {
   /// While a test holds this, the phone has not yet answered where it is now.
   Completer<void>? positionHeld;
 
+  /// Each handler the trip screen listens with. Calling one hands the screen a position that was
+  /// already on its way when sharing stopped.
+  final positionHandlers = <void Function(Position)>[];
+
   /// The trip screen shares the location while it listens for positions.
   bool get sharing => streams.any((positions) => positions.hasListener);
 
@@ -46,7 +50,21 @@ class FakeLocationService extends GeolocatorPlatform {
   Stream<Position> getPositionStream({LocationSettings? locationSettings}) {
     final positions = StreamController<Position>();
     streams.add(positions);
-    return positions.stream;
+    return _KeepsHandler(positions.stream, positionHandlers.add);
+  }
+}
+
+/// A stream of positions that also gives each listener's handler to [keep].
+class _KeepsHandler extends StreamView<Position> {
+  _KeepsHandler(super.stream, this.keep);
+  final void Function(void Function(Position)) keep;
+
+  @override
+  StreamSubscription<Position> listen(void Function(Position)? onData,
+      {Function? onError, void Function()? onDone, bool? cancelOnError}) {
+    if (onData != null) keep(onData);
+    return super.listen(onData,
+        onError: onError, onDone: onDone, cancelOnError: cancelOnError);
   }
 }
 
@@ -362,8 +380,10 @@ void main() {
             positionsSent.add(request.data);
             return jsonResponse(<String, Object>{});
           case '/v1/pilot/anchor-trips/trip-a/assignment':
-            return jsonResponse(
-                {'trip': tripDrivenBy('driver-2'), 'driverBusy': false});
+            return jsonResponse({
+              'trip': tripDrivenBy((request.data as Map)['driverUserId'] as String),
+              'driverBusy': false
+            });
           case '/v1/pilot/carrier/fleet':
             return jsonResponse({
               'vehicles': [
@@ -385,6 +405,57 @@ void main() {
       });
       return positionsSent;
     }
+
+    /// The Assign driver sheet on the trip screen, with the trip's truck and [driver] chosen.
+    Future<void> assignFromTheTripScreen(
+        WidgetTester tester, String driver) async {
+      await tester.tap(find.text('Assign driver'));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('KA01AB1234')));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text(driver)));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('Assign $driver')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'shares again the moment they assign the trip back to themselves from the trip screen',
+        (tester) async {
+      signInAsCarrierOwner(alsoAllowed: ['trip.assign', 'load.status_update']);
+      final positionsSent =
+          answerAsTheOffice(() => tripDrivenBy('carrier-person'));
+      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      await assignFromTheTripScreen(tester, 'Synthetic Driver Two');
+      expect(location.sharing, isFalse);
+      expect(find.text(stoppedLine), findsOneWidget);
+
+      await assignFromTheTripScreen(tester, 'Synthetic Owner');
+      expect(location.sharing, isTrue,
+          reason: 'reviewer: the screen said shared while nothing was sent');
+      location.streams.last.add(somewhere);
+      await tester.pumpAndSettle();
+      expect(positionsSent, hasLength(1),
+          reason: "given back, the phone sends the truck's position again");
+      expect(find.text(sharedLine), findsOneWidget);
+      expect(find.text(stoppedLine), findsNothing);
+    });
+
+    testWidgets(
+        'a position already on its way when they assign another driver is not sent',
+        (tester) async {
+      signInAsCarrierOwner(alsoAllowed: ['trip.assign', 'load.status_update']);
+      final positionsSent =
+          answerAsTheOffice(() => tripDrivenBy('carrier-person'));
+      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      await assignFromTheTripScreen(tester, 'Synthetic Driver Two');
+      expect(location.sharing, isFalse);
+      location.positionHandlers.single(somewhere);
+      await tester.pumpAndSettle();
+      expect(positionsSent, isEmpty,
+          reason:
+              "reviewer: a post racing the stop could land as the truck's position");
+    });
 
     testWidgets(
         'stops sharing the moment they assign another driver from the trip screen, and is told so',

@@ -161,7 +161,9 @@ void main() {
 
   group('the place editor', () {
     Future<TextEditingController> mountEditor(WidgetTester tester,
-        {PlaceFinder? findPlace, required TownFinder findTown}) async {
+        {PlaceFinder? findPlace,
+        required TownFinder findTown,
+        VoidCallback? onPinStale}) async {
       final field = TextEditingController();
       await tester.pumpWidget(MaterialApp(
           home: Scaffold(
@@ -174,6 +176,7 @@ void main() {
         markerHue: BitmapDescriptor.hueOrange,
         position: const LatLng(13.07, 77.79),
         onPositionChanged: (_) {},
+        onPinStale: onPinStale,
         findPlace: findPlace ?? (place) async => GeocodeOutcome.fail('ZERO_RESULTS'),
         findTown: findTown,
       )))));
@@ -259,6 +262,44 @@ void main() {
       await tester.pumpAndSettle();
       expect(field.text, 'Hoskote');
       expect(find.text('Updating address from pin…'), findsNothing);
+    });
+
+    testWidgets('new words after a search make the found pin stale', (tester) async {
+      var stale = 0;
+      final field = await mountEditor(tester,
+          findPlace: (place) async => GeocodeOutcome.ok(
+              const LatLng(13.0, 77.8), 'Hoskote, Karnataka, India', 'Hoskote'),
+          findTown: (point) async => GeocodeOutcome.fail('NO_API_KEY'),
+          onPinStale: () => stale++);
+      await tester.enterText(find.byType(TextField), 'hoskote');
+      await tester.tap(find.byTooltip('Look up place'));
+      await tester.pumpAndSettle();
+      expect(field.text, 'Hoskote');
+      expect(stale, 0, reason: 'the search names the place it found');
+      await tester.enterText(find.byType(TextField), 'Hoskote ');
+      await tester.pumpAndSettle();
+      expect(stale, 0, reason: 'a space at the end is the same words');
+
+      await tester.enterText(find.byType(TextField), 'Kolar');
+      await tester.pumpAndSettle();
+      expect(stale, 1,
+          reason: 'reviewer: the Hoskote pin stayed under the name Kolar');
+      expect(find.text('Hoskote, Karnataka, India'), findsNothing,
+          reason: 'the address of the old pin goes with it');
+    });
+
+    testWidgets('after a drag to a spot with no town, typing its name keeps the pin',
+        (tester) async {
+      var stale = 0;
+      final field = await mountEditor(tester,
+          findTown: (point) async => GeocodeOutcome.fail('ZERO_RESULTS'),
+          onPinStale: () => stale++);
+      await dragPin(tester);
+      expect(field.text, isEmpty);
+      await tester.enterText(find.byType(TextField), 'Malur');
+      await tester.pumpAndSettle();
+      expect(stale, 0,
+          reason: 'the field asked for the name of the place at the pin');
     });
 
     testWidgets('without a maps key a dragged pin keeps the name typed by hand',

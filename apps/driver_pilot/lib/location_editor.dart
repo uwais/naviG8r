@@ -249,6 +249,8 @@ class LocationEndpointEditor extends StatefulWidget {
     required this.markerHue,
     required this.position,
     required this.onPositionChanged,
+    this.onPinStale,
+    this.readOnly = false,
     this.showApiKeyHint = true,
     this.showMap = true,
     this.findPlace = GoogleGeocodingService.forwardAddress,
@@ -262,6 +264,13 @@ class LocationEndpointEditor extends StatefulWidget {
   final double markerHue;
   final LatLng position;
   final ValueChanged<LatLng> onPositionChanged;
+
+  /// Called when the words change away from the place the pin was found for, so the screen stops
+  /// using that pin. After a drag that found no name, any words typed go with the pin.
+  final VoidCallback? onPinStale;
+
+  /// True while the place is being sent, so the words, search and pin stay as they were sent.
+  final bool readOnly;
   final bool showApiKeyHint;
 
   /// False leaves out the map and its drag caption, so a screen can keep the form short until the place is found.
@@ -283,16 +292,46 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   int _newestLookup = 0;
   // A failed search still opens the map, so the pin can be dragged to a place Google cannot find.
   bool _searchTried = false;
+  // The words the pin was found for; null when any words go with it (no pin yet, or a drag that
+  // found no name and asked the person to type it).
+  String? _pinFoundFor;
 
   @override
   void initState() {
     super.initState();
     _pos = widget.position;
+    final words = widget.labelController.text.trim();
+    _pinFoundFor = words.isEmpty ? null : words;
+    widget.labelController.addListener(_wordsChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.labelController.removeListener(_wordsChanged);
+    super.dispose();
+  }
+
+  void _wordsChanged() {
+    final pinFoundFor = _pinFoundFor;
+    if (pinFoundFor == null ||
+        widget.labelController.text.trim() == pinFoundFor) {
+      return;
+    }
+    _pinFoundFor = null;
+    setState(() {
+      _hintLine = null;
+      _searchTried = false;
+    });
+    widget.onPinStale?.call();
   }
 
   @override
   void didUpdateWidget(covariant LocationEndpointEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.labelController != widget.labelController) {
+      oldWidget.labelController.removeListener(_wordsChanged);
+      widget.labelController.addListener(_wordsChanged);
+    }
     // A hidden map is disposed, and its controller with it.
     if (!widget.showMap && !_searchTried) _map = null;
     final o = oldWidget.position;
@@ -328,17 +367,21 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
       return;
     }
     final p = outcome.position!;
+    final name = outcome.placeName ?? widget.labelController.text;
+    _pinFoundFor = name.trim();
     setState(() {
       _pos = p;
       // The field becomes the trip's city name, so it holds the short name; the hint shows the full address.
       _hintLine = outcome.formattedAddress;
-      widget.labelController.text = outcome.placeName ?? widget.labelController.text;
+      widget.labelController.text = name;
     });
     widget.onPositionChanged(p);
     await _map?.animateCamera(CameraUpdate.newLatLngZoom(p, 12));
   }
 
   Future<void> _onDragEnd(LatLng p) async {
+    // The dragged pin is the person's choice of place; only a name found for it ties it to words.
+    _pinFoundFor = null;
     setState(() {
       _pos = p;
       _hintLine = null;
@@ -356,6 +399,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     final noTownAtPin = outcome.failure == PlaceSearchFailure.notFound || (outcome.isOk && name == null);
     setState(() {
       if (name != null) {
+        _pinFoundFor = name.trim();
         widget.labelController.text = name;
         _hintLine = outcome.formattedAddress;
       } else if (noTownAtPin) {
@@ -378,6 +422,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
         const SizedBox(height: 6),
         TextField(
           controller: widget.labelController,
+          readOnly: widget.readOnly,
           decoration: InputDecoration(
             labelText: widget.hint,
             suffixIcon: _lookupBusy
@@ -388,11 +433,13 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
                 : IconButton(
                     tooltip: "Look up place",
                     icon: const Icon(Icons.search),
-                    onPressed: _lookup,
+                    onPressed: widget.readOnly ? null : _lookup,
                   ),
           ),
           textInputAction: TextInputAction.search,
-          onSubmitted: (_) => _lookup(),
+          onSubmitted: (_) {
+            if (!widget.readOnly) _lookup();
+          },
         ),
         if (_hintLine != null) ...[
           const SizedBox(height: 6),
@@ -421,7 +468,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
                   Marker(
                     markerId: MarkerId(widget.markerId),
                     position: _pos,
-                    draggable: true,
+                    draggable: !widget.readOnly,
                     icon: BitmapDescriptor.defaultMarkerWithHue(widget.markerHue),
                     onDragEnd: _onDragEnd,
                   ),

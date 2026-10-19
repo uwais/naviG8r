@@ -410,6 +410,7 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
               _pickupPin = pin;
               _pickupError = null;
             }),
+            onPinStale: () => setState(() => _pickupPin = null),
             showMap: _pickupPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
@@ -429,6 +430,7 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
               _dropPin = pin;
               _dropError = null;
             }),
+            onPinStale: () => setState(() => _dropPin = null),
             showMap: _dropPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,

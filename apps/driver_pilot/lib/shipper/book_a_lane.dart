@@ -23,7 +23,6 @@ import "../ui/nv_button.dart";
 import "../ui/nv_field.dart";
 import "../ui/nv_list_card.dart";
 import "../ui/nv_message.dart";
-import "../ui/pending_copy.dart";
 import "../ui/tokens.dart";
 import "shipper_scaffold.dart";
 import "shipper_words.dart";
@@ -191,7 +190,8 @@ class _CustomerBookShipmentScreenState
   }
 
   /// Prices the inputs as they are now, once the weight and both places are in. Any change of
-  /// input comes here, and the old price goes at once, so Pay never shows a price for other inputs.
+  /// input comes here, and the old price goes at once, so Book and pay never shows a price for
+  /// other inputs.
   Future<void> _getPrice() async {
     final inputs = _priceInputs;
     final request = ++_newestPriceRequest;
@@ -307,7 +307,7 @@ class _CustomerBookShipmentScreenState
     context.go("/customer/shipments/$shipmentId");
   }
 
-  // The shipment already exists, so the shipper goes to it: Pay again here would book a second one.
+  // The shipment already exists, so the shipper goes to it: Book and pay again would book a second one.
   void _onCheckoutError(String message) {
     final id = _pendingShipmentIdForCheckout;
     _pendingShipmentIdForCheckout = null;
@@ -418,7 +418,7 @@ class _CustomerBookShipmentScreenState
   Widget build(BuildContext context) {
     final lane = _lane;
     final laneOpen = lane != null && lane["status"]?.toString() == "OPEN";
-    // On a desktop the price and Pay sit together in the side column (wb-book).
+    // On a desktop the price and Book and pay sit together in the side column (wb-book).
     final desktop = customerIsDesktop(context);
     final priceCard = laneOpen && _pricePaise != null
         ? _PriceCard(
@@ -486,6 +486,7 @@ class _CustomerBookShipmentScreenState
         keyboardType: TextInputType.number,
         help: room == null ? null : "Up to ${formatKg(room)} on this lane.",
         errorText: _weightError,
+        readOnly: _booking,
       ),
       const SizedBox(height: NvSpace.s4),
       // Each map shows once its place has a pin; a place from the match search arrives with one.
@@ -500,6 +501,11 @@ class _CustomerBookShipmentScreenState
           setState(() => _pickupPin = pin);
           _priceInputsChanged();
         },
+        onPinStale: () {
+          setState(() => _pickupPin = null);
+          _priceInputsChanged();
+        },
+        readOnly: _booking,
         showMap: _pickupPin != null,
         showApiKeyHint: false,
         findPlace: widget.findPlace,
@@ -516,6 +522,11 @@ class _CustomerBookShipmentScreenState
           setState(() => _dropPin = pin);
           _priceInputsChanged();
         },
+        onPinStale: () {
+          setState(() => _dropPin = null);
+          _priceInputsChanged();
+        },
+        readOnly: _booking,
         showMap: _dropPin != null,
         showApiKeyHint: false,
         findPlace: widget.findPlace,
@@ -544,13 +555,13 @@ class _CustomerBookShipmentScreenState
     final NvButton button;
     if (price != null) {
       button = NvButton(
-          label: "Pay ${formatRupees(price)}",
+          label: "Book and pay ${formatRupees(price)}",
           loading: _booking,
           fullWidth: true,
           onPressed: _book);
     } else if (_pricing) {
       button = const NvButton(
-          label: "Pay",
+          label: "Book and pay",
           loadingLabel: "Getting the price",
           loading: true,
           fullWidth: true,
@@ -560,7 +571,7 @@ class _CustomerBookShipmentScreenState
           label: "Try again", fullWidth: true, onPressed: _getPrice);
     } else {
       button = NvButton(
-          label: "Pay",
+          label: "Book and pay",
           fullWidth: true,
           onPressed: null,
           disabledReason: missing ?? "Enter a lower weight to see the price.");
@@ -568,22 +579,14 @@ class _CustomerBookShipmentScreenState
     final words = [
       if (_actionError != null)
         NvMessage(_actionError!, tone: NvMessageTone.problem),
-      // The full price and the way out sit as close to Pay as Pay itself (decisions.md 6).
+      // The full price and the way out sit as close to the button as the button itself
+      // (decisions.md 6); one tap books, so the cancel line is the one directly above it.
       if (price != null) ...[
         const Text("This is the full price. Nothing is added at payment.",
             style: NvText.bodyStrong),
-        Text.rich(
-          TextSpan(children: [
-            const TextSpan(
-                text:
-                    "Your payment is held when you book and collected after delivery. Booked shipments cannot be cancelled in the app; to change one, contact "),
-            TextSpan(
-                text: PendingCopy.changeOrCancelContact,
-                style: NvText.body.copyWith(fontWeight: FontWeight.w700)),
-            const TextSpan(text: "."),
-          ]),
-          style: NvText.body,
-        ),
+        const Text(
+            "Booking holds the room on this lane. To cancel, contact NaviG8r.",
+            style: NvText.body),
       ],
     ];
     // At very large text the words above the button scroll inside the bar, so the bar never
@@ -654,8 +657,8 @@ class _LaneSummary extends StatelessWidget {
   }
 }
 
-/// The price and what happens after Pay. With the lane above and the words beside Pay, it holds
-/// everything the confirm sheet used to show before money moved (sh-book-price).
+/// The price and what happens after Book and pay. With the lane above and the words beside the
+/// button, it holds everything the confirm sheet used to show before money moved (sh-book-price).
 class _PriceCard extends StatelessWidget {
   const _PriceCard({required this.pricePaise, required this.carrier});
   final num pricePaise;
@@ -685,7 +688,7 @@ class _PriceCard extends StatelessWidget {
                 style: NvText.body),
             const SizedBox(height: NvSpace.s2),
             const Text(
-                "Pay opens the payment provider's screen, where you choose how to pay.",
+                "Book and pay opens the payment provider's screen, where you choose how to pay.",
                 style: NvText.body),
             const SizedBox(height: NvSpace.s2),
             const Text("Changing weight, pickup or drop gets a new price.",

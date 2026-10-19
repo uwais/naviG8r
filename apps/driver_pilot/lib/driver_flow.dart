@@ -3085,7 +3085,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   }
 
   Future<void> _maybePostLocation(Position p) async {
-    if (_trip?["status"]?.toString() != "IN_PROGRESS") return;
+    // A position already on its way when the trip was given away is not the truck's.
+    if (_trip?["status"]?.toString() != "IN_PROGRESS" || !_phoneIsInTheTruck) {
+      return;
+    }
     final now = DateTime.now();
     if (_lastLocationPostAt != null &&
         now.difference(_lastLocationPostAt!) < const Duration(seconds: 30)) {
@@ -3583,6 +3586,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   onAssigned: (saved) {
                     setState(() => _trip = saved);
                     _stopSharingIfNotInTheTruck();
+                    // Given back to this phone, it shares again as a reload would.
+                    if (_phoneIsInTheTruck &&
+                        saved["status"]?.toString() == "IN_PROGRESS") {
+                      setState(() => _sharingStoppedOnThisPhone = false);
+                      _startLocation();
+                    }
                   },
                   onAddDriver: DriverSession.canInviteDrivers
                       ? () => context.push("/driver/fleet")
@@ -4681,6 +4690,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 markerHue: BitmapDescriptor.hueOrange,
                 position: _originPos ?? pinNotPlacedYet,
                 onPositionChanged: (p) => setState(() => _originPos = p),
+                onPinStale: () => setState(() => _originPos = null),
                 showMap: _originPos != null,
                 findPlace: widget.findPlace,
               ),
@@ -4693,6 +4703,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 markerHue: BitmapDescriptor.hueAzure,
                 position: _destPos ?? pinNotPlacedYet,
                 onPositionChanged: (p) => setState(() => _destPos = p),
+                onPinStale: () => setState(() => _destPos = null),
                 showMap: _destPos != null,
                 findPlace: widget.findPlace,
               ),

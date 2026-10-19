@@ -59,38 +59,39 @@ Every visible string, by screen. Brackets mark text the team still has to supply
 | Title, sub | Book space · Check the price, then pay. |  |
 | Lane | [From] to [To] · [Carrier] · Leaves [dates] · Room left: [n] kg |  |
 | Fields | Weight · Up to [room] kg on this lane. · Pickup · Drop (place boxes: City or area · search · map pin) | Start at the searched values and pins, else empty. Same place box as Publish |
-| Price | Price · ₹[amount] · After you pay, [Carrier] accepts and names the truck. · Pay opens the payment provider's screen, where you choose how to pay. · Changing weight, pickup or drop gets a new price. | Fetched by itself once weight, pickup and drop are in (Rishabh, 19 Oct 2026). Tax line only if question 5 says so |
-| Above Pay | This is the full price. Nothing is added at payment. · Your payment is held when you book and collected after delivery. Booked shipments cannot be cancelled in the app; to change one, contact [NaviG8r contact]. | Open item 6 (contact) |
-| Button | Pay ₹[amount] · while fetching: Getting the price · after a price error: Try again · before a price, disabled: Pay, with "To see the price, enter the weight and search for the pickup and drop." (only the missing parts) or "Enter a lower weight to see the price." | One tap opens the payment provider; the confirm sheet is gone (Rishabh, 19 Oct 2026) |
+| Price | Price · ₹[amount] · After you pay, [Carrier] accepts and names the truck. · Book and pay opens the payment provider's screen, where you choose how to pay. · Changing weight, pickup or drop gets a new price. | Fetched by itself once weight, pickup and drop are in (Rishabh, 19 Oct 2026). Tax line only if question 5 says so. Typing new words in a place box after its search drops that place's pin and the price, and the line under the button asks to search for it; after a pin drag, the typed name stays with the pin |
+| Above the button | This is the full price. Nothing is added at payment. · Booking holds the room on this lane. To cancel, contact NaviG8r. | The cancel line sits directly above the button (Rishabh, 19 Oct 2026). Both lines fit at 200% text on 360 x 800 when measured in Roboto; the test font cannot show it. Open item 6 (contact) |
+| Button | Book and pay ₹[amount] · while fetching: Getting the price · after a price error: Try again · before a price, disabled: Book and pay, with "To see the price, enter the weight and search for the pickup and drop." (only the missing parts) or "Enter a lower weight to see the price." | One tap books and opens the payment provider; the confirm sheet is gone (Rishabh, 19 Oct 2026). While the booking is sent, weight, pickup and drop cannot be changed |
 | Too heavy | This lane does not have room for that weight. Enter a lower weight, or choose another lane. · Choose another lane | Replaces "HTTP 400" |
 
 ```
-DARK PATTERN SCREEN — Book: price by itself, Pay in one tap, no confirm sheet — 2026-10-19
-Screened: the Book and pay rows above, after Rishabh's 19 Oct call (maps on Match and Book,
-  no Get price, no confirm sheet)
-Verdict: BLOCKED until Rishabh decides finding 1
-Passes: 1 actionability (Pay only for an open lane with room for the weight); 2 no comparison;
-  3 full cost: the quote has one part, the total, and the server adds nothing (booking
-  recomputes the same price), so the total on Pay plus "This is the full price. Nothing is
-  added at payment." beside it is the whole cost; tax stays the open question 5 below;
-  4 no urgency; 5 no defaults, fields start empty or at the shipper's own search;
-  7 no decline button, "Choose another lane" and "Try again" are neutral; 8 the price goes
-  the moment weight or a pin changes and a late answer for older inputs is dropped, so Pay
-  always names the price of what is on screen; 9 nothing new asked for; 10 no payout;
-  11 "we show you the full price as soon as weight and both places are in; one tap on
-  Pay books the space and opens the payment provider; you cannot cancel in the app, so
-  the contact is beside Pay" can be said to the shipper's face.
+DARK PATTERN SCREEN — Book: price by itself, Book and pay in one tap, no confirm sheet — 2026-10-19
+Screened: the Book and pay rows above, after Rishabh's 19 Oct calls (maps on Match and Book,
+  no Get price, no confirm sheet; then the "Book and pay" label and the cancel line)
+Verdict: PASS, with finding 1 accepted by Rishabh
+Passes: 1 actionability (Book and pay only for an open lane with room for the weight);
+  2 no comparison; 3 full cost: the quote has one part, the total, and the server adds
+  nothing (booking recomputes the same price), so the total on the button plus "This is the
+  full price. Nothing is added at payment." beside it is the whole cost; tax stays the open
+  question 5 below; 4 no urgency; 5 no defaults, fields start empty or at the shipper's own
+  search; 7 no decline button, "Choose another lane" and "Try again" are neutral; 8 the price
+  goes the moment weight or a pin changes, or a place box gets new words after its search,
+  and a late answer for older inputs is dropped, so the button always names the price of
+  what is on screen, and the place booked is the place priced; 9 nothing new asked for;
+  10 no payout; 11 "we show you the full price as soon as weight and both places are in;
+  one tap on Book and pay books the space, which holds the room, and opens the payment
+  provider; you cannot cancel in the app, so the line above the button says to contact
+  NaviG8r" can be said to the shipper's face.
 Findings:
-  1. 6 Exit — FAIL — one tap on Pay now creates the booking and reserves the room, while
-     cancelling still needs NaviG8r contact (no shipper cancel, decided 17 Oct). The removed
-     sheet was the only step between a slip of the finger and an uncancellable booking; a
-     closed payment screen leaves an unpaid booking. Fix options: Rishabh accepts it with
-     the reason written here, or the booking is made only after the payment provider
-     succeeds, or a shipper can cancel an unpaid booking in the app.
-Accepted risks: none yet
-Open check: the label booked is the words in the place box; if the shipper types new words
-  without searching, the pin (and the price) stay at the old place under the new name. The
-  map shows the pin, but nothing stops it.
+  1. 6 Exit — FAIL, accepted — one tap creates the booking and holds the room, while
+     cancelling still needs NaviG8r (no shipper cancel). The label "Book and pay ₹[amount]"
+     and the line "Booking holds the room on this lane. To cancel, contact NaviG8r." directly
+     above it say both before the tap.
+Accepted risks: finding 1 — Rishabh, 19 Oct 2026: one tap books and opens payment, and the
+  label and the line say so; shipper cancel is not built (his 17 Oct call).
+Open checks: "contact NaviG8r" names no phone number or email; the app has none to show yet
+  (open item 6). The line "Your payment is held when you book and collected after delivery."
+  is no longer on Book; the shipment screen says it while the booking waits for the carrier.
 ```
 
 ### Shipment screen and e-way bill

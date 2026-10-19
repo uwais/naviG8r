@@ -579,6 +579,33 @@ void main() {
       expect(find.text('Bengaluru, Karnataka'), findsWidgets);
     });
 
+    testWidgets('new words in From after a search drop its point, and Publish asks for a search',
+        (tester) async {
+      final server = signInWith(Server(allowed: ownerAllowed));
+      await mount(
+          tester,
+          DriverPublishTripScreen(
+              findPlace: (place) async => GeocodeOutcome.ok(
+                  const LatLng(13.07, 77.8), '$place, Karnataka')),
+          size: const Size(800, 3000));
+      await tester.enterText(find.byType(TextField).first, 'Hoskote');
+      await tester.tap(find.byTooltip('Look up place').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(GoogleMap), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).first, 'Kolar');
+      await tester.pumpAndSettle();
+      expect(find.byType(GoogleMap), findsNothing,
+          reason: 'reviewer: the Hoskote point stayed under the name Kolar');
+      await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+      await tester.pumpAndSettle();
+      expect(server.sent, isEmpty);
+      expect(
+          find.text(
+              'Search for the From place so shippers can find this trip.'),
+          findsOneWidget);
+    });
+
     group('the route map', () {
       const hoskote = LatLng(13.07, 77.79);
       const kolar = LatLng(13.13, 78.13);
