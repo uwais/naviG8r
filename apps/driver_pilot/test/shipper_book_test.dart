@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/shipper/shipper_routes.dart';
 import 'package:driver_pilot/customer_session.dart';
+import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/ui/nv_action_bar.dart';
 import 'package:driver_pilot/ui/nv_button.dart';
@@ -272,6 +273,59 @@ void main() {
       expect(tester.widget<TextField>(field('Weight')).readOnly, isFalse,
           reason: 'after a failed booking the form can be changed again');
       expect(pinIn(tester, 'Drop').draggable, isTrue);
+    });
+
+    testWidgets('a fast second tap on Book and pay sends one booking',
+        (tester) async {
+      final answer = Completer<ResponseBody>();
+      final server = await showPricedBook(tester);
+      server.answers['/shipments/book'] = (_) => answer.future;
+      final pay = find.text('Book and pay ₹2,640');
+      await tester.tap(pay);
+      await tester.tap(pay);
+      await pumpWhileWaiting(tester);
+      expect(server.countOf('/shipments/book'), 1,
+          reason: 'review: a double tap before the button redrew booked twice');
+      answer.complete(jsonResponse({'error': 'internal_error'}, 500));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets(
+        'after a pin drag, Book and pay waits until the pin has its town name, then books that name',
+        (tester) async {
+      final town = Completer<GeocodeOutcome>();
+      final server = await showShipperApp(tester, searchedBook,
+          findTown: (_) => town.future);
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
+      });
+      await tester.pumpAndSettle();
+      pinIn(tester, 'Drop').onDragEnd!(const LatLng(13.05, 80.25));
+      await tester.pumpAndSettle();
+      expect(server.countOf('/shipments/quote'), 2,
+          reason: 'the moved pin is priced at once');
+      expect(bookButton(tester).onPressed, isNull,
+          reason: 'review: the old town name could be booked with the new pin');
+      expect(
+          find.descendant(
+              of: find.byType(NvActionBar),
+              matching: find.text('Updating address from pin…')),
+          findsOneWidget,
+          reason: 'a disabled button says why');
+
+      town.complete(GeocodeOutcome.ok(
+          const LatLng(13.05, 80.25), 'Adyar, Chennai', 'Adyar'));
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).onPressed, isNotNull);
+      await tester.tap(find.text('Book and pay ₹2,640'));
+      await tester.pumpAndSettle();
+      final booked = server.sentTo('/shipments/book').single;
+      expect(booked['dropAddress'], 'Adyar',
+          reason: 'the name found for the new pin');
+      expect((booked['drop'] as Map)['lat'], 13.05);
     });
 
     testWidgets('a late price answer for older inputs is ignored',

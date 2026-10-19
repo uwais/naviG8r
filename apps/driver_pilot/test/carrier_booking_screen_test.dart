@@ -1,0 +1,277 @@
+// The office's booking screen (ca-booking-new, -truck, -deliver, -owner, -dispatcher; PR 6 of the
+// redesign): each step, and who sees the amount.
+import 'package:dio/dio.dart';
+import 'package:driver_pilot/authorization_session.dart';
+import 'package:driver_pilot/driver_flow.dart';
+import 'package:driver_pilot/driver_theme.dart';
+import 'package:driver_pilot/pilot_api.dart';
+import 'package:driver_pilot/plain_error_sentence.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'support/carrier_fixtures.dart';
+import 'support/carrier_office_bookings.dart';
+
+/// A dispatcher holds payment.read and is sent the amount, but is not the owner (no bank_account.create_token).
+void signInAsDispatcher() {
+  signInAsCarrierLogin(office: true, alsoAllowed: officeWork);
+  AuthorizationSession.principal = {
+    ...AuthorizationSession.principal!,
+    'subrole': 'DISPATCHER',
+  };
+}
+
+Future<void> mountBooking(WidgetTester tester,
+    {Size size = const Size(800, 3000)}) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  // A 72 dp bar and 80 dp of tabs stand in for the shell's header and bottom tabs.
+  await tester.pumpWidget(MaterialApp(
+      theme: DriverTheme.theme(),
+      home: const Scaffold(
+          appBar: PreferredSize(
+              preferredSize: Size.fromHeight(72), child: SizedBox()),
+          body: DriverShipmentDetailScreen(shipmentId: 'shipment-a'),
+          bottomNavigationBar: SizedBox(height: 80))));
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  test('an unpaid booking is refused in words, never "Something went wrong"',
+      () {
+    api = Api('http://test');
+    DioException refusal(String code) => DioException(
+          requestOptions: RequestOptions(path: '/v1/pilot/carrier/shipments'),
+          response: Response(
+            requestOptions: RequestOptions(path: '/v1/pilot/carrier/shipments'),
+            statusCode: 400,
+            data: {'error': code},
+          ),
+        );
+    expect(plainErrorSentence(refusal('checkout_not_completed_for_accept')),
+        'The shipper has not finished paying for this booking yet. You can accept it once they do.',
+        reason:
+            'an unpaid booking shows as waiting for the office; trying again cannot work until the shipper pays');
+    expect(plainErrorSentence(refusal('checkout_not_completed_for_pod')),
+        'This booking is not ready for delivery yet. Ask your office.',
+        reason: 'a driver can meet this, so it says nothing about payment');
+  });
+
+  group('The booking screen', () {
+    test('its title is never "Proof of delivery" before delivery', () {
+      expect(driverShellTitle('/driver/shipment/shipment-a'),
+          isNot('Proof of delivery'),
+          reason:
+              'PR 6: the booking screen was titled "Proof of delivery" from the start');
+    });
+
+    for (final (state, booking) in [
+      ('awaiting acceptance', pending()),
+      ('accepted', truckMissing()),
+      ('in transit', shipmentOnTripA()),
+    ]) {
+      testWidgets('says BOOKING and the shipper, $state', (tester) async {
+        signInAsOwner();
+        answer(bookings: [
+          {...booking, 'id': 'shipment-a'}
+        ], trips: [
+          trip(status: state == 'in transit' ? 'IN_PROGRESS' : 'OPEN'),
+          trip(id: 'trip-b')
+        ]);
+        await mountBooking(tester);
+        expect(find.text('BOOKING'), findsOneWidget,
+            reason: 'copy.md: BOOKING · [Shipper]');
+        expect(find.text(booking['customerOrgName'] as String), findsWidgets);
+        expect(find.textContaining('Proof of delivery'), findsNothing,
+            reason: 'PR 6: never "Proof of delivery" before delivery');
+      });
+    }
+
+    testWidgets(
+        'before acceptance shows the facts, the room left and Accept without scrolling at 360 x 800',
+        (tester) async {
+      signInAsOwner();
+      answer(bookings: [
+        {
+          ...pending(),
+          'ewayBill': {'kind': 'NOT_NEEDED', 'notNeededReason': 'GOODS_EXEMPT'}
+        }
+      ], trips: [
+        trip()
+      ]);
+      await mountBooking(tester, size: const Size(360, 800));
+      expect(find.text('Waiting for you to accept'), findsOneWidget);
+      for (final fact in ['Pickup', 'Drop', 'Weight', 'E-way bill']) {
+        expect(find.text(fact), findsOneWidget,
+            reason: 'ca-booking-new fact: $fact');
+      }
+      expect(find.text('Not needed (shipper said so).'), findsOneWidget,
+          reason: "ca-booking-new shows the shipper's e-way bill answer");
+      expect(
+          find.text(
+              'Your Bengaluru to Chennai trip leaves 18 – 19 Oct. After this, 25 kg of room is left.'),
+          findsOneWidget,
+          reason: 'copy.md accept panel, from the trip the booking is on');
+      final accept = find.widgetWithText(FilledButton, 'Accept');
+      expect(accept, findsOneWidget);
+      final screen = Offset.zero & tester.view.physicalSize;
+      final acceptBox = tester.getRect(accept);
+      expect(screen.contains(acceptBox.topLeft) && acceptBox.bottom <= 800 - 80,
+          isTrue,
+          reason:
+              'success criterion: the primary action is visible without scrolling ($acceptBox)');
+      expect(find.text('Decline'), findsNothing,
+          reason: 'no decline endpoint exists, so no Decline button');
+      expect(tester.takeException(), isNull, reason: 'no overflow at 360 dp');
+    });
+
+    testWidgets('the truck sheet names the trip by the days it leaves',
+        (tester) async {
+      signInAsOwner();
+      answer(bookings: [pending()], trips: [trip()]);
+      await mountBooking(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+      await tester.pumpAndSettle();
+      expect(
+          find.descendant(
+              of: find.byType(BottomSheet),
+              matching: find.textContaining(
+                  'Bengaluru to Chennai, leaves 18 – 19 Oct.')),
+          findsOneWidget,
+          reason: 'the dates are when the truck leaves, never an arrival');
+    });
+
+    testWidgets('Accept says why it is disabled for a carrier not yet approved',
+        (tester) async {
+      signInAsOwner();
+      AuthorizationSession.organizations = [
+        {...carrierOrganization, 'kycStatus': 'SUBMITTED'}
+      ];
+      answer(bookings: [pending()], trips: [trip()]);
+      await mountBooking(tester);
+      expect(
+          tester
+              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Accept'))
+              .onPressed,
+          isNull);
+      expect(find.text('You can accept once NaviG8r approves your company.'),
+          findsOneWidget,
+          reason: 'a disabled button always says why');
+    });
+
+    testWidgets(
+        'a bill without the truck is the shipper\'s to fix: the office reads it, with no form or copy rows',
+        (tester) async {
+      signInAsOwner();
+      answer(bookings: [
+        {...truckMissing(), 'id': 'shipment-a'}
+      ], trips: [
+        trip(id: 'trip-b')
+      ]);
+      await mountBooking(tester);
+      expect(find.text('Accepted with KA01AB1234'), findsOneWidget,
+          reason: 'ca-booking-truck: the done accept step names the truck');
+      expect(find.text('Lakshmi Foods'), findsWidgets,
+          reason: 'the step names the shipper as who acts');
+      expect(find.text('You · Lakshmi Foods made the bill without it'),
+          findsNothing,
+          reason: 'the carrier is not asked to add the truck');
+      expect(find.text('Lakshmi Foods has not added the truck to the bill yet.'),
+          findsOneWidget,
+          reason: 'the state in words');
+      expect(find.text('2718 4402 1196'), findsOneWidget,
+          reason: 'in groups of four, in the mono face');
+      for (final words in [
+        'E-way bill number',
+        'Truck number',
+        'Portal field: Vehicle No.',
+        'Add truck',
+        'Open the government e-way bill portal',
+      ]) {
+        expect(find.text(words), findsNothing, reason: 'read only: "$words"');
+      }
+    });
+
+    testWidgets(
+        'in transit offers today\'s Confirm delivery, with no photo requirement',
+        (tester) async {
+      signInAsOwner();
+      answer(
+          bookings: [shipmentOnTripA()],
+          trips: [trip(status: 'IN_PROGRESS', driverName: 'Suresh Kumar')]);
+      await mountBooking(tester);
+      expect(find.text('In transit'), findsOneWidget);
+      expect(find.text('You or Suresh Kumar'), findsOneWidget,
+          reason: 'ca-booking-deliver: who confirms');
+      final confirm = find.widgetWithText(FilledButton, 'Confirm delivery');
+      expect(confirm, findsOneWidget);
+      expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull,
+          reason:
+              'no photo capture exists, so confirming is not held behind one');
+      expect(find.text('Add the proof of delivery first.'), findsNothing);
+    });
+
+    testWidgets('before the trip starts, the trip step opens the trip instead',
+        (tester) async {
+      signInAsOwner();
+      answer(bookings: [shipmentOnTripA()], trips: [trip()]);
+      await mountBooking(tester);
+      expect(find.widgetWithText(OutlinedButton, 'Open trip'), findsOneWidget,
+          reason: 'assigning and starting happen on the trip screen');
+      expect(find.textContaining('120 kg · Leaves 18 – 19 Oct'), findsOneWidget,
+          reason: 'the summary says the days the truck leaves');
+      expect(
+          find.widgetWithText(FilledButton, 'Confirm delivery'), findsNothing,
+          reason:
+              'ca-booking-deliver: confirming comes once the trip is on the road');
+    });
+
+    testWidgets(
+        'after delivery the owner sees the amount the carrier API sends, together',
+        (tester) async {
+      signInAsOwner();
+      answer(bookings: [delivered(netToCarrierPaise: 237600)], trips: [trip()]);
+      await mountBooking(tester);
+      expect(find.text('Awaiting payment release'), findsOneWidget);
+      expect(find.text('Delivery confirmed'), findsOneWidget,
+          reason: 'the delivery step is done');
+      expect(
+          find.textContaining(' IST · Proof of delivery added'), findsOneWidget,
+          reason: 'when it was confirmed, in India time');
+      expect(find.text('You receive'), findsOneWidget,
+          reason: 'ca-booking-owner: the amount block');
+      expect(find.text('₹2,376'), findsOneWidget,
+          reason: 'Indian grouping, no paise');
+      expect(
+          find.text(
+              'Only owners see payment amounts. Dispatchers and drivers do not.'),
+          findsOneWidget);
+      for (final missing in ['Shipper paid', 'NaviG8r commission']) {
+        expect(find.text(missing), findsNothing,
+            reason:
+                'RECON gaps 20-21: $missing is not sent to carriers, so it is left out, never made up');
+      }
+    });
+
+    testWidgets(
+        'after delivery a dispatcher sees "Delivery confirmed" and no amount, though the server sent it',
+        (tester) async {
+      signInAsDispatcher();
+      answer(bookings: [delivered(netToCarrierPaise: 237600)], trips: [trip()]);
+      await mountBooking(tester);
+      expect(find.text('Delivery confirmed'), findsNWidgets(2),
+          reason: 'ca-booking-dispatcher: the status and the done step');
+      expect(find.text('Nothing more for you to do on this booking.'),
+          findsOneWidget);
+      expect(
+          find.text(
+              'NaviG8r operations check the proof of delivery. The owner sees the payment.'),
+          findsOneWidget);
+      expect(screenWords(tester), isNot(contains('₹')),
+          reason: 'PR 6: no amount anywhere in a dispatcher\'s tree');
+      expect(find.text('You receive'), findsNothing);
+      expect(find.text('Awaiting payment release'), findsNothing);
+    });
+  });
+}

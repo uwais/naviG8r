@@ -4691,6 +4691,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 position: _originPos ?? pinNotPlacedYet,
                 onPositionChanged: (p) => setState(() => _originPos = p),
                 onPinStale: () => setState(() => _originPos = null),
+                readOnly: _submitting,
                 showMap: _originPos != null,
                 findPlace: widget.findPlace,
               ),
@@ -4704,13 +4705,18 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 position: _destPos ?? pinNotPlacedYet,
                 onPositionChanged: (p) => setState(() => _destPos = p),
                 onPinStale: () => setState(() => _destPos = null),
+                readOnly: _submitting,
                 showMap: _destPos != null,
                 findPlace: widget.findPlace,
               ),
               if (_originPos != null && _destPos != null) ...[
                 gap,
                 NvMap(
-                  map: routePreviewMap(a: _originPos!, b: _destPos!),
+                  map: routePreviewMap(
+                      a: _originPos!,
+                      b: _destPos!,
+                      aPinHue: BitmapDescriptor.hueOrange,
+                      bPinHue: BitmapDescriptor.hueAzure),
                   pinsLabel: "From and To",
                 ),
               ],

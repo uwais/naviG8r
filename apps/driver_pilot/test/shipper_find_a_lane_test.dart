@@ -1,10 +1,14 @@
 // PR 4 of the redesign: the shipper Home and Find a lane (sh-home, sh-lanes-*). Names, places and
 // amounts are the mockups' synthetic ones.
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:driver_pilot/notification_center.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import 'support/mock_api.dart';
 import 'support/shipper_lanes_app.dart';
 import 'support/shipper_screen_checks.dart';
 
@@ -266,6 +270,39 @@ void main() {
           reason:
               'reviewer: the match used the Bommasandra pin under the name Hosur');
       expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
+    });
+
+    testWidgets(
+        'a lane card carries the place names searched, even when the words change while Match waits',
+        (tester) async {
+      final answer = Completer<ResponseBody>();
+      final server = await showShipperApp(tester, '/customer/trips?tab=match');
+      server.answers['/v1/customer/eligible-anchor-trips'] =
+          (_) => answer.future;
+      await tester.pumpAndSettle();
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await tester.enterText(field('Weight'), '80');
+      await tester.tap(find.text('Find matching lanes'));
+      await pumpWhileWaiting(tester);
+      await tester.enterText(placeField('Pickup'), 'Hosur');
+      answer.complete(jsonResponse({
+        'trips': [
+          {
+            'trip': lane(),
+            'eligibility': {'eligible': true}
+          },
+        ]
+      }));
+      await tester.pumpAndSettle();
+
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      await tester.tap(find.text('Bengaluru to Chennai'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
+          'Bommasandra, Bengaluru',
+          reason: 'review: the Bommasandra pin went to Book under the name Hosur');
+      expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7));
     });
 
     testWidgets('Match with no lanes offers a lower weight or every lane',

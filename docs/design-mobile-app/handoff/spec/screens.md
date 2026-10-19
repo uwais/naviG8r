@@ -33,9 +33,9 @@ Header on every signed-in screen: one button = company name (title) + "Person ·
 | `sh-lanes-browse` | Find a lane, Browse | (cards open lanes) | Trip: origin, destination, carrier, window, truck size, room left = capacity − booked, status |
 | `sh-lanes-match` | Find a lane, Match my route | (cards) | Server already filters by room and orders by closeness. Do not re-sort |
 | `sh-lanes-empty` | Match returns none | Change weight | Copy in `copy.md` |
-| `sh-book-start` | Lane opened, no price yet | Pay, disabled, saying what is missing | Weight/pickup/drop and pins prefilled from the search, else empty. The price is fetched by itself once all three are in |
-| `sh-book-price` | Price returned | Pay ₹X | Any change to weight or a pin fetches a new price; an answer for older inputs is dropped. One tap opens the existing Razorpay flow (no confirm sheet since 19 Oct 2026) |
-| `sh-book-error` | `insufficient_capacity` | Pay, disabled | Message already merged/under review in code: reuse it |
+| `sh-book-start` | Lane opened, no price yet | Book and pay, disabled, saying what is missing | Weight/pickup/drop and pins prefilled from the search, else empty. The price is fetched by itself once all three are in |
+| `sh-book-price` | Price returned | Book and pay ₹X | Any change to weight or a pin fetches a new price; an answer for older inputs is dropped. One tap books (holding the room on the lane), then opens the existing Razorpay flow (no confirm sheet since 19 Oct 2026) |
+| `sh-book-error` | `insufficient_capacity` | Book and pay, disabled | Message already merged/under review in code: reuse it |
 | `sh-ship-waiting` | Booking status Awaiting carrier acceptance, e-way bill answer missing | Yes, make one | Step 0 can be answered before acceptance |
 | `sh-ewb-ask` | Same status, answer = needed | (none: waiting) | "You can make the bill once the carrier accepts and names the truck." |
 | `sh-ewb-portal` | Accepted, truck known, no bill yet | Open the e-way bill portal | Truck number (portal format) and carrier transporter ID, each with Copy |

@@ -23,7 +23,7 @@
 | Start trip only on the trip screen, behind a confirm sheet | A slip on the list started trips |
 | Start sheet warns when a booking's bill has no truck | Uses existing bill fields only |
 | The shipper adds the truck to the e-way bill; every carrier login only reads it (Rishabh, 18 Oct 2026, replacing Uwais's 15 Oct answer) | The shipper makes the bill, so it holds Part B too; the carrier pays check-post fines, so it still sees the bill's state |
-| No confirm sheet before the payment provider: Pay ₹X opens it in one tap (Rishabh, 19 Oct 2026, replacing the confirm sheet) | The full price, the no-cancel rule and what happens after Pay now sit on the Book screen beside Pay, so the sheet only repeated them |
+| No confirm sheet before the payment provider: one tap on Book and pay ₹X books (holding the room on the lane), then opens it (Rishabh, 19 Oct 2026, replacing the confirm sheet) | The full price, the no-cancel rule and what happens after the tap now sit on the Book screen beside Book and pay, so the sheet only repeated them |
 | The price is fetched by itself, and any change to weight or a pin fetches a new one (Rishabh, 19 Oct 2026, replacing "Get price") | Brief A.2: the price shown is the price charged; the old price goes the moment an input changes |
 | E-way bill step 0 can be answered before acceptance | Brief B: the carrier sees the answer before accepting |
 | Portal field names on copy rows | Testers could not tell GSTIN from transporter ID |

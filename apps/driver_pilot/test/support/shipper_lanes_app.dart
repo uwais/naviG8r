@@ -104,7 +104,8 @@ Future<void> pumpWhileWaiting(WidgetTester tester) async {
 Future<FakeServer> showShipperApp(WidgetTester tester, String start,
     {double height = 2000,
     double width = 360,
-    PlaceFinder findPlace = findAnyPlace}) async {
+    PlaceFinder findPlace = findAnyPlace,
+    TownFinder findTown = GoogleGeocodingService.reverseLatLng}) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -146,7 +147,8 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
               path: 'book',
               builder: (_, state) => CustomerBookShipmentScreen.fromQuery(
                   state.uri.queryParameters,
-                  findPlace: findPlace)),
+                  findPlace: findPlace,
+                  findTown: findTown)),
           GoRoute(
               path: 'shipments',
               builder: (_, __) => const Text('Shipments list')),

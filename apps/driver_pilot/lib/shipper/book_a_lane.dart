@@ -48,12 +48,14 @@ class CustomerBookShipmentScreen extends StatefulWidget {
     this.searchedPickup,
     this.searchedDrop,
     this.findPlace = GoogleGeocodingService.forwardAddress,
+    this.findTown = GoogleGeocodingService.reverseLatLng,
     super.key,
   });
 
   /// From the Book link a lane card builds: the lane, and the match search's weight and places.
   factory CustomerBookShipmentScreen.fromQuery(Map<String, String> query,
-      {PlaceFinder findPlace = GoogleGeocodingService.forwardAddress}) {
+      {PlaceFinder findPlace = GoogleGeocodingService.forwardAddress,
+      TownFinder findTown = GoogleGeocodingService.reverseLatLng}) {
     ({String words, LatLng? point})? place(String name) {
       final words = query[name] ?? "";
       if (words.isEmpty) return null;
@@ -76,6 +78,7 @@ class CustomerBookShipmentScreen extends StatefulWidget {
       searchedPickup: place("pickup"),
       searchedDrop: place("drop"),
       findPlace: findPlace,
+      findTown: findTown,
     );
   }
 
@@ -84,6 +87,7 @@ class CustomerBookShipmentScreen extends StatefulWidget {
   final ({String words, LatLng? point})? searchedPickup;
   final ({String words, LatLng? point})? searchedDrop;
   final PlaceFinder findPlace;
+  final TownFinder findTown;
 
   @override
   State<CustomerBookShipmentScreen> createState() =>
@@ -100,6 +104,8 @@ class _CustomerBookShipmentScreenState
       TextEditingController(text: widget.searchedDrop?.words ?? "");
   late LatLng? _pickupPin = widget.searchedPickup?.point;
   late LatLng? _dropPin = widget.searchedDrop?.point;
+  bool _namingPickupPin = false;
+  bool _namingDropPin = false;
   String? _weightError;
   bool _tooHeavy = false;
   Map<String, dynamic>? _lane;
@@ -319,6 +325,8 @@ class _CustomerBookShipmentScreenState
   }
 
   Future<void> _book() async {
+    // A second tap before the button redraws as loading would book a second shipment.
+    if (_booking) return;
     if (!AuthorizationSession.can("load.create") ||
         !CustomerSession.hasCustomerOrg) return;
     setState(() {
@@ -398,6 +406,8 @@ class _CustomerBookShipmentScreenState
 
   /// What still has to be filled in before there is a price, or null when nothing is missing.
   String? _missingBeforePrice() {
+    // A dragged pin is priced at once but named later; booking before then sends the old name.
+    if (_namingPickupPin || _namingDropPin) return "Updating address from pin…";
     final inputs = _priceInputs;
     final weightMissing = inputs.weightKg == null || inputs.weightKg! <= 0;
     final places = switch ((inputs.pickup == null, inputs.drop == null)) {
@@ -505,10 +515,12 @@ class _CustomerBookShipmentScreenState
           setState(() => _pickupPin = null);
           _priceInputsChanged();
         },
+        onPinNaming: (naming) => setState(() => _namingPickupPin = naming),
         readOnly: _booking,
         showMap: _pickupPin != null,
         showApiKeyHint: false,
         findPlace: widget.findPlace,
+        findTown: widget.findTown,
       ),
       const SizedBox(height: NvSpace.s4),
       LocationEndpointEditor(
@@ -526,10 +538,12 @@ class _CustomerBookShipmentScreenState
           setState(() => _dropPin = null);
           _priceInputsChanged();
         },
+        onPinNaming: (naming) => setState(() => _namingDropPin = naming),
         readOnly: _booking,
         showMap: _dropPin != null,
         showApiKeyHint: false,
         findPlace: widget.findPlace,
+        findTown: widget.findTown,
       ),
       // Last in the list: a row added above the place boxes would rebuild them and lose their search state.
       if (_tooHeavy) ...[
@@ -558,7 +572,8 @@ class _CustomerBookShipmentScreenState
           label: "Book and pay ${formatRupees(price)}",
           loading: _booking,
           fullWidth: true,
-          onPressed: _book);
+          onPressed: missing == null ? _book : null,
+          disabledReason: missing);
     } else if (_pricing) {
       button = const NvButton(
           label: "Book and pay",

@@ -2,7 +2,7 @@
 // both must start clean when a different shipment takes their place. The rest of the carrier's
 // card is in eway_bill_carrier_card_test.dart; the truck form, and the shipper adding a truck
 // through it, are in eway_bill_truck_form_test.dart; the copy rows, the form's own checks and the
-// step on the shipment screen are in shipper_shipment_screen_test.dart.
+// step on the shipment screen are in shipper_eway_bill_steps_test.dart.
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/eway_bill_card.dart';
 import 'package:driver_pilot/eway_bill_carrier_card.dart';

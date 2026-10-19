@@ -187,8 +187,9 @@ String formatApiError(Object e) {
       final retry = body["retryAfterMs"];
       final seconds = retry is num ? (retry / 1000).ceil() : 30;
       final minutes = (seconds / 60).ceil();
+      final shownSeconds = seconds > 0 ? seconds : 1;
       final wait = seconds < 60
-          ? "${seconds > 0 ? seconds : 1} seconds"
+          ? "$shownSeconds ${shownSeconds == 1 ? "second" : "seconds"}"
           : "$minutes ${minutes == 1 ? "minute" : "minutes"}";
       return "Too many code requests. Please wait $wait and try again.";
     }

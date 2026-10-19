@@ -7,18 +7,24 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "google_geocoding.dart";
 
-/// Read-only route line between two points (publish / book preview).
-Widget routePreviewMap({required LatLng a, required LatLng b}) {
+/// Read-only route line between two points (publish / book preview). [aPinHue] and [bPinHue] let a
+/// screen match the pins of its own place boxes.
+Widget routePreviewMap({
+  required LatLng a,
+  required LatLng b,
+  double aPinHue = BitmapDescriptor.hueGreen,
+  double bPinHue = BitmapDescriptor.hueRed,
+}) {
   final markers = <Marker>{
     Marker(
       markerId: const MarkerId("route_a"),
       position: a,
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+      icon: BitmapDescriptor.defaultMarkerWithHue(aPinHue),
     ),
     Marker(
       markerId: const MarkerId("route_b"),
       position: b,
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      icon: BitmapDescriptor.defaultMarkerWithHue(bPinHue),
     ),
   };
   final line = Polyline(
@@ -43,6 +49,8 @@ Widget routePreviewMap({required LatLng a, required LatLng b}) {
     child: ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: GoogleMap(
+        // The camera fits the two points only when the map is made, so a moved point makes a new map.
+        key: ValueKey((a, b)),
         initialCameraPosition: CameraPosition(target: a, zoom: 6),
         markers: markers,
         polylines: {line},
@@ -250,6 +258,7 @@ class LocationEndpointEditor extends StatefulWidget {
     required this.position,
     required this.onPositionChanged,
     this.onPinStale,
+    this.onPinNaming,
     this.readOnly = false,
     this.showApiKeyHint = true,
     this.showMap = true,
@@ -268,6 +277,10 @@ class LocationEndpointEditor extends StatefulWidget {
   /// Called when the words change away from the place the pin was found for, so the screen stops
   /// using that pin. After a drag that found no name, any words typed go with the pin.
   final VoidCallback? onPinStale;
+
+  /// Called with true while a dragged pin's town name is being looked up, and false once it is
+  /// settled. [onPositionChanged] reports the pin before the name, so the words lag until then.
+  final ValueChanged<bool>? onPinNaming;
 
   /// True while the place is being sent, so the words, search and pin stay as they were sent.
   final bool readOnly;
@@ -344,6 +357,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
 
   Future<void> _lookup() async {
     _newestLookup++;
+    if (_reverseBusy) widget.onPinNaming?.call(false);
     setState(() {
       _lookupBusy = true;
       _reverseBusy = false;
@@ -390,9 +404,11 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
 
     final lookup = ++_newestLookup;
     setState(() => _reverseBusy = true);
+    widget.onPinNaming?.call(true);
     final outcome = await widget.findTown(p);
     if (!mounted || lookup != _newestLookup) return;
     setState(() => _reverseBusy = false);
+    widget.onPinNaming?.call(false);
     // Without a key nothing can name the pin, so the name typed by hand stays.
     if (outcome.status == "NO_API_KEY") return;
     final name = outcome.isOk ? outcome.placeName : null;

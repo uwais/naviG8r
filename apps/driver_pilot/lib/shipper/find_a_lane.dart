@@ -292,6 +292,10 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
     final weightKg = int.tryParse(_weightKg.text.trim()) ?? 0;
     final pickupPoint = _pickupPin;
     final dropPoint = _dropPin;
+    // Read with the pins: the words can change while the search is out, and a lane card must carry
+    // the names the pins were found for.
+    final pickupWords = _pickupName.text.trim();
+    final dropWords = _dropName.text.trim();
     setState(() {
       _weightError =
           weightKg <= 0 ? "Enter a weight greater than 0 kg." : null;
@@ -327,8 +331,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
       setState(() {
         _lanes = lanes;
         _searchedWeightKg = weightKg;
-        _searchedPickup = (words: _pickupName.text.trim(), point: pickupPoint);
-        _searchedDrop = (words: _dropName.text.trim(), point: dropPoint);
+        _searchedPickup = (words: pickupWords, point: pickupPoint);
+        _searchedDrop = (words: dropWords, point: dropPoint);
         _editing = false;
       });
       announce(context,

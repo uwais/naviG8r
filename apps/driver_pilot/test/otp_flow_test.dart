@@ -61,6 +61,20 @@ void main() {
         reason: 'a wait of a minute or more reads in minutes, rounded up');
   });
 
+  test('a wait of one second reads "1 second"', () {
+    final limited = DioException(
+      requestOptions: RequestOptions(path: '/v1/auth/otp/start'),
+      response: Response(
+        requestOptions: RequestOptions(path: '/v1/auth/otp/start'),
+        statusCode: 429,
+        data: {'error': 'otp_rate_limited', 'retryAfterMs': 400},
+      ),
+    );
+    expect(formatApiError(limited),
+        'Too many code requests. Please wait 1 second and try again.',
+        reason: 'review: it read "1 seconds"');
+  });
+
   testWidgets('customer resend cooldown disables button and counts down',
       (tester) async {
     FlutterSecureStorage.setMockInitialValues({});
