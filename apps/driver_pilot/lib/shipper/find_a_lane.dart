@@ -281,11 +281,10 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
       _failed = false;
     });
     try {
-      const notFound = "Could not find this place. Check the name and add the city.";
       final pickupPlaced = await _pickup.place(widget.findPlace,
-          emptyError: "Enter the pickup place.", notFoundError: notFound);
+          emptyError: "Enter the pickup place.");
       final dropPlaced = await _drop.place(widget.findPlace,
-          emptyError: "Enter the drop place.", notFoundError: notFound);
+          emptyError: "Enter the drop place.");
       if (!mounted || !pickupPlaced || !dropPlaced || weightKg <= 0) return;
       final pickupPoint = _pickup.point!;
       final dropPoint = _drop.point!;

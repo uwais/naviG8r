@@ -414,15 +414,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
       _searchTried = true;
     });
     if (!outcome.isOk) {
-      setState(() => _hintLine = switch (outcome.failure) {
-            PlaceSearchFailure.nothingTyped => "Type a town or area, then search.",
-            PlaceSearchFailure.notFound =>
-              "Could not find this place. Try a nearby town, or drag the pin on the map to it.",
-            PlaceSearchFailure.unreachable =>
-              "Could not reach the map service. Check your connection, then search again.",
-            PlaceSearchFailure.notWorking || null =>
-              "Place search is not working right now. Drag the pin on the map to the place.",
-          });
+      setState(() => _hintLine = placeSearchFailureSentence(outcome.failure, pinOnMap: true));
       if (outcome.status == "NO_API_KEY" && mounted && widget.showApiKeyHint) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

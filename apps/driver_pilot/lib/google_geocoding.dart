@@ -7,6 +7,21 @@ import "maps_config.dart";
 /// Why a place search failed, so the screen can say what is true and what to do next.
 enum PlaceSearchFailure { nothingTyped, notFound, unreachable, notWorking }
 
+/// The sentence for a failed place search. [pinOnMap] is whether the screen has a map pin the
+/// person can drag to the place instead; without one, the pin advice would be untrue.
+String placeSearchFailureSentence(PlaceSearchFailure? failure, {required bool pinOnMap}) =>
+    switch (failure) {
+      PlaceSearchFailure.nothingTyped => "Type a town or area, then search.",
+      PlaceSearchFailure.notFound => pinOnMap
+          ? "Could not find this place. Try a nearby town, or drag the pin on the map to it."
+          : "Could not find this place. Try a nearby town.",
+      PlaceSearchFailure.unreachable =>
+        "Could not reach the map service. Check your connection, then search again.",
+      PlaceSearchFailure.notWorking || null => pinOnMap
+          ? "Place search is not working right now. Drag the pin on the map to the place."
+          : "Place search is not working right now. Try again later.",
+    };
+
 class GeocodeOutcome {
   GeocodeOutcome._({this.position, this.formattedAddress, this.placeName, this.status, this.errorMessage});
 

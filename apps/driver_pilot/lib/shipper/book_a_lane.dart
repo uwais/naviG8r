@@ -191,12 +191,10 @@ class _CustomerBookShipmentScreenState
     }
     setState(() => _pricing = true);
     try {
-      const notFound =
-          "Could not find this place. Check the name and try again.";
       final pickupPlaced = await _pickup.place(widget.findPlace,
-          emptyError: "Enter the pickup place.", notFoundError: notFound);
+          emptyError: "Enter the pickup place.");
       final dropPlaced = await _drop.place(widget.findPlace,
-          emptyError: "Enter the drop place.", notFoundError: notFound);
+          emptyError: "Enter the drop place.");
       if (!mounted || !pickupPlaced || !dropPlaced || weightKg <= 0) return;
       final r = await api.post<Map<String, dynamic>>("/shipments/quote",
           data: {

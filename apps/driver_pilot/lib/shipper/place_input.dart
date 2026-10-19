@@ -28,8 +28,7 @@ class PlaceInput {
 
   /// Looks up the words when they have no point yet. Sets [error] and returns false when the
   /// place cannot be used.
-  Future<bool> place(PlaceFinder findPlace,
-      {required String emptyError, required String notFoundError}) async {
+  Future<bool> place(PlaceFinder findPlace, {required String emptyError}) async {
     error = null;
     if (text.isEmpty) {
       error = emptyError;
@@ -38,7 +37,8 @@ class PlaceInput {
     if (placed) return true;
     final outcome = await findPlace(text);
     if (!outcome.isOk) {
-      error = notFoundError;
+      // Match has no map, and Book pins only a place found earlier, so no pin is promised.
+      error = placeSearchFailureSentence(outcome.failure, pinOnMap: false);
       return false;
     }
     foundAt(outcome.position!);
