@@ -3,8 +3,9 @@ import "ui/nv_status_label.dart" show NvStatusTone;
 import "ui/nv_step_list.dart" show NvStepState;
 
 // The shipper's view of one shipment: the "Shipment step mapping" in spec/screens.md, worked out
-// from the booking status, the e-way bill and, where the screen has it, the trip's status. The
-// shipment screen, the shipments list "Next:" line and the Home "Needs you" card all read this.
+// from the booking status, the e-way bill, whether the delivery is accepted and, where the screen
+// has it, the trip's status. The shipment screen, the shipments list "Next:" line and the Home
+// "Needs you" card all read this.
 
 /// Who acts on the current step.
 enum ShipmentActor { shipper, carrier, staff, nobody }
@@ -105,6 +106,10 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
   final stage = ewayBillStageOf(shipment);
   final waitingForCarrier = status == "PENDING_CARRIER_ACCEPT";
   final delivered = status == "PENDING_RELEASE" || status == "DELIVERED";
+  // Delivery confirmed and the payment held: the shipper's acceptance ends the 48-hour hold early.
+  final awaitingAcceptance = status == "PENDING_RELEASE" &&
+      shipment["podAtUtcMs"] is num &&
+      shipment["podAcceptedAtUtcMs"] == null;
   final inTransit = status == "BOOKED" &&
       (tripStatus == "IN_PROGRESS" || tripStatus == "COMPLETED");
 
@@ -123,6 +128,11 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
 
   final (ShipmentStepName current, ShipmentActor actor, String? next) =
       switch (stage) {
+    _ when awaitingAcceptance => (
+        ShipmentStepName.delivered,
+        ShipmentActor.shipper,
+        "You accept the delivery"
+      ),
     _ when delivered => (
         ShipmentStepName.delivered,
         ShipmentActor.nobody,
@@ -169,6 +179,7 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
 
   final task = actor == ShipmentActor.shipper
       ? switch (stage) {
+          _ when awaitingAcceptance => "Accept delivery",
           EwayBillStage.none => "Make the e-way bill",
           EwayBillStage.billWithoutTruck => "Add the truck to the e-way bill",
           EwayBillStage.problem => "Fix the e-way bill",
@@ -260,8 +271,12 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
 String? shipperTaskFor(Map<String, dynamic> shipment,
     {required bool canWriteBill,
     required bool canAddTruck,
+    required bool canAcceptDelivery,
     String? tripStatus}) {
   final task = shipmentProgress(shipment, tripStatus: tripStatus).task;
+  if (task == "Accept delivery") {
+    return canAcceptDelivery ? task : null;
+  }
   if (task == "Add the truck to the e-way bill") {
     return canAddTruck ? task : null;
   }

@@ -57,6 +57,8 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 
   void _phoneChanged(String value) {
+    // An error about the old number must not sit under a number that may now be right.
+    if (_error != null) setState(() => _error = null);
     final phone = digitsOnly(value.trim());
     if (_challengePhone == null || phone == _challengePhone) return;
     setState(() {

@@ -757,6 +757,92 @@ void main() {
     });
 
     testWidgets(
+        'a delivery waiting for acceptance is the Home task, ahead of an older e-way bill task',
+        (tester) async {
+      final delivered = booking(
+          id: 'shp_delivered',
+          status: 'PENDING_RELEASE',
+          ewayBill: billWithTruck,
+          extra: {
+            'anchorTripId': 'lane-2',
+            'podAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+          });
+      final server = await showShipperApp(tester, '/customer');
+      server.answers['/shipments'] = {
+        'shipments': [booking(), delivered]
+      };
+      server.answers['/anchor-trips'] = {
+        'trips': [
+          lane(),
+          {...lane(status: 'COMPLETED'), 'id': 'lane-2', 'destCity': 'Mysuru'},
+        ]
+      };
+      server.answers['/shipments/shp_delivered'] = {
+        'shipment': delivered,
+        'payment': heldPayment,
+      };
+      await tester.pumpAndSettle();
+      expect(find.text('Accept delivery'), findsOneWidget,
+          reason: 'seen on the recorded run: Home showed the e-way bill task');
+      expect(find.text('Make the e-way bill'), findsNothing,
+          reason: 'the 48-hour hold ends on its own, so acceptance comes first');
+      expect(
+          find.text(
+              'Bengaluru to Mysuru, ${formatDate(laneStart)}. Ravi Roadways confirmed delivery on ${formatDate(deliveredAt)}.'),
+          findsOneWidget,
+          reason: 'copy.md: route, date, who did what');
+      await tester.tap(find.text('Open shipment'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(FilledButton, 'Accept delivery'),
+          findsOneWidget,
+          reason: 'the task opens the shipment that holds the button');
+      await leave(tester);
+    });
+
+    testWidgets('the Accept delivery task fits 360 x 800 at 200% text',
+        (tester) async {
+      useDoubleTextSize(tester);
+      final server = await showShipperApp(tester, '/customer', height: 800);
+      server.answers['/shipments'] = {
+        'shipments': [
+          booking(
+              status: 'PENDING_RELEASE',
+              ewayBill: billWithTruck,
+              extra: {'podAtUtcMs': deliveredAt.millisecondsSinceEpoch}),
+        ]
+      };
+      server.answers['/anchor-trips'] = {
+        'trips': [lane(status: 'COMPLETED')]
+      };
+      await tester.pumpAndSettle();
+      expect(find.text('Accept delivery'), findsOneWidget);
+      await expectNoOverflowToTheEnd(tester, 'Home with Accept delivery');
+    });
+
+    testWidgets(
+        'the list keeps a delivery waiting for acceptance under Active, marked Needs you',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/shipments');
+      server.answers['/shipments'] = {
+        'shipments': [
+          booking(
+              status: 'PENDING_RELEASE',
+              ewayBill: billWithTruck,
+              extra: {'podAtUtcMs': deliveredAt.millisecondsSinceEpoch}),
+        ]
+      };
+      server.answers['/anchor-trips'] = {
+        'trips': [lane(status: 'COMPLETED')]
+      };
+      await tester.pumpAndSettle();
+      expect(find.text('Active (1)'), findsOneWidget,
+          reason: 'it still waits on the shipper, so it is not done');
+      expect(find.text('Done'), findsNothing);
+      expect(find.text('Needs you'), findsOneWidget);
+      expect(find.text('Next: You accept the delivery.'), findsOneWidget);
+    });
+
+    testWidgets(
         'Home has no task while the trip is on the way, whatever the bill',
         (tester) async {
       final server = await showShipperApp(tester, '/customer');

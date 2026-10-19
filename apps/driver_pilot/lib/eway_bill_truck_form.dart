@@ -74,8 +74,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
   }
 
   Future<void> _chooseDate() async {
-    final india = DateTime.now().toUtc().add(indiaTimeOffset);
-    final today = DateTime(india.year, india.month, india.day);
+    final today = indiaToday();
     // The server refuses more than 30 days from now, so the last day is 29 ahead: even 23:59 on it stays
     // inside. Built from the day number, because adding a Duration shifts by an hour across a clock change.
     final last = DateTime(today.year, today.month, today.day + 29);
