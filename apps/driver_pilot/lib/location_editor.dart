@@ -6,7 +6,6 @@ import "package:flutter/material.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "google_geocoding.dart";
-import "maps_config.dart";
 
 /// Read-only route line between two points (publish / book preview).
 Widget routePreviewMap({required LatLng a, required LatLng b}) {
@@ -350,6 +349,7 @@ class LocationEndpointEditor extends StatefulWidget {
     this.showApiKeyHint = true,
     this.showMap = true,
     this.findPlace = GoogleGeocodingService.forwardAddress,
+    this.findTown = GoogleGeocodingService.reverseLatLng,
   });
 
   final String title;
@@ -364,6 +364,7 @@ class LocationEndpointEditor extends StatefulWidget {
   /// False leaves out the map and its drag caption, so a screen can keep the form short until the place is found.
   final bool showMap;
   final PlaceFinder findPlace;
+  final TownFinder findTown;
 
   @override
   State<LocationEndpointEditor> createState() => _LocationEndpointEditorState();
@@ -432,7 +433,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
       _pos = p;
       // The field becomes the trip's city name, so it holds the short name; the hint shows the full address.
       _hintLine = outcome.formattedAddress;
-      widget.labelController.text = placeNameFromAddress(outcome.formattedAddress) ?? widget.labelController.text;
+      widget.labelController.text = outcome.placeName ?? widget.labelController.text;
     });
     widget.onPositionChanged(p);
     await _map?.animateCamera(CameraUpdate.newLatLngZoom(p, 12));
@@ -445,18 +446,20 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     });
     widget.onPositionChanged(p);
 
-    if (kMapsApiKey.isEmpty) return;
-
     setState(() => _reverseBusy = true);
-    final addr = await GoogleGeocodingService.reverseLatLng(p);
+    final outcome = await widget.findTown(p);
     if (!mounted) return;
     setState(() => _reverseBusy = false);
-    if (addr != null && addr.isNotEmpty) {
-      setState(() {
-        widget.labelController.text = placeNameFromAddress(addr) ?? widget.labelController.text;
-        _hintLine = addr;
-      });
-    }
+    // Without a key nothing can name the pin, so the name typed by hand stays.
+    if (outcome.status == "NO_API_KEY") return;
+    final name = outcome.isOk ? outcome.placeName : null;
+    setState(() {
+      // The name from before the drag would publish the trip under a town the pin has left.
+      widget.labelController.text = name ?? "";
+      _hintLine = name == null
+          ? "Could not name the place at the pin. Type its name above."
+          : outcome.formattedAddress;
+    });
   }
 
   @override
@@ -487,9 +490,12 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
         ),
         if (_hintLine != null) ...[
           const SizedBox(height: 6),
-          Text(
-            _hintLine!,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              _hintLine!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
           ),
         ],
         if (_reverseBusy) ...[
