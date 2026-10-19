@@ -41,6 +41,13 @@ void main() {
                       "attempts": 1,
                       "lastHttpStatus": 200,
                     },
+                    {
+                      "id": "whd_2",
+                      "eventId": "evt_retry",
+                      "status": "PENDING",
+                      "attempts": 3,
+                      "lastHttpStatus": 500,
+                    },
                   ],
                 },
               ),
@@ -92,6 +99,63 @@ void main() {
     expect(find.text("abc123"), findsOneWidget);
     expect(find.text("evt_test"), findsOneWidget);
   });
+
+  for (final textScale in [1.0, 2.0]) {
+    testWidgets(
+        "CustomerIntegrationsScreen fits 360 x 800 at ${(textScale * 100).round()}% text",
+        (tester) async {
+      CustomerSession.applyForTest(
+        userFullName: "ERP Admin",
+        userPhone: "9111009900",
+        customerOrgId: "org_test",
+        customerOrgName: "ERP Smoke Co",
+        customerRole: "CUSTOMER_ADMIN",
+      );
+
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: DriverTheme.theme(),
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!),
+          home: const CustomerIntegrationsScreen(),
+        ),
+      );
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(tester.takeException(), isNull,
+          reason: "nothing overflows at the top of the screen");
+
+      // The list builds lazily, so scroll to the end to lay out every field.
+      final list = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(find.text("Retry"), 200,
+          scrollable: list);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull,
+          reason: "nothing overflows further down the screen");
+
+      await tester.scrollUntilVisible(find.text("Payment policy"), -200,
+          scrollable: list);
+      await tester.pumpAndSettle();
+      final chosenPolicy = tester.widget<Text>(
+          find.text("Portal checkout (Razorpay in customer web)"));
+      expect(chosenPolicy.maxLines, 1,
+          reason: "the closed field keeps the chosen policy to one line");
+      expect(chosenPolicy.overflow, TextOverflow.ellipsis);
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull,
+          reason: "the payment policy choices fit the open menu");
+      expect(find.text("ERP pre-authorized (book without portal checkout)"),
+          findsOneWidget,
+          reason: "the menu is open and shows the other choice");
+    });
+  }
 
   testWidgets("CustomerIntegrationsScreen shows admin required for non-admin",
       (tester) async {
