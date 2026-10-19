@@ -1,3 +1,6 @@
+// Just over 500 lines on purpose: one screen, Find a lane, with its two views sharing the lane
+// cards. The two place boxes in the Match form are most of the growth; splitting the views apart
+// would put the shared cards in a third file for no reader's gain.
 import "dart:async";
 
 import "package:flutter/material.dart";
@@ -6,16 +9,17 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "../google_geocoding.dart";
 import "../customer_layout.dart";
+import "../location_editor.dart";
 import "../pilot_api.dart";
 import "../ui/format.dart";
 import "../ui/nv_button.dart";
 import "../ui/nv_field.dart";
 import "../ui/nv_list_card.dart";
+import "../ui/nv_message.dart";
 import "../ui/nv_status_label.dart";
 import "../ui/tokens.dart";
 import "shipper_scaffold.dart";
 import "shipper_words.dart";
-import "place_input.dart";
 import "search_summary.dart";
 import "announce.dart";
 
@@ -251,8 +255,12 @@ class _CustomerMatchTripsTab extends StatefulWidget {
 }
 
 class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
-  final _pickup = PlaceInput();
-  final _drop = PlaceInput();
+  final _pickupName = TextEditingController();
+  final _dropName = TextEditingController();
+  LatLng? _pickupPin;
+  LatLng? _dropPin;
+  String? _pickupError;
+  String? _dropError;
   final _weightKg = TextEditingController();
   String? _weightError;
   bool _editing = true;
@@ -266,34 +274,40 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
 
   @override
   void dispose() {
-    _pickup.dispose();
-    _drop.dispose();
+    _pickupName.dispose();
+    _dropName.dispose();
     _weightKg.dispose();
     super.dispose();
   }
 
+  /// Why a place cannot be searched from yet, or null when it has a name and a pin.
+  static String? _placeMissing(
+      String which, TextEditingController name, LatLng? pin) {
+    if (name.text.trim().isEmpty) return "Enter the $which place.";
+    if (pin == null) return "Search for the $which place.";
+    return null;
+  }
+
   Future<void> _search() async {
     final weightKg = int.tryParse(_weightKg.text.trim()) ?? 0;
+    final pickupPoint = _pickupPin;
+    final dropPoint = _dropPin;
     setState(() {
       _weightError =
           weightKg <= 0 ? "Enter a weight greater than 0 kg." : null;
-      _searching = true;
+      _pickupError = _placeMissing("pickup", _pickupName, pickupPoint);
+      _dropError = _placeMissing("drop", _dropName, dropPoint);
       _failed = false;
     });
+    if (_pickupError != null || _dropError != null || weightKg <= 0) return;
+    setState(() => _searching = true);
     try {
-      final pickupPlaced = await _pickup.place(widget.findPlace,
-          emptyError: "Enter the pickup place.");
-      final dropPlaced = await _drop.place(widget.findPlace,
-          emptyError: "Enter the drop place.");
-      if (!mounted || !pickupPlaced || !dropPlaced || weightKg <= 0) return;
-      final pickupPoint = _pickup.point!;
-      final dropPoint = _drop.point!;
       final r = await api.get<Map<String, dynamic>>(
           "/v1/customer/eligible-anchor-trips",
           query: {
-            "pickupLat": pickupPoint.latitude.toString(),
+            "pickupLat": pickupPoint!.latitude.toString(),
             "pickupLng": pickupPoint.longitude.toString(),
-            "dropLat": dropPoint.latitude.toString(),
+            "dropLat": dropPoint!.latitude.toString(),
             "dropLng": dropPoint.longitude.toString(),
             "weightKg": weightKg.toString(),
           });
@@ -313,8 +327,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
       setState(() {
         _lanes = lanes;
         _searchedWeightKg = weightKg;
-        _searchedPickup = (words: _pickup.text, point: pickupPoint);
-        _searchedDrop = (words: _drop.text, point: dropPoint);
+        _searchedPickup = (words: _pickupName.text.trim(), point: pickupPoint);
+        _searchedDrop = (words: _dropName.text.trim(), point: dropPoint);
         _editing = false;
       });
       announce(context,
@@ -369,14 +383,58 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
     ]);
   }
 
+  /// The place box with its error under it, in one row of the list: an error added as a row of its
+  /// own would move the boxes below it, which rebuilds them and loses their search state.
+  Widget _placeWithError(Widget placeBox, String? error) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          placeBox,
+          if (error != null) ...[
+            const SizedBox(height: NvSpace.s2),
+            NvMessage(error, tone: NvMessageTone.problem),
+          ],
+        ],
+      );
+
   List<Widget> _form() => [
-        NvField(
-            label: "Pickup",
-            controller: _pickup.words,
-            errorText: _pickup.error),
+        // Each map shows once its place has a pin, so the form stays short while typing.
+        _placeWithError(
+          LocationEndpointEditor(
+            title: "Pickup",
+            hint: "City or area",
+            labelController: _pickupName,
+            markerId: "match_pickup",
+            markerHue: BitmapDescriptor.hueGreen,
+            position: _pickupPin ?? pinNotPlacedYet,
+            onPositionChanged: (pin) => setState(() {
+              _pickupPin = pin;
+              _pickupError = null;
+            }),
+            showMap: _pickupPin != null,
+            showApiKeyHint: false,
+            findPlace: widget.findPlace,
+          ),
+          _pickupError,
+        ),
         const SizedBox(height: NvSpace.s4),
-        NvField(
-            label: "Drop", controller: _drop.words, errorText: _drop.error),
+        _placeWithError(
+          LocationEndpointEditor(
+            title: "Drop",
+            hint: "City or area",
+            labelController: _dropName,
+            markerId: "match_drop",
+            markerHue: BitmapDescriptor.hueRed,
+            position: _dropPin ?? pinNotPlacedYet,
+            onPositionChanged: (pin) => setState(() {
+              _dropPin = pin;
+              _dropError = null;
+            }),
+            showMap: _dropPin != null,
+            showApiKeyHint: false,
+            findPlace: widget.findPlace,
+          ),
+          _dropError,
+        ),
         const SizedBox(height: NvSpace.s4),
         NvField(
             label: "Weight",
