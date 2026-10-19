@@ -376,6 +376,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   bool _lookupBusy = false;
   bool _reverseBusy = false;
   String? _hintLine;
+  // Each search and pin drag bumps this, so a slow town lookup cannot overwrite a newer one.
+  int _newestLookup = 0;
   // A failed search still opens the map, so the pin can be dragged to a place Google cannot find.
   bool _searchTried = false;
 
@@ -399,8 +401,10 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   }
 
   Future<void> _lookup() async {
+    _newestLookup++;
     setState(() {
       _lookupBusy = true;
+      _reverseBusy = false;
       _hintLine = null;
     });
     final outcome = await widget.findPlace(widget.labelController.text);
@@ -446,19 +450,26 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     });
     widget.onPositionChanged(p);
 
+    final lookup = ++_newestLookup;
     setState(() => _reverseBusy = true);
     final outcome = await widget.findTown(p);
-    if (!mounted) return;
+    if (!mounted || lookup != _newestLookup) return;
     setState(() => _reverseBusy = false);
     // Without a key nothing can name the pin, so the name typed by hand stays.
     if (outcome.status == "NO_API_KEY") return;
     final name = outcome.isOk ? outcome.placeName : null;
+    final noTownAtPin = outcome.failure == PlaceSearchFailure.notFound || (outcome.isOk && name == null);
     setState(() {
-      // The name from before the drag would publish the trip under a town the pin has left.
-      widget.labelController.text = name ?? "";
-      _hintLine = name == null
-          ? "Could not name the place at the pin. Type its name above."
-          : outcome.formattedAddress;
+      if (name != null) {
+        widget.labelController.text = name;
+        _hintLine = outcome.formattedAddress;
+      } else if (noTownAtPin) {
+        // The name from before the drag would publish the trip under a town the pin has left.
+        widget.labelController.text = "";
+        _hintLine = "Could not name the place at the pin. Type its name above.";
+      } else {
+        _hintLine = "Could not check the name at the pin. Check it is still right.";
+      }
     });
   }
 

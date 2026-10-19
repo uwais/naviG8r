@@ -279,6 +279,48 @@ void main() {
             'the account check');
   });
 
+  testWidgets('a verify answer with no access token is not taken as a right code',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    var verifies = 0;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') {
+        return jsonResponse({'challengeId': 'challenge-1', 'retryAfterMs': 0});
+      }
+      if (request.uri.path == '/v1/auth/otp/verify') {
+        verifies++;
+        return jsonResponse({});
+      }
+      if (request.uri.path == '/v1/auth/me') return jsonResponse({}, 401);
+      return jsonResponse({});
+    });
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+          path: '/customer/login', builder: (_, __) => const SignInScreen()),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '9876543210');
+    await tester.tap(find.text('Send code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect(
+        find.text(
+            'Could not sign you in. Check your connection, then try again.'),
+        findsOneWidget,
+        reason: 'review: with no token the account check could never pass');
+
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect(verifies, 2,
+        reason: 'review: the code was marked accepted and never verified again');
+  });
+
   testWidgets('a carrier who just registered finds their number filled in',
       (tester) async {
     FlutterSecureStorage.setMockInitialValues({});

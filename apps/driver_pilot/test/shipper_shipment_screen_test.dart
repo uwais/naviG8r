@@ -788,9 +788,10 @@ void main() {
           reason: 'the 48-hour hold ends on its own, so acceptance comes first');
       expect(
           find.text(
-              'Bengaluru to Mysuru, ${formatDate(laneStart)}. Ravi Roadways confirmed delivery on ${formatDate(deliveredAt)}.'),
+              'Bengaluru to Mysuru, ${formatDate(laneStart)}. Ravi Roadways confirmed delivery on ${formatDate(deliveredAt)}. '
+              'Check the goods. Accepting lets payment go before the hold ends; if you do nothing it can go when the hold ends.'),
           findsOneWidget,
-          reason: 'copy.md: route, date, who did what');
+          reason: 'review: accepting is optional, and the card says what happens either way');
       await tester.tap(find.text('Open shipment'));
       await tester.pumpAndSettle();
       expect(find.widgetWithText(FilledButton, 'Accept delivery'),

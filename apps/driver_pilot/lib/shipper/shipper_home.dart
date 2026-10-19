@@ -256,7 +256,7 @@ class _NeedsYouCard extends StatelessWidget {
   final Map<String, dynamic> shipment;
   final Map<String, dynamic>? lane;
 
-  // Who did what, in the shipment step's own words (spec/copy.md).
+  // Who did what, in the shipment step's own words (spec/copy.md). Accept delivery also says accepting is optional.
   String get _whatHappened {
     final bill = shipment["ewayBill"];
     final carrier = carrierOf(shipment);
@@ -265,7 +265,8 @@ class _NeedsYouCard extends StatelessWidget {
       final date = formatDate(DateTime.fromMillisecondsSinceEpoch(
           deliveredAt.toInt(),
           isUtc: true));
-      return "$carrier confirmed delivery on $date.";
+      return "$carrier confirmed delivery on $date. Check the goods. Accepting lets payment go before the hold ends; "
+          "if you do nothing it can go when the hold ends.";
     }
     if (task == "Fix the e-way bill") return "NaviG8r staff found a difference.";
     if (bill is Map && bill["billNumber"] is String) {

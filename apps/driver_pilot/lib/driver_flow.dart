@@ -913,6 +913,13 @@ String? _ewayBillCardWords(Map<String, dynamic> booking) {
   if ((flagged || mismatch) && !ewayBillIsClosed(booking)) {
     return "E-way bill has a problem";
   }
+  // The same test as the bill's own lines (ewayBillTruckLines), so the card never reassures once the time has gone.
+  final validUntil = bill["validUntilUtcMs"];
+  if (validUntil is num &&
+      validUntil.toInt() <= currentTime().millisecondsSinceEpoch &&
+      !ewayBillIsClosed(booking)) {
+    return "E-way bill time has passed";
+  }
   return check is Map && check["result"] == "FOUND"
       ? "E-way bill checked"
       : "Truck on the e-way bill";
@@ -1104,8 +1111,8 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
       ));
     }
   }
-  // Only what the trip screen's Start trip would take: an approved carrier, an accepted booking, a driver and
-  // a truck, and a trip whose first day has come.
+  // What the trip screen's Start trip takes (an approved carrier, an accepted booking, a driver) and also a
+  // truck and a trip whose first day has come, which Start trip itself does not check.
   if (AuthorizationSession.can("load.status_update") &&
       DriverSession.complianceApproved) {
     for (final trip in loaded.tripsById.values) {
@@ -4463,7 +4470,8 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
 
   @override
   void dispose() {
-    _publishDraft = _published || _publishDraftOwner() != _draftOwner
+    // A publish still sending may yet land; its draft would let the same trip be sent again.
+    _publishDraft = _published || _submitting || _publishDraftOwner() != _draftOwner
         ? null
         : (
             owner: _draftOwner,
