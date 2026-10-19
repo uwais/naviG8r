@@ -134,8 +134,11 @@ function ewayDateWords(isoDate) {
 
 function ewayCheckRow(shipment) {
   const bill = shipment.ewayBill, name = shipment.customerOrgName, cardId = 'eway-' + shipment.id;
-  const portalWords = ewayPortalAddress === 'https://ewaybillgst.gov.in' ? 'Open the government portal' : 'Open the practice portal';
-  const link = element('a', { href: ewayPortalAddress, target: '_blank', rel: 'noopener noreferrer', text: portalWords });
+  const realPortal = ewayPortalAddress === 'https://ewaybillgst.gov.in';
+  // The practice site's Verify page reads the four details from the link and looks the bill up; the real portal cannot.
+  const portalHref = realPortal ? ewayPortalAddress
+    : ewayPortalAddress + '/check?' + new URLSearchParams({ number: bill.billNumber, billDate: bill.billDate, gstin: bill.makerGstin, invoiceNumber: bill.invoiceNumber });
+  const link = element('a', { href: portalHref, target: '_blank', rel: 'noopener noreferrer', text: realPortal ? 'Open the government portal' : 'Open the practice portal' });
   const found = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Mark as found on the portal' });
   const problem = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Report a problem' });
   const actions = element('div', { class: 'row center' }, link, element('div', { class: 'grow' }), found, problem);

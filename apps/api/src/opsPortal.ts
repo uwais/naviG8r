@@ -65,11 +65,27 @@ async function loadWorkspace(){
  for(const s of out.shipments){
   const row=document.createElement('article'), title=document.createElement('strong'), status=document.createElement('p');title.textContent=s.id;status.textContent=s.status;row.append(title,status);
   const hold=document.createElement('small');hold.textContent=s.paymentReady?'Ready for payment release':s.paymentHoldUntilUtcMs?'Payment held until acceptance or '+new Date(s.paymentHoldUntilUtcMs).toLocaleString():'Awaiting POD';row.append(hold);
-  if(s.status==='PENDING_RELEASE'&&principal.permissions.includes('payment.capture')){const b=document.createElement('button');b.textContent='Release payment';b.disabled=!s.paymentReady;b.onclick=perform(async()=>{await request('/ops/shipments/'+s.id+'/release','POST',{});await loadWorkspace();});row.append(b);}
+  if(s.status==='PENDING_RELEASE'&&principal.permissions.includes('payment.capture')){const b=document.createElement('button');b.textContent='Release payment';b.disabled=!s.paymentReady;b.onclick=perform(()=>askToRelease(row,b,s.id));row.append(b);}
   if(s.status==='PENDING_RELEASE'&&!s.podAcceptedAtUtcMs&&principal.permissions.includes('pod.accept')){const b=document.createElement('button');b.textContent='Accept POD';b.onclick=perform(async()=>{await request('/shipments/'+s.id+'/accept-pod','POST',{});await loadWorkspace();});row.append(b);}
   $('shipments').append(row);
  }
  if(!$('compliance').hidden) await loadKycQueue();
+}
+const rupees=paise=>'₹'+(paise/100).toLocaleString('en-IN',{minimumFractionDigits:paise%100?2:0,maximumFractionDigits:2});
+// Releasing sends money, so the first tap only asks, with the amount, carrier and route read fresh from the server.
+async function askToRelease(row,button,shipmentId){
+ let detail; button.disabled=true;
+ try{detail=await request('/ops/shipments/'+encodeURIComponent(shipmentId));}finally{button.disabled=false;}
+ const s=detail.shipment;
+ if(s.status!=='PENDING_RELEASE'||!s.paymentReady) throw Error('This payment is no longer waiting for release. Reload to see where it stands.');
+ const route=s.pickupAddress&&s.dropAddress?s.pickupAddress+' to '+s.dropAddress:'shipment '+s.id;
+ const ask=document.createElement('div'),question=document.createElement('p'),confirmRelease=document.createElement('button'),cancel=document.createElement('button');
+ question.textContent='Release '+(Number.isFinite(s.netToCarrierPaise)?rupees(s.netToCarrierPaise):'payment')+' to '+detail.carrierOrgName+' for '+route+'?';
+ confirmRelease.textContent='Confirm release';cancel.textContent='Cancel';
+ ask.setAttribute('role','group');ask.setAttribute('aria-label',question.textContent);ask.append(question,confirmRelease,cancel);
+ cancel.onclick=()=>{ask.remove();button.hidden=false;button.focus();};
+ confirmRelease.onclick=perform(async()=>{confirmRelease.disabled=cancel.disabled=true;try{await request('/ops/shipments/'+encodeURIComponent(shipmentId)+'/release','POST',{});}finally{confirmRelease.disabled=cancel.disabled=false;}await loadWorkspace();});
+ button.hidden=true;row.append(ask);cancel.focus();
 }
 const kycLabels={SUBMITTED:'Bank details submitted',NOT_STARTED:'No bank details yet',REJECTED:'Rejected'};
 async function loadKycQueue(){

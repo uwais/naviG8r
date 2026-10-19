@@ -284,18 +284,20 @@ test("POD hold is enforced in V1 and release appears in the delivered view", asy
   page,
 }) => {
   await login(page, "8000000006", "/ops/v1");
-  page.on("dialog", (d) => d.accept());
   const f = action(page, "Release payment");
   await f.getByLabel("Shipment ID").fill("load-a-hold");
   await f.getByLabel("Reason code").fill("POD_REVIEWED");
-  await f.getByRole("button").click();
+  await f.getByRole("button", { name: "Release payment" }).click();
+  await expect(f.getByRole("group")).toContainText(/^Release ₹[\d,.]+ to .+ for .+\?/);
+  await f.getByRole("button", { name: "Confirm release" }).click();
   await expect(page.locator("#error")).toContainText("payment_hold_active");
   await screenshot(page, "11-payment-hold");
   // The API returns 403 for an active hold; refresh the principal before retrying.
   await page.getByRole("button", { name: "Refresh access" }).click();
   await f.getByLabel("Shipment ID").fill("load-a-expired");
   await f.getByLabel("Reason code").fill("HOLD_EXPIRED");
-  await f.getByRole("button").click();
+  await f.getByRole("button", { name: "Release payment" }).click();
+  await f.getByRole("button", { name: "Confirm release" }).click();
   await expect(page.locator("#notice")).toContainText(
     "Release payment completed",
   );
@@ -373,6 +375,8 @@ test("V2 shipper POD acceptance and finance release still work after V1 submissi
     .locator("article")
     .filter({ hasText: "load-a-booked" });
   await financeRow.getByRole("button", { name: "Release payment" }).click();
+  await expect(financeRow.getByRole("group")).toContainText(/^Release ₹[\d,.]+ to .+ for .+\?/);
+  await financeRow.getByRole("button", { name: "Confirm release" }).click();
   await expect(financeRow).toHaveCount(0);
   await screenshot(page, "17-v2-payment-release");
 });
