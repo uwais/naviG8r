@@ -5,6 +5,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "google_geocoding.dart";
 import "maps_config.dart";
+import "shipper/place_input.dart" show PlaceFinder;
 
 /// Read-only route line between two points (publish / book preview).
 Widget routePreviewMap({required LatLng a, required LatLng b}) {
@@ -346,6 +347,8 @@ class LocationEndpointEditor extends StatefulWidget {
     required this.position,
     required this.onPositionChanged,
     this.showApiKeyHint = true,
+    this.showMap = true,
+    this.findPlace = GoogleGeocodingService.forwardAddress,
   });
 
   final String title;
@@ -356,6 +359,10 @@ class LocationEndpointEditor extends StatefulWidget {
   final LatLng position;
   final ValueChanged<LatLng> onPositionChanged;
   final bool showApiKeyHint;
+
+  /// False leaves out the map and its drag caption, so a screen can keep the form short until the place is found.
+  final bool showMap;
+  final PlaceFinder findPlace;
 
   @override
   State<LocationEndpointEditor> createState() => _LocationEndpointEditorState();
@@ -377,6 +384,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   @override
   void didUpdateWidget(covariant LocationEndpointEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // A hidden map is disposed, and its controller with it.
+    if (!widget.showMap) _map = null;
     final o = oldWidget.position;
     final n = widget.position;
     if (o.latitude != n.latitude || o.longitude != n.longitude) {
@@ -390,7 +399,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
       _lookupBusy = true;
       _hintLine = null;
     });
-    final outcome = await GoogleGeocodingService.forwardAddress(widget.labelController.text);
+    final outcome = await widget.findPlace(widget.labelController.text);
     if (!mounted) return;
     setState(() => _lookupBusy = false);
     if (!outcome.isOk) {
@@ -472,33 +481,35 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
           const SizedBox(height: 4),
           Text("Updating address from pin…", style: Theme.of(context).textTheme.bodySmall),
         ],
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 220,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: GoogleMap(
-              initialCameraPosition: CameraPosition(target: _pos, zoom: 12),
-              markers: {
-                Marker(
-                  markerId: MarkerId(widget.markerId),
-                  position: _pos,
-                  draggable: true,
-                  icon: BitmapDescriptor.defaultMarkerWithHue(widget.markerHue),
-                  onDragEnd: _onDragEnd,
-                ),
-              },
-              onMapCreated: (c) => _map = c,
-              zoomControlsEnabled: true,
-              myLocationButtonEnabled: false,
+        if (widget.showMap) ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 220,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: GoogleMap(
+                initialCameraPosition: CameraPosition(target: _pos, zoom: 12),
+                markers: {
+                  Marker(
+                    markerId: MarkerId(widget.markerId),
+                    position: _pos,
+                    draggable: true,
+                    icon: BitmapDescriptor.defaultMarkerWithHue(widget.markerHue),
+                    onDragEnd: _onDragEnd,
+                  ),
+                },
+                onMapCreated: (c) => _map = c,
+                zoomControlsEnabled: true,
+                myLocationButtonEnabled: false,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          "Drag the pin to fine-tune. Use search to jump to a place.",
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-        ),
+          const SizedBox(height: 4),
+          Text(
+            "Drag the pin to fine-tune. Use search to jump to a place.",
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
       ],
     );
   }
