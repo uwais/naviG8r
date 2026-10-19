@@ -6,6 +6,7 @@ import 'package:flutter/semantics.dart';
 
 import 'authorization_session.dart';
 import 'eway_bill_closed.dart';
+import 'eway_bill_dates.dart';
 import 'eway_bill_error_text.dart';
 import 'eway_bill_portal_link.dart';
 import 'eway_bill_transport_details.dart';
@@ -184,8 +185,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       });
 
   Future<void> _chooseDate() async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = indiaToday();
     final current = _billDate == null ? null : DateTime.tryParse(_billDate!);
     final initial =
         current != null && !current.isAfter(today) ? current : today;

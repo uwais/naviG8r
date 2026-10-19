@@ -126,17 +126,30 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     }
     final canWriteBill = AuthorizationSession.can("eway_bill.write");
     final canAddTruck = AuthorizationSession.can("eway_bill.add_truck");
+    final canAcceptDelivery = AuthorizationSession.can("pod.accept");
     Map<String, dynamic>? taskShipment;
     String? task;
     for (final shipment in _shipments) {
-      task = shipperTaskFor(shipment,
+      final shipmentTask = shipperTaskFor(shipment,
           canWriteBill: canWriteBill,
           canAddTruck: canAddTruck,
+          canAcceptDelivery: canAcceptDelivery,
           tripStatus:
               laneOfShipment(shipment, _lanesById)?["status"]?.toString());
-      if (task != null && (shipment["id"]?.toString() ?? "").isNotEmpty) {
+      if (shipmentTask == null ||
+          (shipment["id"]?.toString() ?? "").isEmpty) {
+        continue;
+      }
+      // Accepting a delivery comes first: its 48-hour hold ends on its own, and then payment can be
+      // released without the shipper's word. The e-way bill tasks wait for the shipper.
+      if (shipmentTask == "Accept delivery") {
         taskShipment = shipment;
+        task = shipmentTask;
         break;
+      }
+      if (taskShipment == null) {
+        taskShipment = shipment;
+        task = shipmentTask;
       }
     }
     final waiting = _shipments
@@ -247,6 +260,13 @@ class _NeedsYouCard extends StatelessWidget {
   String get _whatHappened {
     final bill = shipment["ewayBill"];
     final carrier = carrierOf(shipment);
+    final deliveredAt = shipment["podAtUtcMs"];
+    if (task == "Accept delivery" && deliveredAt is num) {
+      final date = formatDate(DateTime.fromMillisecondsSinceEpoch(
+          deliveredAt.toInt(),
+          isUtc: true));
+      return "$carrier confirmed delivery on $date.";
+    }
     if (task == "Fix the e-way bill") return "NaviG8r staff found a difference.";
     if (bill is Map && bill["billNumber"] is String) {
       return "Bill ${formatBillNumber(bill["billNumber"] as String)} saved. The truck is not on it yet.";

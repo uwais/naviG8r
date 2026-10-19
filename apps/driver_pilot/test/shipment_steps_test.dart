@@ -6,9 +6,13 @@ import 'package:driver_pilot/ui/nv_step_list.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String? taskFor(Map<String, dynamic> shipment,
-        {bool canWriteBill = true, bool canAddTruck = true}) =>
+        {bool canWriteBill = true,
+        bool canAddTruck = true,
+        bool canAcceptDelivery = true}) =>
     shipperTaskFor(shipment,
-        canWriteBill: canWriteBill, canAddTruck: canAddTruck);
+        canWriteBill: canWriteBill,
+        canAddTruck: canAddTruck,
+        canAcceptDelivery: canAcceptDelivery);
 
 const bill = {'kind': 'BILL', 'billNumber': '341200987654'};
 const billWithTruck = {...bill, 'truckNumber': 'KA01AB1234'};
@@ -259,6 +263,36 @@ void main() {
           taskFor({'status': 'BOOKED', 'ewayBill': bill}, canAddTruck: false),
           isNull,
           reason: 'no eway_bill.add_truck, no truck task');
+      expect(taskFor(awaitingAcceptance, canAcceptDelivery: false), isNull,
+          reason: 'no pod.accept, no delivery to accept');
+    });
+
+    test('delivery confirmed and not yet accepted: the shipper accepts it', () {
+      final progress = shipmentProgress(awaitingAcceptance);
+      expect(progress.actor, ShipmentActor.shipper);
+      expect(progress.next, 'You accept the delivery',
+          reason: 'the list Next: line on the delivered card');
+      expect(taskFor(awaitingAcceptance), 'Accept delivery',
+          reason: 'seen on the recorded run: Home showed no delivery task');
+      expect(
+          taskFor({...awaitingAcceptance, 'podAcceptedAtUtcMs': 2}), isNull,
+          reason: 'once accepted, nothing is left for the shipper');
+    });
+
+    test('the 48-hour hold is over: nothing is left for the shipper', () {
+      final holdOver = {...awaitingAcceptance, 'paymentReady': true};
+      final progress = shipmentProgress(holdOver);
+      expect(progress.actor, ShipmentActor.nobody);
+      expect(progress.next, isNull,
+          reason: 'accepting no longer changes when payment is released');
+      expect(taskFor(holdOver), isNull,
+          reason: 'review: a delivery from three days ago stayed first on Home');
     });
   });
 }
+
+/// The driver confirmed delivery and the payment is on hold.
+final awaitingAcceptance = {
+  ...shipment('PENDING_RELEASE', billWithTruck),
+  'podAtUtcMs': 1,
+};

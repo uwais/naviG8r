@@ -180,6 +180,23 @@ void main() {
         reason: 'accessibility.md: a wrong code is announced assertively');
   });
 
+  testWidgets('the short-number error goes as soon as the number is edited',
+      (tester) async {
+    await showSignIn(tester, '/customer/login');
+    await tester.enterText(find.byType(TextField), '98450');
+    await tester.scrollUntilVisible(find.text('Send code'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Send code'));
+    await tester.pumpAndSettle();
+    const short = 'Enter a 10-digit mobile number.';
+    expect(find.text(short), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '9845012345');
+    await tester.pumpAndSettle();
+    expect(find.text(short), findsNothing,
+        reason:
+            'seen on the recorded run: it stayed under a right number until Send code');
+  });
+
   testWidgets('Change number goes back to the phone step', (tester) async {
     await showSignIn(tester, '/customer/login');
     await sendCode(tester);

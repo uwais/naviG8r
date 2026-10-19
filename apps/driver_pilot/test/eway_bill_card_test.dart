@@ -6,6 +6,7 @@
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/eway_bill_card.dart';
 import 'package:driver_pilot/eway_bill_carrier_card.dart';
+import 'package:driver_pilot/eway_bill_dates.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/ui/nv_field.dart';
 import 'package:flutter/material.dart';
@@ -57,7 +58,7 @@ void main() {
       'adding a bill sends the four details, then shows the number in groups of four and that the truck is missing',
       (tester) async {
     Map? sent;
-    final now = DateTime.now();
+    final now = indiaToday();
     api.dio.httpClientAdapter = MockApiAdapter((request) {
       expect(request.path, '/shipments/shipment-a/eway-bill');
       sent = request.data as Map;
@@ -105,6 +106,39 @@ void main() {
         reason: 'copy.md step 3: number in groups of four, truck missing');
     expect(find.text('Remove e-way bill'), findsOneWidget,
         reason: 'removing is as easy as adding');
+  });
+
+  testWidgets(
+      "the bill date goes up to India's today when the phone is still on yesterday",
+      (tester) async {
+    // 9:50 pm on 18 Oct in US Eastern is 7:20 am on 19 Oct in India, as on the recorded run.
+    ewayBillNow = () => DateTime.utc(2026, 10, 19, 1, 50);
+    addTearDown(() => ewayBillNow = DateTime.now);
+    Map? sent;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      sent = request.data as Map;
+      return jsonResponse({'shipment': shipment(bill: savedBill)});
+    });
+    await mountCard(tester, EwayBillCard(shipment: shipment()));
+    await tester.tap(find.text('I have made it. Enter the details'));
+    await tester.pump();
+    await tester.enterText(entry('E-way bill number'), '123456789012');
+    await tester.enterText(entry('Your GSTIN'), '29ABCDE1234F1Z5');
+    await tester.enterText(entry('Invoice number'), 'INV/1');
+    await tester.tap(find.text('Choose the date'));
+    await tester.pumpAndSettle();
+    final picker =
+        tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+    expect(picker.lastDate, DateTime(2026, 10, 19),
+        reason: 'the bill is dated in India, where it is already 19 Oct');
+    expect(picker.initialDate, DateTime(2026, 10, 19),
+        reason: "the picker opens on India's today");
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save e-way bill'));
+    await tester.pumpAndSettle();
+    expect(sent?['billDate'], '2026-10-19',
+        reason: 'staff compare this with the date on the bill');
   });
 
   testWidgets("a refusal shows the server's sentence, never HTTP 400",

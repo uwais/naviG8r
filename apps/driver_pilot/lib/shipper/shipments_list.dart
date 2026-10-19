@@ -85,16 +85,21 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
     });
   }
 
+  bool _needsYou(Map<String, dynamic> shipment) =>
+      shipperTaskFor(shipment,
+          canWriteBill: AuthorizationSession.can("eway_bill.write"),
+          canAddTruck: AuthorizationSession.can("eway_bill.add_truck"),
+          canAcceptDelivery: AuthorizationSession.can("pod.accept"),
+          tripStatus:
+              laneOfShipment(shipment, _lanesById)?["status"]?.toString()) !=
+      null;
+
   /// What a card or a table row says about [shipment], the same on a phone and a desktop.
   _ShipmentRow _row(Map<String, dynamic> shipment) {
     final lane = laneOfShipment(shipment, _lanesById);
     final tripStatus = lane?["status"]?.toString();
     final progress = shipmentProgress(shipment, tripStatus: tripStatus);
-    final needsYou = shipperTaskFor(shipment,
-            canWriteBill: AuthorizationSession.can("eway_bill.write"),
-            canAddTruck: AuthorizationSession.can("eway_bill.add_truck"),
-            tripStatus: tripStatus) !=
-        null;
+    final needsYou = _needsYou(shipment);
     final id = shipment["id"]?.toString() ?? "";
     return (
       route: shipmentRouteName(shipment, lane: lane, withDate: false) ??
@@ -260,11 +265,13 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
             onPressed: () => context.go("/customer/trips")),
       ];
     }
+    // A delivery still waiting for the shipper's acceptance stays under Active, where its task is.
     bool isDone(Map<String, dynamic> shipment) {
       final status = shipment["status"];
-      return status == "DELIVERED" ||
-          status == "PENDING_RELEASE" ||
-          status == "FAILED_CARRIER_REFUNDED";
+      return (status == "DELIVERED" ||
+              status == "PENDING_RELEASE" ||
+              status == "FAILED_CARRIER_REFUNDED") &&
+          !_needsYou(shipment);
     }
 
     final active = _shipments.where((s) => !isDone(s)).toList();
