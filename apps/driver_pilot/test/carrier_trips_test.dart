@@ -643,6 +643,30 @@ void main() {
             reason: 'a sign-out ends the draft, even for the same account');
         expect(find.text('Choose a date'), findsNWidgets(2));
       });
+
+      testWidgets('a draft kept past midnight drops the days that have gone',
+          (tester) async {
+        final server = signInWith(Server(allowed: ownerAllowed));
+        final router =
+            await mount(tester, publish(), size: const Size(800, 3000));
+        // Both days are today, the earliest the picker offers.
+        await fillIn(tester);
+        router.go('/driver/loads');
+        await tester.pumpAndSettle();
+        currentTime = () => DateTime.now().add(const Duration(days: 1));
+        addTearDown(() => currentTime = DateTime.now);
+        router.go('/screen');
+        await tester.pumpAndSettle();
+        expect(fieldTexts(tester),
+            ['Hoskote, Karnataka', 'Kolar, Karnataka', '1000'],
+            reason: 'the places and the room are still good');
+        expect(find.text('Choose a date'), findsNWidgets(2),
+            reason: 'review: yesterday was restored and sent to the server');
+        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.pumpAndSettle();
+        expect(server.sent, isEmpty);
+        expect(find.text('Choose the day the trip leaves.'), findsOneWidget);
+      });
     });
 
     testWidgets('a place search that finds nothing still opens the map to drag the pin',

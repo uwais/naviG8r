@@ -905,6 +905,14 @@ String? _ewayBillCardWords(Map<String, dynamic> booking) {
   final truck = bill?["truckNumber"];
   if (bill?["kind"] != "BILL" || truck is! String || truck.isEmpty) return null;
   final check = bill?["check"];
+  // The same test as the booking's step list, so the card never reassures while the steps show a problem.
+  final flagged = check is Map && check["result"] == "PROBLEM";
+  final mismatch = ewayBillTruckMismatchSentence(booking, bill!,
+          reader: TruckMismatchReader.carrierOffice) !=
+      null;
+  if ((flagged || mismatch) && !ewayBillIsClosed(booking)) {
+    return "E-way bill has a problem";
+  }
   return check is Map && check["result"] == "FOUND"
       ? "E-way bill checked"
       : "Truck on the e-way bill";
@@ -4377,8 +4385,12 @@ DateTime _dayInIndia(DateTime moment) {
   return DateTime.utc(india.year, india.month, india.day);
 }
 
+/// Tests move it past midnight; the date picker cannot choose a day that has gone.
+@visibleForTesting
+DateTime Function() currentTime = DateTime.now;
+
 /// The calendar day in India today.
-DateTime _todayInIndia() => _dayInIndia(DateTime.now());
+DateTime _todayInIndia() => _dayInIndia(currentTime());
 
 /// What was typed on Publish, kept in memory while the person goes to another tab and back. [owner] is the
 /// sign-in and company it was typed under, so a sign-out, another sign-in or a company switch never gets it back.
@@ -4434,12 +4446,15 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     super.initState();
     final draft = _publishDraft;
     if (draft != null && draft.owner == _draftOwner) {
+      // A draft kept past midnight can hold a day that has gone; the form only checks that one was chosen.
+      final today = _todayInIndia();
+      bool notGone(DateTime? day) => day != null && !day.isBefore(today);
       _origin.text = draft.from;
       _originPos = draft.fromPoint;
       _dest.text = draft.to;
       _destPos = draft.toPoint;
-      _leaves = draft.leaves;
-      _arrivesBy = draft.arrivesBy;
+      _leaves = notGone(draft.leaves) ? draft.leaves : null;
+      _arrivesBy = notGone(draft.arrivesBy) ? draft.arrivesBy : null;
       _truckSize = draft.truckSize;
       _room.text = draft.room;
     }

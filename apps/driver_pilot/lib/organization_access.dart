@@ -132,7 +132,7 @@ String? mobileAccessRedirect(String path) {
   }
   if (path.startsWith('/driver') && !driverPublic) {
     // /driver shows the same sign-in inside the carrier shell. The shipper's sign-in here swapped the shell out
-    // and back mid-transition and put it in the tree twice, the likely cause of a blank screen after sign-out.
+    // and back mid-transition and put it in the tree twice; unconfirmed as the cause of the blank screen.
     if (!AuthorizationSession.signedIn) return '/driver';
     if (!AuthorizationSession.hasRole('CARRIER')) {
       return AuthorizationSession.home;

@@ -1,5 +1,7 @@
 // What a carrier's screens do when the session changes under them: signing out of the owner's Trips (owner run,
 // 18 Oct 2026: a blank screen until the app was restarted) and a driver signing in at the start screen.
+import 'dart:async';
+
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/main.dart';
@@ -39,8 +41,8 @@ void main() {
         reason: 'the shipper side is unchanged');
   });
 
-  // The sign-out itself waits on push-notification platform calls that never answer under flutter test, so the
-  // session is changed directly, as signOut() does once the token is gone.
+  // The real signOut(), which deletes the stored token, with only its push-notification revoke skipped: that
+  // waits on platform calls that never answer under flutter test.
   testWidgets(
       "signing out of the owner's Trips right after a publish stays in the carrier shell, which is never in the tree twice",
       (tester) async {
@@ -82,14 +84,17 @@ void main() {
     router.routerDelegate.addListener(record);
     addTearDown(() => router.routerDelegate.removeListener(record));
 
-    // Signed out while Trips is still on screen. The sign-in screens then refresh access with the token that
-    // is still stored, so the session flips back while the pages are still moving: the race that, with the
-    // shipper sign-in in between, put the carrier shell in the tree twice.
-    AuthorizationSession.clear();
+    // Signed out while Trips is still on screen. signOut() clears the session before the phone's token delete
+    // finishes, and the button opens the start only after it; the pumps stand in for that delete. With the
+    // shipper sign-in in between, the carrier shell was swapped out and back and ended up in the tree twice.
+    api.onBeforeIdentityChange = () async {};
+    unawaited(AuthorizationSession.signOut());
     await pumpFrames(tester, 8);
     router.go('/');
     await pumpFrames(tester, 100);
 
+    expect(AuthorizationSession.signedIn, isFalse,
+        reason: 'the token is gone, so nothing signs back in');
     expect(tester.takeException(), isNull,
         reason: 'before: "Multiple widgets used the same GlobalKey", which a phone build does not check');
     expect(visited, isNot(contains('/customer/login')),

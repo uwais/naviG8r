@@ -461,6 +461,55 @@ void main() {
         reason: 'spec: works at 360 dp and 200% text');
   });
 
+  testWidgets(
+      'a card never says "Truck on the e-way bill" while the booking shows a problem with the bill',
+      (tester) async {
+    signInAsOwner();
+    answer(bookings: [
+      {
+        ...shipmentOnTripA(),
+        'id': 'shipment-f',
+        'customerOrgName': 'Flagged Shipper',
+        'ewayBill': {
+          'kind': 'BILL',
+          'billNumber': '341200987654',
+          'truckNumber': 'KA01AB1234',
+          'check': {'result': 'PROBLEM'},
+        },
+      },
+      {
+        ...shipmentOnTripA(),
+        'id': 'shipment-w',
+        'customerOrgName': 'Wrong Truck Shipper',
+        'assignedTruckNumber': 'KA05CD5678',
+        'ewayBill': {
+          'kind': 'BILL',
+          'billNumber': '341200987655',
+          'truckNumber': 'KA01AB1234',
+        },
+      },
+    ], trips: [
+      trip()
+    ]);
+    await mountRouted(tester, const DriverShipmentsScreen());
+    await tester.tap(find.text('Active'));
+    await tester.pumpAndSettle();
+    expect(find.text('Flagged Shipper'), findsOneWidget);
+    expect(find.text('Wrong Truck Shipper'), findsOneWidget);
+    expect(find.textContaining('Truck on the e-way bill'), findsNothing,
+        reason: 'review: ops flagged one bill and the other names another truck');
+    expect(find.text('18 Oct · 120 kg · E-way bill has a problem'),
+        findsNWidgets(2),
+        reason: "the booking's own steps show a problem for both");
+
+    await mountRouted(tester, const DriverShipmentsScreen(key: ValueKey(2)),
+        size: const Size(360, 800), textScale: 2);
+    await tester.tap(find.text('Active'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull,
+        reason: 'spec: works at 360 dp and 200% text');
+  });
+
   group('The booking screen', () {
     test('its title is never "Proof of delivery" before delivery', () {
       expect(driverShellTitle('/driver/shipment/shipment-a'),
