@@ -1,31 +1,40 @@
 import "dart:async";
 
+import "package:flutter/foundation.dart" show kReleaseMode;
 import "package:flutter/material.dart";
 import "package:flutter/semantics.dart";
 import "package:go_router/go_router.dart";
 
-import "../authorization_session.dart";
-import "../customer_session.dart";
-import "../pilot_api.dart";
-import "../plain_error_sentence.dart";
-import "../ui/format.dart";
-import "../ui/sign_in_code_page.dart";
-import "../ui/sign_in_phone_page.dart";
-import "announce.dart";
+import "authorization_session.dart";
+import "customer_session.dart";
+import "pilot_api.dart";
+import "plain_error_sentence.dart";
+import "ui/format.dart";
+import "ui/sign_in_code_page.dart";
+import "ui/sign_in_phone_page.dart";
+import "shipper/announce.dart";
 
-class CustomerLoginScreen extends StatefulWidget {
-  const CustomerLoginScreen({super.key});
+/// The one sign-in, for shippers and carriers alike. It asks nothing about the person; after the
+/// code the app lands by the account's role (AuthorizationSession.home).
+class SignInScreen extends StatefulWidget {
+  const SignInScreen({this.startingPhone, super.key});
+
+  /// The number a carrier just registered with, filled in so they only tap Send code.
+  final String? startingPhone;
 
   @override
-  State<CustomerLoginScreen> createState() => _CustomerLoginScreenState();
+  State<SignInScreen> createState() => _SignInScreenState();
 }
 
-class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
+class _SignInScreenState extends State<SignInScreen> {
   final _phone = TextEditingController();
   final _code = TextEditingController();
   String? _debugCode;
   String? _challengeId;
   String? _challengePhone;
+  // The server spends a code on its first check, so once the token is saved a retry
+  // repeats only the account check.
+  bool _codeAccepted = false;
   bool _sending = false;
   bool _verifying = false;
   Timer? _otpCooldownTimer;
@@ -53,6 +62,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
     setState(() {
       _challengeId = null;
       _challengePhone = null;
+      _codeAccepted = false;
       _debugCode = null;
       _code.clear();
       _otpCooldownSeconds = 0;
@@ -64,6 +74,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   @override
   void initState() {
     super.initState();
+    _phone.text = widget.startingPhone ?? "";
     CustomerSession.refresh().then((_) {
       if (mounted) setState(() {});
     });
@@ -97,6 +108,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
       if (!mounted) return;
       _challengeId = r.data?["challengeId"] as String?;
       _challengePhone = phone;
+      _codeAccepted = false;
       _startOtpCooldown(r.data?["retryAfterMs"]);
       announce(context, "Code sent to ${formatPhone(phone)}.");
       final dc = r.data?["debugCode"];
@@ -136,18 +148,27 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
       _error = null;
     });
     try {
-      final r = await api.post<Map<String, dynamic>>(
-        "/v1/auth/otp/verify",
-        data: {
-          "phone": phone,
-          "challengeId": challengeId,
-          "code": _code.text.trim()
-        },
-      );
-      final token = r.data?["accessToken"] as String?;
-      if (token != null) await api.setToken(token);
+      if (!_codeAccepted) {
+        final r = await api.post<Map<String, dynamic>>(
+          "/v1/auth/otp/verify",
+          data: {
+            "phone": phone,
+            "challengeId": challengeId,
+            "code": _code.text.trim()
+          },
+        );
+        final token = r.data?["accessToken"] as String?;
+        if (token != null) await api.setToken(token);
+        _codeAccepted = true;
+      }
       await CustomerSession.refresh();
       if (!mounted) return;
+      // The code was right, so the account check failed: a dropped connection or the server.
+      if (!AuthorizationSession.signedIn) {
+        _showVerifyError(
+            "Could not finish signing in. Check your connection, then try again.");
+        return;
+      }
       context.go(AuthorizationSession.home);
     } catch (e) {
       if (mounted) {
@@ -163,6 +184,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   void _changeNumber() => setState(() {
         _challengeId = null;
         _challengePhone = null;
+        _codeAccepted = false;
         _debugCode = null;
         _error = null;
         _code.clear();
@@ -178,13 +200,15 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
         errorText: _error,
         onSend: _sendOtp,
         onPhoneChanged: _phoneChanged,
-        onBack: () => context.go("/customer"),
-        shipping: true,
-        onOtherSide: () => context.go("/driver/onboarding/phone"),
         newAccountLinks: {
           "Register business": () => context.go("/customer/register"),
           "Register as teammate": () => context.go("/customer/register-user"),
+          "Register as new carrier": () =>
+              context.go("/driver/onboarding/register"),
+          "Join a carrier fleet": () => context.go("/driver/onboarding/join"),
         },
+        onOpenDeveloperLab:
+            kReleaseMode ? null : () => context.go("/pilot-lab"),
       );
     }
     return SignInCodePage(

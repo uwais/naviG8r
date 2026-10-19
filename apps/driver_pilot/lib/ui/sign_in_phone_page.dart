@@ -2,45 +2,38 @@ import "package:flutter/material.dart";
 
 import "nv_button.dart";
 import "nv_field.dart";
-import "nv_header.dart";
 import "tokens.dart";
 
-/// The phone step of signing in, for shippers and carriers alike. The screen that shows it
-/// keeps the number, sends the code and says which side the person chose on the start screen.
+/// The phone step of signing in, for shippers and carriers alike, and what someone signed out
+/// sees first. The screen that shows it keeps the number and sends the code.
 class SignInPhonePage extends StatelessWidget {
   const SignInPhonePage({
     required this.phone,
     required this.sending,
     required this.onSend,
-    required this.onBack,
-    required this.shipping,
-    required this.onOtherSide,
     this.errorText,
     this.onPhoneChanged,
     this.newAccountLinks = const {},
+    this.onOpenDeveloperLab,
     super.key,
   });
 
   final TextEditingController phone;
   final bool sending;
   final VoidCallback onSend;
-  final VoidCallback onBack;
-
-  /// True when the person chose "I ship goods", false for "I carry goods".
-  final bool shipping;
-  final VoidCallback onOtherSide;
   final String? errorText;
   final ValueChanged<String>? onPhoneChanged;
 
   /// Today's ways to make a new account, by their button words.
   final Map<String, VoidCallback> newAccountLinks;
 
+  /// Null hides the link; release builds have no developer lab.
+  final VoidCallback? onOpenDeveloperLab;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: NvHeader.task(backLabel: "Back", onBack: onBack),
       body: SafeArea(
-        top: false,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
               NvSpace.gutter, NvSpace.s6, NvSpace.gutter, NvSpace.s6),
@@ -70,34 +63,13 @@ class SignInPhonePage extends StatelessWidget {
                 onPressed: onSend,
                 loading: sending,
                 fullWidth: true),
-            const SizedBox(height: NvSpace.s8),
-            Container(
-              padding: const EdgeInsets.all(NvSpace.s4),
-              decoration: BoxDecoration(
-                  color: NvColors.sunken,
-                  borderRadius: BorderRadius.circular(NvRadius.card)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text.rich(
-                    TextSpan(children: [
-                      const TextSpan(text: "Signing in to "),
-                      TextSpan(
-                          text: shipping ? "ship goods" : "carry goods",
-                          style: const TextStyle(fontWeight: FontWeight.w700)),
-                      const TextSpan(text: "."),
-                    ]),
-                    style: NvText.body,
-                  ),
-                  NvButton(
-                      label: shipping
-                          ? "I carry goods instead"
-                          : "I ship goods instead",
-                      kind: NvButtonKind.quiet,
-                      onPressed: onOtherSide),
-                ],
+            if (newAccountLinks.isNotEmpty) ...[
+              const SizedBox(height: NvSpace.s8),
+              Semantics(
+                header: true,
+                child: const Text("New to NaviG8r?", style: NvText.heading),
               ),
-            ),
+            ],
             for (final link in newAccountLinks.entries) ...[
               const SizedBox(height: NvSpace.s2),
               Align(
@@ -106,6 +78,16 @@ class SignInPhonePage extends StatelessWidget {
                     label: link.key,
                     kind: NvButtonKind.quiet,
                     onPressed: link.value),
+              ),
+            ],
+            if (onOpenDeveloperLab != null) ...[
+              const SizedBox(height: NvSpace.s6),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: NvButton(
+                    label: "Developer lab",
+                    kind: NvButtonKind.quiet,
+                    onPressed: onOpenDeveloperLab),
               ),
             ],
           ],

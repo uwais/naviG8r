@@ -1,10 +1,10 @@
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/main.dart';
-import 'package:driver_pilot/shipper/shipper_sign_in.dart';
+import 'package:driver_pilot/sign_in_screen.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:driver_pilot/driver_flow.dart';
+import 'package:driver_pilot/shipper/shipper_routes.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -72,7 +72,7 @@ void main() {
     final router = GoRouter(initialLocation: '/customer/login', routes: [
       GoRoute(
           path: '/customer/login',
-          builder: (_, __) => const CustomerLoginScreen())
+          builder: (_, __) => const SignInScreen())
     ]);
     addTearDown(router.dispose);
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
@@ -114,7 +114,7 @@ void main() {
     final router = GoRouter(initialLocation: '/customer/login', routes: [
       GoRoute(
           path: '/customer/login',
-          builder: (_, __) => const CustomerLoginScreen())
+          builder: (_, __) => const SignInScreen())
     ]);
     addTearDown(router.dispose);
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
@@ -154,7 +154,7 @@ void main() {
     final router = GoRouter(initialLocation: '/customer/login', routes: [
       GoRoute(
           path: '/customer/login',
-          builder: (_, __) => const CustomerLoginScreen()),
+          builder: (_, __) => const SignInScreen()),
     ]);
     addTearDown(router.dispose);
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
@@ -170,113 +170,10 @@ void main() {
         '123456');
   });
 
-  GoRouter testRouter() => GoRouter(routes: [
-        GoRoute(
-          path: '/driver/onboarding/otp',
-          builder: (_, __) => const DriverOtpScreen(),
-        ),
-      ]);
-
-  testWidgets('deep-link OTP fallback starts one challenge', (tester) async {
-    FlutterSecureStorage.setMockInitialValues({});
-    api = Api('http://test');
-    var starts = 0;
-    Object? verified;
-    api.dio.httpClientAdapter = MockApiAdapter((request) {
-      if (request.uri.path == '/v1/auth/otp/start') {
-        starts++;
-        return jsonResponse(
-            {'challengeId': 'fallback-1', 'expiresAtUtcMs': 2000000});
-      }
-      if (request.uri.path == '/v1/auth/otp/verify') verified = request.data;
-      return jsonResponse({});
-    });
-    final router = testRouter();
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-    router.go('/driver/onboarding/otp?phone=9876543210');
-    await tester.pumpAndSettle();
-    expect(starts, 1);
-    expect(find.text('fallback-1'), findsNothing,
-        reason: 'PR 3: the code request id stays in state, never on screen');
-    await tester.enterText(find.byType(TextField).last, '123456');
-    await tester.tap(find.text('Sign in'));
-    await tester.pumpAndSettle();
-    expect((verified as Map)['challengeId'], 'fallback-1',
-        reason: 'the hidden id is still the one sent with the code');
-  });
-
-  testWidgets('driver resend countdown disables the resend action',
-      (tester) async {
-    FlutterSecureStorage.setMockInitialValues({});
-    api = Api('http://test');
-    api.dio.httpClientAdapter = MockApiAdapter((request) {
-      if (request.uri.path == '/v1/auth/otp/start') {
-        return jsonResponse({
-          'challengeId': 'driver-cooldown',
-          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
-          'retryAfterMs': 1200,
-        });
-      }
-      return jsonResponse({});
-    });
-    final router = GoRouter(
-        initialLocation: '/driver/onboarding/otp?phone=9876543210',
-        routes: [
-          GoRoute(
-              path: '/driver/onboarding/otp',
-              builder: (_, __) => const DriverOtpScreen()),
-        ]);
-    addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-    for (var i = 0; i < 10; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-    expect(find.text('No SMS yet? You can ask for a new code in 0:02.'),
-        findsOneWidget,
-        reason: 'copy.md: the wait is the server\'s, shown as a real timer');
-    expect(sendNewCodeButton(tester).onPressed, isNull,
-        reason: 'no new code until the server allows one');
-    await tester.pump(const Duration(seconds: 2));
-    expect(find.textContaining('No SMS yet?'), findsNothing);
-    expect(sendNewCodeButton(tester).onPressed, isNotNull,
-        reason: 'the new-code button opens once the wait is over');
-  });
-
-  testWidgets('driver same-challenge retry preserves entered OTP without debug',
-      (tester) async {
-    FlutterSecureStorage.setMockInitialValues({});
-    api = Api('http://test');
-    api.dio.httpClientAdapter = MockApiAdapter((request) {
-      if (request.uri.path == '/v1/auth/otp/start') {
-        return jsonResponse({
-          'challengeId': 'same-driver-challenge',
-          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
-          'retryAfterMs': 0,
-        });
-      }
-      return jsonResponse({});
-    });
-    final router = GoRouter(
-        initialLocation: '/driver/onboarding/otp?phone=9876543210',
-        routes: [
-          GoRoute(
-              path: '/driver/onboarding/otp',
-              builder: (_, __) => const DriverOtpScreen()),
-        ]);
-    addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, '123456');
-    await tester.tap(find.text('Send a new code'));
-    await tester.pumpAndSettle();
-    expect(
-        tester.widget<TextField>(find.byType(TextField).last).controller!.text,
-        '123456');
-  });
-
   testWidgets('resend replaces stale debug code and challenge state',
       (tester) async {
     FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
     api = Api('http://test');
     var starts = 0;
     Object? verified;
@@ -294,9 +191,15 @@ void main() {
       if (request.uri.path == '/v1/auth/otp/verify') verified = request.data;
       return jsonResponse({});
     });
-    final router = testRouter();
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+          path: '/customer/login', builder: (_, __) => const SignInScreen()),
+    ]);
+    addTearDown(router.dispose);
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-    router.go('/driver/onboarding/otp?phone=9876543210');
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '9876543210');
+    await tester.tap(find.text('Send code'));
     await tester.pumpAndSettle();
     expect(find.text('Debug OTP: 001122'), findsOneWidget);
     await tester.tap(find.text('Send a new code'));
@@ -310,6 +213,93 @@ void main() {
     await tester.pumpAndSettle();
     expect((verified as Map)['challengeId'], 'new',
         reason: 'the newest code request is the one verified');
+  });
+
+  testWidgets(
+      'a failed account check after a right code keeps the code and retries',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    var verifies = 0;
+    var accountCheckWorks = false;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') {
+        return jsonResponse({'challengeId': 'challenge-1', 'retryAfterMs': 0});
+      }
+      if (request.uri.path == '/v1/auth/otp/verify') {
+        verifies++;
+        return jsonResponse({'accessToken': 'token-1'});
+      }
+      if (request.uri.path == '/v1/auth/me') {
+        if (!accountCheckWorks) return jsonResponse({}, 503);
+        return jsonResponse({
+          'user': {'id': 'user-1', 'phone': '9876543210'},
+          'organizations': [
+            {'id': 'org-1', 'kind': 'CUSTOMER'}
+          ],
+          'principal': {
+            'organizationId': 'org-1',
+            'roles': ['SHIPPER'],
+            'permissions': []
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+          path: '/customer/login', builder: (_, __) => const SignInScreen()),
+      GoRoute(path: '/customer', builder: (_, __) => const Text('Home')),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '9876543210');
+    await tester.tap(find.text('Send code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect(
+        find.text(
+            'Could not finish signing in. Check your connection, then try again.'),
+        findsOneWidget,
+        reason: 'the code was right; saying the number is unknown is untrue');
+    expect(find.text('Enter the code'), findsOneWidget,
+        reason: 'the code request is kept so Sign in can be tapped again');
+
+    accountCheckWorks = true;
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect(find.text('Home'), findsOneWidget,
+        reason: 'the retry finishes signing in');
+    expect(verifies, 1,
+        reason: 'the server spends the code once; the retry repeats only '
+            'the account check');
+  });
+
+  testWidgets('a carrier who just registered finds their number filled in',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    var starts = 0;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') starts++;
+      return jsonResponse({}, 401);
+    });
+    final router = GoRouter(
+        initialLocation: '/customer/login?phone=9876543210',
+        routes: customerFlowRoutes());
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    expect(
+        tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        '9876543210',
+        reason: 'the register screen hands its number to the sign-in');
+    expect(starts, 0, reason: 'no SMS goes until the person taps Send code');
   });
 
   testWidgets('driver login carries the first OTP challenge to verification',
@@ -337,7 +327,6 @@ void main() {
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
-    await tester.tap(find.text('I carry goods'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '9876543210');
     await tester.tap(find.text('Send code'));
@@ -378,7 +367,6 @@ void main() {
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
-    await tester.tap(find.text('I carry goods'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '9876543210');
     await tester.tap(find.text('Send code'));
@@ -388,7 +376,7 @@ void main() {
     expect(find.text('No SMS yet? You can ask for a new code in 0:02.'),
         findsOneWidget,
         reason:
-            "the phone screen hands the server's wait to the code screen, as the shipper's does");
+            "the code step shows the server's wait from the first code request");
     expect(sendNewCodeButton(tester).onPressed, isNull,
         reason: 'no new code until the server allows one');
     await tester.pump(const Duration(seconds: 2));

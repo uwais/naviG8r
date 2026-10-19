@@ -254,7 +254,8 @@ test("driver starts one generated challenge without exposing it in the URL", asy
     .evaluate((e: HTMLElement) => e.click());
   const challenge = await (await started).json();
   expect(challenge.debugCode).toMatch(/^\d{6}$/);
-  await expect(page).toHaveURL(/#\/driver\/onboarding\/otp\?phone=8000000003$/);
+  // The carriers' old address opens the one sign-in; the code step stays at that address.
+  await expect(page).toHaveURL(/#\/customer\/login$/);
   expect(starts).toBe(1);
   expect(page.url()).not.toContain(challenge.challengeId);
   expect(page.url()).not.toContain("debugCode");

@@ -102,7 +102,7 @@ String? mobileAccessRedirect(String path) {
         !AuthorizationSession.hasRole('CARRIER')) {
       return AuthorizationSession.home;
     }
-    if (path == '/customer/login' || path == '/driver/onboarding/otp') {
+    if (path == '/customer/login') {
       return AuthorizationSession.home;
     }
   }
@@ -131,7 +131,7 @@ String? mobileAccessRedirect(String path) {
     if (!AuthorizationSession.can(permission)) return '/customer';
   }
   if (path.startsWith('/driver') && !driverPublic) {
-    if (!AuthorizationSession.signedIn) return '/driver/onboarding/phone';
+    if (!AuthorizationSession.signedIn) return '/customer/login';
     if (!AuthorizationSession.hasRole('CARRIER')) {
       return AuthorizationSession.home;
     }

@@ -1,4 +1,4 @@
-// PR 3 of the redesign: the start screen, one header with the account menu, and tabs by role
+// PR 3 of the redesign: the signed-out sign-in, one header with the account menu, and tabs by role
 // (spec/screens.md, Navigation). Names and companies are the mockups' synthetic ones.
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/shipper/shipper_scaffold.dart';
@@ -6,7 +6,7 @@ import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/main.dart';
 import 'package:driver_pilot/pilot_api.dart';
-import 'package:driver_pilot/start_screen.dart';
+import 'package:driver_pilot/sign_in_screen.dart';
 import 'package:driver_pilot/ui/nv_account_sheet.dart';
 import 'package:driver_pilot/ui/nv_header.dart';
 import 'package:flutter/material.dart';
@@ -102,33 +102,20 @@ void main() {
       await pumpFrames(tester);
     }
 
-    testWidgets('the start screen asks how you use NaviG8r, with both choices',
+    testWidgets('a signed-out start shows the phone field straight away',
         (tester) async {
       await launchSignedOut(tester);
-      expect(find.text('How do you use NaviG8r?'), findsOneWidget,
-          reason: 'copy.md: start title');
-      expect(find.text('Choose one.'), findsOneWidget,
-          reason:
-              'copy.md: start sub, without the add-later promise no flow keeps');
-      expect(find.text('I ship goods'), findsOneWidget,
-          reason: 'copy.md: choice 1');
-      expect(
-          find.text(
-              'Book space on a carrier\'s trip and follow it to delivery.'),
-          findsOneWidget,
-          reason: 'copy.md: choice 1 says what shipping means here');
-      expect(find.text('I carry goods'), findsOneWidget,
-          reason: 'copy.md: choice 2');
-      expect(find.text('For truck owners, dispatchers and drivers.'),
-          findsOneWidget,
-          reason: 'copy.md: choice 2 says who carries');
-      expect(
-          find.text(
-              'Already have an account? Either choice signs you in with your phone number.'),
-          findsOneWidget,
-          reason: 'copy.md: start footer');
+      expect(find.text('Mobile number'), findsOneWidget,
+          reason: 'the first screen is the phone sign-in');
+      expect(find.byType(TextField), findsOneWidget,
+          reason: 'one phone field, ready to type in');
+      expect(find.text('Send code'), findsOneWidget);
+      expect(find.text('How do you use NaviG8r?'), findsNothing,
+          reason: 'no choice screen before signing in');
+      expect(find.textContaining('goods'), findsNothing,
+          reason: 'no ship or carry choice; the account decides');
       expect(tester.takeException(), isNull,
-          reason: 'the start screen fits 360 dp');
+          reason: 'the sign-in fits 360 dp');
     });
 
     testWidgets('signed out shows no tabs and no account header',
@@ -138,26 +125,54 @@ void main() {
           reason: 'screens.md: signed out has no tabs');
       expect(find.byType(NvHeader), findsNothing,
           reason:
-              'cp-header: signed out there is no header, only the start screen');
+              'cp-header: signed out there is no header, only the sign-in');
     });
 
-    testWidgets('each choice opens its own sign-in', (tester) async {
-      await launchSignedOut(tester);
-      await tester.tap(find.text('I ship goods'));
-      await tester.pumpAndSettle();
-      expect(find.text('Signing in to ship goods.'), findsOneWidget,
-          reason: 'copy.md: the choice sets the sign-in words');
-      expect(find.byType(NavigationBar), findsNothing,
-          reason: 'sign-in has no tabs');
-
-      await tester.tap(find.text('I carry goods instead'));
-      await tester.pumpAndSettle();
-      expect(find.text('Signing in to carry goods.'), findsOneWidget,
-          reason: 'the other side is one tap away');
-    });
+    for (final (organization, subrole, tabs) in [
+      (sharma, 'CUSTOMER_ADMIN', ['Home', 'Find a lane', 'Shipments']),
+      (ravi, 'OWNER', ['Home', 'Bookings', 'Trips', 'Publish', 'Profile']),
+    ]) {
+      testWidgets('the one sign-in lands a $subrole on their own Home',
+          (tester) async {
+        tester.view.physicalSize = const Size(360, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        FlutterSecureStorage.setMockInitialValues({});
+        api = Api('http://test');
+        var verified = false;
+        api.dio.httpClientAdapter = MockApiAdapter((request) {
+          final path = request.uri.path;
+          if (path == '/v1/auth/otp/start') {
+            return jsonResponse({'challengeId': 'challenge-1'});
+          }
+          if (path == '/v1/auth/otp/verify') {
+            verified = true;
+            return jsonResponse({'accessToken': 'synthetic'});
+          }
+          if (path != '/v1/auth/me') return jsonResponse({});
+          if (!verified) return jsonResponse({'error': 'unauthorized'}, 401);
+          return jsonResponse({
+            'user': {'id': 'person-1', 'fullName': 'Meena Rao'},
+            'organizations': [organization],
+            'principal': principalAt(organization['id']!, subrole),
+          });
+        });
+        AuthorizationSession.clear();
+        await tester.pumpWidget(const DriverPilotApp());
+        await pumpFrames(tester);
+        await tester.enterText(find.byType(TextField), '9845012345');
+        await tester.tap(find.text('Send code'));
+        await pumpFrames(tester);
+        await tester.enterText(find.byType(TextField), '123456');
+        await tester.tap(find.text('Sign in'));
+        await pumpFrames(tester);
+        expect(tabLabels(tester), tabs,
+            reason: 'the account, not a choice, decides where sign-in lands');
+      });
+    }
   });
 
-  testWidgets('the start screen and the office shell fit 360 dp at 200% text',
+  testWidgets('the sign-in and the office shell fit 360 dp at 200% text',
       (tester) async {
     tester.platformDispatcher.textScaleFactorTestValue = 2;
     addTearDown(tester.platformDispatcher.clearAllTestValues);
@@ -169,9 +184,11 @@ void main() {
         reason:
             'decisions.md 8: the header, title and five tabs fit at 200% text');
     await tester
-        .pumpWidget(const MaterialApp(home: Scaffold(body: StartScreen())));
+        .pumpWidget(const MaterialApp(home: SignInScreen()));
+    // The sign-in reloads access when it opens; let that finish before the test ends.
+    await pumpFrames(tester);
     expect(tester.takeException(), isNull,
-        reason: 'decisions.md 8: the start screen fits at 200% text');
+        reason: 'decisions.md 8: the sign-in fits at 200% text');
   });
 
   group('Header', () {
@@ -355,7 +372,7 @@ void main() {
       return accessReloads;
     }
 
-    testWidgets('Sign out in the menu signs out and opens the start screen',
+    testWidgets('Sign out in the menu signs out and opens the sign-in',
         (tester) async {
       await showShellWith(tester, const DriverWelcomeScreen());
       await tester.tap(inHeader(find.text('Ravi Roadways')));
@@ -364,8 +381,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(AuthorizationSession.signedIn, isFalse,
           reason: 'Sign out uses the existing sign-out');
-      expect(find.text('How do you use NaviG8r?'), findsOneWidget,
-          reason: 'signed out, only the start screen shows');
+      expect(find.text('Sign in with your phone'), findsOneWidget,
+          reason: 'signed out, only the sign-in shows');
       expect(find.byType(NavigationBar), findsNothing,
           reason: 'signed out has no tabs');
       expect(find.byType(NvHeader), findsNothing,

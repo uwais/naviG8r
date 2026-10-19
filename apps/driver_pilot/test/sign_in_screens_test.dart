@@ -1,7 +1,7 @@
 // PR 3 of the redesign: the sign-in and code screens (mockups c-signin, c-code, c-code-error)
 // with copy.md's words and accessibility.md's announcements.
 import 'package:driver_pilot/authorization_session.dart';
-import 'package:driver_pilot/shipper/shipper_sign_in.dart';
+import 'package:driver_pilot/shipper/shipper_routes.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/pilot_api.dart';
@@ -47,17 +47,9 @@ Future<void> showSignIn(WidgetTester tester, String at,
     }
     return jsonResponse({}, 401);
   });
-  final router = GoRouter(initialLocation: at, routes: [
-    GoRoute(
-        path: '/customer/login',
-        builder: (_, __) => const CustomerLoginScreen()),
-    GoRoute(
-        path: '/driver/onboarding/phone',
-        builder: (_, __) => const DriverPhoneScreen()),
-    GoRoute(
-        path: '/driver/onboarding/otp',
-        builder: (_, __) => const DriverOtpScreen()),
-  ]);
+  final router = GoRouter(
+      initialLocation: at,
+      routes: [...customerFlowRoutes(), ...driverFlowRoutes()]);
   addTearDown(router.dispose);
   await tester.pumpWidget(
       MaterialApp.router(theme: DriverTheme.theme(), routerConfig: router));
@@ -73,7 +65,7 @@ Future<void> sendCode(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('the shipper sign-in has c-signin\'s words, nothing preselected',
+  testWidgets('the one sign-in has c-signin\'s words and asks no side',
       (tester) async {
     await showSignIn(tester, '/customer/login');
     expect(find.text('Sign in with your phone'), findsOneWidget,
@@ -92,33 +84,49 @@ void main() {
         reason: 'screens.md: the primary action');
     expect(tester.getRect(find.text('Send code')).bottom, lessThan(800),
         reason: 'decisions.md 8: the primary action shows without scrolling');
-    expect(find.text('Signing in to ship goods.'), findsOneWidget,
-        reason: 'copy.md: role reminder');
-    expect(find.text('I carry goods instead'), findsOneWidget,
-        reason: 'copy.md: the other side is one tap away');
-    expect(find.text('Register business'), findsOneWidget,
-        reason: 'today\'s shipper sign-up stays reachable signed out');
-    expect(find.text('Register as teammate'), findsOneWidget,
-        reason: 'today\'s teammate sign-up stays reachable signed out');
-    expect(find.text('Back'), findsOneWidget,
-        reason: 'c-signin: Back returns to the start screen');
+    expect(find.textContaining('goods'), findsNothing,
+        reason: 'no "Signing in to ship goods" box: the account decides');
+    expect(find.text('New to NaviG8r?'), findsOneWidget,
+        reason: 'the ways to register are grouped under the form');
+    for (final link in [
+      'Register business',
+      'Register as teammate',
+      'Register as new carrier',
+      'Join a carrier fleet',
+    ]) {
+      expect(find.text(link), findsOneWidget,
+          reason: 'today\'s sign-ups stay reachable signed out');
+    }
+    expect(find.text('Back'), findsNothing,
+        reason: 'the sign-in is the first screen; nothing to go back to');
     expect(find.byType(NavigationBar), findsNothing,
         reason: 'signed out has no tabs');
   });
 
-  testWidgets('the carrier sign-in says carry goods and keeps carrier sign-up',
+  testWidgets('the carriers\' old sign-in address opens the same sign-in',
       (tester) async {
     await showSignIn(tester, '/driver/onboarding/phone');
     expect(find.text('Sign in with your phone'), findsOneWidget,
-        reason: 'copy.md: one sign-in for both sides');
-    expect(find.text('Signing in to carry goods.'), findsOneWidget,
-        reason: 'the reminder follows the start-screen choice');
-    expect(find.text('I ship goods instead'), findsOneWidget,
-        reason: 'the other side is one tap away');
-    expect(find.text('Register as new carrier'), findsOneWidget,
-        reason: 'today\'s carrier sign-up stays reachable signed out');
-    expect(find.text('Join a carrier fleet'), findsOneWidget,
-        reason: 'today\'s fleet sign-up stays reachable signed out');
+        reason: 'one sign-in for shippers and carriers');
+    expect(find.text('Join a carrier fleet'), findsOneWidget);
+  });
+
+  testWidgets('an old saved code link keeps its number', (tester) async {
+    await showSignIn(tester, '/driver/onboarding/otp?phone=9845012345');
+    expect(find.text('Sign in with your phone'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        '9845012345',
+        reason: 'the number in the old link is filled in on the one sign-in');
+  });
+
+  testWidgets('a register link opens its existing screen', (tester) async {
+    await showSignIn(tester, '/customer/login');
+    await tester.scrollUntilVisible(find.text('Join a carrier fleet'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Join a carrier fleet'));
+    await tester.pumpAndSettle();
+    expect(find.text('Join a fleet'), findsOneWidget,
+        reason: 'the link goes to today\'s join screen');
   });
 
   for (final at in ['/customer/login', '/driver/onboarding/phone']) {
