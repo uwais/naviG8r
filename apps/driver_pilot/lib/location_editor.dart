@@ -1,3 +1,5 @@
+// Size note: just over 500 lines, all one concern: the maps the screens share, including the
+// place editor, and reading a map point out of server data. Splitting would part that one concern.
 import "dart:math" as math;
 
 import "package:flutter/material.dart";
@@ -5,7 +7,6 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "google_geocoding.dart";
 import "maps_config.dart";
-import "shipper/place_input.dart" show PlaceFinder;
 
 /// Read-only route line between two points (publish / book preview).
 Widget routePreviewMap({required LatLng a, required LatLng b}) {

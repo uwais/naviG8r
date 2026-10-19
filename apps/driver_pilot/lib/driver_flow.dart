@@ -23,7 +23,6 @@ import "maps_config.dart";
 import "pilot_api.dart";
 import "notification_center.dart";
 import "plain_error_sentence.dart";
-import "shipper/place_input.dart" show PlaceFinder;
 import "signed_in_header.dart";
 import "start_screen.dart";
 import "transporter_id_section.dart";
