@@ -1,5 +1,6 @@
 // PR 3 of the redesign: the sign-in and code screens (mockups c-signin, c-code, c-code-error)
 // with copy.md's words and accessibility.md's announcements.
+import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/shipper/shipper_routes.dart';
 import 'package:driver_pilot/driver_flow.dart';
@@ -31,7 +32,8 @@ List<(String, bool)> listenForAnnouncements(WidgetTester tester) {
 }
 
 Future<void> showSignIn(WidgetTester tester, String at,
-    {bool codeIsWrong = false}) async {
+    {bool codeIsWrong = false,
+    ResponseBody Function(RequestOptions request)? codeRequestAnswer}) async {
   tester.view.physicalSize = const Size(360, 800);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -40,7 +42,8 @@ Future<void> showSignIn(WidgetTester tester, String at,
   api = Api('http://test');
   api.dio.httpClientAdapter = MockApiAdapter((request) {
     if (request.uri.path == '/v1/auth/otp/start') {
-      return jsonResponse({'challengeId': 'challenge-1', 'retryAfterMs': 0});
+      return codeRequestAnswer?.call(request) ??
+          jsonResponse({'challengeId': 'challenge-1', 'retryAfterMs': 0});
     }
     if (request.uri.path == '/v1/auth/otp/verify' && codeIsWrong) {
       return jsonResponse({'error': 'otp_incorrect'}, 400);
@@ -195,6 +198,38 @@ void main() {
     expect(find.text(short), findsNothing,
         reason:
             'seen on the recorded run: it stayed under a right number until Send code');
+  });
+
+  testWidgets(
+      'Send code says what the server answered; only no answer blames the connection',
+      (tester) async {
+    const connection =
+        'Could not send the code. Check your connection, then try again.';
+    final answers = <String, ResponseBody Function(RequestOptions)>{
+      // A number with no account; this used to read as a connection problem.
+      'No account uses this number. Check the number, or register below.':
+          (_) => jsonResponse({'error': 'user_not_found'}, 400),
+      'This account is no longer active, so it cannot sign in. Contact NaviG8r if this is wrong.':
+          (_) => jsonResponse({'error': 'account_inactive'}, 403),
+      'Enter a 10-digit mobile number.': (_) =>
+          jsonResponse({'error': 'invalid_phone'}, 400),
+      'Too many code requests. Please wait 10 minutes and try again.': (_) =>
+          jsonResponse(
+              {'error': 'otp_rate_limited', 'retryAfterMs': 569223}, 429),
+      'Could not send the code right now. Try again in a few minutes.': (_) =>
+          jsonResponse({'error': 'internal_error'}, 500),
+      connection: (request) => throw DioException(
+          requestOptions: request, type: DioExceptionType.connectionError),
+    };
+    for (final MapEntry(key: sentence, value: answer) in answers.entries) {
+      await showSignIn(tester, '/customer/login', codeRequestAnswer: answer);
+      await sendCode(tester);
+      expect(find.text(sentence), findsOneWidget);
+      if (sentence != connection) {
+        expect(find.textContaining('Check your connection'), findsNothing,
+            reason: 'the server answered, so the connection is fine');
+      }
+    }
   });
 
   testWidgets('Change number goes back to the phone step', (tester) async {

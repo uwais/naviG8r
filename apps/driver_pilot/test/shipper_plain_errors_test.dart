@@ -62,7 +62,7 @@ void main() {
     await tester.tap(find.text('Send code'));
     await tester.pumpAndSettle();
     expectPlainSentence(
-        'Could not send the code. Check your connection, then try again.');
+        'Could not send the code right now. Try again in a few minutes.');
 
     await showWithFailingServer(
         tester, '/customer/login', const SignInScreen(),

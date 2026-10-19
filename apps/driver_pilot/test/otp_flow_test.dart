@@ -48,6 +48,17 @@ void main() {
       ),
     );
     expect(formatApiError(limited), contains('45 seconds'));
+    final limitedForMinutes = DioException(
+      requestOptions: RequestOptions(path: '/v1/auth/otp/start'),
+      response: Response(
+        requestOptions: RequestOptions(path: '/v1/auth/otp/start'),
+        statusCode: 429,
+        data: {'error': 'otp_rate_limited', 'retryAfterMs': 60001},
+      ),
+    );
+    expect(formatApiError(limitedForMinutes),
+        'Too many code requests. Please wait 2 minutes and try again.',
+        reason: 'a wait of a minute or more reads in minutes, rounded up');
   });
 
   testWidgets('customer resend cooldown disables button and counts down',

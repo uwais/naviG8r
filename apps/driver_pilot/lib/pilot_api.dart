@@ -186,7 +186,11 @@ String formatApiError(Object e) {
     if (code == "otp_rate_limited") {
       final retry = body["retryAfterMs"];
       final seconds = retry is num ? (retry / 1000).ceil() : 30;
-      return "Too many code requests. Please wait ${seconds > 0 ? seconds : 1} seconds and try again.";
+      final minutes = (seconds / 60).ceil();
+      final wait = seconds < 60
+          ? "${seconds > 0 ? seconds : 1} seconds"
+          : "$minutes ${minutes == 1 ? "minute" : "minutes"}";
+      return "Too many code requests. Please wait $wait and try again.";
     }
     // The server writes these errors' detail for the carrier: which bank field is wrong and how, why
     // the truck cannot change, what a transporter ID looks like, or that a chosen truck or driver is not theirs.
