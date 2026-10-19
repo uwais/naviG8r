@@ -4458,10 +4458,10 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   /// What is missing before the trip can be published, or null.
   String? _missing() {
     if (_origin.text.trim().isEmpty || _originPos == null) {
-      return "Search for the From place, or drag its pin, so shippers can find this trip.";
+      return "Search for the From place so shippers can find this trip.";
     }
     if (_dest.text.trim().isEmpty || _destPos == null) {
-      return "Search for the To place, or drag its pin, so shippers can find this trip.";
+      return "Search for the To place so shippers can find this trip.";
     }
     if (_leaves == null) return "Choose the day the trip leaves.";
     if (_arrivesBy == null) return "Choose the day the trip arrives by.";

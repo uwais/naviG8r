@@ -542,7 +542,7 @@ void main() {
       expect(server.sent, isEmpty);
       expect(
           find.text(
-              'Search for the From place, or drag its pin, so shippers can find this trip.'),
+              'Search for the From place so shippers can find this trip.'),
           findsOneWidget);
     });
 
@@ -637,7 +637,7 @@ void main() {
       await tester.tap(publish);
       await tester.pumpAndSettle();
       final message = find.text(
-          'Search for the From place, or drag its pin, so shippers can find this trip.');
+          'Search for the From place so shippers can find this trip.');
       expect(shown(message), isTrue,
           reason: 'the form scrolls the message into view');
       expect(
