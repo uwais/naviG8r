@@ -32,6 +32,9 @@ class _SignInScreenState extends State<SignInScreen> {
   String? _debugCode;
   String? _challengeId;
   String? _challengePhone;
+  // The server spends a code on its first check, so once the token is saved a retry
+  // repeats only the account check.
+  bool _codeAccepted = false;
   bool _sending = false;
   bool _verifying = false;
   Timer? _otpCooldownTimer;
@@ -59,6 +62,7 @@ class _SignInScreenState extends State<SignInScreen> {
     setState(() {
       _challengeId = null;
       _challengePhone = null;
+      _codeAccepted = false;
       _debugCode = null;
       _code.clear();
       _otpCooldownSeconds = 0;
@@ -104,6 +108,7 @@ class _SignInScreenState extends State<SignInScreen> {
       if (!mounted) return;
       _challengeId = r.data?["challengeId"] as String?;
       _challengePhone = phone;
+      _codeAccepted = false;
       _startOtpCooldown(r.data?["retryAfterMs"]);
       announce(context, "Code sent to ${formatPhone(phone)}.");
       final dc = r.data?["debugCode"];
@@ -143,22 +148,25 @@ class _SignInScreenState extends State<SignInScreen> {
       _error = null;
     });
     try {
-      final r = await api.post<Map<String, dynamic>>(
-        "/v1/auth/otp/verify",
-        data: {
-          "phone": phone,
-          "challengeId": challengeId,
-          "code": _code.text.trim()
-        },
-      );
-      final token = r.data?["accessToken"] as String?;
-      if (token != null) await api.setToken(token);
+      if (!_codeAccepted) {
+        final r = await api.post<Map<String, dynamic>>(
+          "/v1/auth/otp/verify",
+          data: {
+            "phone": phone,
+            "challengeId": challengeId,
+            "code": _code.text.trim()
+          },
+        );
+        final token = r.data?["accessToken"] as String?;
+        if (token != null) await api.setToken(token);
+        _codeAccepted = true;
+      }
       await CustomerSession.refresh();
       if (!mounted) return;
+      // The code was right, so the account check failed: a dropped connection or the server.
       if (!AuthorizationSession.signedIn) {
-        _changeNumber();
         _showVerifyError(
-            "Could not sign you in with this number. New to NaviG8r? Register below.");
+            "Could not finish signing in. Check your connection, then try again.");
         return;
       }
       context.go(AuthorizationSession.home);
@@ -176,6 +184,7 @@ class _SignInScreenState extends State<SignInScreen> {
   void _changeNumber() => setState(() {
         _challengeId = null;
         _challengePhone = null;
+        _codeAccepted = false;
         _debugCode = null;
         _error = null;
         _code.clear();

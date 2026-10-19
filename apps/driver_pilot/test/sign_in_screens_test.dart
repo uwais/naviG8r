@@ -111,6 +111,14 @@ void main() {
     expect(find.text('Join a carrier fleet'), findsOneWidget);
   });
 
+  testWidgets('an old saved code link keeps its number', (tester) async {
+    await showSignIn(tester, '/driver/onboarding/otp?phone=9845012345');
+    expect(find.text('Sign in with your phone'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        '9845012345',
+        reason: 'the number in the old link is filled in on the one sign-in');
+  });
+
   testWidgets('a register link opens its existing screen', (tester) async {
     await showSignIn(tester, '/customer/login');
     await tester.scrollUntilVisible(find.text('Join a carrier fleet'), 200,

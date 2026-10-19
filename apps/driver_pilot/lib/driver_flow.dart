@@ -4700,7 +4700,13 @@ List<RouteBase> driverFlowRoutes() {
         path: "/driver/onboarding/phone",
         redirect: (_, __) => "/customer/login"),
     GoRoute(
-        path: "/driver/onboarding/otp", redirect: (_, __) => "/customer/login"),
+        path: "/driver/onboarding/otp",
+        redirect: (_, state) {
+          final phone = state.uri.queryParameters["phone"];
+          return phone == null
+              ? "/customer/login"
+              : "/customer/login?phone=${Uri.encodeQueryComponent(phone)}";
+        }),
     GoRoute(
         path: "/driver/onboarding/register",
         builder: (_, __) => const DriverRegisterScreen()),

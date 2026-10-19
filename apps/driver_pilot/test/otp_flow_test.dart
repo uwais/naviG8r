@@ -215,21 +215,42 @@ void main() {
         reason: 'the newest code request is the one verified');
   });
 
-  testWidgets('a code that signs no one in goes back to the number',
+  testWidgets(
+      'a failed account check after a right code keeps the code and retries',
       (tester) async {
     FlutterSecureStorage.setMockInitialValues({});
     AuthorizationSession.clear();
     api = Api('http://test');
+    var verifies = 0;
+    var accountCheckWorks = false;
     api.dio.httpClientAdapter = MockApiAdapter((request) {
       if (request.uri.path == '/v1/auth/otp/start') {
         return jsonResponse({'challengeId': 'challenge-1', 'retryAfterMs': 0});
       }
-      if (request.uri.path == '/v1/auth/me') return jsonResponse({}, 401);
+      if (request.uri.path == '/v1/auth/otp/verify') {
+        verifies++;
+        return jsonResponse({'accessToken': 'token-1'});
+      }
+      if (request.uri.path == '/v1/auth/me') {
+        if (!accountCheckWorks) return jsonResponse({}, 503);
+        return jsonResponse({
+          'user': {'id': 'user-1', 'phone': '9876543210'},
+          'organizations': [
+            {'id': 'org-1', 'kind': 'CUSTOMER'}
+          ],
+          'principal': {
+            'organizationId': 'org-1',
+            'roles': ['SHIPPER'],
+            'permissions': []
+          },
+        });
+      }
       return jsonResponse({});
     });
     final router = GoRouter(initialLocation: '/customer/login', routes: [
       GoRoute(
           path: '/customer/login', builder: (_, __) => const SignInScreen()),
+      GoRoute(path: '/customer', builder: (_, __) => const Text('Home')),
     ]);
     addTearDown(router.dispose);
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
@@ -242,12 +263,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(
         find.text(
-            'Could not sign you in with this number. New to NaviG8r? Register below.'),
+            'Could not finish signing in. Check your connection, then try again.'),
         findsOneWidget,
-        reason: 'the old carrier-only message, for everyone');
-    expect(find.text('Sign in with your phone'), findsOneWidget,
-        reason: 'back on the number, where the register links are');
-    expect(find.text('Register as new carrier'), findsOneWidget);
+        reason: 'the code was right; saying the number is unknown is untrue');
+    expect(find.text('Enter the code'), findsOneWidget,
+        reason: 'the code request is kept so Sign in can be tapped again');
+
+    accountCheckWorks = true;
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect(find.text('Home'), findsOneWidget,
+        reason: 'the retry finishes signing in');
+    expect(verifies, 1,
+        reason: 'the server spends the code once; the retry repeats only '
+            'the account check');
   });
 
   testWidgets('a carrier who just registered finds their number filled in',
