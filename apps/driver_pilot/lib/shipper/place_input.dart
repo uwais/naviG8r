@@ -3,10 +3,6 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "../google_geocoding.dart";
 
-/// Turns typed place words into a map point. Screens take it as a parameter so tests can stand
-/// in for the geocoding service.
-typedef PlaceFinder = Future<GeocodeOutcome> Function(String place);
-
 /// A pickup or drop: the words the shipper typed and the map point the price and the match use.
 /// A point counts only for the words it was found for, or the words beside it when the shipper
 /// dragged its pin; typing other words looks those up.

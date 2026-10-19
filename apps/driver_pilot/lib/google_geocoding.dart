@@ -22,6 +22,10 @@ class GeocodeOutcome {
   }
 }
 
+/// Turns typed place words into a map point. Screens take it as a parameter so tests can stand
+/// in for the geocoding service.
+typedef PlaceFinder = Future<GeocodeOutcome> Function(String place);
+
 /// Forward / reverse geocoding via Google Geocoding API (same key as Maps SDK).
 class GoogleGeocodingService {
   GoogleGeocodingService._();

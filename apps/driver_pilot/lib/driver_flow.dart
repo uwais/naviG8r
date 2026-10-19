@@ -4383,7 +4383,10 @@ DateTime _todayInIndia() => _dayInIndia(DateTime.now());
 
 /// ca-publish: every field starts empty, the truck size is a choice, and Publish stays visible at the bottom.
 class DriverPublishTripScreen extends StatefulWidget {
-  const DriverPublishTripScreen({super.key});
+  const DriverPublishTripScreen(
+      {super.key, this.findPlace = GoogleGeocodingService.forwardAddress});
+
+  final PlaceFinder findPlace;
 
   @override
   State<DriverPublishTripScreen> createState() =>
@@ -4402,6 +4405,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   final _room = TextEditingController();
   bool _submitting = false;
   String? _error;
+  final _form = ScrollController();
 
   @override
   void initState() {
@@ -4414,7 +4418,17 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     _origin.dispose();
     _dest.dispose();
     _room.dispose();
+    _form.dispose();
     super.dispose();
+  }
+
+  /// The message sits at the top of the form, so the form scrolls back up to show it.
+  void _showError(String message) {
+    setState(() => _error = message);
+    if (_form.hasClients) {
+      _form.animateTo(0,
+          duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    }
   }
 
   Future<void> _chooseDay({required bool leaves}) async {
@@ -4458,9 +4472,10 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   }
 
   Future<void> _submit() async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final missing = _missing();
     if (missing != null) {
-      setState(() => _error = missing);
+      _showError(missing);
       return;
     }
     setState(() {
@@ -4472,8 +4487,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
       if (!mounted) return;
       final orgId = DriverSession.carrierOrgId;
       if (orgId == null || orgId.isEmpty) {
-        setState(
-            () => _error = "Sign in and complete carrier registration first.");
+        _showError("Sign in and complete carrier registration first.");
         return;
       }
       const india = Duration(hours: 5, minutes: 30);
@@ -4509,7 +4523,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
       ScaffoldMessenger.of(context).showSnackBar(tripPublishedMessage());
       context.go("/driver/loads");
     } catch (e) {
-      if (mounted) setState(() => _error = ewayBillErrorSentence(e));
+      if (mounted) _showError(ewayBillErrorSentence(e));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -4539,77 +4553,83 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     const gap = SizedBox(height: NvSpace.s4);
     return Column(children: [
       Expanded(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-              NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
-          children: [
-            const Text("Shippers can book space on it once it is published.",
-                style: NvText.body),
-            gap,
-            LocationEndpointEditor(
-              title: "From",
-              hint: "City or area",
-              labelController: _origin,
-              markerId: "pub_origin",
-              markerHue: BitmapDescriptor.hueOrange,
-              position: _originPos ?? _pinNotPlacedYet,
-              onPositionChanged: (p) => setState(() => _originPos = p),
-            ),
-            gap,
-            LocationEndpointEditor(
-              title: "To",
-              hint: "City or area",
-              labelController: _dest,
-              markerId: "pub_dest",
-              markerHue: BitmapDescriptor.hueAzure,
-              position: _destPos ?? _pinNotPlacedYet,
-              onPositionChanged: (p) => setState(() => _destPos = p),
-            ),
-            gap,
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(child: _day("Leaves", _leaves, leaves: true)),
-              const SizedBox(width: NvSpace.s3),
-              Expanded(
-                  child: _day("Arrives by", _arrivesBy, leaves: false)),
-            ]),
-            gap,
-            NvChoiceChips<String>(
-              label: "Truck size",
-              options: _truckSizes,
-              selected: _truckSize,
-              onChanged: (size) => setState(() => _truckSize = size),
-            ),
-            gap,
-            NvField(
-              label: "Room for shippers",
-              controller: _room,
-              unit: "kg",
-              keyboardType: TextInputType.number,
-              help: "The weight you can carry for shippers on this trip.",
-            ),
-            const SizedBox(height: NvSpace.s3),
-            const Text("You choose the truck when you accept the first booking.",
-                style: NvText.caption),
-          ],
+        // A tap outside the fields closes the keyboard; the fields and buttons still take their own taps.
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+          child: ListView(
+            controller: _form,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(
+                NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
+            children: [
+              if (_error != null) ...[
+                NvMessage(_error!, tone: NvMessageTone.problem),
+                gap,
+              ],
+              const Text("Shippers can book space on it once it is published.",
+                  style: NvText.body),
+              gap,
+              // Each map shows once its place has a point, so the form stays short while typing.
+              LocationEndpointEditor(
+                title: "From",
+                hint: "City or area",
+                labelController: _origin,
+                markerId: "pub_origin",
+                markerHue: BitmapDescriptor.hueOrange,
+                position: _originPos ?? _pinNotPlacedYet,
+                onPositionChanged: (p) => setState(() => _originPos = p),
+                showMap: _originPos != null,
+                findPlace: widget.findPlace,
+              ),
+              gap,
+              LocationEndpointEditor(
+                title: "To",
+                hint: "City or area",
+                labelController: _dest,
+                markerId: "pub_dest",
+                markerHue: BitmapDescriptor.hueAzure,
+                position: _destPos ?? _pinNotPlacedYet,
+                onPositionChanged: (p) => setState(() => _destPos = p),
+                showMap: _destPos != null,
+                findPlace: widget.findPlace,
+              ),
+              gap,
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: _day("Leaves", _leaves, leaves: true)),
+                const SizedBox(width: NvSpace.s3),
+                Expanded(
+                    child: _day("Arrives by", _arrivesBy, leaves: false)),
+              ]),
+              gap,
+              NvChoiceChips<String>(
+                label: "Truck size",
+                options: _truckSizes,
+                selected: _truckSize,
+                onChanged: (size) => setState(() => _truckSize = size),
+              ),
+              gap,
+              NvField(
+                label: "Room for shippers",
+                controller: _room,
+                unit: "kg",
+                keyboardType: TextInputType.number,
+                help: "The weight you can carry for shippers on this trip.",
+              ),
+              const SizedBox(height: NvSpace.s3),
+              const Text("You choose the truck when you accept the first booking.",
+                  style: NvText.caption),
+            ],
+          ),
         ),
       ),
       NvActionBar(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_error != null) ...[
-              NvMessage(_error!, tone: NvMessageTone.problem),
-              const SizedBox(height: NvSpace.s3),
-            ],
-            NvButton(
-              label: "Publish trip",
-              onPressed: _submit,
-              loading: _submitting,
-              loadingLabel: "Publishing",
-              fullWidth: true,
-            ),
-          ],
+        child: NvButton(
+          label: "Publish trip",
+          onPressed: _submit,
+          loading: _submitting,
+          loadingLabel: "Publishing",
+          fullWidth: true,
         ),
       ),
     ]);

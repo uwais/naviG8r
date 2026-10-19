@@ -4,14 +4,17 @@ import 'package:dio/dio.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_session.dart';
 import 'package:driver_pilot/driver_theme.dart';
+import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/location_editor.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/transporter_id_section.dart';
+import 'package:driver_pilot/ui/nv_action_bar.dart';
 import 'package:driver_pilot/ui/nv_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'support/carrier_fixtures.dart';
 import 'support/mock_api.dart';
@@ -541,6 +544,86 @@ void main() {
           find.text(
               'Search for the From place, or drag its pin, so shippers can find this trip.'),
           findsOneWidget);
+    });
+
+    testWidgets('no map shows until its place is found', (tester) async {
+      signInWith(Server(allowed: ownerAllowed));
+      await mount(
+          tester,
+          DriverPublishTripScreen(
+              findPlace: (place) async => GeocodeOutcome.ok(
+                  const LatLng(12.97, 77.59), 'Bengaluru, Karnataka')),
+          size: const Size(800, 3000));
+      expect(find.byType(GoogleMap), findsNothing,
+          reason: 'tester: the maps left no room while typing');
+      expect(
+          find.text('Drag the pin to fine-tune. Use search to jump to a place.'),
+          findsNothing);
+
+      await tester.enterText(find.byType(TextField).first, 'Bengaluru');
+      await tester.tap(find.byTooltip('Look up place').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(GoogleMap), findsOneWidget,
+          reason: 'From has a point, To does not yet');
+      expect(find.text('Bengaluru, Karnataka'), findsWidgets);
+    });
+
+    testWidgets(
+        'at 360 by 640 with the keyboard open the form scrolls, and Publish and its message are reachable',
+        (tester) async {
+      final server = signInWith(Server(allowed: ownerAllowed));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await mount(tester, const DriverPublishTripScreen(),
+          size: const Size(360, 640));
+      const aboveKeyboard = Rect.fromLTWH(0, 0, 360, 340);
+      bool shown(Finder finder) {
+        final rect = tester.getRect(finder);
+        return aboveKeyboard.contains(rect.topLeft) &&
+            aboveKeyboard.contains(rect.bottomRight);
+      }
+
+      final publish = find.widgetWithText(FilledButton, 'Publish trip');
+      expect(shown(publish), isTrue,
+          reason: 'the bottom bar sits above the keyboard');
+
+      final form = find.byType(Scrollable).first;
+      const lastLine = 'You choose the truck when you accept the first booking.';
+      await tester.scrollUntilVisible(find.text(lastLine), 100,
+          scrollable: form);
+      await tester.pumpAndSettle();
+      final room = find.descendant(
+          of: find.widgetWithText(Column, 'Room for shippers'),
+          matching: find.byType(TextField));
+      expect(shown(room.first), isTrue,
+          reason: 'the last field can be reached with the keyboard open');
+      expect(tester.state<ScrollableState>(form).position.pixels,
+          greaterThan(0));
+
+      await tester.showKeyboard(room.first);
+      expect(tester.testTextInput.isVisible, isTrue);
+      await tester.drag(form, const Offset(0, 40));
+      await tester.pumpAndSettle();
+      expect(tester.testTextInput.isVisible, isFalse,
+          reason: 'dragging the form closes the keyboard');
+
+      await tester.ensureVisible(find.text(lastLine));
+      await tester.showKeyboard(room.first);
+      await tester.tap(find.text(lastLine));
+      await tester.pumpAndSettle();
+      expect(tester.testTextInput.isVisible, isFalse,
+          reason: 'a tap outside the fields closes the keyboard');
+
+      await tester.tap(publish);
+      await tester.pumpAndSettle();
+      final message = find.text(
+          'Search for the From place, or drag its pin, so shippers can find this trip.');
+      expect(shown(message), isTrue,
+          reason: 'the form scrolls the message into view');
+      expect(
+          find.descendant(of: find.byType(NvActionBar), matching: message),
+          findsNothing,
+          reason: 'the bottom bar holds only Publish trip');
+      expect(server.sent, isEmpty);
     });
   });
 
