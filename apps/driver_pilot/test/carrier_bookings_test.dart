@@ -6,6 +6,7 @@ import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/plain_error_sentence.dart';
+import 'package:driver_pilot/ui/format.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -243,6 +244,80 @@ void main() {
           reason: 'the task opens the booking');
     });
 
+    testWidgets(
+        'asks to start a trip whose day has come, once a booking is accepted and the driver and truck are set',
+        (tester) async {
+      final now = DateTime.now().toUtc();
+      final today = now.toIso8601String();
+      final tomorrow = now.add(const Duration(days: 1)).toIso8601String();
+      Map<String, dynamic> readyTrip(String id, String to, String start) => {
+            ...trip(
+                id: id,
+                to: to,
+                truck: 'KA01AB1234',
+                driverName: 'Prakash Naidu'),
+            'windowStart': start,
+          };
+      final bookings = [
+        {...shipmentOnTripA(), 'anchorTripId': 'trip-today'},
+        {...shipmentOnTripA(), 'id': 'shipment-t', 'anchorTripId': 'trip-later'},
+        {
+          ...shipmentOnTripA(status: 'PENDING_CARRIER_ACCEPT'),
+          'id': 'shipment-p',
+          'anchorTripId': 'trip-unaccepted'
+        },
+      ];
+      final trips = [
+        readyTrip('trip-today', 'Chennai', today),
+        readyTrip('trip-later', 'Mysuru', tomorrow),
+        readyTrip('trip-unaccepted', 'Hosur', today),
+      ];
+
+      signInAsCarrierOwner(alsoAllowed: ['load.status_update']);
+      answer(bookings: bookings, trips: trips);
+      await mountRouted(tester, const DriverWelcomeScreen());
+      expect(find.text('Nothing needs you right now.'), findsNothing,
+          reason: 'owner run: Home said this while a trip was ready to start');
+      expect(find.text('Start a trip'), findsOneWidget,
+          reason: 'only the trip whose day has come and has an accepted booking');
+      expect(
+          find.text(
+              'Bengaluru to Chennai · ${formatDate(DateTime.parse(today))}'),
+          findsOneWidget,
+          reason: 'names the trip and its date');
+      await tester.tap(find.widgetWithText(FilledButton, 'Open trip'));
+      await tester.pumpAndSettle();
+      expect(find.text('Trip page trip-today'), findsOneWidget,
+          reason: 'Start is on the trip screen, behind its confirm sheet');
+
+      signInAsCarrierOwner(
+          alsoAllowed: ['load.status_update', 'carrier.offer_accept']);
+      answer(bookings: bookings, trips: trips);
+      await mountRouted(tester, const DriverWelcomeScreen(key: ValueKey(2)));
+      expect(
+          find.descendant(
+              of: find.ancestor(
+                  of: find.text('NEEDS YOU'), matching: find.byType(Column)),
+              matching: find.text('Accept a booking')),
+          findsOneWidget,
+          reason: 'accepting comes first; starting comes after');
+      expect(find.text('Start a trip'), findsOneWidget);
+
+      signInAsCarrierOwner();
+      answer(bookings: bookings, trips: trips);
+      await mountRouted(tester, const DriverWelcomeScreen(key: ValueKey(3)));
+      expect(find.text('Start a trip'), findsNothing,
+          reason: 'no task for a login that may not start trips');
+
+      signInAsCarrierOwner(alsoAllowed: ['load.status_update']);
+      answer(bookings: bookings, trips: trips);
+      await mountRouted(tester, const DriverWelcomeScreen(key: ValueKey(4)),
+          size: const Size(360, 800), textScale: 2);
+      expect(find.text('Start a trip'), findsOneWidget);
+      expect(tester.takeException(), isNull,
+          reason: 'spec: works at 360 dp and 200% text');
+    });
+
     testWidgets('says when nothing needs the office', (tester) async {
       signInAsOwner();
       answer(bookings: []);
@@ -312,8 +387,14 @@ void main() {
           reason: 'a booking whose bill lacks the truck is active, not waiting on the carrier');
       expect(find.text('Truck not on bill'), findsOneWidget,
           reason: 'the carrier pays check-post fines, so it still sees the state');
-      expect(find.text('120 kg · E-way bill: needed'), findsOneWidget,
-          reason: 'a saved bill means the bill is needed');
+      expect(find.text('120 kg'), findsOneWidget,
+          reason:
+              'the status and Next: already say the truck is missing, so the card adds no bill words');
+      expect(find.text('18 Oct · 120 kg · Truck on the e-way bill'),
+          findsOneWidget,
+          reason: "the booking's own step words for a bill with the truck");
+      expect(find.textContaining('E-way bill: needed'), findsNothing,
+          reason: 'owner run: a saved bill is not "needed"');
       final activeNextLines = screenWords(tester);
       expect(activeNextLines,
           contains('Next: Lakshmi Foods adds the truck to the e-way bill.'),
@@ -331,6 +412,102 @@ void main() {
       expect(find.text('Booking page shipment-a'), findsOneWidget,
           reason: 'the card opens its booking');
     });
+  });
+
+  testWidgets(
+      "a Done card says the shipper's bill and truck are on it, never \"needed\"",
+      (tester) async {
+    signInAsOwner();
+    answer(bookings: [
+      {
+        ...delivered(),
+        'ewayBill': {
+          'kind': 'BILL',
+          'billNumber': '341200987654',
+          'truckNumber': 'KA01AB1234',
+          'check': {'result': 'FOUND'},
+        },
+      },
+      {
+        ...delivered(),
+        'id': 'shipment-d',
+        'customerOrgName': 'Mehta Hardware',
+        'status': 'DELIVERED',
+        'ewayBill': {
+          'kind': 'BILL',
+          'billNumber': '341200987655',
+          'truckNumber': 'KA01AB1234',
+        },
+      },
+    ], trips: [
+      trip()
+    ]);
+    await mountRouted(tester, const DriverShipmentsScreen());
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    expect(find.text('18 Oct · 120 kg · E-way bill checked'), findsOneWidget,
+        reason: "owner run: the booking's own steps say the bill was checked");
+    expect(find.text('18 Oct · 120 kg · Truck on the e-way bill'),
+        findsOneWidget,
+        reason: 'a bill with the truck, not checked yet');
+    expect(find.textContaining('E-way bill: needed'), findsNothing,
+        reason: 'owner run: a delivered booking with a saved bill read "needed"');
+
+    await mountRouted(tester, const DriverShipmentsScreen(key: ValueKey(2)),
+        size: const Size(360, 800), textScale: 2);
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull,
+        reason: 'spec: works at 360 dp and 200% text');
+  });
+
+  testWidgets(
+      'a card never says "Truck on the e-way bill" while the booking shows a problem with the bill',
+      (tester) async {
+    signInAsOwner();
+    answer(bookings: [
+      {
+        ...shipmentOnTripA(),
+        'id': 'shipment-f',
+        'customerOrgName': 'Flagged Shipper',
+        'ewayBill': {
+          'kind': 'BILL',
+          'billNumber': '341200987654',
+          'truckNumber': 'KA01AB1234',
+          'check': {'result': 'PROBLEM'},
+        },
+      },
+      {
+        ...shipmentOnTripA(),
+        'id': 'shipment-w',
+        'customerOrgName': 'Wrong Truck Shipper',
+        'assignedTruckNumber': 'KA05CD5678',
+        'ewayBill': {
+          'kind': 'BILL',
+          'billNumber': '341200987655',
+          'truckNumber': 'KA01AB1234',
+        },
+      },
+    ], trips: [
+      trip()
+    ]);
+    await mountRouted(tester, const DriverShipmentsScreen());
+    await tester.tap(find.text('Active'));
+    await tester.pumpAndSettle();
+    expect(find.text('Flagged Shipper'), findsOneWidget);
+    expect(find.text('Wrong Truck Shipper'), findsOneWidget);
+    expect(find.textContaining('Truck on the e-way bill'), findsNothing,
+        reason: 'review: ops flagged one bill and the other names another truck');
+    expect(find.text('18 Oct · 120 kg · E-way bill has a problem'),
+        findsNWidgets(2),
+        reason: "the booking's own steps show a problem for both");
+
+    await mountRouted(tester, const DriverShipmentsScreen(key: ValueKey(2)),
+        size: const Size(360, 800), textScale: 2);
+    await tester.tap(find.text('Active'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull,
+        reason: 'spec: works at 360 dp and 200% text');
   });
 
   group('The booking screen', () {

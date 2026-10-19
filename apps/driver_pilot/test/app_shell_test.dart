@@ -360,8 +360,7 @@ void main() {
       final router = GoRouter(initialLocation: '/driver', routes: [
         GoRoute(path: '/', redirect: (_, __) => '/driver'),
         ShellRoute(
-          builder: (_, state, child) => DriverShell(
-              title: 'Home', currentPath: state.uri.path, child: child),
+          builder: (_, state, child) => DriverShell(currentPath: state.uri.path, child: child),
           routes: [GoRoute(path: '/driver', builder: (_, __) => page)],
         ),
       ]);

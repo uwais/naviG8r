@@ -567,6 +567,108 @@ void main() {
       expect(find.text('Bengaluru, Karnataka'), findsWidgets);
     });
 
+    group('the draft', () {
+      Widget publish() => DriverPublishTripScreen(
+          findPlace: (place) async =>
+              GeocodeOutcome.ok(const LatLng(13.07, 77.8), '$place, Karnataka'));
+      List<String> fieldTexts(WidgetTester tester) => [
+            for (final field
+                in tester.widgetList<TextField>(find.byType(TextField)))
+              field.controller!.text
+          ];
+
+      Future<void> fillIn(WidgetTester tester) async {
+        for (final (index, place) in [(0, 'Hoskote'), (1, 'Kolar')]) {
+          await tester.enterText(find.byType(TextField).at(index), place);
+          await tester.tap(find.byTooltip('Look up place').at(index));
+          await tester.pumpAndSettle();
+        }
+        for (final _ in [1, 2]) {
+          await tester.tap(find.text('Choose a date').first);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('OK'));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.widgetWithText(ChoiceChip, 'Medium'));
+        await tester.enterText(find.byType(TextField).last, '1000');
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('going to another tab and back keeps what was typed',
+          (tester) async {
+        signInWith(Server(allowed: ownerAllowed));
+        final router =
+            await mount(tester, publish(), size: const Size(800, 3000));
+        await fillIn(tester);
+        router.go('/driver/loads');
+        await tester.pumpAndSettle();
+        router.go('/screen');
+        await tester.pumpAndSettle();
+        expect(fieldTexts(tester),
+            ['Hoskote, Karnataka', 'Kolar, Karnataka', '1000'],
+            reason: 'owner run: leaving Publish wiped the form');
+        expect(find.byType(GoogleMap), findsNWidgets(2),
+            reason: 'both places keep their points');
+        expect(find.text('Choose a date'), findsNothing,
+            reason: 'both days are kept');
+        expect(
+            tester
+                .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Medium'))
+                .selected,
+            isTrue);
+      });
+
+      testWidgets('publishing, signing out or another sign-in starts empty',
+          (tester) async {
+        final server = signInWith(Server(allowed: ownerAllowed));
+        var router =
+            await mount(tester, publish(), size: const Size(800, 3000));
+        await fillIn(tester);
+        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.pumpAndSettle();
+        expect(server.sent, hasLength(1));
+        router.go('/screen');
+        await tester.pumpAndSettle();
+        expect(fieldTexts(tester), ['', '', ''],
+            reason: 'a published trip is not a draft');
+
+        await fillIn(tester);
+        router.go('/driver/loads');
+        await tester.pumpAndSettle();
+        // The same account signing out and back in.
+        signInWith(Server(allowed: ownerAllowed));
+        router.go('/screen');
+        await tester.pumpAndSettle();
+        expect(fieldTexts(tester), ['', '', ''],
+            reason: 'a sign-out ends the draft, even for the same account');
+        expect(find.text('Choose a date'), findsNWidgets(2));
+      });
+
+      testWidgets('a draft kept past midnight drops the days that have gone',
+          (tester) async {
+        final server = signInWith(Server(allowed: ownerAllowed));
+        final router =
+            await mount(tester, publish(), size: const Size(800, 3000));
+        // Both days are today, the earliest the picker offers.
+        await fillIn(tester);
+        router.go('/driver/loads');
+        await tester.pumpAndSettle();
+        currentTime = () => DateTime.now().add(const Duration(days: 1));
+        addTearDown(() => currentTime = DateTime.now);
+        router.go('/screen');
+        await tester.pumpAndSettle();
+        expect(fieldTexts(tester),
+            ['Hoskote, Karnataka', 'Kolar, Karnataka', '1000'],
+            reason: 'the places and the room are still good');
+        expect(find.text('Choose a date'), findsNWidgets(2),
+            reason: 'review: yesterday was restored and sent to the server');
+        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.pumpAndSettle();
+        expect(server.sent, isEmpty);
+        expect(find.text('Choose the day the trip leaves.'), findsOneWidget);
+      });
+    });
+
     testWidgets('a place search that finds nothing still opens the map to drag the pin',
         (tester) async {
       signInWith(Server(allowed: ownerAllowed));

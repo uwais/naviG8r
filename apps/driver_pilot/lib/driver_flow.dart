@@ -72,14 +72,12 @@ String driverShellTitle(String path, {bool forDriver = false}) {
 /// Bottom-nav shell for the carrier driver journey (single instance via [ShellRoute]).
 class DriverShell extends StatelessWidget {
   const DriverShell({
-    required this.title,
     required this.currentPath,
     required this.child,
     this.showBottomNav = true,
     super.key,
   });
 
-  final String title;
   final String currentPath;
   final Widget child;
   final bool showBottomNav;
@@ -180,6 +178,8 @@ class DriverShell extends StatelessWidget {
       builder: (context, _) => _shell(context));
 
   Widget _shell(BuildContext context) {
+    // Worked out here, not by the route: the route builds this page before sign-in says whether this is a driver.
+    final title = driverShellTitle(currentPath, forDriver: _forDriver);
     final selected = _indexForPath(currentPath);
     final tabPaths = _forDriver ? _driverTabPaths : _officeTabPaths;
     final shellNav = Navigator.of(context);
@@ -897,6 +897,27 @@ String? _bookingNextWords(Map<String, dynamic> booking) {
   return null;
 }
 
+/// The e-way bill on a booking card, in the booking's own step words, or null when there is nothing to say. A
+/// bill without the truck says nothing here: the status and the "Next:" line already say the shipper adds it.
+String? _ewayBillCardWords(Map<String, dynamic> booking) {
+  final bill = _ewayBillOf(booking);
+  if (bill?["kind"] == "NOT_NEEDED") return "E-way bill: not needed";
+  final truck = bill?["truckNumber"];
+  if (bill?["kind"] != "BILL" || truck is! String || truck.isEmpty) return null;
+  final check = bill?["check"];
+  // The same test as the booking's step list, so the card never reassures while the steps show a problem.
+  final flagged = check is Map && check["result"] == "PROBLEM";
+  final mismatch = ewayBillTruckMismatchSentence(booking, bill!,
+          reader: TruckMismatchReader.carrierOffice) !=
+      null;
+  if ((flagged || mismatch) && !ewayBillIsClosed(booking)) {
+    return "E-way bill has a problem";
+  }
+  return check is Map && check["result"] == "FOUND"
+      ? "E-way bill checked"
+      : "Truck on the e-way bill";
+}
+
 /// ca-bookings: the office's bookings under Needs you, Active and Done. A card opens its booking; Accept is
 /// on the booking screen, never on the list.
 class DriverShipmentsScreen extends StatefulWidget {
@@ -961,13 +982,11 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
     final drop = booking["dropAddress"]?.toString() ?? "";
     final start = _tripStart(trip);
     final weight = _weightWords(booking);
-    final billKind = _ewayBillOf(booking)?["kind"];
+    final billWords = _ewayBillCardWords(booking);
     final details = [
       if (start != null) formatDate(start),
       if (weight != null) weight,
-      // "Needed" only when the shipper saved a bill: no stored answer says "needed" before that.
-      if (billKind == "BILL") "E-way bill: needed",
-      if (billKind == "NOT_NEEDED") "E-way bill: not needed",
+      if (billWords != null) billWords,
     ];
     return NvListCard(
       title: _shipperName(booking),
@@ -1039,8 +1058,8 @@ class _OfficeTask {
   final String path;
 }
 
-/// In the order they block the work: accept, then a driver for a booked trip. The truck on the e-way bill
-/// is the shipper's to add, so it is never a task here.
+/// In the order they block the work: accept, then a driver for a booked trip, then start a trip that is ready.
+/// The truck on the e-way bill is the shipper's to add, so it is never a task here.
 /// Each kind needs the permission that does it, so nobody is sent to a task they cannot do.
 List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
   final tasks = <_OfficeTask>[];
@@ -1080,6 +1099,30 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
           _tripRoute(trip) ?? "Trip",
           if (start != null) formatDate(start)
         ].join(" · "),
+        actionLabel: "Open trip",
+        path: "/driver/trip/${trip["id"]}/active",
+      ));
+    }
+  }
+  // Only what the trip screen's Start trip would take: an approved carrier, an accepted booking, a driver and
+  // a truck, and a trip whose first day has come.
+  if (AuthorizationSession.can("load.status_update") &&
+      DriverSession.complianceApproved) {
+    for (final trip in loaded.tripsById.values) {
+      final start = _tripStart(trip);
+      final readyToStart = (trip["status"] == "OPEN" ||
+              trip["status"] == "FULL") &&
+          _nonEmpty(trip["assignedDriverUserId"]) != null &&
+          _nonEmpty(trip["assignedTruckNumber"]) != null &&
+          start != null &&
+          !_dayInIndia(start).isAfter(_todayInIndia()) &&
+          loaded.bookings.any((booking) =>
+              booking["anchorTripId"] == trip["id"] &&
+              booking["status"] == "BOOKED");
+      if (!readyToStart) continue;
+      tasks.add(_OfficeTask(
+        title: "Start a trip",
+        detail: [_tripRoute(trip) ?? "Trip", formatDate(start)].join(" · "),
         actionLabel: "Open trip",
         path: "/driver/trip/${trip["id"]}/active",
       ));
@@ -4342,10 +4385,35 @@ DateTime _dayInIndia(DateTime moment) {
   return DateTime.utc(india.year, india.month, india.day);
 }
 
-/// The calendar day in India today.
-DateTime _todayInIndia() => _dayInIndia(DateTime.now());
+/// Tests move it past midnight; the date picker cannot choose a day that has gone.
+@visibleForTesting
+DateTime Function() currentTime = DateTime.now;
 
-/// ca-publish: every field starts empty, the truck size is a choice, and Publish stays visible at the bottom.
+/// The calendar day in India today.
+DateTime _todayInIndia() => _dayInIndia(currentTime());
+
+/// What was typed on Publish, kept in memory while the person goes to another tab and back. [owner] is the
+/// sign-in and company it was typed under, so a sign-out, another sign-in or a company switch never gets it back.
+typedef _PublishDraft = ({
+  String owner,
+  String from,
+  LatLng? fromPoint,
+  String to,
+  LatLng? toPoint,
+  DateTime? leaves,
+  DateTime? arrivesBy,
+  String? truckSize,
+  String room,
+});
+
+_PublishDraft? _publishDraft;
+
+/// Changes on every sign-in and sign-out (identityGeneration) and on a company switch (scopeKey).
+String _publishDraftOwner() =>
+    "${AuthorizationSession.identityGeneration}:${AuthorizationSession.scopeKey}";
+
+/// ca-publish: every field starts empty (or as left on another tab), the truck size is a choice, and Publish stays
+/// visible at the bottom.
 class DriverPublishTripScreen extends StatefulWidget {
   const DriverPublishTripScreen(
       {super.key, this.findPlace = GoogleGeocodingService.forwardAddress});
@@ -4368,17 +4436,46 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   String? _truckSize;
   final _room = TextEditingController();
   bool _submitting = false;
+  bool _published = false;
   String? _error;
   final _form = ScrollController();
+  final _draftOwner = _publishDraftOwner();
 
   @override
   void initState() {
     super.initState();
+    final draft = _publishDraft;
+    if (draft != null && draft.owner == _draftOwner) {
+      // A draft kept past midnight can hold a day that has gone; the form only checks that one was chosen.
+      final today = _todayInIndia();
+      bool notGone(DateTime? day) => day != null && !day.isBefore(today);
+      _origin.text = draft.from;
+      _originPos = draft.fromPoint;
+      _dest.text = draft.to;
+      _destPos = draft.toPoint;
+      _leaves = notGone(draft.leaves) ? draft.leaves : null;
+      _arrivesBy = notGone(draft.arrivesBy) ? draft.arrivesBy : null;
+      _truckSize = draft.truckSize;
+      _room.text = draft.room;
+    }
     DriverSession.refresh();
   }
 
   @override
   void dispose() {
+    _publishDraft = _published || _publishDraftOwner() != _draftOwner
+        ? null
+        : (
+            owner: _draftOwner,
+            from: _origin.text,
+            fromPoint: _originPos,
+            to: _dest.text,
+            toPoint: _destPos,
+            leaves: _leaves,
+            arrivesBy: _arrivesBy,
+            truckSize: _truckSize,
+            room: _room.text,
+          );
     _origin.dispose();
     _dest.dispose();
     _room.dispose();
@@ -4483,6 +4580,9 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
           "capacityKg": int.parse(_room.text.trim()),
         },
       );
+      // Both: the screen may already be gone, having kept the draft, when the publish lands.
+      _published = true;
+      _publishDraft = null;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(tripPublishedMessage());
       context.go("/driver/loads");
@@ -4617,8 +4717,6 @@ List<RouteBase> driverFlowRoutes() {
       builder: (context, state, child) {
         final path = state.uri.path;
         return DriverShell(
-          title: driverShellTitle(path,
-              forDriver: DriverSession.carrierRole == "DRIVER"),
           currentPath: path,
           child: child,
         );
