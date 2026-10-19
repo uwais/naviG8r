@@ -8,7 +8,7 @@ import "../customer_session.dart";
 import "../pilot_api.dart";
 import "../notification_center.dart";
 import "../shipment_steps.dart";
-import "../start_screen.dart";
+import "../sign_in_screen.dart";
 import "../ui/format.dart";
 import "../ui/nv_button.dart";
 import "../ui/nv_list_card.dart";
@@ -122,7 +122,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
   Widget _home(BuildContext context) {
     if (!CustomerSession.isSignedIn) {
-      return const Scaffold(body: SafeArea(child: StartScreen()));
+      return const SignInScreen();
     }
     final canWriteBill = AuthorizationSession.can("eway_bill.write");
     final canAddTruck = AuthorizationSession.can("eway_bill.add_truck");

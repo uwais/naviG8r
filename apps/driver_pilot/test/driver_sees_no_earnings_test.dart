@@ -47,17 +47,17 @@ void main() {
     });
 
     testWidgets(
-        'shows a signed-out visitor the start screen, and the office its Home',
+        'shows a signed-out visitor the sign-in, and the office its Home',
         (tester) async {
       FlutterSecureStorage.setMockInitialValues({});
       api = Api('http://test');
       AuthorizationSession.clear();
       await mountScreen(
           tester, const DriverWelcomeScreen(key: ValueKey('signed out')));
-      expect(find.text('How do you use NaviG8r?'), findsOneWidget,
-          reason: 'PR 3: signed out, Home is the start screen');
+      expect(find.text('Sign in with your phone'), findsOneWidget,
+          reason: 'PR 3: signed out, Home is the sign-in');
       expect(paymentWords.hasMatch(screenWords(tester)), isFalse,
-          reason: 'the start screen promises no pay');
+          reason: 'the sign-in promises no pay');
 
       signInAsCarrierLogin(office: true);
       api.dio.httpClientAdapter = MockApiAdapter(

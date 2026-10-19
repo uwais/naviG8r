@@ -24,7 +24,7 @@ import "pilot_api.dart";
 import "notification_center.dart";
 import "plain_error_sentence.dart";
 import "signed_in_header.dart";
-import "start_screen.dart";
+import "sign_in_screen.dart";
 import "transporter_id_section.dart";
 import "trip_assignment_card.dart";
 import "ui/format.dart";
@@ -40,8 +40,6 @@ import "ui/nv_sheet.dart";
 import "ui/nv_status_label.dart";
 import "ui/nv_step_list.dart";
 import "ui/pending_copy.dart";
-import "ui/sign_in_code_page.dart";
-import "ui/sign_in_phone_page.dart";
 import "ui/tokens.dart";
 import "unassigned_driver_notice.dart";
 
@@ -202,7 +200,7 @@ class DriverShell extends StatelessWidget {
         }
       },
       child: !AuthorizationSession.signedIn
-          // Signed out there is only the start screen: no header and no tabs.
+          // Signed out there is only the sign-in: no header and no tabs.
           ? Scaffold(body: SafeArea(child: child))
           : Scaffold(
               appBar: signedInHeader(context,
@@ -255,235 +253,10 @@ class DriverWelcomeScreen extends StatelessWidget {
       builder: (context, _) => _home(context));
 
   Widget _home(BuildContext context) {
-    if (!AuthorizationSession.signedIn) return const StartScreen();
+    if (!AuthorizationSession.signedIn) return const SignInScreen();
     return DriverSession.carrierRole == "DRIVER"
         ? const _DriverToday()
         : const _OfficeHome();
-  }
-}
-
-class DriverPhoneScreen extends StatefulWidget {
-  const DriverPhoneScreen({super.key});
-
-  @override
-  State<DriverPhoneScreen> createState() => _DriverPhoneScreenState();
-}
-
-class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
-  final _phone = TextEditingController();
-  bool _busy = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _phone.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    final phone = digitsOnly(_phone.text.trim());
-    if (phone.length != 10) {
-      setState(() {
-        _busy = false;
-        _error = "Enter a 10-digit mobile number.";
-      });
-      return;
-    }
-    try {
-      final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
-          data: {"phone": phone});
-      if (!mounted) return;
-      SemanticsService.announce(
-          "Code sent to ${formatPhone(phone)}.", Directionality.of(context));
-      context.go("/driver/onboarding/otp?phone=$phone", extra: {
-        "challengeId": r.data?["challengeId"],
-        "expiresAtUtcMs": r.data?["expiresAtUtcMs"],
-        "retryAfterMs": r.data?["retryAfterMs"],
-        "debugCode": r.data?["debugCode"],
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = plainErrorSentence(e));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SignInPhonePage(
-      phone: _phone,
-      sending: _busy,
-      errorText: _error,
-      onSend: _send,
-      onBack: () => context.go("/driver"),
-      shipping: false,
-      onOtherSide: () => context.go("/customer/login"),
-      newAccountLinks: {
-        "Register as new carrier": () =>
-            context.go("/driver/onboarding/register"),
-        "Join a carrier fleet": () => context.go("/driver/onboarding/join"),
-      },
-    );
-  }
-}
-
-class DriverOtpScreen extends StatefulWidget {
-  const DriverOtpScreen({super.key});
-
-  @override
-  State<DriverOtpScreen> createState() => _DriverOtpScreenState();
-}
-
-class _DriverOtpScreenState extends State<DriverOtpScreen> {
-  String _challengeId = "";
-  final _code = TextEditingController();
-  bool _starting = false;
-  bool _verifying = false;
-  String? _debugCode;
-  String? _error;
-  String _phone = "";
-  bool _receivedChallenge = false;
-  Timer? _cooldownTimer;
-  int _cooldownSeconds = 0;
-
-  void _startCooldown(dynamic rawMs) {
-    _cooldownTimer?.cancel();
-    final ms = rawMs is num ? rawMs.toInt() : 0;
-    final seconds = ms > 0 ? (ms / 1000).ceil() : 0;
-    if (mounted) setState(() => _cooldownSeconds = seconds);
-    if (seconds > 0) {
-      _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (!mounted) return timer.cancel();
-        setState(() => _cooldownSeconds =
-            (_cooldownSeconds - 1).clamp(0, 1 << 30).toInt());
-        if (_cooldownSeconds == 0) timer.cancel();
-      });
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final p = GoRouterState.of(context).uri.queryParameters["phone"] ?? "";
-    final extra = GoRouterState.of(context).extra;
-    if (extra is Map && !_receivedChallenge && extra["challengeId"] is String) {
-      _phone = p;
-      _challengeId = (extra["challengeId"] as String).trim();
-      final dc = extra["debugCode"];
-      if (dc is String && dc.isNotEmpty) {
-        _debugCode = dc;
-        _code.text = dc;
-      }
-      _startCooldown(extra["retryAfterMs"]);
-      _receivedChallenge = true;
-    } else if (p.isNotEmpty && p != _phone) {
-      _phone = p;
-      _resend();
-    }
-  }
-
-  Future<void> _resend() async {
-    setState(() {
-      _starting = true;
-      _error = null;
-    });
-    try {
-      final previousChallengeId = _challengeId;
-      final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
-          data: {"phone": _phone});
-      if (!mounted) return;
-      final id = r.data?["challengeId"] as String?;
-      if (id != null) _challengeId = id;
-      final dc = r.data?["debugCode"];
-      if (dc is String && dc.isNotEmpty) {
-        _debugCode = dc;
-        _code.text = dc;
-      } else if (id != previousChallengeId) {
-        _debugCode = null;
-        _code.clear();
-      }
-      _startCooldown(r.data?["retryAfterMs"]);
-      SemanticsService.announce(
-          "Code sent to ${formatPhone(_phone)}.", Directionality.of(context));
-    } catch (e) {
-      if (mounted) {
-        final retry = otpRetryAfterMs(e);
-        if (retry != null) _startCooldown(retry);
-        setState(() => _error = plainErrorSentence(e));
-      }
-    } finally {
-      if (mounted) setState(() => _starting = false);
-    }
-  }
-
-  Future<void> _verify() async {
-    setState(() {
-      _verifying = true;
-      _error = null;
-    });
-    try {
-      final r = await api.post<Map<String, dynamic>>(
-        "/v1/auth/otp/verify",
-        data: {
-          "phone": _phone,
-          "challengeId": _challengeId.trim(),
-          "code": _code.text.trim()
-        },
-      );
-      final token = r.data?["accessToken"] as String?;
-      if (token != null) await api.setToken(token);
-      await DriverSession.refresh();
-      if (!mounted) return;
-      if (AuthorizationSession.signedIn) {
-        context.go(AuthorizationSession.home);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-                "No carrier org for this phone. Use Register as new carrier on the sign-in screen."),
-          ),
-        );
-        context.go("/driver/onboarding/phone");
-      }
-    } catch (e) {
-      if (mounted) {
-        final error = plainErrorSentence(e);
-        setState(() => _error = error);
-        SemanticsService.announce(error, Directionality.of(context),
-            assertiveness: Assertiveness.assertive);
-      }
-    } finally {
-      if (mounted) setState(() => _verifying = false);
-    }
-  }
-
-  @override
-  void dispose() {
-    _cooldownTimer?.cancel();
-    _code.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SignInCodePage(
-      phone: formatPhone(_phone),
-      code: _code,
-      verifying: _verifying,
-      sendingNewCode: _starting,
-      secondsUntilNewCode: _cooldownSeconds,
-      errorText: _error,
-      debugCode: _debugCode,
-      onSignIn: _verify,
-      onSendNewCode: _resend,
-      onChangeNumber: () => context.go("/driver/onboarding/phone"),
-      onBack: () => context.go("/driver/onboarding/phone"),
-    );
   }
 }
 
@@ -567,7 +340,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
         const SnackBar(
             content: Text("Carrier created — verify your phone to continue.")),
       );
-      context.go("/driver/onboarding/otp?phone=$phone");
+      context.go("/customer/login?phone=$phone");
     } catch (e) {
       // Ten seconds because the server's sentence (what a transporter ID looks like, say) is too long to read in four.
       if (mounted)
@@ -680,7 +453,7 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
             content: Text(
                 "Account created — ask your carrier admin to invite you, then sign in.")),
       );
-      context.go("/driver/onboarding/phone");
+      context.go("/customer/login");
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
@@ -4922,12 +4695,12 @@ List<RouteBase> driverFlowRoutes() {
         ),
       ],
     ),
+    // The carriers' old sign-in addresses, kept so saved links still open the one sign-in.
     GoRoute(
         path: "/driver/onboarding/phone",
-        builder: (_, __) => const DriverPhoneScreen()),
+        redirect: (_, __) => "/customer/login"),
     GoRoute(
-        path: "/driver/onboarding/otp",
-        builder: (_, __) => const DriverOtpScreen()),
+        path: "/driver/onboarding/otp", redirect: (_, __) => "/customer/login"),
     GoRoute(
         path: "/driver/onboarding/register",
         builder: (_, __) => const DriverRegisterScreen()),

@@ -1,7 +1,7 @@
 import "package:go_router/go_router.dart";
 
 import "shipper_home.dart";
-import "shipper_sign_in.dart";
+import "../sign_in_screen.dart";
 import "shipper_register.dart";
 import "shipper_team.dart";
 import "erp_integrations.dart";
@@ -16,7 +16,10 @@ List<RouteBase> customerFlowRoutes() {
       path: "/customer",
       builder: (_, __) => const CustomerHomeScreen(),
       routes: [
-        GoRoute(path: "login", builder: (_, __) => const CustomerLoginScreen()),
+        GoRoute(
+            path: "login",
+            builder: (_, state) => SignInScreen(
+                startingPhone: state.uri.queryParameters["phone"])),
         GoRoute(
             path: "register",
             builder: (_, __) => const CustomerRegisterScreen()),

@@ -1,7 +1,7 @@
 // PR 10 of the redesign: when a request fails on a shipper screen, the screen says what failed in
 // plain words, never "HTTP 500", a server address or an exception's text (decisions.md 7).
 import 'package:driver_pilot/shipper/erp_integrations.dart';
-import 'package:driver_pilot/shipper/shipper_sign_in.dart';
+import 'package:driver_pilot/sign_in_screen.dart';
 import 'package:driver_pilot/shipper/shipper_team.dart';
 import 'package:driver_pilot/customer_session.dart';
 import 'package:driver_pilot/driver_theme.dart';
@@ -57,7 +57,7 @@ void main() {
       'sign in: a code that cannot be sent, then a code that cannot be checked',
       (tester) async {
     await showWithFailingServer(
-        tester, '/customer/login', const CustomerLoginScreen());
+        tester, '/customer/login', const SignInScreen());
     await tester.enterText(find.byType(TextField), '9845012345');
     await tester.tap(find.text('Send code'));
     await tester.pumpAndSettle();
@@ -65,7 +65,7 @@ void main() {
         'Could not send the code. Check your connection, then try again.');
 
     await showWithFailingServer(
-        tester, '/customer/login', const CustomerLoginScreen(),
+        tester, '/customer/login', const SignInScreen(),
         working: {
           '/v1/auth/otp/start': {
             'challengeId': 'challenge-1',
