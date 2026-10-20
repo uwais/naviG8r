@@ -31,7 +31,10 @@ function shipmentCancelled(store: Store, pay: Payment): boolean {
  * authorization NaviG8r already held, or the capture of a payment it already refunded, is not new money and is ignored.
  */
 function recordPaymentAfterCancel(store: Store, pay: Payment, event: "AUTHORIZED" | "CAPTURED", razorpayPayId: string): void {
-  if (pay.razorpayPaymentId === razorpayPayId && (event === "AUTHORIZED" || pay.status === "REFUNDED")) return;
+  // The payment refunded at the cancel stays refunded after a later capture moves the status on; a released hold does not.
+  const refundedAtCancel = [...store.auditEvents.values()].some((row) =>
+    row.action === "PAYMENT_REFUNDED" && row.resourceType === "shipment" && row.resourceId === pay.shipmentId);
+  if (pay.razorpayPaymentId === razorpayPayId && (event === "AUTHORIZED" || pay.status === "REFUNDED" || refundedAtCancel)) return;
   const recorded = [...store.auditEvents.values()].some((row) =>
     row.action === "PAYMENT_AFTER_CANCEL" && row.razorpayPaymentId === razorpayPayId && row.reasonCode === event);
   if (recorded) return;

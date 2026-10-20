@@ -372,6 +372,19 @@ test("two captures after the cancel: marking the first refunded leaves the secon
     [["CAPTURED_AFTER_CANCEL", "CAPTURED_AFTER_CANCEL", "pay_first"], ["CAPTURED_AFTER_CANCEL", "REFUNDED", "pay_second"]], "one row per Razorpay payment marked");
 });
 
+test("a resent capture of the payment refunded at the cancel never reaches Finance's list, even after another capture", async t => {
+  const f = await httpFixture(t);
+  const refunded = await book(f, f.trip.id);
+  setPayment(f, refunded, { provider: "MOCK", status: "CAPTURED", razorpayOrderId: "order_refunded", razorpayPaymentId: "pay_refunded" });
+  assert.equal((await failAndRefund(f, refunded)).status, 200);
+  setPayment(f, refunded, { provider: "RAZORPAY" });
+  webhook(f, "payment.captured", "pay_new", "order_refunded");
+  webhook(f, "payment.captured", "pay_refunded", "order_refunded");
+  assert.deepEqual([paymentOf(f, refunded).status, paymentOf(f, refunded).capturedAfterCancelRazorpayPaymentId], ["CAPTURED_AFTER_CANCEL", "pay_new"]);
+  const marked = await f.request(`/shipments/${refunded}/mark-refunded`, "POST", { razorpayPaymentId: "pay_new" }, f.tokens.finance);
+  assert.deepEqual([marked.status, marked.body.payment?.status], [200, "REFUNDED"], "nothing else is left to refund");
+});
+
 test("marking refunded a Razorpay payment that is not the one waiting is refused and changes nothing", async t => {
   const f = await httpFixture(t);
   const held = await book(f, f.trip.id);
