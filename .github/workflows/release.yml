@@ -19,6 +19,8 @@ on:
       - "**.md"
       - ".github/**"
 
+  # Run from the Actions tab on any branch to put that branch on alpha for testing. Only a run
+  # on main goes on to beta and production; see the condition on deploy-beta.
   workflow_dispatch:
 
 permissions:
@@ -30,7 +32,12 @@ permissions:
   actions: read
 
 concurrency:
-  group: navig8r-main-release
+  # One queue per branch. With a single shared queue, a branch run would wait behind a main
+  # release parked at the production approval, and GitHub keeps only one waiting run per queue,
+  # so starting a branch run would cancel a main release already waiting in line.
+  # Cost: runs on different branches can deploy alpha at the same time. A run still checking
+  # alpha when another run's deploy lands fails its check and must be re-run.
+  group: navig8r-release-${{ github.ref }}
   # Deliberately false. deploy-production targets an environment with required
   # reviewers, so the job waits for a human. With cancel-in-progress: true, the
   # next merge to main killed that waiting run and its pending approval with it --
@@ -226,11 +233,26 @@ jobs:
         run: |
           node scripts/alpha-integration.mjs
 
+      # Signs up the shared test phones in scripts/alpha-test-accounts.json and lists them in the
+      # run summary. A helper for testers, so it must never stop a release.
+      - name: Alpha test accounts
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          ALPHA_API_URL: https://navig8r-api-alpha.onrender.com
+        run: |
+          node scripts/alpha-test-accounts.mjs || {
+            echo "Alpha test accounts could not be set up; see the step log." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
+
   deploy-beta:
     name: Deploy Beta
     needs:
       - build
       - deploy-alpha
+    # Branch runs stop at alpha. Production needs this job, so it is skipped too.
+    if: github.ref == 'refs/heads/main'
 
     runs-on: ubuntu-latest
 
@@ -332,6 +354,8 @@ jobs:
     needs:
       - build
       - deploy-beta
+    # Already skipped when deploy-beta is; repeated so the guard survives an always() added later.
+    if: github.ref == 'refs/heads/main'
 
     runs-on: ubuntu-latest
 
