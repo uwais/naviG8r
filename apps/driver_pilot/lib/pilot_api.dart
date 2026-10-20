@@ -362,6 +362,10 @@ String tripStatusLabel(String status) {
       return "In transit";
     case "COMPLETED":
       return "Done";
+    case "CANCEL_REQUESTED":
+      return "Cancel requested";
+    case "CANCELLED":
+      return "Cancelled";
     default:
       return status;
   }

@@ -114,6 +114,9 @@ Open checks: "contact NaviG8r" names no phone number or email; the app has none 
 | On the way | Left [pickup] on [date] at [time] IST. [Carrier] confirms when it is delivered. · Message [Carrier] |  |
 | Delivered | [Carrier] confirmed delivery and added proof of delivery. Your payment of ₹[amount] is collected now. · View proof of delivery · Book another shipment | Open item 8 (payment issue) |
 | Cancelled | This shipment was cancelled · NaviG8r operations cancelled it on [date] at your request. · You paid · Refunded · Refunds reach your account in the time your bank or payment app takes. · Questions about this refund? Contact [NaviG8r contact]. | Replaces the system code |
+| Cancelled, hold released | This shipment was cancelled · Your payment was only held, never taken. Razorpay releases it within 3 days of when you paid; your bank may take 5-7 working days after that. · Questions about this payment? Contact [NaviG8r contact]. | Payment `HOLD_RELEASED`: no "You paid", no refund lines (Rishabh, 19 Oct 2026) |
+| Cancelled, bill made | If you made an e-way bill for this load, cancel it on the e-way bill portal. | Only when a bill was entered. No deadline is claimed; NaviG8r never cancels the bill |
+| Update: cancelled | Shipment cancelled · The carrier cannot carry your load from [From] to [To], so it was cancelled. + one of: Your payment was only held, never taken. Razorpay releases it within 3 days of when you paid; your bank may take 5-7 working days after that. · Your refund has started. · Nothing was charged. | Sent when Finance cancels the shipment; the carrier's office and driver read "NaviG8r cancelled this shipment on your trip." |
 | Updates | [Carrier] accepted your shipment · [Route, date]. You can make the e-way bill now. · Your shipment is on the way · E-way bill checked · Delivered · Proof of delivery is ready. | Named by route and date |
 
 ```
@@ -155,7 +158,42 @@ Tabs for the office: Home, Bookings, Trips, Publish, Profile. Tabs for drivers: 
 
 | Element | Copy | Notes |
 |---|---|---|
-| Trips list | Trips · Open · In transit · Done · Leaves · Room left · Bookings · [truck] · [driver] \| No driver yet · Truck chosen when you accept the first booking | No View or Start on the card |
+| Trips list | Trips · Open · In transit · Done · Leaves · Room left · Bookings · [truck] · [driver] \| No driver yet · Truck chosen when you accept the first booking · Cancel requested (under Open) · Cancelled (under Done) | No View or Start on the card |
+| Cancel, no bookings | Cancel this trip · Cancel this trip? · Shippers will no longer see or book it. You can publish a new trip any time. This cannot be undone. · Keep trip · Cancel trip · Trip cancelled. Shippers can no longer see or book it. · This trip has bookings, so it cannot be cancelled here. | Office logins that may assign trips, on an Open or Full trip with no booking. The question is in the page, never a dialog; Keep trip comes first and has the focus. Cancel this trip and Cancel trip are the destructive style |
+| Ask to cancel, bookings | Ask NaviG8r to cancel · Why do you want to cancel this trip? · Shippers cannot book the trip while NaviG8r looks at your request. NaviG8r contacts the shippers already booked. · Truck not available · Driver not available · Route changed · Other reason · Note (optional) · Send request (disabled) · Choose a reason first. · Send request · Keep trip · Keep the note to 500 characters or fewer. | A sheet. No reason preselected; the note is never required |
+| Cancel requested | You asked NaviG8r to cancel this trip. Shippers cannot book it now. NaviG8r will contact the shippers already booked. · Withdraw request · Withdraw your request? · Shippers can book this trip again while it has room. · Keep request · Withdraw request · Request withdrawn. Shippers can book this trip again while it has room. | Withdraw only for logins that may assign trips; its question is in the page, Keep request first and focused |
+
+```
+DARK PATTERN SCREEN — carrier trip cancel: cancel an empty trip, ask NaviG8r, withdraw, held money on cancel — 2026-10-19
+Screened: the Cancel no bookings, Ask to cancel, Cancel requested and Trips list rows above;
+  the shipper's Cancelled hold released, Cancelled bill made and Update cancelled rows; the
+  /ops/beta "Trip cancel requests" card (Cancel shipment… · Cancel shipment [id] for [Shipper]?
+  [amount sentence] The shipper is told. This can't be undone from the console. · Keep shipment
+  · Cancel shipment · Finance cancels each shipment. You hold [roles].). Written with the build
+  on 19 Oct from Rishabh's brief, not before it.
+Verdict: PASS
+Passes: 1 actionability: each button shows only when the server would allow it (Open or Full,
+  trip.assign, bookings or none), and a refusal for a booking that arrived meanwhile says so and
+  offers Ask instead; 2 no comparison; 3 no cost to the carrier exists, and the shipper's words
+  say what happens to the money in each of the three cases; 4 no urgency; 5 no defaults: no
+  reason preselected, Keep is the focused answer; 6 exit: an empty-trip cancel says "This
+  cannot be undone." before the tap; a request can be withdrawn from the same screen, behind
+  the same kind of question; 7 decline copy is neutral: Keep trip, Keep request, Keep shipment;
+  8 "Shippers cannot book it now" and "Shippers will no longer see or book it" match the
+  server (off the public list and Match, booking refused); 9 data asked: one required reason
+  from a fixed list of four, "Other reason" included so no one is forced into a false one, and
+  an optional note labelled optional, capped at 500 characters, seen only by NaviG8r staff;
+  10 no payout involved; 11 "if no one booked, you can take the trip back yourself; if
+  someone did, you tell us why and we contact them and cancel each booking; you can take the
+  request back until then" can be said to the carrier's face.
+Findings: none
+Accepted risks: none
+Open checks: "NaviG8r will contact the shippers already booked" promises a person acting;
+  nothing in the app does it except the cancel notification Finance's action sends, so ops
+  must own that step. "Razorpay releases it within 3 days of when you paid" rests on Razorpay's
+  docs as read on 19 Oct 2026, not on a live test. A booking still waiting on a requested trip
+  can be accepted by the carrier.
+```
 | Trip | TRIP · [route] · [status] · Leaves [dates] · [size] truck · Room left: [n] kg of [capacity] kg · Truck and driver · Not assigned · Assign driver · Bookings on this trip ([n]) |  |
 | Start (disabled) | Start the trip · Start trip · Assign a driver first. Then start on loading day. | Start lives only here |
 | Start sheet | Start [route] now? · Truck · Driver · Bookings · [Shipper]'s e-way bill does not have the truck yet. [Shipper] adds it. Without the truck, the bill is not valid for moving the goods. · Start trip · Not yet · Starting tells each shipper their goods are on the way. | Warning only when true; it informs, it does not ask the carrier to act |

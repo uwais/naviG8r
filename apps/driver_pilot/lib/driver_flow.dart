@@ -27,6 +27,7 @@ import "signed_in_header.dart";
 import "sign_in_screen.dart";
 import "transporter_id_section.dart";
 import "trip_assignment_card.dart";
+import "trip_cancel_card.dart";
 import "ui/format.dart";
 import "ui/nv_action_bar.dart";
 import "ui/nv_button.dart";
@@ -2152,9 +2153,9 @@ String? _nonEmpty(Object? value) =>
 enum _TripGroup { open, inTransit, done }
 
 _TripGroup? _tripGroup(Map<String, dynamic> trip) => switch (trip["status"]) {
-      "OPEN" || "FULL" => _TripGroup.open,
+      "OPEN" || "FULL" || "CANCEL_REQUESTED" => _TripGroup.open,
       "IN_PROGRESS" => _TripGroup.inTransit,
-      "COMPLETED" => _TripGroup.done,
+      "COMPLETED" || "CANCELLED" => _TripGroup.done,
       _ => null,
     };
 
@@ -2166,6 +2167,9 @@ NvStatusLabel? _tripStatusLabel(Map<String, dynamic>? trip) =>
       "IN_PROGRESS" =>
         const NvStatusLabel("In transit", tone: NvStatusTone.info),
       "COMPLETED" => const NvStatusLabel("Done", tone: NvStatusTone.ended),
+      "CANCEL_REQUESTED" =>
+        const NvStatusLabel("Cancel requested", tone: NvStatusTone.attention),
+      "CANCELLED" => const NvStatusLabel("Cancelled", tone: NvStatusTone.ended),
       _ => null,
     };
 
@@ -3348,6 +3352,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       "COMPLETED" => const NvStatusLabel("Done", tone: NvStatusTone.ended),
       "OPEN" || "FULL" when _acceptedBookings.isNotEmpty =>
         const NvStatusLabel("Ready to start", tone: NvStatusTone.good),
+      "CANCEL_REQUESTED" || "CANCELLED" => _tripStatusLabel(trip),
       _ => null,
     };
     final points = _resolvedMapPoints();
@@ -3609,6 +3614,17 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   _bookingOnTrip(booking, trip),
                   const SizedBox(height: NvSpace.s3),
                 ],
+              ],
+              if (trip != null &&
+                  const {"OPEN", "FULL", "CANCEL_REQUESTED", "CANCELLED"}
+                      .contains(status)) ...[
+                TripCancelCard(
+                  key: ValueKey("cancel-${trip["id"]}"),
+                  trip: trip,
+                  hasBookings: _hasActiveShipments,
+                  onChanged: (saved) => setState(() => _trip = saved),
+                ),
+                gap,
               ],
               if (status == "COMPLETED")
                 const NvMessage(

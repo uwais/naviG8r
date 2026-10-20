@@ -434,7 +434,11 @@ class _CustomerShipmentDetailScreenState
     // A booking never paid is also marked refunded on cancel, and the shipper's payment record
     // does not say which it was, so a refund is told without claiming the shipper paid.
     final refunded = _paymentStatus == "REFUNDED";
+    // Cancelled while the money was only authorized: nothing was taken, so nothing is refunded.
+    final holdReleased = _paymentStatus == "HOLD_RELEASED";
     final nothingPaid = paymentNotTaken(_paymentStatus);
+    final bill = _shipment?["ewayBill"];
+    final madeBill = bill is Map && bill["kind"] == "BILL";
     Widget row(String label, String value) => Padding(
           padding: const EdgeInsets.symmetric(vertical: NvSpace.s1),
           child: Wrap(
@@ -467,6 +471,10 @@ class _CustomerShipmentDetailScreenState
               if (nothingPaid)
                 const Text("Nothing was paid for this booking.",
                     style: NvText.body)
+              else if (holdReleased)
+                const Text(
+                    "Your payment was only held, never taken. Razorpay releases it within 3 days of when you paid; your bank may take 5-7 working days after that.",
+                    style: NvText.body)
               else ...[
                 if (_paymentHeld && amount != null)
                   row("You paid", formatRupees(amount)),
@@ -480,6 +488,12 @@ class _CustomerShipmentDetailScreenState
                 const Text(
                     "Refunds reach your account in the time your bank or payment app takes.",
                     style: NvText.caption),
+              ],
+              if (madeBill) ...[
+                const SizedBox(height: NvSpace.s2),
+                const Text(
+                    "If you made an e-way bill for this load, cancel it on the e-way bill portal.",
+                    style: NvText.body),
               ],
             ],
           ),
@@ -495,7 +509,9 @@ class _CustomerShipmentDetailScreenState
               TextSpan(
                   text: nothingPaid
                       ? "Questions about this booking? "
-                      : "Questions about this refund? ",
+                      : holdReleased
+                          ? "Questions about this payment? "
+                          : "Questions about this refund? ",
                   style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
               const TextSpan(
                   text: "Contact ${PendingCopy.changeOrCancelContact}."),

@@ -61,7 +61,9 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
   Map<String, dynamic> get _trip => _savedTrip ?? widget.trip;
 
   bool get _canAssign =>
-      AuthorizationSession.can('trip.assign') && _trip['status'] != 'COMPLETED';
+      AuthorizationSession.can('trip.assign') &&
+      _trip['status'] != 'COMPLETED' &&
+      _trip['status'] != 'CANCELLED';
 
   @override
   void initState() {
