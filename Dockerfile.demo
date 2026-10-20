@@ -10,6 +10,9 @@ ARG FLUTTER_VERSION=3.22.3
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH
 ENV FLUTTER_SUPPRESS_ANALYTICS=true
+# Flutter unpacks its downloads with tar, which as root keeps each file's original owner. Render's builder refuses
+# that ("Cannot change ownership"), so the first Render build failed in precache.
+ENV TAR_OPTIONS=--no-same-owner
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
