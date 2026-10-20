@@ -434,7 +434,8 @@ class _CustomerShipmentDetailScreenState
     // A booking never paid is also marked refunded on cancel, and the shipper's payment record
     // does not say which it was, so a refund is told without claiming the shipper paid.
     final refunded = _paymentStatus == "REFUNDED";
-    // Cancelled while the money was only authorized: nothing was taken, so nothing is refunded.
+    // Cancelled while the money was only authorized: NaviG8r never collected it, so nothing is refunded. The shipper's
+    // bank may already show the debit (UPI, netbanking), so the words never say nothing was taken.
     final holdReleased = _paymentStatus == "HOLD_RELEASED";
     final nothingPaid = paymentNotTaken(_paymentStatus);
     final bill = _shipment?["ewayBill"];
@@ -473,7 +474,7 @@ class _CustomerShipmentDetailScreenState
                     style: NvText.body)
               else if (holdReleased)
                 const Text(
-                    "Your payment was only held, never taken. Razorpay releases it within 3 days of when you paid; your bank may take 5-7 working days after that.",
+                    "NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that.",
                     style: NvText.body)
               else ...[
                 if (_paymentHeld && amount != null)
@@ -492,7 +493,7 @@ class _CustomerShipmentDetailScreenState
               if (madeBill) ...[
                 const SizedBox(height: NvSpace.s2),
                 const Text(
-                    "If you made an e-way bill for this load, cancel it on the e-way bill portal.",
+                    "If you made an e-way bill for this load, cancel it on the e-way bill portal. The portal allows this only within 24 hours of making the bill.",
                     style: NvText.body),
               ],
             ],

@@ -11,13 +11,14 @@ import 'ui/nv_sheet.dart';
 import 'ui/tokens.dart';
 
 /// Taking back a trip on the office's trip screen (owner decision, 19 Oct 2026). A trip with no booking is
-/// cancelled here, after a question in the page. With bookings the office asks NaviG8r instead, who contacts the
-/// shippers, and can withdraw the request. Only whoever may assign trips sees the buttons.
+/// cancelled here, after a question in the page. With bookings the office asks NaviG8r instead, which reviews the
+/// request, and can withdraw it. Only whoever may assign trips sees the buttons.
 class TripCancelCard extends StatefulWidget {
   const TripCancelCard(
       {required this.trip,
       required this.hasBookings,
       required this.onChanged,
+      this.onReload,
       super.key});
   final Map<String, dynamic> trip;
 
@@ -27,6 +28,9 @@ class TripCancelCard extends StatefulWidget {
   /// The trip as the server saved it.
   final ValueChanged<Map<String, dynamic>> onChanged;
 
+  /// Loads the trip and its bookings again, when the server says this screen's bookings are out of date.
+  final VoidCallback? onReload;
+
   @override
   State<TripCancelCard> createState() => _TripCancelCardState();
 }
@@ -34,20 +38,35 @@ class TripCancelCard extends StatefulWidget {
 enum _Asking { nothing, cancel, withdraw }
 
 const cancelRequestedSentence =
-    'You asked NaviG8r to cancel this trip. Shippers cannot book it now. NaviG8r will contact the shippers already booked.';
+    'You asked NaviG8r to cancel this trip. Shippers cannot book it now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled.';
+
+/// The server's words for refusing to accept a booking on such a trip, shown on Accept before it is tapped.
+const cancelRequestedAcceptSentence =
+    'You asked NaviG8r to cancel this trip, so it cannot take this booking. Withdraw the request first.';
 const tripCancelledSentence =
     'Trip cancelled. Shippers can no longer see or book it.';
+const _noBookingsLeftSentence =
+    'This trip has no bookings now, so you can cancel it yourself.';
+
+/// What the Ask NaviG8r to cancel sheet ended with: the saved trip, or the server's word that no booking is left.
+typedef _AskOutcome = ({Map<String, dynamic>? trip, bool noBookingsLeft});
 
 class _TripCancelCardState extends State<TripCancelCard> {
   _Asking _asking = _Asking.nothing;
   bool _working = false;
   String? _error;
   bool _justWithdrawn = false;
-  // The server found a booking this screen has not loaded yet, so asking NaviG8r is the way left.
-  bool _bookingsFound = false;
+  // The server's answer when it contradicts the bookings this screen loaded, until the screen loads different ones.
+  bool? _bookingsPerServer;
 
   String? get _status => widget.trip['status']?.toString();
-  bool get _hasBookings => widget.hasBookings || _bookingsFound;
+  bool get _hasBookings => _bookingsPerServer ?? widget.hasBookings;
+
+  @override
+  void didUpdateWidget(TripCancelCard old) {
+    super.didUpdateWidget(old);
+    if (old.hasBookings != widget.hasBookings) _bookingsPerServer = null;
+  }
 
   Future<void> _send(String path) async {
     final scope = AuthorizationSession.scopeKey;
@@ -72,7 +91,7 @@ class _TripCancelCardState extends State<TripCancelCard> {
         _working = false;
         _asking = _Asking.nothing;
         _error = _refusalSentence(e);
-        _bookingsFound = _bookingsFound || _refusedFor(e, 'trip_has_bookings');
+        if (_refusedFor(e, 'trip_has_bookings')) _bookingsPerServer = true;
       });
     }
   }
@@ -98,9 +117,18 @@ class _TripCancelCardState extends State<TripCancelCard> {
       _error = null;
       _justWithdrawn = false;
     });
-    final trip = await showNvSheet<Map<String, dynamic>>(
+    final outcome = await showNvSheet<_AskOutcome>(
         context: context, builder: (_) => _AskSheet(tripId: widget.trip['id']));
-    if (trip != null && mounted) widget.onChanged(trip);
+    if (outcome == null || !mounted) return;
+    final trip = outcome.trip;
+    if (trip != null) widget.onChanged(trip);
+    if (outcome.noBookingsLeft) {
+      setState(() {
+        _bookingsPerServer = false;
+        _error = _noBookingsLeftSentence;
+      });
+      widget.onReload?.call();
+    }
   }
 
   /// A question in the page, never a dialog: the safe answer comes first and has the focus.
@@ -289,16 +317,25 @@ class _AskSheetState extends State<_AskSheet> {
           data: {'reasonCode': reason, if (note.isNotEmpty) 'note': note});
       if (!mounted || scope != AuthorizationSession.scopeKey) return;
       final trip = response.data?['trip'];
-      closeNvSheetAfterSuccess<Map<String, dynamic>>(context,
+      closeNvSheetAfterSuccess<_AskOutcome>(context,
           announcement: cancelRequestedSentence,
-          result: trip is Map<String, dynamic> ? trip : null);
+          result: (
+            trip: trip is Map<String, dynamic> ? trip : null,
+            noBookingsLeft: false
+          ));
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _sending = false;
-          _error = ewayBillErrorSentence(e);
-        });
+      if (!mounted) return;
+      // Every booking left since the screen loaded: the card offers Cancel this trip instead.
+      if (_TripCancelCardState._refusedFor(e, 'trip_has_no_bookings')) {
+        closeNvSheetAfterSuccess<_AskOutcome>(context,
+            announcement: _noBookingsLeftSentence,
+            result: (trip: null, noBookingsLeft: true));
+        return;
       }
+      setState(() {
+        _sending = false;
+        _error = ewayBillErrorSentence(e);
+      });
     }
   }
 
@@ -307,7 +344,7 @@ class _AskSheetState extends State<_AskSheet> {
     return NvSheet(
       title: 'Why do you want to cancel this trip?',
       message:
-          'Shippers cannot book the trip while NaviG8r looks at your request. NaviG8r contacts the shippers already booked.',
+          'Shippers cannot book the trip now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled.',
       errorText: _error,
       choices: [
         NvChoiceRows<String>(

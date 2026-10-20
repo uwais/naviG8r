@@ -114,9 +114,9 @@ Open checks: "contact NaviG8r" names no phone number or email; the app has none 
 | On the way | Left [pickup] on [date] at [time] IST. [Carrier] confirms when it is delivered. · Message [Carrier] |  |
 | Delivered | [Carrier] confirmed delivery and added proof of delivery. Your payment of ₹[amount] is collected now. · View proof of delivery · Book another shipment | Open item 8 (payment issue) |
 | Cancelled | This shipment was cancelled · NaviG8r operations cancelled it on [date] at your request. · You paid · Refunded · Refunds reach your account in the time your bank or payment app takes. · Questions about this refund? Contact [NaviG8r contact]. | Replaces the system code |
-| Cancelled, hold released | This shipment was cancelled · Your payment was only held, never taken. Razorpay releases it within 3 days of when you paid; your bank may take 5-7 working days after that. · Questions about this payment? Contact [NaviG8r contact]. | Payment `HOLD_RELEASED`: no "You paid", no refund lines (Rishabh, 19 Oct 2026) |
-| Cancelled, bill made | If you made an e-way bill for this load, cancel it on the e-way bill portal. | Only when a bill was entered. No deadline is claimed; NaviG8r never cancels the bill |
-| Update: cancelled | Shipment cancelled · The carrier cannot carry your load from [From] to [To], so it was cancelled. + one of: Your payment was only held, never taken. Razorpay releases it within 3 days of when you paid; your bank may take 5-7 working days after that. · Your refund has started. · Nothing was charged. | Sent when Finance cancels the shipment; the carrier's office and driver read "NaviG8r cancelled this shipment on your trip." |
+| Cancelled, hold released | This shipment was cancelled · NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that. · Questions about this payment? Contact [NaviG8r contact]. | Payment `HOLD_RELEASED`: no "You paid", no refund lines (Rishabh, 19 Oct 2026). Never "never taken": with UPI or netbanking the shipper's bank is debited when they pay; "held" only means NaviG8r has not collected it |
+| Cancelled, bill made | If you made an e-way bill for this load, cancel it on the e-way bill portal. The portal allows this only within 24 hours of making the bill. | Only when a bill was entered. NaviG8r never cancels the bill. The 24 hours: CGST rule 138(9), via the GST Council's e-way bill flyer; the current rule text was not re-read |
+| Update: cancelled | Shipment cancelled · The carrier cannot carry your load from [From] to [To], so it was cancelled. + one of: NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that. · Your refund has started. · Nothing was charged. | Sent when Finance cancels the shipment; the carrier's office and driver read "NaviG8r cancelled this shipment on your trip." "Nothing was charged." only for a payment never made (`CREATED` or `FAILED`) |
 | Updates | [Carrier] accepted your shipment · [Route, date]. You can make the e-way bill now. · Your shipment is on the way · E-way bill checked · Delivered · Proof of delivery is ready. | Named by route and date |
 
 ```
@@ -160,8 +160,8 @@ Tabs for the office: Home, Bookings, Trips, Publish, Profile. Tabs for drivers: 
 |---|---|---|
 | Trips list | Trips · Open · In transit · Done · Leaves · Room left · Bookings · [truck] · [driver] \| No driver yet · Truck chosen when you accept the first booking · Cancel requested (under Open) · Cancelled (under Done) | No View or Start on the card |
 | Cancel, no bookings | Cancel this trip · Cancel this trip? · Shippers will no longer see or book it. You can publish a new trip any time. This cannot be undone. · Keep trip · Cancel trip · Trip cancelled. Shippers can no longer see or book it. · This trip has bookings, so it cannot be cancelled here. | Office logins that may assign trips, on an Open or Full trip with no booking. The question is in the page, never a dialog; Keep trip comes first and has the focus. Cancel this trip and Cancel trip are the destructive style |
-| Ask to cancel, bookings | Ask NaviG8r to cancel · Why do you want to cancel this trip? · Shippers cannot book the trip while NaviG8r looks at your request. NaviG8r contacts the shippers already booked. · Truck not available · Driver not available · Route changed · Other reason · Note (optional) · Send request (disabled) · Choose a reason first. · Send request · Keep trip · Keep the note to 500 characters or fewer. | A sheet. No reason preselected; the note is never required |
-| Cancel requested | You asked NaviG8r to cancel this trip. Shippers cannot book it now. NaviG8r will contact the shippers already booked. · Withdraw request · Withdraw your request? · Shippers can book this trip again while it has room. · Keep request · Withdraw request · Request withdrawn. Shippers can book this trip again while it has room. | Withdraw only for logins that may assign trips; its question is in the page, Keep request first and focused |
+| Ask to cancel, bookings | Ask NaviG8r to cancel · Why do you want to cancel this trip? · Shippers cannot book the trip now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled. · Truck not available · Driver not available · Route changed · Other reason · Note (optional) · Send request (disabled) · Choose a reason first. · Send request · Keep trip · Keep the note to 500 characters or fewer. | A sheet. No reason preselected; the note is never required |
+| Cancel requested | You asked NaviG8r to cancel this trip. Shippers cannot book it now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled. · You asked NaviG8r to cancel this trip, so it cannot take this booking. Withdraw the request first. (on a waiting booking's Accept) · Withdraw request · Withdraw your request? · Shippers can book this trip again while it has room. · Keep request · Withdraw request · Request withdrawn. Shippers can book this trip again while it has room. | Withdraw only for logins that may assign trips; its question is in the page, Keep request first and focused |
 
 ```
 DARK PATTERN SCREEN — carrier trip cancel: cancel an empty trip, ask NaviG8r, withdraw, held money on cancel — 2026-10-19
@@ -193,6 +193,32 @@ Open checks: "NaviG8r will contact the shippers already booked" promises a perso
   must own that step. "Razorpay releases it within 3 days of when you paid" rests on Razorpay's
   docs as read on 19 Oct 2026, not on a live test. A booking still waiting on a requested trip
   can be accepted by the carrier.
+```
+
+```
+DARK PATTERN SCREEN — carrier trip cancel, copy changed after review — 2026-10-19
+Screened: the rows changed after review: Cancelled hold released and Update cancelled ("NaviG8r
+  never collected this payment..."), Cancelled bill made (the 24-hour line), Ask to cancel and
+  Cancel requested ("NaviG8r reviews your request. Shippers already booked are told if their
+  shipment is cancelled."), and the Accept refusal on a requested trip.
+Verdict: PASS
+Passes: 1 actionability: the Accept refusal names the one step that unblocks it (withdraw), and
+  the bill line tells the shipper the limit while they can still act; 2 N/A; 3 the money words
+  no longer deny a bank debit the shipper may see ("never taken" was false for UPI and
+  netbanking); 4 the 24-hour limit is a real, material deadline from CGST rule 138(9), not a
+  manufactured one; 5 N/A, no default changed; 6 withdraw is unchanged; 7 decline copy
+  unchanged (Keep trip, Keep request, Keep shipment); 8 the contact promise now matches what the
+  system does, the cancel notification when Finance acts, and the old open check about it is
+  closed; accepting or confirming delivery on a requested trip is refused, closing that check
+  too; 9 N/A; 10 N/A; 11 "we tell you if your shipment is cancelled, NaviG8r never collected
+  the held money and Razorpay returns it" can be said to the shipper's face.
+Findings: none
+Accepted risks: none
+Open checks: the 24-hour rule was taken from the GST Council flyer citing rule 138(9); the
+  current rule text was not re-read. If Razorpay captures a held payment after the cancel
+  (account auto-capture), "NaviG8r never collected this payment" becomes false for that
+  shipper; the server records it as CAPTURED_AFTER_CANCEL for Finance to refund, but the
+  shipper is not told again.
 ```
 | Trip | TRIP · [route] · [status] · Leaves [dates] · [size] truck · Room left: [n] kg of [capacity] kg · Truck and driver · Not assigned · Assign driver · Bookings on this trip ([n]) |  |
 | Start (disabled) | Start the trip · Start trip · Assign a driver first. Then start on loading day. | Start lives only here |

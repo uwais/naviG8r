@@ -194,14 +194,16 @@ String formatApiError(Object e) {
       return "Too many code requests. Please wait $wait and try again.";
     }
     // The server writes these errors' detail for the carrier: which bank field is wrong and how, why
-    // the truck cannot change, what a transporter ID looks like, or that a chosen truck or driver is not theirs.
+    // the truck cannot change, what a transporter ID looks like, that a chosen truck or driver is not theirs, or
+    // that a trip they asked NaviG8r to cancel takes no acceptance or delivery.
     final detail = body is Map ? body["detail"] : null;
     if (const [
           "invalid_payout_profile",
           "truck_on_unfinished_trip",
           "invalid_vehicleRegistrationNumber",
           "invalid_transporter_id",
-          "invalid_trip_assignment"
+          "invalid_trip_assignment",
+          "trip_cancel_requested"
         ].contains(code) &&
         detail is String &&
         detail.isNotEmpty) {

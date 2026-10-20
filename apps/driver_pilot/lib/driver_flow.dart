@@ -1081,6 +1081,8 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
     for (final booking in loaded.bookings
         .where((booking) => booking["status"] == "PENDING_CARRIER_ACCEPT")) {
       final trip = loaded.tripsById[booking["anchorTripId"]];
+      // The server refuses to accept a booking on a trip the office asked NaviG8r to cancel.
+      if (trip?["status"] == "CANCEL_REQUESTED") continue;
       final route = _tripRoute(trip);
       final dates = _tripDates(trip);
       final weight = _weightWords(booking);
@@ -1390,8 +1392,11 @@ class _DriverTodayState extends State<_DriverToday> {
       ..sort(_byStart);
   }
 
+  /// A trip whose carrier asked NaviG8r to cancel it still has shippers booked, so it stays listed, as on Trips.
   static bool _notStarted(Map<String, dynamic> trip) =>
-      trip["status"] == "OPEN" || trip["status"] == "FULL";
+      trip["status"] == "OPEN" ||
+      trip["status"] == "FULL" ||
+      trip["status"] == "CANCEL_REQUESTED";
 
   static int _byStart(Map<String, dynamic> a, Map<String, dynamic> b) =>
       _tripStart(a)!.compareTo(_tripStart(b)!);
@@ -1406,8 +1411,9 @@ class _DriverTodayState extends State<_DriverToday> {
     String places(int count, Object? city) =>
         _nonEmpty(city) == null ? "$count" : "$count, in $city";
     final NvStatusLabel? status;
-    if (trip["status"] == "IN_PROGRESS") {
-      status = const NvStatusLabel("In transit", tone: NvStatusTone.info);
+    if (trip["status"] == "IN_PROGRESS" ||
+        trip["status"] == "CANCEL_REQUESTED") {
+      status = _tripStatusLabel(trip);
     } else if (accepted != null && accepted > 0) {
       status = const NvStatusLabel("Ready to start", tone: NvStatusTone.good);
     } else {
@@ -1464,6 +1470,8 @@ class _DriverTodayState extends State<_DriverToday> {
     ];
     return NvListCard(
       title: _tripRoute(trip) ?? "Trip",
+      status:
+          trip["status"] == "CANCEL_REQUESTED" ? _tripStatusLabel(trip) : null,
       subtitle: details.isEmpty ? null : details.join(" · "),
       onOpen: () => _open(trip),
     );
@@ -1927,6 +1935,8 @@ class _DriverShipmentDetailScreenState
       cannotAcceptReason = "You can accept once NaviG8r approves your company.";
     } else if (!AuthorizationSession.can("carrier.offer_accept")) {
       cannotAcceptReason = "Your role cannot accept bookings.";
+    } else if (_trip?["status"] == "CANCEL_REQUESTED") {
+      cannotAcceptReason = cancelRequestedAcceptSentence;
     } else {
       cannotAcceptReason = null;
     }
@@ -3623,6 +3633,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   trip: trip,
                   hasBookings: _hasActiveShipments,
                   onChanged: (saved) => setState(() => _trip = saved),
+                  onReload: _load,
                 ),
                 gap,
               ],

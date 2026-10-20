@@ -13,7 +13,7 @@ import 'support/carrier_office_screens.dart';
 import 'support/mock_api.dart';
 
 const _requested =
-    'You asked NaviG8r to cancel this trip. Shippers cannot book it now. NaviG8r will contact the shippers already booked.';
+    'You asked NaviG8r to cancel this trip. Shippers cannot book it now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled.';
 const _cancelled = 'Trip cancelled. Shippers can no longer see or book it.';
 
 /// One trip and its bookings; the cancel routes change the trip as the server would.
@@ -22,12 +22,17 @@ class _TripServer {
       {required this.trip,
       this.bookings = const [],
       this.allowed = ownerAllowed,
-      this.refuseForBookings = false});
+      this.refuseForBookings = false,
+      this.refuseForNoBookings = false});
   Map<String, dynamic> trip;
-  final List<Map<String, dynamic>> bookings;
+  List<Map<String, dynamic>> bookings;
   final List<String> allowed;
   final bool refuseForBookings;
+
+  /// Every booking left after the screen loaded: the request is refused and the bookings are gone on a reload.
+  final bool refuseForNoBookings;
   final sent = <RequestOptions>[];
+  int bookingLoads = 0;
 
   /// An office login: only the office view has the cancel buttons.
   _TripServer signIn() {
@@ -40,6 +45,14 @@ class _TripServer {
           return jsonResponse({
             'error': 'trip_has_bookings',
             'detail': 'This trip has bookings, so it cannot be cancelled here.'
+          }, 409);
+        }
+        if (path.endsWith('/cancel-request') && refuseForNoBookings) {
+          bookings = [];
+          return jsonResponse({
+            'error': 'trip_has_no_bookings',
+            'detail':
+                'This trip has no bookings, so you can cancel it yourself.'
           }, 409);
         }
         final status = path.endsWith('/cancel')
@@ -64,6 +77,7 @@ class _TripServer {
             'trips': [trip]
           });
         case '/v1/pilot/carrier/shipments':
+          bookingLoads++;
           return jsonResponse({'shipments': bookings});
       }
       if (request.path.startsWith('/v1/pilot/anchor-trips/')) {
@@ -177,6 +191,11 @@ void main() {
       await _tapText(tester, 'Ask NaviG8r to cancel');
       expect(inSheet(find.text('Why do you want to cancel this trip?')),
           findsOneWidget);
+      expect(
+          inSheet(find.text(
+              'Shippers cannot book the trip now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled.')),
+          findsOneWidget,
+          reason: 'no promise that NaviG8r contacts anyone');
       for (final reason in [
         'Truck not available',
         'Driver not available',
@@ -211,6 +230,29 @@ void main() {
           reason: 'no note is sent when none was typed');
       expect(find.text(_requested), findsOneWidget);
       expect(find.text('Cancel requested'), findsOneWidget);
+    });
+
+    testWidgets(
+        'when every booking left meanwhile, the sheet closes and the card offers Cancel this trip, after a reload',
+        (tester) async {
+      final server = _TripServer(
+              trip: tripAt('trip-a'),
+              bookings: [_booked],
+              refuseForNoBookings: true)
+          .signIn();
+      await _openTrip(tester);
+      final loadsBefore = server.bookingLoads;
+      await _tapText(tester, 'Ask NaviG8r to cancel');
+      await tester.tap(inSheet(find.text('Route changed')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Send request'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(server.bookingLoads, greaterThan(loadsBefore),
+          reason: 'the trip and its bookings are loaded again');
+      expect(find.text('Ask NaviG8r to cancel'), findsNothing);
+      expect(find.widgetWithText(OutlinedButton, 'Cancel this trip'),
+          findsOneWidget);
     });
 
     testWidgets('a typed note is sent without its spaces', (tester) async {

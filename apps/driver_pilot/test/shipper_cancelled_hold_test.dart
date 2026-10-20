@@ -1,5 +1,6 @@
-// The shipper's cancelled shipment when the payment was only held (owner decision, 19 Oct 2026): nothing was
-// taken, so nothing is said to be refunded, and Razorpay releases the hold by itself.
+// The shipper's cancelled shipment when the payment was only held (owner decision, 19 Oct 2026): NaviG8r never
+// collected it, so nothing is said to be refunded, and Razorpay returns it by itself. The shipper's bank may already
+// show the debit (UPI, netbanking), so the words never say nothing was taken.
 import 'package:driver_pilot/ui/pending_copy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,20 +8,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/shipper_shipment_app.dart';
 
 const _held =
-    'Your payment was only held, never taken. Razorpay releases it within 3 days of when you paid; your bank may take 5-7 working days after that.';
+    'NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that.';
 const _cancelTheBill =
-    'If you made an e-way bill for this load, cancel it on the e-way bill portal.';
+    'If you made an e-way bill for this load, cancel it on the e-way bill portal. The portal allows this only within 24 hours of making the bill.';
 
 void main() {
   group('Cancelled with the hold released', () {
-    testWidgets('says the money was only held, and claims no payment or refund',
+    testWidgets(
+        'says NaviG8r never collected the money, and claims no payment or refund',
         (tester) async {
       await showShipment(tester, booking(status: 'FAILED_CARRIER_REFUNDED'),
           trip: lane(),
           payment: {'status': 'HOLD_RELEASED', 'amountPaise': 264000});
       expect(find.text('This shipment was cancelled'), findsOneWidget);
       expect(find.text(_held), findsOneWidget);
-      expect(find.text('You paid'), findsNothing, reason: 'nothing was taken');
+      expect(find.text('You paid'), findsNothing,
+          reason: 'NaviG8r collected nothing');
+      expect(find.textContaining('never taken'), findsNothing,
+          reason: 'the bank may already show the debit');
       expect(find.textContaining('refunded'), findsNothing);
       expect(
           find.text(
@@ -38,7 +43,7 @@ void main() {
     });
 
     testWidgets(
-        'a booking with an e-way bill is told to cancel it on the portal, with no deadline',
+        'a booking with an e-way bill is told to cancel it on the portal, within its 24 hours',
         (tester) async {
       await showShipment(tester,
           booking(status: 'FAILED_CARRIER_REFUNDED', ewayBill: billNoTruck),
