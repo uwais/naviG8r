@@ -26,7 +26,10 @@ keys. One free Render web service runs it from `Dockerfile.demo`.
 
 ## Using it
 
-Open `https://<service-name>.onrender.com/` on a phone, or in a desktop browser narrowed to phone width.
+Open `https://<service-name>.onrender.com/` on a phone, or in a desktop browser narrowed to phone width. The team's
+link is in Slack, not here: this repository is public, and every visitor spends the demo's Maps quota.
+
+To switch accounts, tap the company name at the top of the app, then Sign out.
 
 | Phone | Signs in as |
 |---|---|
@@ -62,6 +65,12 @@ The ops page is at `https://<service-name>.onrender.com/ops/beta`. The current p
 9. Create the service. When the deploy finishes, open the `onrender.com` link it shows.
 
 What you should see: the sign-in screen at `/`, and `{"ok":true,...,"paymentProvider":"mock"}` at `/api/health`.
+
+### Putting a new commit on the demo
+
+The team's service has auto-deploy off, because each build compiles the Flutter app (about 4 minutes on 20 Oct).
+After pushing to the branch, open the service in Render and choose **Manual Deploy**, then **Deploy latest commit**.
+Changing `MAPS_API_KEY` also needs a deploy, because the server writes the key into the page when it starts.
 
 ### The Maps key
 

@@ -87,6 +87,8 @@ test("practice server serves the web app beside the API, with mock payments and 
     const page = await fetch(`${server.baseUrl}/`);
     assert.equal(page.status, 200);
     assert.match(page.headers.get("content-type") ?? "", /^text\/html/);
+    assert.equal(page.headers.get("x-frame-options"), "DENY");
+    assert.equal(page.headers.get("content-security-policy"), "frame-ancestors 'none'");
     const pageHtml = await page.text();
     assert.match(pageHtml, /fake web app/);
     assert.doesNotMatch(pageHtml, /maps\.googleapis\.com/);
@@ -167,7 +169,12 @@ test("hosted practice server signs sign-in tokens with a fresh secret; the local
     const [payload, signature] = token.split(".");
     return createHmac("sha256", "synthetic-local-rbac-demo-not-for-deployment").update(payload!).digest("base64url") === signature;
   };
-  for (const [extra, expected] of [[{}, false], [{ RBAC_MANUAL_WEB_DIR: "" }, true]] as const) {
+  // A server without the web app but listening beyond this machine is reachable by anyone, so it counts as hosted.
+  for (const [extra, expected] of [
+    [{}, false],
+    [{ RBAC_MANUAL_WEB_DIR: "" }, true],
+    [{ RBAC_MANUAL_WEB_DIR: "", RBAC_MANUAL_HOST: "0.0.0.0" }, false],
+  ] as const) {
     const server = await startPracticeServer(extra);
     try {
       assert.equal(signedWithFixedSecret(await signIn(server.apiBaseUrl, "8000000001")), expected);

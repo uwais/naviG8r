@@ -184,8 +184,12 @@ function serveWebApp(server, webDirectory, mapsApiKey) {
     ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".wasm": "application/wasm",
     ".css": "text/css", ".png": "image/png", ".ico": "image/x-icon", ".svg": "image/svg+xml", ".ttf": "font/ttf", ".otf": "font/otf",
   };
+  // The public demo must not be framed by another site, where taps could be steered onto its buttons.
   const send = (res, contentType, body) => {
-    res.writeHead(200, { "content-type": contentType, "cache-control": "no-cache" });
+    res.writeHead(200, {
+      "content-type": contentType, "cache-control": "no-cache", "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY", "content-security-policy": "frame-ancestors 'none'",
+    });
     res.end(body);
   };
   const [handleApiRequest] = server.listeners("request");
