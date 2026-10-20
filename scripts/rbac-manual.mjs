@@ -14,8 +14,9 @@ if (unsafeReason) {
   process.exit(1);
 }
 
-// Serving the web build means the hosted demo, open to anyone with the link.
-const hosted = Boolean(process.env.RBAC_MANUAL_WEB_DIR);
+// Serving the web build, or listening beyond this machine, means anyone with the link can reach it.
+const hosted = Boolean(process.env.RBAC_MANUAL_WEB_DIR)
+  || !["127.0.0.1", "localhost", "::1"].includes(process.env.RBAC_MANUAL_HOST ?? "127.0.0.1");
 const directory = mkdtempSync(join(tmpdir(), "navig8r-rbac-manual-"));
 Object.assign(process.env, {
   NODE_ENV: "test",
