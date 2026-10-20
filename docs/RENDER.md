@@ -142,8 +142,6 @@ Localhost origins are already allowed for dev. Redeploy the API after changing e
 
 The next merge to `main` that changes code puts `main` back on alpha. Don't start a branch run while a `main` release is in its alpha step: whichever run is still checking alpha when the other deploys fails, and has to be re-run.
 
-Only branches that include this guard stop at alpha. An older branch, or one that edits `release.yml`, still goes on to beta unless GitHub's environment settings limit beta and production to `main`.
-
 ---
 
 ### Troubleshooting
