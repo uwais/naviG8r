@@ -1455,7 +1455,8 @@ export async function createApp(options: {
         return json(res, 200, { shipment });
       }
       if (method === "POST" && /^\/shipments\/[^/]+\/mark-refunded$/.test(url.pathname)) {
-        const out = markRefundedInRazorpay(store, url.pathname.split("/")[2]!);
+        const body = (await readJson(req, 8 * 1024)) ?? {};
+        const out = markRefundedInRazorpay(store, url.pathname.split("/")[2]!, typeof body.razorpayPaymentId === "string" ? body.razorpayPaymentId : undefined);
         await persist();
         return json(res, 200, out);
       }

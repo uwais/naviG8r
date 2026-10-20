@@ -319,7 +319,7 @@ test("Finance marks money collected after the cancel as refunded in Razorpay: RE
   const held = await book(f, f.trip.id);
   setPayment(f, held, { provider: "RAZORPAY", status: "AUTHORIZED", razorpayOrderId: "order_held", razorpayPaymentId: "pay_held" });
   assert.equal((await failAndRefund(f, held)).status, 200);
-  const markRefunded = (token: string) => f.request(`/shipments/${held}/mark-refunded`, "POST", {}, token);
+  const markRefunded = (token: string) => f.request(`/shipments/${held}/mark-refunded`, "POST", { razorpayPaymentId: "pay_held" }, token);
   const early = await markRefunded(f.tokens.finance);
   assert.deepEqual([early.status, early.body.error], [409, "payment_not_captured_after_cancel"], "nothing was collected yet");
 
@@ -345,6 +345,46 @@ test("Finance marks money collected after the cancel as refunded in Razorpay: RE
 
   webhook(f, "payment.captured", "pay_held", "order_held");
   assert.equal(paymentOf(f, held).status, "REFUNDED", "the same capture sent again does not bring it back");
+});
+
+test("two captures after the cancel: marking the first refunded leaves the second on Finance's list, named by its own id", async t => {
+  const f = await httpFixture(t);
+  const held = await book(f, f.trip.id);
+  setPayment(f, held, { provider: "RAZORPAY", status: "AUTHORIZED", razorpayOrderId: "order_held", razorpayPaymentId: "pay_held" });
+  assert.equal((await failAndRefund(f, held)).status, 200);
+  webhook(f, "payment.captured", "pay_first", "order_held");
+  webhook(f, "payment.captured", "pay_second", "order_held");
+  const markRefunded = (razorpayPaymentId: string) => f.request(`/shipments/${held}/mark-refunded`, "POST", { razorpayPaymentId }, f.tokens.finance);
+  const forFinance = async () => ((await f.request("/ops/trip-cancel-requests", "GET", undefined, f.tokens.finance)).body.collectedAfterCancel as Array<{ shipment: { id: string }; payment: { capturedAfterCancelRazorpayPaymentId?: string } }>)
+    .map((row) => [row.shipment.id, row.payment.capturedAfterCancelRazorpayPaymentId]);
+  assert.deepEqual(await forFinance(), [[held, "pay_first"]]);
+
+  const first = await markRefunded("pay_first");
+  assert.deepEqual([first.status, first.body.payment?.status, first.body.payment?.capturedAfterCancelRazorpayPaymentId], [200, "CAPTURED_AFTER_CANCEL", "pay_second"], JSON.stringify(first.body));
+  assert.deepEqual(await forFinance(), [[held, "pay_second"]], "the second capture is still to refund");
+  const again = await markRefunded("pay_first");
+  assert.deepEqual([again.status, paymentOf(f, held).status, paymentOf(f, held).capturedAfterCancelRazorpayPaymentId], [200, "CAPTURED_AFTER_CANCEL", "pay_second"], "marking the first again changes nothing");
+
+  assert.deepEqual([(await markRefunded("pay_second")).body.payment?.status], ["REFUNDED"]);
+  assert.deepEqual(await forFinance(), [], "off the list");
+  const audit = [...loadStoreFromDisk(f.dataFilePath!).auditEvents.values()].filter((event) => event.action === "PAYMENT_MARKED_REFUNDED");
+  assert.deepEqual(audit.map((event) => [event.previousState, event.newState, event.razorpayPaymentId]),
+    [["CAPTURED_AFTER_CANCEL", "CAPTURED_AFTER_CANCEL", "pay_first"], ["CAPTURED_AFTER_CANCEL", "REFUNDED", "pay_second"]], "one row per Razorpay payment marked");
+});
+
+test("marking refunded a Razorpay payment that is not the one waiting is refused and changes nothing", async t => {
+  const f = await httpFixture(t);
+  const held = await book(f, f.trip.id);
+  setPayment(f, held, { provider: "RAZORPAY", status: "AUTHORIZED", razorpayOrderId: "order_held", razorpayPaymentId: "pay_held" });
+  assert.equal((await failAndRefund(f, held)).status, 200);
+  webhook(f, "payment.captured", "pay_first", "order_held");
+  webhook(f, "payment.captured", "pay_second", "order_held");
+  for (const body of [{ razorpayPaymentId: "pay_second" }, { razorpayPaymentId: "pay_unknown" }, {}]) {
+    const refused = await f.request(`/shipments/${held}/mark-refunded`, "POST", body, f.tokens.finance);
+    assert.deepEqual([refused.status, refused.body.error, refused.body.detail], [409, "refund_payment_id_mismatch", "This is not the payment waiting for a refund. Reload the page."], JSON.stringify(body));
+  }
+  assert.deepEqual([paymentOf(f, held).status, paymentOf(f, held).capturedAfterCancelRazorpayPaymentId], ["CAPTURED_AFTER_CANCEL", "pay_first"]);
+  assert.equal([...f.store.auditEvents.values()].some((event) => event.action === "PAYMENT_MARKED_REFUNDED"), false, "no row");
 });
 
 test("the operations list marks a booking whose payment the partner settles outside NaviG8r", async t => {

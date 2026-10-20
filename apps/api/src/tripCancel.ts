@@ -111,20 +111,36 @@ export function listPaymentsCollectedAfterCancelForOps(store: Store) {
 }
 
 /**
- * Finance records that it refunded, in the Razorpay dashboard, money Razorpay captured after the cancel. Nothing is
- * sent to Razorpay. Marking it twice changes nothing.
+ * Finance records that it refunded, in the Razorpay dashboard, one Razorpay payment captured after the cancel, named
+ * by its id so a tap on a stale card cannot mark a different one. Nothing is sent to Razorpay. Another capture still
+ * to refund keeps the payment waiting, with that capture's id, oldest first. Marking the same id again changes nothing.
  */
-export function markRefundedInRazorpay(store: Store, shipmentId: string): { payment: Payment } {
+export function markRefundedInRazorpay(store: Store, shipmentId: string, razorpayPaymentId: string | undefined): { payment: Payment } {
   const shipment = store.shipments.get(shipmentId);
   if (!shipment) throw new AuthorizationError("not_found", 404);
   requirePermission(store, "payment.refund", shipment);
   const payment = store.payments.get(shipment.paymentId);
-  if (payment?.status === "REFUNDED" && payment.capturedAfterCancelRazorpayPaymentId) return { payment };
+  const refundedIds = razorpayIdsAudited(store, shipment.id, "PAYMENT_MARKED_REFUNDED");
+  if (payment && razorpayPaymentId && refundedIds.includes(razorpayPaymentId)) return { payment };
   if (payment?.status !== "CAPTURED_AFTER_CANCEL") {
     throw new ApiError("payment_not_captured_after_cancel", { detail: "This payment is not waiting for a refund after a cancel.", status: payment?.status }, 409);
   }
-  const refunded: Payment = { ...payment, status: "REFUNDED", updatedAtUtcMs: Date.now() };
-  store.payments.set(refunded.id, refunded);
-  recordAudit(store, "PAYMENT_MARKED_REFUNDED", "shipment", shipment.id, payment.status, refunded.status, undefined, payment.capturedAfterCancelRazorpayPaymentId);
-  return { payment: refunded };
+  if (!razorpayPaymentId || razorpayPaymentId !== payment.capturedAfterCancelRazorpayPaymentId) {
+    throw new ApiError("refund_payment_id_mismatch", { detail: "This is not the payment waiting for a refund. Reload the page." }, 409);
+  }
+  const stillToRefund = razorpayIdsAudited(store, shipment.id, "PAYMENT_AFTER_CANCEL", "CAPTURED")
+    .filter((id) => id !== razorpayPaymentId && !refundedIds.includes(id));
+  const changed: Payment = stillToRefund[0]
+    ? { ...payment, capturedAfterCancelRazorpayPaymentId: stillToRefund[0], updatedAtUtcMs: Date.now() }
+    : { ...payment, status: "REFUNDED", updatedAtUtcMs: Date.now() };
+  store.payments.set(changed.id, changed);
+  recordAudit(store, "PAYMENT_MARKED_REFUNDED", "shipment", shipment.id, payment.status, changed.status, undefined, razorpayPaymentId);
+  return { payment: changed };
+}
+
+/** The Razorpay payment ids on a shipment's audit rows of one action, in the order recorded. */
+function razorpayIdsAudited(store: Store, shipmentId: string, action: string, reasonCode?: string): string[] {
+  return [...store.auditEvents.values()]
+    .filter((row) => row.resourceType === "shipment" && row.resourceId === shipmentId && row.action === action && (!reasonCode || row.reasonCode === reasonCode))
+    .flatMap((row) => row.razorpayPaymentId ? [row.razorpayPaymentId] : []);
 }

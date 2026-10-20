@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { httpFixture } from "../test/httpFixtures.ts";
 import { FakePage, inlineScript } from "../test/fakePage.ts";
+import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
 
 type Fixture = Awaited<ReturnType<typeof httpFixture>>;
 
@@ -154,6 +155,20 @@ test("/ops/beta: Finance marks it refunded in Razorpay after a question naming t
   assert.equal(page.byId("countTripCancels").textContent, "1", "only the trip is left");
   assert.equal(page.byId("tripCancelsCount").textContent, "1 trip");
   assert.equal(page.nativeDialogs, 0);
+});
+
+test("/ops/beta: when Razorpay captured a second payment on the shipment, marking the first says the second is still to refund", async t => {
+  const f = await httpFixture(t);
+  const { shipmentId } = await collectedAfterCancel(f);
+  applyRazorpayWebhookPayload(f.store, { event: "payment.captured", payload: { payment: { entity: { id: "pay_later", order_id: "order_late" } } } });
+  const page = await openOpsBeta(f, f.tokens.finance);
+  const row = page.byId("tripCancelsBody").descendants().find((node) => node.getAttribute?.("aria-label") === "Money collected after cancel, " + shipmentId)!;
+  await page.click(page.visibleButton("Mark refunded in Razorpay…", row)!);
+  await page.click(page.visibleButton("Mark refunded", row)!);
+  const payment = f.store.payments.get(f.store.shipments.get(shipmentId)!.paymentId)!;
+  assert.deepEqual([payment.status, payment.capturedAfterCancelRazorpayPaymentId], ["CAPTURED_AFTER_CANCEL", "pay_later"]);
+  assert.ok(row.textContent.includes("Razorpay also collected payment pay_later on this shipment. It shows here to refund on the next reload."), row.textContent);
+  assert.equal(page.byId("countTripCancels").textContent, "2", "the shipment still has money to refund");
 });
 
 test("/ops/beta shows OPS the payment collected after the cancel, but only Finance gets the action", async t => {

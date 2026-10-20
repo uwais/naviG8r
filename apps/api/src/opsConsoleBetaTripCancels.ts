@@ -30,9 +30,10 @@ Object.assign(errorWords, {
   razorpay_refund_failed: 'the refund call to Razorpay failed',
   cancel_request_withdrawn: 'the carrier withdrew this request',
   payment_not_captured_after_cancel: 'this payment is no longer waiting for a refund, so someone may have marked it already',
+  refund_payment_id_mismatch: 'this is not the payment waiting for a refund. Reload the page',
 });
 // Not razorpay_refund_failed: the call may have reached Razorpay before it failed.
-refusedBeforeChange.push('shipment_not_refundable', 'payment_not_refundable', 'razorpay_payment_id_missing', 'cancel_request_withdrawn', 'payment_not_captured_after_cancel');
+refusedBeforeChange.push('shipment_not_refundable', 'payment_not_refundable', 'razorpay_payment_id_missing', 'cancel_request_withdrawn', 'payment_not_captured_after_cancel', 'refund_payment_id_mismatch');
 let tripCancelRequests = [];
 let collectedAfterCancel = [];
 
@@ -116,10 +117,11 @@ function askToMarkRefunded(item) {
     notYet.disabled = confirm.disabled = true;
     busy(confirm, 'Marking…');
     try {
-      await request('/shipments/' + encodeURIComponent(item.entry.shipment.id) + '/mark-refunded', 'POST', {});
-      collectedAfterCancel = collectedAfterCancel.filter(other => other !== item.entry);
+      const out = await request('/shipments/' + encodeURIComponent(item.entry.shipment.id) + '/mark-refunded', 'POST', { razorpayPaymentId: payment.capturedAfterCancelRazorpayPaymentId });
+      const next = out.payment && out.payment.status === 'CAPTURED_AFTER_CANCEL' ? out.payment.capturedAfterCancelRazorpayPaymentId : '';
+      if (!next) collectedAfterCancel = collectedAfterCancel.filter(other => other !== item.entry);
       showTripCancelCounts();
-      const done = message('ok', 'Marked refunded by you at ' + timeIST(Date.now()) + '. This leaves the list on the next reload.');
+      const done = message('ok', 'Marked refunded by you at ' + timeIST(Date.now()) + '. ' + (next ? 'Razorpay also collected payment ' + next + ' on this shipment. It shows here to refund on the next reload.' : 'This leaves the list on the next reload.'));
       done.tabIndex = -1;
       item.row.replaceChildren(done);
       done.focus();
