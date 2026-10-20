@@ -264,6 +264,30 @@ void main() {
       expect(find.text('Updating address from pin…'), findsNothing);
     });
 
+    testWidgets('a slow search does not overwrite a newer drag', (tester) async {
+      final searched = Completer<GeocodeOutcome>();
+      final field = await mountEditor(tester,
+          findPlace: (place) => searched.future,
+          findTown: (point) async =>
+              GeocodeOutcome.ok(point, 'Kolar, Karnataka, India', 'Kolar'));
+      await tester.enterText(find.byType(TextField), 'Hoskote');
+      await tester.tap(find.byTooltip('Look up place'));
+      await tester.pump();
+      // Pumped by hand: the search's spinner never settles while it waits.
+      tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.single.onDragEnd!(const LatLng(13.2, 78.1));
+      await tester.pump();
+      await tester.pump();
+      searched.complete(
+          GeocodeOutcome.ok(const LatLng(13.0, 77.8), 'Hoskote, Karnataka, India', 'Hoskote'));
+      await tester.pumpAndSettle();
+      expect(field.text, 'Kolar',
+          reason: 'review: a search answering after a drag put its town back over the dragged pin');
+      expect(tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.single.position,
+          const LatLng(13.2, 78.1));
+      expect(find.byType(CircularProgressIndicator), findsNothing,
+          reason: 'the overtaken search leaves no spinner behind');
+    });
+
     testWidgets('new words after a search make the found pin stale', (tester) async {
       var stale = 0;
       final field = await mountEditor(tester,

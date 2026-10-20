@@ -83,10 +83,12 @@ class CustomerTripsScreen extends StatefulWidget {
   const CustomerTripsScreen(
       {this.startWithMatch = false,
       this.findPlace = GoogleGeocodingService.forwardAddress,
+      this.findTown = GoogleGeocodingService.reverseLatLng,
       super.key});
 
   final bool startWithMatch;
   final PlaceFinder findPlace;
+  final TownFinder findTown;
 
   @override
   State<CustomerTripsScreen> createState() => _CustomerTripsScreenState();
@@ -148,6 +150,7 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> {
                 offstage: _view != _LaneView.match,
                 child: _CustomerMatchTripsTab(
                   findPlace: widget.findPlace,
+                  findTown: widget.findTown,
                   onBrowseAll: () => setState(() => _view = _LaneView.browse),
                 ),
               ),
@@ -246,8 +249,11 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
 
 class _CustomerMatchTripsTab extends StatefulWidget {
   const _CustomerMatchTripsTab(
-      {required this.findPlace, required this.onBrowseAll});
+      {required this.findPlace,
+      required this.findTown,
+      required this.onBrowseAll});
   final PlaceFinder findPlace;
+  final TownFinder findTown;
   final VoidCallback onBrowseAll;
 
   @override
@@ -259,6 +265,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   final _dropName = TextEditingController();
   LatLng? _pickupPin;
   LatLng? _dropPin;
+  bool _namingPickupPin = false;
+  bool _namingDropPin = false;
   String? _pickupError;
   String? _dropError;
   final _weightKg = TextEditingController();
@@ -289,6 +297,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   }
 
   Future<void> _search() async {
+    // Try again stays tappable while a dragged pin is named; a lane card would carry the old name.
+    if (_namingPickupPin || _namingDropPin) return;
     final weightKg = int.tryParse(_weightKg.text.trim()) ?? 0;
     final pickupPoint = _pickupPin;
     final dropPoint = _dropPin;
@@ -415,9 +425,11 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
               _pickupError = null;
             }),
             onPinStale: () => setState(() => _pickupPin = null),
+            onPinNaming: (naming) => setState(() => _namingPickupPin = naming),
             showMap: _pickupPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
+            findTown: widget.findTown,
           ),
           _pickupError,
         ),
@@ -435,9 +447,11 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
               _dropError = null;
             }),
             onPinStale: () => setState(() => _dropPin = null),
+            onPinNaming: (naming) => setState(() => _namingDropPin = naming),
             showMap: _dropPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
+            findTown: widget.findTown,
           ),
           _dropError,
         ),
@@ -453,7 +467,10 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             label: "Find matching lanes",
             fullWidth: true,
             loading: _searching,
-            onPressed: _search),
+            onPressed: _namingPickupPin || _namingDropPin ? null : _search,
+            disabledReason: _namingPickupPin || _namingDropPin
+                ? "Updating address from pin…"
+                : null),
         if (_failed) ...[
           const SizedBox(height: NvSpace.s3),
           NvListError(

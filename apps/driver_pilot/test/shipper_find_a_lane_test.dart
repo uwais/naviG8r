@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/notification_center.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -240,6 +241,53 @@ void main() {
           .queryParameters;
       expect(searched['pickupLat'], '12.85',
           reason: 'the point sent is where the pin is');
+    });
+
+    testWidgets('after a pin drag, Find matching lanes waits until the pin has its town name',
+        (tester) async {
+      final town = Completer<GeocodeOutcome>();
+      final server = await showShipperApp(tester, '/customer/trips?tab=match',
+          findTown: (_) => town.future);
+      server.answer('/v1/customer/eligible-anchor-trips', {'trips': []});
+      await tester.pumpAndSettle();
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await tester.enterText(field('Weight'), '80');
+      pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.85, 77.65));
+      await tester.pumpAndSettle();
+      FilledButton findLanes() => tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Find matching lanes'));
+      expect(findLanes().onPressed, isNull,
+          reason: 'review: a lane card would carry the old town name to Book with the new pin');
+      expect(find.text('Updating address from pin…'), findsNWidgets(2),
+          reason: 'under the place box, and under the disabled button to say why');
+
+      town.complete(GeocodeOutcome.ok(
+          const LatLng(12.85, 77.65), 'Electronic City, Bengaluru', 'Electronic City'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Find matching lanes'));
+      await tester.pumpAndSettle();
+      expect(server.countOf('/v1/customer/eligible-anchor-trips'), 1);
+    });
+
+    testWidgets('after a failed match, Try again also waits for a dragged pin to be named',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/trips?tab=match',
+          findTown: (_) => Completer<GeocodeOutcome>().future);
+      server.answer('/v1/customer/eligible-anchor-trips', {'error': 'internal_error'}, 500);
+      await tester.pumpAndSettle();
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await tester.enterText(field('Weight'), '80');
+      await tester.tap(find.text('Find matching lanes'));
+      await tester.pumpAndSettle();
+      expect(find.text('Could not load lanes.'), findsOneWidget);
+      pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.85, 77.65));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+      expect(server.countOf('/v1/customer/eligible-anchor-trips'), 1,
+          reason: 'a retry before the name came back would match under the old name');
     });
 
     testWidgets('Match asks for a place that has not been searched',

@@ -4478,9 +4478,12 @@ String _publishDraftOwner() =>
 /// visible at the bottom.
 class DriverPublishTripScreen extends StatefulWidget {
   const DriverPublishTripScreen(
-      {super.key, this.findPlace = GoogleGeocodingService.forwardAddress});
+      {super.key,
+      this.findPlace = GoogleGeocodingService.forwardAddress,
+      this.findTown = GoogleGeocodingService.reverseLatLng});
 
   final PlaceFinder findPlace;
+  final TownFinder findTown;
 
   @override
   State<DriverPublishTripScreen> createState() =>
@@ -4492,6 +4495,8 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   final _dest = TextEditingController();
   LatLng? _originPos;
   LatLng? _destPos;
+  bool _namingOriginPin = false;
+  bool _namingDestPin = false;
   // The days the truck can leave: calendar days in India, held as midnight UTC. There is no arrival day.
   DateTime? _firstLeavingDay;
   DateTime? _lastLeavingDay;
@@ -4689,6 +4694,8 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   @override
   Widget build(BuildContext context) {
     const gap = SizedBox(height: NvSpace.s4);
+    // A dragged pin is set at once but named later; publishing before then sends the old name.
+    final namingPin = _namingOriginPin || _namingDestPin;
     return Column(children: [
       Expanded(
         // A tap outside the fields closes the keyboard; the fields and buttons still take their own taps.
@@ -4718,9 +4725,12 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 position: _originPos ?? pinNotPlacedYet,
                 onPositionChanged: (p) => setState(() => _originPos = p),
                 onPinStale: () => setState(() => _originPos = null),
+                onPinNaming: (naming) =>
+                    setState(() => _namingOriginPin = naming),
                 readOnly: _submitting,
                 showMap: _originPos != null,
                 findPlace: widget.findPlace,
+                findTown: widget.findTown,
               ),
               gap,
               LocationEndpointEditor(
@@ -4732,9 +4742,11 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 position: _destPos ?? pinNotPlacedYet,
                 onPositionChanged: (p) => setState(() => _destPos = p),
                 onPinStale: () => setState(() => _destPos = null),
+                onPinNaming: (naming) => setState(() => _namingDestPin = naming),
                 readOnly: _submitting,
                 showMap: _destPos != null,
                 findPlace: widget.findPlace,
+                findTown: widget.findTown,
               ),
               if (_originPos != null && _destPos != null) ...[
                 gap,
@@ -4784,7 +4796,8 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
       NvActionBar(
         child: NvButton(
           label: "Publish trip",
-          onPressed: _submit,
+          onPressed: namingPin ? null : _submit,
+          disabledReason: namingPin ? "Updating address from pin…" : null,
           loading: _submitting,
           loadingLabel: "Publishing",
           fullWidth: true,

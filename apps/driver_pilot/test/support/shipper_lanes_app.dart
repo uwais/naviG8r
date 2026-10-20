@@ -142,7 +142,8 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
               path: 'trips',
               builder: (_, state) => CustomerTripsScreen(
                   startWithMatch: state.uri.queryParameters['tab'] == 'match',
-                  findPlace: findPlace)),
+                  findPlace: findPlace,
+                  findTown: findTown)),
           GoRoute(
               path: 'book',
               builder: (_, state) => CustomerBookShipmentScreen.fromQuery(
