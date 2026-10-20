@@ -1,4 +1,5 @@
 // Disposable local RBAC demo. Never loads .env, existing stores, or a database.
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
@@ -13,12 +14,16 @@ if (unsafeReason) {
   process.exit(1);
 }
 
+// Serving the web build means the hosted demo, open to anyone with the link.
+const hosted = Boolean(process.env.RBAC_MANUAL_WEB_DIR);
 const directory = mkdtempSync(join(tmpdir(), "navig8r-rbac-manual-"));
 Object.assign(process.env, {
   NODE_ENV: "test",
   PERSISTENCE: "FILE",
   DATA_FILE: join(directory, "synthetic-store.json"),
-  AUTH_SECRET: "synthetic-local-rbac-demo-not-for-deployment",
+  // The fixed secret is in the public repository, so a hosted server with it would accept anyone's forged sign-in.
+  AUTH_SECRET: hosted ? randomBytes(32).toString("hex") : "synthetic-local-rbac-demo-not-for-deployment",
+  OUTBOUND_WEBHOOKS_OFF: hosted ? "1" : "0",
   OTP_DEBUG: "1",
   PAYMENT_PROVIDER: "MOCK",
   PAYOUTS_MODE: "BOOKKEEPING",
@@ -157,6 +162,8 @@ if (!process.argv.includes("--seed-only")) {
   app.server.listen(port, host, () => {
     console.log(`Open http://${host}:${app.server.address().port}/ops — Ctrl+C stops this local demo.`);
   });
+  // In the container node is PID 1, which has no default signal handling, so without this Render's stop is ignored.
+  for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => app.server.close(() => process.exit(0)));
 }
 
 // The hosted demo serves the built web app and the API from one origin. The app calls the API under /api, as it

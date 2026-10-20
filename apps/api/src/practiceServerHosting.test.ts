@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
@@ -29,7 +32,7 @@ function practiceServerEnvironment(extra: Record<string, string>): NodeJS.Proces
   return { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR, ...extra };
 }
 
-async function startPracticeServer(extra: Record<string, string>): Promise<{ baseUrl: string; stop: () => void }> {
+async function startPracticeServer(extra: Record<string, string>): Promise<{ baseUrl: string; apiBaseUrl: string; stop: () => void; child: ChildProcess }> {
   const child = spawn(process.execPath, ["--experimental-strip-types", practiceServerScript], {
     env: practiceServerEnvironment({ RBAC_MANUAL_PORT: "0", RBAC_MANUAL_WEB_DIR: webDirectory, ...extra }),
     stdio: ["ignore", "pipe", "pipe"],
@@ -46,7 +49,19 @@ async function startPracticeServer(extra: Record<string, string>): Promise<{ bas
     child.stderr.on("data", onData);
     child.on("exit", code => { clearTimeout(timer); reject(new Error(`practice server exited with ${code}:\n${output}`)); });
   });
-  return { baseUrl, stop: () => child.kill() };
+  // Only the server that serves the web app puts the API under /api.
+  const apiBaseUrl = extra.RBAC_MANUAL_WEB_DIR === "" ? baseUrl : `${baseUrl}/api`;
+  return { baseUrl, apiBaseUrl, stop: () => child.kill(), child };
+}
+
+async function signIn(apiBaseUrl: string, phone: string): Promise<string> {
+  const post = (path: string, body: unknown) => fetch(`${apiBaseUrl}${path}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const challenge = await (await post("/v1/auth/otp/start", { phone })).json();
+  const verification = await post("/v1/auth/otp/verify", { phone, challengeId: challenge.challengeId, code: challenge.debugCode });
+  assert.equal(verification.status, 200);
+  return (await verification.json()).accessToken;
 }
 
 async function exitOfPracticeServer(extra: Record<string, string>): Promise<{ code: number | null; stderr: string }> {
@@ -113,6 +128,63 @@ test("practice server writes the Maps key into the page when MAPS_API_KEY is set
     server.stop();
   }
 });
+
+test("hosted practice server refuses the webhook test ping and calls nothing; the local one still sends it", async () => {
+  let requestsReceived = 0;
+  const listener = createServer((_req, res) => { requestsReceived += 1; res.end("ok"); });
+  await new Promise<void>(resolveListening => listener.listen(0, "127.0.0.1", resolveListening));
+  const webhookUrl = `http://127.0.0.1:${(listener.address() as AddressInfo).port}/hook`;
+  const sendTestPing = async (extra: Record<string, string>) => {
+    const server = await startPracticeServer(extra);
+    try {
+      const token = await signIn(server.apiBaseUrl, "8000000001");
+      const headers = { "content-type": "application/json", authorization: `Bearer ${token}` };
+      const integrations = `${server.apiBaseUrl}/v1/pilot/customer/integrations`;
+      const saved = await fetch(`${integrations}/connection?orgId=shipper-a`, { method: "PATCH", headers, body: JSON.stringify({ webhookUrl }) });
+      assert.equal(saved.status, 200);
+      const ping = await fetch(`${integrations}/webhooks/test?orgId=shipper-a`, { method: "POST", headers });
+      return { status: ping.status, body: await ping.json() };
+    } finally {
+      server.stop();
+    }
+  };
+  try {
+    const hosted = await sendTestPing({});
+    assert.equal(hosted.status, 403);
+    assert.equal(hosted.body.detail, "The practice server does not send webhooks.");
+    assert.equal(requestsReceived, 0);
+
+    const local = await sendTestPing({ RBAC_MANUAL_WEB_DIR: "" });
+    assert.equal(local.status, 200);
+    assert.equal(requestsReceived, 1);
+  } finally {
+    listener.close();
+  }
+});
+
+test("hosted practice server signs sign-in tokens with a fresh secret; the local one keeps the fixed one", async () => {
+  const signedWithFixedSecret = (token: string) => {
+    const [payload, signature] = token.split(".");
+    return createHmac("sha256", "synthetic-local-rbac-demo-not-for-deployment").update(payload!).digest("base64url") === signature;
+  };
+  for (const [extra, expected] of [[{}, false], [{ RBAC_MANUAL_WEB_DIR: "" }, true]] as const) {
+    const server = await startPracticeServer(extra);
+    try {
+      assert.equal(signedWithFixedSecret(await signIn(server.apiBaseUrl, "8000000001")), expected);
+    } finally {
+      server.stop();
+    }
+  }
+});
+
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  test(`practice server closes and exits 0 on ${signal}`, async () => {
+    const server = await startPracticeServer({});
+    const exit = new Promise(resolveExit => server.child.on("exit", (code, signalName) => resolveExit({ code, signalName })));
+    server.child.kill(signal);
+    assert.deepEqual(await exit, { code: 0, signalName: null });
+  });
+}
 
 for (const [unsafeSetting, environment] of [
   ["NODE_ENV is production", { NODE_ENV: "production" }],

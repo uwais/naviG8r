@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Practice server for testers: fake accounts, mock payments, sign-in code on screen. See docs/redesign-demo-host.md.
 
-# Same Flutter build stage as Dockerfile.customer-web.
+# Same Flutter toolchain as Dockerfile.customer-web. The build itself differs: --no-web-resources-cdn serves Flutter's
+# web resources from this build instead of a CDN, and EWAY_PORTAL points at the practice portal.
 FROM debian:bookworm-slim AS web
 
 ARG FLUTTER_VERSION=3.22.3
