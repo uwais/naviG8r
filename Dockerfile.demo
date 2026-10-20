@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1
+# Practice server for testers: fake accounts, mock payments, sign-in code on screen. See docs/redesign-demo-host.md.
+
+# Same Flutter build stage as Dockerfile.customer-web.
+FROM debian:bookworm-slim AS web
+
+ARG FLUTTER_VERSION=3.22.3
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH
+ENV FLUTTER_SUPPRESS_ANALYTICS=true
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       bash ca-certificates curl git unzip xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch "${FLUTTER_VERSION}" \
+      https://github.com/flutter/flutter.git /opt/flutter
+
+RUN flutter config --no-analytics --enable-web \
+    && flutter precache --web
+
+WORKDIR /src/apps/driver_pilot
+COPY apps/driver_pilot ./
+
+# Relative addresses: the app, its API (under /api) and the practice portal share one origin.
+RUN flutter pub get \
+    && flutter build web --release --no-web-resources-cdn \
+       --dart-define=API_BASE_URL=/api \
+       --dart-define=EWAY_PORTAL=/demo/eway-portal
+
+# Same Node base as the API's Dockerfile. FILE storage and mock payments load neither Prisma nor Razorpay,
+# so no npm install is needed.
+FROM node:22-bookworm-slim
+
+ENV EWAY_DEMO_PORTAL=1
+# Without OTP_TRUST_PROXY the API counts sign-ins by the connecting address, which behind Render's proxy is
+# likely the proxy for every tester, so both limits are set high.
+ENV OTP_PHONE_START_LIMIT=1000
+ENV OTP_IP_START_LIMIT=1000
+ENV RBAC_MANUAL_HOST=0.0.0.0
+ENV RBAC_MANUAL_WEB_DIR=/app/web
+
+WORKDIR /app
+COPY package.json ./package.json
+COPY packages ./packages
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/api/src ./apps/api/src
+COPY scripts/rbac-manual.mjs ./scripts/rbac-manual.mjs
+COPY --from=web /src/apps/driver_pilot/build/web ./web
+
+USER node
+EXPOSE 10000
+
+# Render sets PORT; 10000 is its default.
+CMD ["sh", "-c", "RBAC_MANUAL_PORT=\"${PORT:-10000}\" exec node --experimental-strip-types scripts/rbac-manual.mjs"]
