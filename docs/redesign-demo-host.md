@@ -6,7 +6,10 @@ keys. One free Render web service runs it from `Dockerfile.demo`.
 ## What it is
 
 - **A practice server, not the real one.** It runs the API with fake accounts, fake shipments and mock payments.
-  No real money moves and no real data is kept.
+  No real money moves. Never type real names, numbers or addresses. Anyone with the link can sign in as any demo
+  account and see everything entered.
+- **One stuck request can stall the demo for everyone, for a minute or more.** The server handles one request at a
+  time, so a slow or broken request from anyone holds up the rest. A fix exists in an open pull request.
 - **Data resets to the seed every time the service wakes.** The seed comes from `scripts/rbac-manual.mjs`, the same
   data the team practises on locally. Anything a tester changes is lost when the service sleeps, restarts or is
   redeployed.
@@ -16,6 +19,10 @@ keys. One free Render web service runs it from `Dockerfile.demo`.
   government one.
 - **It refuses to start** if `NODE_ENV` is `production` or `beta`, or if `RAZORPAY_KEY_SECRET` or `DATABASE_URL` is
   set. Payments are always mock.
+- **It sends no webhooks.** No address a tester saves is ever called. The ERP integration's test ping is refused with
+  "The practice server does not send webhooks."; the app does not know that answer yet, so it shows its own
+  could-not-send sentence.
+- **Sign-in tokens are signed with a new random secret at every start**, not the fixed one in the repository.
 
 ## Using it
 
@@ -62,15 +69,22 @@ The key reaches the page only through the `MAPS_API_KEY` variable in Render. The
 it starts, and no key is ever committed. Without a key the app still works, but the map does not load and place
 search shows its no-key sentence.
 
-Use a separate browser key for this service:
+The key is visible in the page by design: anyone who opens the demo can read it. Rishabh decides the setup. The
+recommended one:
 
-- **Application restriction:** websites (HTTP referrers): `https://<service-name>.onrender.com/*`.
+- **A separate key used only by this demo.**
 - **API restriction:** Maps JavaScript API and Geocoding API only.
+- **Application restriction:** none.
+- **A daily quota cap** in Google Cloud on each of the two APIs, for example 500 Geocoding requests a day.
 
-Caution, not yet tried: place search calls Google's Geocoding web service straight from the browser. Google's
-security guidance (developers.google.com/maps/api-security-best-practices) pairs the Geocoding API with IP-address
-restrictions, not website restrictions. A website-restricted key may therefore show the map but have place search
-refused. If that happens, tell whoever owns the key. Do not loosen it without their decision.
+Why no website restriction: place search calls Google's Geocoding web service straight from the browser. Google's
+security guidance (developers.google.com/maps/api-security-best-practices) puts the Geocoding web service under
+IP-address restrictions and the Maps JavaScript API under website restrictions. A website-restricted key will most
+likely load the map but have place search refused. That is from the docs, not tried.
+
+The trade-off: with no application restriction, anyone who copies the key can call those two APIs from anywhere. The
+API restriction limits what they can call, and the quota cap limits how much it can cost. Because the key serves only
+this demo, it can be deleted or replaced without touching anything else.
 
 ## Running the same server locally
 

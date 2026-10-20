@@ -20,6 +20,7 @@ import {
   revokeIntegrationApiKey,
 } from "./integrationServices.ts";
 import { publicRazorpayKeyId } from "./razorpayPayments.ts";
+import { outboundWebhooksOff, WEBHOOKS_OFF_SENTENCE } from "./integrationWebhooks.ts";
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const data = JSON.stringify(body);
@@ -235,6 +236,10 @@ export async function handleIntegrationPortalRoutes(
     }
 
     if (method === "POST" && url.pathname === `${base}/webhooks/test`) {
+      if (outboundWebhooksOff()) {
+        json(res, 403, { error: "outbound_webhooks_off", detail: WEBHOOKS_OFF_SENTENCE });
+        return true;
+      }
       const result = await testIntegrationWebhook(store, orgId);
       json(res, result.ok ? 200 : 502, result);
       return true;

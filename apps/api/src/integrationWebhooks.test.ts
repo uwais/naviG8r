@@ -174,6 +174,24 @@ test("processPendingWebhookDeliveries retries failed delivery with backoff", asy
   }
 });
 
+test("with OUTBOUND_WEBHOOKS_OFF=1 a queued delivery fails with a sentence and nothing is sent", async () => {
+  const store = createStore();
+  seedShipmentWithWebhook(store);
+  const fetchMock = mock.method(globalThis, "fetch", async () => new Response("ok", { status: 200 }));
+  process.env.OUTBOUND_WEBHOOKS_OFF = "1";
+  try {
+    assert.ok(await processPendingWebhookDeliveries(store) > 0);
+    assert.equal(fetchMock.mock.callCount(), 0);
+    for (const delivery of store.integrationWebhookDeliveries.values()) {
+      assert.equal(delivery.status, "PENDING");
+      assert.equal(delivery.lastError, "The practice server does not send webhooks.");
+    }
+  } finally {
+    delete process.env.OUTBOUND_WEBHOOKS_OFF;
+    fetchMock.mock.restore();
+  }
+});
+
 test("an explicit webhook retry starts a fresh bounded attempt budget", () => {
   const store = createStore();
   const delivery = {

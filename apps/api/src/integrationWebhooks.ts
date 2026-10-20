@@ -240,10 +240,18 @@ export function emitIntegrationEvent(
   return event;
 }
 
+export const WEBHOOKS_OFF_SENTENCE = "The practice server does not send webhooks.";
+
+// The hosted practice server is public and anyone can save a webhook address there, so it must never call one.
+export function outboundWebhooksOff(): boolean {
+  return process.env.OUTBOUND_WEBHOOKS_OFF === "1";
+}
+
 export async function deliverIntegrationWebhook(
   delivery: IntegrationWebhookDelivery,
   webhookSecret: string | undefined,
 ): Promise<{ ok: boolean; httpStatus: number; error?: string }> {
+  if (outboundWebhooksOff()) return { ok: false, httpStatus: 0, error: WEBHOOKS_OFF_SENTENCE };
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "user-agent": "NaviG8r-Integration/1.0",
