@@ -216,6 +216,42 @@ void main() {
         expect(identical(tester.state(routeMap()), before), isFalse,
             reason: 'review: the view is fitted only when the map is made');
       });
+
+      testWidgets('after a pin drag, Publish trip waits until the pin has its town name',
+          (tester) async {
+        final town = Completer<GeocodeOutcome>();
+        signInWith(Server(allowed: ownerAllowed));
+        await mount(
+            tester,
+            DriverPublishTripScreen(
+                findPlace: (place) async => GeocodeOutcome.ok(
+                    place == 'Hoskote' ? hoskote : kolar, '$place, Karnataka'),
+                findTown: (_) => town.future),
+            size: const Size(800, 3000));
+        await findBoth(tester);
+        tester
+            .widget<GoogleMap>(find.descendant(
+                of: find.byType(LocationEndpointEditor).at(1),
+                matching: find.byType(GoogleMap)))
+            .markers
+            .single
+            .onDragEnd!(const LatLng(13.2, 78.3));
+        await tester.pumpAndSettle();
+        FilledButton publish() =>
+            tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Publish trip'));
+        expect(publish().onPressed, isNull,
+            reason: 'review: the old town name could be published with the new pin');
+        expect(
+            find.descendant(
+                of: find.byType(NvActionBar),
+                matching: find.text('Updating address from pin…')),
+            findsOneWidget,
+            reason: 'a disabled button says why');
+
+        town.complete(GeocodeOutcome.ok(const LatLng(13.2, 78.3), 'Malur, Karnataka', 'Malur'));
+        await tester.pumpAndSettle();
+        expect(publish().onPressed, isNotNull);
+      });
     });
 
     testWidgets('while the trip is being published, From and To cannot change',

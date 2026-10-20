@@ -356,7 +356,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   }
 
   Future<void> _lookup() async {
-    _newestLookup++;
+    final lookup = ++_newestLookup;
     if (_reverseBusy) widget.onPinNaming?.call(false);
     setState(() {
       _lookupBusy = true;
@@ -364,7 +364,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
       _hintLine = null;
     });
     final outcome = await widget.findPlace(widget.labelController.text);
-    if (!mounted) return;
+    if (!mounted || lookup != _newestLookup) return;
     setState(() {
       _lookupBusy = false;
       _searchTried = true;
@@ -399,6 +399,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     setState(() {
       _pos = p;
       _hintLine = null;
+      // A search still out is overtaken by the drag and will not answer, so its spinner goes now.
+      _lookupBusy = false;
     });
     widget.onPositionChanged(p);
 
