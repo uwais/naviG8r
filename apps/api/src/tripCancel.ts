@@ -2,13 +2,14 @@
  * A carrier office takes back a trip it published (owner decision, 19 Oct 2026). With no booking on it, the trip is
  * cancelled at once. With bookings, the carrier asks NaviG8r instead: the trip takes no new bookings, operations
  * sees the request, and Finance cancels each shipment with failCarrierAndRefund, which ends the trip after the last.
- * Operations also lists here any cancelled shipment whose money Razorpay captured afterwards, for Finance to refund.
+ * Operations also lists here any cancelled shipment whose money Razorpay captured afterwards, for Finance to refund
+ * in Razorpay and then mark refunded.
  */
 import { AuthorizationError, principalFor, recordAudit, requirePermission } from "./rbac.ts";
 import { ApiError, bookingsOnTrip, tripHasBookings, tripWithCarrierDisplay } from "./services.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import type { Store } from "./store.ts";
-import type { AnchorTrip, TripCancelReasonCode } from "./types.ts";
+import type { AnchorTrip, Payment, TripCancelReasonCode } from "./types.ts";
 
 const REASON_CODES: readonly TripCancelReasonCode[] = ["TRUCK_UNAVAILABLE", "DRIVER_UNAVAILABLE", "ROUTE_CHANGED", "OTHER"];
 const MAX_NOTE_LENGTH = 500;
@@ -82,8 +83,19 @@ export function listTripCancelRequestsForOps(store: Store) {
     .sort((a, b) => (a.cancelRequest?.requestedAtUtcMs ?? 0) - (b.cancelRequest?.requestedAtUtcMs ?? 0))
     .map((trip) => ({
       trip: tripWithCarrierDisplay(store, trip),
-      shipments: bookingsOnTrip(store, trip.id).map((shipment) => ({ shipment, payment: store.payments.get(shipment.paymentId) ?? null })),
+      shipments: bookingsOnTrip(store, trip.id).map((shipment) => {
+        const payment = store.payments.get(shipment.paymentId) ?? null;
+        return { shipment, payment, settledOutsideNaviG8r: payment !== null && settledOutsideNaviG8r(payment) };
+      }),
     }));
+}
+
+/**
+ * An ERP-preauthorized booking: AUTHORIZED with no Razorpay payment or order behind it, so no Razorpay hold exists
+ * and failCarrierAndRefund refuses it. The money is the partner's to settle.
+ */
+function settledOutsideNaviG8r(payment: Payment): boolean {
+  return payment.provider === "RAZORPAY" && payment.status === "AUTHORIZED" && !payment.razorpayPaymentId && !payment.razorpayOrderId;
 }
 
 /** Cancelled shipments whose money Razorpay reported captured after the cancel, for Finance to refund in Razorpay. */
@@ -96,4 +108,23 @@ export function listPaymentsCollectedAfterCancelForOps(store: Store) {
       const shipment = store.shipments.get(payment.shipmentId);
       return shipment ? [{ shipment, payment }] : [];
     });
+}
+
+/**
+ * Finance records that it refunded, in the Razorpay dashboard, money Razorpay captured after the cancel. Nothing is
+ * sent to Razorpay. Marking it twice changes nothing.
+ */
+export function markRefundedInRazorpay(store: Store, shipmentId: string): { payment: Payment } {
+  const shipment = store.shipments.get(shipmentId);
+  if (!shipment) throw new AuthorizationError("not_found", 404);
+  requirePermission(store, "payment.refund", shipment);
+  const payment = store.payments.get(shipment.paymentId);
+  if (payment?.status === "REFUNDED" && payment.capturedAfterCancelRazorpayPaymentId) return { payment };
+  if (payment?.status !== "CAPTURED_AFTER_CANCEL") {
+    throw new ApiError("payment_not_captured_after_cancel", { detail: "This payment is not waiting for a refund after a cancel.", status: payment?.status }, 409);
+  }
+  const refunded: Payment = { ...payment, status: "REFUNDED", updatedAtUtcMs: Date.now() };
+  store.payments.set(refunded.id, refunded);
+  recordAudit(store, "PAYMENT_MARKED_REFUNDED", "shipment", shipment.id, payment.status, refunded.status, undefined, payment.capturedAfterCancelRazorpayPaymentId);
+  return { payment: refunded };
 }

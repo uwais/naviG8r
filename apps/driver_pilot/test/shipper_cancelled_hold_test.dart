@@ -1,6 +1,7 @@
 // The shipper's cancelled shipment when the payment was only held (owner decision, 19 Oct 2026): NaviG8r never
 // collected it, so nothing is said to be refunded, and Razorpay returns it by itself. The shipper's bank may already
 // show the debit (UPI, netbanking), so the words never say nothing was taken.
+import 'package:driver_pilot/eway_bill_dates.dart';
 import 'package:driver_pilot/ui/pending_copy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,12 @@ const _held =
     'NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that.';
 const _cancelTheBill =
     'If you made an e-way bill for this load, cancel it on the e-way bill portal. The portal allows this only within 24 hours of making the bill.';
+
+/// Noon in India on 18 Oct 2026, the day billNoTruck is dated, so the bill can still be cancelled.
+void _onTheBillsDay() {
+  ewayBillNow = () => DateTime.utc(2026, 10, 18, 6, 30);
+  addTearDown(() => ewayBillNow = DateTime.now);
+}
 
 void main() {
   group('Cancelled with the hold released', () {
@@ -45,6 +52,7 @@ void main() {
     testWidgets(
         'a booking with an e-way bill is told to cancel it on the portal, within its 24 hours',
         (tester) async {
+      _onTheBillsDay();
       await showShipment(tester,
           booking(status: 'FAILED_CARRIER_REFUNDED', ewayBill: billNoTruck),
           trip: lane(),
@@ -72,6 +80,7 @@ void main() {
     testWidgets('fits at 360 dp and 200% text', (tester) async {
       tester.platformDispatcher.textScaleFactorTestValue = 2;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      _onTheBillsDay();
       await showShipment(tester,
           booking(status: 'FAILED_CARRIER_REFUNDED', ewayBill: billNoTruck),
           trip: lane(),

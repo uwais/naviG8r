@@ -22,7 +22,9 @@ export function serializeResponse(value: unknown): unknown {
     const ewayBill = ewayBillForRoles(v.ewayBill as EwayBill | undefined, p?.roles ?? []);
     out = { ...pick(v, keys), ...(ewayBill ? { ewayBill } : {}), paymentReady: paymentReady(v as never), paymentHoldUntilUtcMs: typeof v.podAtUtcMs === "number" ? v.podAtUtcMs + 48 * 60 * 60 * 1000 : null };
   } else if ("providerRef" in v && "amountPaise" in v) {
-    out = pick(v, ["id", "shipmentId", "status", "provider", "createdAtUtcMs", "updatedAtUtcMs", ...(p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r)) ? ["amountPaise", "razorpayOrderId"] : [])]);
+    out = pick(v, ["id", "shipmentId", "status", "provider", "createdAtUtcMs", "updatedAtUtcMs", ...(p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r)) ? ["amountPaise", "razorpayOrderId"] : []),
+      // Finance refunds it in the Razorpay dashboard by this id.
+      ...(p?.roles.includes("FINANCE") ? ["capturedAfterCancelRazorpayPaymentId"] : [])]);
   } else if ("kind" in v && "kycStatus" in v) {
     out = pick(v, ["id", "kind", "displayName", "kycStatus", "createdAtUtcMs", "inactiveAtUtcMs", "rejectionReasonCode", "approvalTakenBack",
       // The carrier office (whoever may assign trips) reads its own transporter ID; its drivers have no use for it.

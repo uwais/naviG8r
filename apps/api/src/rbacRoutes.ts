@@ -46,6 +46,7 @@ const rules: [string, RegExp, Permission][] = [
   ["POST", /^\/shipments\/[^/]+\/driver-pod$/, "pod.upload"],
   ["POST", /^\/shipments\/[^/]+\/accept-pod$/, "pod.accept"],
   ["POST", /^\/shipments\/[^/]+\/fail-refund$/, "payment.refund"],
+  ["POST", /^\/shipments\/[^/]+\/mark-refunded$/, "payment.refund"],
   ["GET", /^\/ops\/shipments(?:\/[^/]+)?$/, "load.read"],
   ["GET", /^\/ops\/trip-cancel-requests$/, "load.read"],
   ["POST", /^\/ops\/shipments\/[^/]+\/release$/, "payment.capture"],

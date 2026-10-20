@@ -1619,7 +1619,7 @@ class _DriverShipmentDetailScreenState
       return;
     }
     setState(() => _shipment = found);
-    if (!_forDriver) await _loadTrip(found);
+    await _loadTrip(found);
   }
 
   Future<void> _loadTrip(Map<String, dynamic> shipment) async {
@@ -1671,18 +1671,24 @@ class _DriverShipmentDetailScreenState
   }
 
   /// A driver's view of one booking on their trip: who, where, the e-way bill, and the one thing to do now held
-  /// at the bottom. A driver may still accept (the API lets them), so Accept stays. No amounts.
+  /// at the bottom. A driver may accept (the API lets them), except on a trip their office asked NaviG8r to cancel,
+  /// where the server refuses Accept and Confirm delivery, so both are off. No amounts.
   Widget _driverView(Map<String, dynamic> s) {
     final status = s["status"]?.toString() ?? "";
     final statusWords = _bookingStatus(s, null, onBookingScreen: true);
     final pickup = _nonEmpty(s["pickupAddress"]);
     final drop = _nonEmpty(s["dropAddress"]);
     final weight = _weightWords(s);
+    // The driver did not ask and cannot withdraw, so this is not the office's sentence.
+    const officeAskedToCancel = "Your office asked NaviG8r to cancel this trip.";
+    final cancelRequested = _trip?["status"] == "CANCEL_REQUESTED";
     final String? cannotAcceptReason;
     if (!DriverSession.complianceApproved) {
       cannotAcceptReason = "You can accept once NaviG8r approves your company.";
     } else if (!AuthorizationSession.can("carrier.offer_accept")) {
       cannotAcceptReason = "Your role cannot accept bookings.";
+    } else if (cancelRequested) {
+      cannotAcceptReason = officeAskedToCancel;
     } else {
       cannotAcceptReason = null;
     }
@@ -1697,7 +1703,8 @@ class _DriverShipmentDetailScreenState
           fullWidth: true),
       "BOOKED" when AuthorizationSession.can("pod.upload") => NvButton(
           label: "Confirm delivery",
-          onPressed: _confirmDelivery,
+          onPressed: cancelRequested ? null : _confirmDelivery,
+          disabledReason: cancelRequested ? officeAskedToCancel : null,
           forDriver: true,
           fullWidth: true),
       _ => null,

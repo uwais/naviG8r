@@ -109,18 +109,76 @@ test("/ops/beta: Cancel shipment after the carrier withdrew says so and changes 
   assert.equal(f.store.shipments.get(first)?.status, "PENDING_CARRIER_ACCEPT", "the withdrawn request cancels nothing");
 });
 
-test("/ops/beta shows Finance a payment Razorpay captured after its shipment was cancelled", async t => {
-  const f = await httpFixture(t);
+/** The first booking cancelled, then Razorpay captured its money: the payment as the webhook leaves it. */
+async function collectedAfterCancel(f: Fixture): Promise<{ shipmentId: string; amountPaise: number }> {
   const [first] = await requestedTrip(f);
   const payment = f.store.payments.get(f.store.shipments.get(first)!.paymentId)!;
   f.store.shipments.set(first, { ...f.store.shipments.get(first)!, status: "FAILED_CARRIER_REFUNDED" });
-  f.store.payments.set(payment.id, { ...payment, provider: "RAZORPAY", status: "CAPTURED_AFTER_CANCEL" });
+  f.store.payments.set(payment.id, { ...payment, provider: "RAZORPAY", status: "CAPTURED_AFTER_CANCEL", razorpayOrderId: "order_late", razorpayPaymentId: "pay_earlier", capturedAfterCancelRazorpayPaymentId: "pay_late" });
+  return { shipmentId: first!, amountPaise: payment.amountPaise };
+}
+
+test("/ops/beta shows Finance a payment Razorpay captured after its shipment was cancelled, with its Razorpay ids", async t => {
+  const f = await httpFixture(t);
+  const { shipmentId, amountPaise } = await collectedAfterCancel(f);
   const page = await openOpsBeta(f, f.tokens.finance);
   const body = page.byId("tripCancelsBody");
-  for (const words of [first, "Synthetic Shipper A, " + rupees(payment.amountPaise), "Money collected after cancel. Refund it in the Razorpay dashboard."]) {
+  for (const words of [shipmentId, "Synthetic Shipper A, " + rupees(amountPaise), "Money collected after cancel. Refund it in the Razorpay dashboard, then mark it refunded here.",
+    "Razorpay order order_late · payment pay_late"]) {
     assert.ok(body.textContent.includes(words), `the card shows: ${words}`);
   }
+  assert.equal(body.textContent.includes("pay_earlier"), false, "the capture's own id, not the earlier one");
   assert.equal(page.byId("countTripCancels").textContent, "2", "one trip and one payment to refund");
+});
+
+test("/ops/beta: Finance marks it refunded in Razorpay after a question naming the payment and amount; the row and its count go", async t => {
+  const f = await httpFixture(t);
+  const { shipmentId, amountPaise } = await collectedAfterCancel(f);
+  const page = await openOpsBeta(f, f.tokens.finance);
+  const body = page.byId("tripCancelsBody");
+  const row = body.descendants().find((node) => node.getAttribute?.("aria-label") === "Money collected after cancel, " + shipmentId)!;
+  assert.ok(row, "the row");
+
+  await page.click(page.visibleButton("Mark refunded in Razorpay…", row)!);
+  assert.ok(row.textContent.includes(`Mark payment pay_late of ${rupees(amountPaise)} as refunded? Do this only once you have refunded it in the Razorpay dashboard. The shipper's screen then says it is refunded. This can't be undone from the console.`), row.textContent);
+  assert.equal(page.focused?.textContent, "Not yet", "a stray Enter changes nothing");
+  await page.click(page.visibleButton("Not yet", row)!);
+  assert.equal(page.requests.some((request) => request.path.endsWith("/mark-refunded")), false, "asking sends nothing");
+
+  await page.click(page.visibleButton("Mark refunded in Razorpay…", row)!);
+  await page.click(page.visibleButton("Mark refunded", row)!);
+  assert.deepEqual(page.requests.filter((request) => request.method === "POST").map((request) => request.path), [`/shipments/${shipmentId}/mark-refunded`]);
+  assert.equal(f.store.payments.get(f.store.shipments.get(shipmentId)!.paymentId)!.status, "REFUNDED");
+  assert.ok(row.textContent.includes("Marked refunded by you at"), row.textContent);
+  assert.equal(page.visibleButton("Mark refunded in Razorpay…", row), undefined, "the row's action is gone");
+  assert.equal(page.byId("countTripCancels").textContent, "1", "only the trip is left");
+  assert.equal(page.byId("tripCancelsCount").textContent, "1 trip");
+  assert.equal(page.nativeDialogs, 0);
+});
+
+test("/ops/beta shows OPS the payment collected after the cancel, but only Finance gets the action", async t => {
+  const f = await httpFixture(t);
+  const { shipmentId } = await collectedAfterCancel(f);
+  const page = await openOpsBeta(f, f.tokens.ops);
+  const body = page.byId("tripCancelsBody");
+  assert.ok(body.textContent.includes(shipmentId), body.textContent);
+  assert.ok(body.textContent.includes("Money collected after cancel. Finance refunds this in the Razorpay dashboard."), body.textContent);
+  assert.equal(page.visibleButton("Mark refunded in Razorpay…", body), undefined);
+});
+
+test("/ops/beta: a booking the partner settles outside NaviG8r claims no Razorpay hold and its Cancel shipment is off, saying why", async t => {
+  const f = await httpFixture(t);
+  const [first] = await requestedTrip(f);
+  const payment = f.store.payments.get(f.store.shipments.get(first)!.paymentId)!;
+  f.store.payments.set(payment.id, { ...payment, provider: "RAZORPAY", status: "AUTHORIZED", razorpayOrderId: undefined, razorpayPaymentId: undefined });
+  const page = await openOpsBeta(f, f.tokens.finance);
+  const row = page.byId("tripCancelsBody").descendants().find((node) => node.tagName === "tr" && node.textContent.includes(first!))!;
+  assert.equal(row.textContent.includes("Payment held"), false, row.textContent);
+  assert.ok(row.textContent.includes("Settled outside NaviG8r"), row.textContent);
+  assert.equal(page.visibleButton("Cancel shipment…", row), undefined);
+  const off = row.querySelectorAll("button").filter((button) => button.textContent === "Cancel shipment");
+  assert.ok(off.length === 1 && off[0]!.disabled, "shown, but off");
+  assert.ok(row.textContent.includes("This load's payment is settled outside NaviG8r through the partner's system, so it cannot be cancelled here. Ask the carrier to withdraw the request, or settle it with the partner."), row.textContent);
 });
 
 test("/ops/beta says so when no carrier has asked to cancel a trip", async t => {

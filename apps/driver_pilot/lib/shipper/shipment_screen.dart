@@ -10,6 +10,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 import "../authorization_session.dart";
 import "../shipment_payment_status.dart";
 import "../eway_bill_card.dart";
+import "../eway_bill_dates.dart";
 import "../eway_bill_portal_link.dart";
 import "../customer_layout.dart";
 import "../location_editor.dart";
@@ -290,7 +291,12 @@ class _CustomerShipmentDetailScreenState
       case ShipmentStepName.carrierAccepts:
         final truck = shipment["assignedTruckNumber"]?.toString() ?? "";
         final String waiting;
-        if (_paymentHeld) {
+        // The server refuses Accept on such a trip, so "waiting to accept" would promise what cannot happen.
+        if (_trip?["status"] == "CANCEL_REQUESTED") {
+          waiting =
+              "$carrier asked NaviG8r to cancel this trip. NaviG8r reviews it, and you are told if your shipment is cancelled."
+              "${_paymentHeld ? " Your payment is on hold." : ""}";
+        } else if (_paymentHeld) {
           waiting =
               "Waiting for $carrier to accept. Your payment is on hold; it is collected after delivery.";
         } else if (paymentNotTaken(_paymentStatus)) {
@@ -437,9 +443,18 @@ class _CustomerShipmentDetailScreenState
     // Cancelled while the money was only authorized: NaviG8r never collected it, so nothing is refunded. The shipper's
     // bank may already show the debit (UPI, netbanking), so the words never say nothing was taken.
     final holdReleased = _paymentStatus == "HOLD_RELEASED";
+    // Razorpay collected it after the cancel; Finance refunds it in Razorpay, then it reads as REFUNDED.
+    final collectedAfterCancel = _paymentStatus == "CAPTURED_AFTER_CANCEL";
     final nothingPaid = paymentNotTaken(_paymentStatus);
     final bill = _shipment?["ewayBill"];
     final madeBill = bill is Map && bill["kind"] == "BILL";
+    // The portal allows a cancel within 24 hours of making the bill. Only its date is known, so a bill dated
+    // yesterday in India may still be inside them; one dated earlier is not.
+    final billDate =
+        madeBill ? DateTime.tryParse(bill["billDate"]?.toString() ?? "") : null;
+    final today = indiaToday();
+    final billMayStillCancel = billDate == null ||
+        !billDate.isBefore(DateTime(today.year, today.month, today.day - 1));
     Widget row(String label, String value) => Padding(
           padding: const EdgeInsets.symmetric(vertical: NvSpace.s1),
           child: Wrap(
@@ -476,6 +491,10 @@ class _CustomerShipmentDetailScreenState
                 const Text(
                     "NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that.",
                     style: NvText.body)
+              else if (collectedAfterCancel)
+                const Text(
+                    "Your payment came through after this shipment was cancelled. NaviG8r is refunding it; your bank may take 5-7 working days after the refund.",
+                    style: NvText.body)
               else ...[
                 if (_paymentHeld && amount != null)
                   row("You paid", formatRupees(amount)),
@@ -492,8 +511,10 @@ class _CustomerShipmentDetailScreenState
               ],
               if (madeBill) ...[
                 const SizedBox(height: NvSpace.s2),
-                const Text(
-                    "If you made an e-way bill for this load, cancel it on the e-way bill portal. The portal allows this only within 24 hours of making the bill.",
+                Text(
+                    billMayStillCancel
+                        ? "If you made an e-way bill for this load, cancel it on the e-way bill portal. The portal allows this only within 24 hours of making the bill."
+                        : "If you made an e-way bill for this load, it is over 24 hours old, so the portal no longer lets you cancel it.",
                     style: NvText.body),
               ],
             ],

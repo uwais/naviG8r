@@ -1729,7 +1729,7 @@ export function submitDriverPod(
   }
   // Refused rather than ending the trip: a delivered load means the trip ran, which a cancelled trip would deny.
   if (store.anchorTrips.get(s.anchorTripId)?.status === "CANCEL_REQUESTED") {
-    throw new ApiError("trip_cancel_requested", { detail: "You asked NaviG8r to cancel this trip. Withdraw the request before confirming delivery." }, 409);
+    throw new ApiError("trip_cancel_requested", { detail: "This trip's carrier asked NaviG8r to cancel it, so delivery cannot be confirmed now." }, 409);
   }
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
@@ -1825,8 +1825,9 @@ export function acceptCarrierShipment(
   if (s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new ApiError("shipment_not_acceptable", { status: s.status });
   }
+  // The same words for the office and its drivers: a driver did not ask and cannot withdraw.
   if (store.anchorTrips.get(s.anchorTripId)?.status === "CANCEL_REQUESTED") {
-    throw new ApiError("trip_cancel_requested", { detail: "You asked NaviG8r to cancel this trip, so it cannot take this booking. Withdraw the request first." }, 409);
+    throw new ApiError("trip_cancel_requested", { detail: "This trip's carrier asked NaviG8r to cancel it, so it cannot take this booking now." }, 409);
   }
   assertDispatchReady(store, s.carrierId);
   const pay = store.payments.get(s.paymentId);

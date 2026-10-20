@@ -295,6 +295,69 @@ test("Finance cancelling from a cancel request is refused once the carrier withd
   assert.equal((await failAndRefund(f, second)).status, 200, "the general action is unchanged");
 });
 
+test("a late capture keeps its own Razorpay payment id beside the earlier one, each Razorpay payment is recorded once, and the rows name the webhook", async t => {
+  const f = await httpFixture(t);
+  const retried = await book(f, f.trip.id);
+  setPayment(f, retried, { provider: "RAZORPAY", status: "FAILED", razorpayOrderId: "order_retried", razorpayPaymentId: "pay_failed" });
+  assert.equal((await failAndRefund(f, retried)).status, 200);
+  webhook(f, "payment.authorized", "pay_first", "order_retried");
+  webhook(f, "payment.authorized", "pay_second", "order_retried");
+  webhook(f, "payment.authorized", "pay_second", "order_retried");
+  webhook(f, "payment.captured", "pay_second", "order_retried");
+  webhook(f, "payment.captured", "pay_second", "order_retried");
+
+  const payment = paymentOf(f, retried);
+  assert.deepEqual([payment.status, payment.razorpayPaymentId, payment.capturedAfterCancelRazorpayPaymentId], ["CAPTURED_AFTER_CANCEL", "pay_failed", "pay_second"], "the earlier id is kept");
+  const rows = [...f.store.auditEvents.values()].filter((event) => event.resourceId === retried && event.action === "PAYMENT_AFTER_CANCEL");
+  assert.deepEqual(rows.map((event) => [event.reasonCode, event.razorpayPaymentId]), [["AUTHORIZED", "pay_first"], ["AUTHORIZED", "pay_second"], ["CAPTURED", "pay_second"]],
+    "two Razorpay payments on one shipment are two rows; an event sent twice is one");
+  assert.deepEqual([...new Set(rows.map((event) => [event.actorUserId, event.source].join(" ")))], ["system:razorpay-webhook SYSTEM"]);
+});
+
+test("Finance marks money collected after the cancel as refunded in Razorpay: REFUNDED, an audit row naming who, off the list; nobody else can", async t => {
+  const f = await httpFixture(t);
+  const held = await book(f, f.trip.id);
+  setPayment(f, held, { provider: "RAZORPAY", status: "AUTHORIZED", razorpayOrderId: "order_held", razorpayPaymentId: "pay_held" });
+  assert.equal((await failAndRefund(f, held)).status, 200);
+  const markRefunded = (token: string) => f.request(`/shipments/${held}/mark-refunded`, "POST", {}, token);
+  const early = await markRefunded(f.tokens.finance);
+  assert.deepEqual([early.status, early.body.error], [409, "payment_not_captured_after_cancel"], "nothing was collected yet");
+
+  webhook(f, "payment.captured", "pay_held", "order_held");
+  for (const token of [f.tokens.ops, f.tokens.admin, f.tokens.carrierA, f.tokens.shipperA]) {
+    assert.equal((await markRefunded(token)).status, 403);
+  }
+  assert.equal(paymentOf(f, held).status, "CAPTURED_AFTER_CANCEL");
+  const forOps = (await f.request("/ops/trip-cancel-requests", "GET", undefined, f.tokens.ops)).body.collectedAfterCancel;
+  assert.deepEqual([forOps.length, forOps[0].payment.razorpayOrderId, forOps[0].payment.capturedAfterCancelRazorpayPaymentId], [1, undefined, undefined], "staff see it to triage; the Razorpay ids are Finance's");
+  const forFinance = (await f.request("/ops/trip-cancel-requests", "GET", undefined, f.tokens.finance)).body.collectedAfterCancel;
+  assert.deepEqual([forFinance[0].payment.razorpayOrderId, forFinance[0].payment.capturedAfterCancelRazorpayPaymentId], ["order_held", "pay_held"]);
+
+  const marked = await markRefunded(f.tokens.finance);
+  assert.deepEqual([marked.status, marked.body.payment?.status], [200, "REFUNDED"], JSON.stringify(marked.body));
+  assert.equal((await markRefunded(f.tokens.finance)).status, 200, "marking twice changes nothing");
+  const audit = [...loadStoreFromDisk(f.dataFilePath!).auditEvents.values()].filter((event) => event.action === "PAYMENT_MARKED_REFUNDED");
+  assert.deepEqual(audit.map((event) => [event.resourceId, event.previousState, event.newState, event.actorUserId, event.razorpayPaymentId, event.source]),
+    [[held, "CAPTURED_AFTER_CANCEL", "REFUNDED", f.finance.user.id, "pay_held", "USER"]]);
+  const financeAudit = (await f.request("/v1/audit", "GET", undefined, f.tokens.finance)).body.events as Array<{ action: string }>;
+  assert.equal(financeAudit.filter((event) => event.action === "PAYMENT_MARKED_REFUNDED").length, 1, "Finance reads the row");
+  assert.deepEqual((await f.request("/ops/trip-cancel-requests", "GET", undefined, f.tokens.finance)).body.collectedAfterCancel, [], "off the list");
+
+  webhook(f, "payment.captured", "pay_held", "order_held");
+  assert.equal(paymentOf(f, held).status, "REFUNDED", "the same capture sent again does not bring it back");
+});
+
+test("the operations list marks a booking whose payment the partner settles outside NaviG8r", async t => {
+  const f = await httpFixture(t);
+  const erp = await book(f, f.trip.id);
+  const held = await book(f, f.trip.id);
+  setPayment(f, erp, { provider: "RAZORPAY", status: "AUTHORIZED", razorpayOrderId: undefined, razorpayPaymentId: undefined });
+  setPayment(f, held, { provider: "RAZORPAY", status: "AUTHORIZED", razorpayOrderId: "order_held", razorpayPaymentId: "pay_held" });
+  assert.equal((await askToCancel(f, f.trip.id, { reasonCode: "ROUTE_CHANGED" }, f.tokens.carrierA)).status, 200);
+  const listed = (await f.request("/ops/trip-cancel-requests", "GET", undefined, f.tokens.ops)).body.requests[0].shipments as Array<{ shipment: { id: string }; settledOutsideNaviG8r: boolean }>;
+  assert.deepEqual(listed.map((row) => [row.shipment.id, row.settledOutsideNaviG8r]), [[erp, true], [held, false]]);
+});
+
 test("a booking on a trip its carrier asked to cancel cannot be accepted or delivered until the request is withdrawn", async t => {
   const f = await httpFixture(t);
   const driver = await hireDriver(f);
@@ -306,11 +369,14 @@ test("a booking on a trip its carrier asked to cancel cannot be accepted or deli
 
   const accept = await f.request(`/v1/pilot/carrier/shipments/${waiting}/accept`, "POST", {}, f.tokens.carrierA);
   assert.deepEqual([accept.status, accept.body.error, accept.body.detail],
-    [409, "trip_cancel_requested", "You asked NaviG8r to cancel this trip, so it cannot take this booking. Withdraw the request first."]);
+    [409, "trip_cancel_requested", "This trip's carrier asked NaviG8r to cancel it, so it cannot take this booking now."]);
+  const byDriver = await f.request(`/v1/pilot/carrier/shipments/${waiting}/accept`, "POST", {}, driver.token);
+  assert.deepEqual([byDriver.status, byDriver.body.detail], [409, "This trip's carrier asked NaviG8r to cancel it, so it cannot take this booking now."],
+    "the driver did not ask and cannot withdraw, so the sentence tells nobody to");
   assert.equal(f.store.shipments.get(waiting)?.status, "PENDING_CARRIER_ACCEPT");
   const pod = await f.request(`/shipments/${accepted}/driver-pod`, "POST", {}, driver.token);
   assert.deepEqual([pod.status, pod.body.error, pod.body.detail],
-    [409, "trip_cancel_requested", "You asked NaviG8r to cancel this trip. Withdraw the request before confirming delivery."]);
+    [409, "trip_cancel_requested", "This trip's carrier asked NaviG8r to cancel it, so delivery cannot be confirmed now."]);
   assert.equal(f.store.shipments.get(accepted)?.status, "BOOKED", "so the trip is never left waiting with no booking to cancel");
 
   assert.equal((await withdraw(f, f.trip.id, f.tokens.carrierA)).status, 200);

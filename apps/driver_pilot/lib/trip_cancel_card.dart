@@ -40,7 +40,8 @@ enum _Asking { nothing, cancel, withdraw }
 const cancelRequestedSentence =
     'You asked NaviG8r to cancel this trip. Shippers cannot book it now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled.';
 
-/// The server's words for refusing to accept a booking on such a trip, shown on Accept before it is tapped.
+/// The office's words on Accept on such a trip, before it is tapped: the office asked, so it can withdraw. The
+/// server's refusal is worded for drivers too and tells nobody to withdraw.
 const cancelRequestedAcceptSentence =
     'You asked NaviG8r to cancel this trip, so it cannot take this booking. Withdraw the request first.';
 const tripCancelledSentence =

@@ -181,7 +181,7 @@ void main() {
     test('a refused Accept on such a trip shows the server\'s sentence', () {
       api = Api('http://test');
       const detail =
-          'You asked NaviG8r to cancel this trip, so it cannot take this booking. Withdraw the request first.';
+          "This trip's carrier asked NaviG8r to cancel it, so it cannot take this booking now.";
       final refusal = DioException(
         requestOptions: RequestOptions(path: '/accept'),
         response: Response(
@@ -191,7 +191,7 @@ void main() {
       );
       expect(plainErrorSentence(refusal), detail,
           reason:
-              'a driver, whose screen does not load the trip, reads it after tapping');
+              'a screen whose trip had not loaded, or was out of date, reads it after tapping');
     });
 
     testWidgets(
