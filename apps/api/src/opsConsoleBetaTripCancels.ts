@@ -1,7 +1,9 @@
 /**
  * The "Trip cancel requests" card of /ops/beta: trips whose carrier asked NaviG8r to cancel them because they have
- * bookings. Finance cancels each booked shipment here with the existing fail-refund action; once the last one is
- * cancelled the server cancels the trip. Like opsConsoleBetaEwayBills.ts, both strings are pasted into that page
+ * bookings. Finance cancels each booked shipment here with the existing fail-refund action, marked as coming from the
+ * request so the server refuses it once the carrier withdraws; once the last one is cancelled the server cancels the
+ * trip. Above them, any cancelled shipment whose money Razorpay captured after the cancel, for Finance to refund
+ * in the Razorpay dashboard. Like opsConsoleBetaEwayBills.ts, both strings are pasted into that page
  * before its security fingerprints are computed, and the script uses its helpers, so it only works inside it.
  */
 
@@ -19,15 +21,19 @@ const tripCancelBookingWords = { PENDING_CARRIER_ACCEPT: 'Waiting for the carrie
 const tripCancelPaymentWords = {
   CREATED: ['Not paid', 'info'], FAILED: ['Payment failed', 'problem'], AUTHORIZED: ['Payment held, not collected', 'info'],
   CAPTURED: ['Payment collected', 'attention'], REFUNDED: ['Refund started', 'good'], HOLD_RELEASED: ['Hold released', 'good'],
+  CAPTURED_AFTER_CANCEL: ['Money collected after cancel', 'problem'],
 };
 Object.assign(errorWords, {
   shipment_not_refundable: 'this shipment is no longer booked, so someone may have cancelled it already',
   payment_not_refundable: "this shipment's payment is in a state the server can't cancel",
   razorpay_payment_id_missing: 'this shipment has no Razorpay payment the server can refund',
-  razorpay_refund_failed: "Razorpay didn't accept the refund",
+  razorpay_refund_failed: 'the refund call to Razorpay failed',
+  cancel_request_withdrawn: 'the carrier withdrew this request',
 });
-refusedBeforeChange.push('shipment_not_refundable', 'payment_not_refundable', 'razorpay_payment_id_missing', 'razorpay_refund_failed');
+// Not razorpay_refund_failed: the call may have reached Razorpay before it failed.
+refusedBeforeChange.push('shipment_not_refundable', 'payment_not_refundable', 'razorpay_payment_id_missing', 'cancel_request_withdrawn');
 let tripCancelRequests = [];
+let collectedAfterCancel = [];
 
 function tripCancelDays(trip) {
   const start = Date.parse(trip.windowStart), end = Date.parse(trip.windowEnd);
@@ -39,13 +45,18 @@ function tripCancelDays(trip) {
 async function loadTripCancels() {
   byId('countTripCancels').textContent = '–';
   sectionLoading('tripCancels', 'trip cancel requests');
-  try { tripCancelRequests = (await request('/ops/trip-cancel-requests')).requests; }
+  try {
+    const out = await request('/ops/trip-cancel-requests');
+    tripCancelRequests = out.requests;
+    collectedAfterCancel = out.collectedAfterCancel || [];
+  }
   catch (error) { byId('tripCancelsCount').textContent = ''; sectionFailed('tripCancels', 'trip cancel requests', error, loadTripCancels); return; }
   sectionLoaded('tripCancels');
-  byId('tripCancelsCount').textContent = plural(tripCancelRequests.length, 'trip');
-  byId('countTripCancels').textContent = tripCancelRequests.length;
+  byId('tripCancelsCount').textContent = [plural(tripCancelRequests.length, 'trip'), collectedAfterCancel.length ? plural(collectedAfterCancel.length, 'payment') + ' to refund' : ''].filter(Boolean).join(', ');
+  byId('countTripCancels').textContent = tripCancelRequests.length + collectedAfterCancel.length;
+  const collected = collectedAfterCancel.length ? element('div', { class: 'body' }, collectedAfterCancel.map(collectedAfterCancelRow)) : null;
   if (!tripCancelRequests.length) {
-    byId('tripCancelsBody').replaceChildren(element('div', { class: 'body' }, element('p', { text: 'No carrier has asked to cancel a trip.' }), element('p', { class: 'caption', text: 'A trip appears here when its carrier asks NaviG8r to cancel it while shippers are booked on it.' })));
+    byId('tripCancelsBody').replaceChildren(...[collected, element('div', { class: 'body' }, element('p', { text: 'No carrier has asked to cancel a trip.' }), element('p', { class: 'caption', text: 'A trip appears here when its carrier asks NaviG8r to cancel it while shippers are booked on it.' }))].filter(Boolean));
     return;
   }
   const list = element('div');
@@ -53,7 +64,18 @@ async function loadTripCancels() {
     list.append(...tripCancelRequests.slice(list.children.length, list.children.length + pageSize).map(tripCancelCard));
     return list.children.length;
   });
-  byId('tripCancelsBody').replaceChildren(list, more);
+  byId('tripCancelsBody').replaceChildren(...[collected, list, more].filter(Boolean));
+}
+
+// Razorpay captured the money after the shipment was cancelled; the server records it and leaves the shipment cancelled.
+function collectedAfterCancelRow(entry) {
+  const shipment = entry.shipment, payment = entry.payment || {};
+  const amount = Number.isFinite(payment.amountPaise) ? ', ' + rupees(payment.amountPaise) : '';
+  return element('div', { class: 'row top' },
+    element('div', { class: 'stack grow' },
+      element('div', { class: 'row center' }, element('strong', { text: shipment.customerOrgName + amount }), element('span', { class: 'id', text: shipment.id })),
+      element('p', { text: 'Money collected after cancel. Refund it in the Razorpay dashboard.' })),
+    statusTag(tripCancelPaymentWords.CAPTURED_AFTER_CANCEL));
 }
 
 function tripCancelCard(item) {
@@ -98,7 +120,7 @@ function tripCancelShipmentRow(entry, route) {
 
 function tripCancelMoneyWords(payment, amount) {
   const sum = Number.isFinite(amount) ? rupees(amount) : 'The payment';
-  if (payment.status === 'AUTHORIZED') return sum + ' is only held. Nothing is sent to Razorpay: it releases the hold within 3 days of when the shipper paid.';
+  if (payment.status === 'AUTHORIZED') return sum + ' was never collected. Nothing is sent to Razorpay: it returns the money within 3 days of when the shipper paid.';
   if (payment.status === 'CAPTURED') return sum + ' is refunded to the shipper.';
   return 'The shipper has not paid, so no money moves.';
 }
@@ -120,7 +142,7 @@ function askToCancelShipment(row) {
     keep.disabled = confirm.disabled = true;
     busy(confirm, 'Cancelling…');
     try {
-      await request('/shipments/' + encodeURIComponent(row.shipment.id) + '/fail-refund', 'POST', {});
+      await request('/shipments/' + encodeURIComponent(row.shipment.id) + '/fail-refund', 'POST', { fromCancelRequest: true });
       const paymentAfter = { AUTHORIZED: 'HOLD_RELEASED', CAPTURED: 'REFUNDED' }[row.payment.status];
       if (paymentAfter) row.status.replaceChildren(statusTag(tripCancelPaymentWords[paymentAfter]));
       const done = message('ok', 'Cancelled by you at ' + timeIST(Date.now()) + '. The shipper is told. Once no shipment is left, the trip is cancelled and leaves this list on the next reload.');
@@ -130,7 +152,8 @@ function askToCancelShipment(row) {
     } catch (error) {
       idle(confirm);
       keep.disabled = confirm.disabled = false;
-      row.result.replaceChildren(message('err', "Couldn't cancel the shipment: " + error.message + '. ' + nothingChanged(error)));
+      const after = error.code === 'razorpay_refund_failed' ? 'Check the payment in the Razorpay dashboard before trying again.' : nothingChanged(error);
+      row.result.replaceChildren(message('err', "Couldn't cancel the shipment: " + error.message + '. ' + after));
       confirm.focus();
     }
   };

@@ -1,3 +1,8 @@
+/**
+ * What the people on a shipment are told and say to each other: notifications, their words, and the shipment
+ * conversation. Over 500 lines and still one file because the two share one timeline and one read watermark, and a
+ * message creates its notification here; split, each half would need the other's private helpers to work.
+ */
 import { randomUUID } from "node:crypto";
 import { effectivePermissions, legacyRoles, principalFor, recordAudit, requirePermission, type Principal } from "./rbac.ts";
 import { isActiveEntity } from "./softDelete.ts";
@@ -144,16 +149,18 @@ function notificationRecipients(store: Store, shipment: Shipment, eventKey: stri
 
 /**
  * What a shipper reads when Finance cancels their shipment because the carrier cannot carry it. Which money words
- * apply comes from the payment before the cancel: an unpaid booking's payment is also marked REFUNDED.
+ * apply comes from the payment before the cancel: an unpaid booking's payment is also marked REFUNDED. A held
+ * payment may already have left the shipper's bank (UPI, netbanking), so it is never called untaken.
  */
 function cancelledShipperBody(store: Store, shipment: Shipment, paymentStatusBefore: string | undefined): string {
   const trip = store.anchorTrips.get(shipment.anchorTripId);
   const load = trip?.originCity && trip?.destCity ? `your load from ${trip.originCity} to ${trip.destCity}` : "your load";
   const status = store.payments.get(shipment.paymentId)?.status;
   const money = status === "HOLD_RELEASED"
-    ? "Your payment was only held, never taken. Razorpay releases it within 3 days of when you paid; your bank may take 5-7 working days after that."
-    : paymentStatusBefore === "CAPTURED" ? "Your refund has started." : "Nothing was charged.";
-  return `The carrier cannot carry ${load}, so it was cancelled. ${money}`;
+    ? " NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that."
+    : paymentStatusBefore === "CAPTURED" ? " Your refund has started."
+      : paymentStatusBefore === "CREATED" || paymentStatusBefore === "FAILED" ? " Nothing was charged." : "";
+  return `The carrier cannot carry ${load}, so it was cancelled.${money}`;
 }
 
 function createNotifications(store: Store, shipment: Shipment, eventId: string, eventKey: string, createdAtUtcMs: number, messageId?: string, shipperBody?: string): void {

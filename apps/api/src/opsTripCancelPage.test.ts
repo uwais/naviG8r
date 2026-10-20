@@ -60,7 +60,7 @@ test("/ops/beta lists each trip a carrier asked to cancel, with its reason, note
 
   const heldRow = body.descendants().find((node) => node.tagName === "tr" && node.textContent.includes(second))!;
   await page.click(page.visibleButton("Cancel shipment…", heldRow)!);
-  assert.ok(heldRow.textContent.includes(`${rupees(heldPayment.amountPaise)} is only held. Nothing is sent to Razorpay: it releases the hold within 3 days of when the shipper paid.`), heldRow.textContent);
+  assert.ok(heldRow.textContent.includes(`${rupees(heldPayment.amountPaise)} was never collected. Nothing is sent to Razorpay: it returns the money within 3 days of when the shipper paid.`), heldRow.textContent);
   await page.click(page.visibleButton("Cancel shipment", heldRow)!);
   assert.ok(heldRow.textContent.includes("Hold released"), heldRow.textContent);
   assert.equal(f.store.anchorTrips.get(f.trip.id)?.status, "CANCELLED", "the last booking cancelled ends the trip");
@@ -77,6 +77,50 @@ test("/ops/beta shows OPS the requests but no way to cancel a shipment, and says
   assert.equal(off.length, 2);
   assert.ok(off.every((button) => button.disabled), "shown, but off");
   assert.ok(body.textContent.includes("Finance cancels each shipment. You hold OPS."), body.textContent);
+});
+
+test("/ops/beta: Cancel shipment after the carrier withdrew says so and changes nothing; a failed Razorpay refund sends Finance to the dashboard", async t => {
+  const f = await httpFixture(t);
+  const [first, second] = await requestedTrip(f);
+  const collected = f.store.payments.get(f.store.shipments.get(second)!.paymentId)!;
+  f.store.payments.set(collected.id, { ...collected, provider: "RAZORPAY", status: "CAPTURED", razorpayPaymentId: "pay_collected" });
+  const saved = { id: process.env.RAZORPAY_KEY_ID, secret: process.env.RAZORPAY_KEY_SECRET };
+  delete process.env.RAZORPAY_KEY_ID;
+  delete process.env.RAZORPAY_KEY_SECRET;
+  t.after(() => {
+    if (saved.id !== undefined) process.env.RAZORPAY_KEY_ID = saved.id;
+    if (saved.secret !== undefined) process.env.RAZORPAY_KEY_SECRET = saved.secret;
+  });
+  const page = await openOpsBeta(f, f.tokens.finance);
+  const body = page.byId("tripCancelsBody");
+  const rowOf = (id: string) => body.descendants().find((node) => node.tagName === "tr" && node.textContent.includes(id))!;
+
+  const failing = rowOf(second);
+  await page.click(page.visibleButton("Cancel shipment…", failing)!);
+  await page.click(page.visibleButton("Cancel shipment", failing)!);
+  assert.ok(failing.textContent.includes("Couldn't cancel the shipment: the refund call to Razorpay failed. Check the payment in the Razorpay dashboard before trying again."), failing.textContent);
+  assert.equal(failing.textContent.includes("Nothing changed."), false, "the call may have reached Razorpay");
+
+  assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/cancel-request/withdraw`, "POST", {}, f.tokens.carrierA)).status, 200);
+  const stale = rowOf(first);
+  await page.click(page.visibleButton("Cancel shipment…", stale)!);
+  await page.click(page.visibleButton("Cancel shipment", stale)!);
+  assert.ok(stale.textContent.includes("Couldn't cancel the shipment: the carrier withdrew this request. Nothing changed."), stale.textContent);
+  assert.equal(f.store.shipments.get(first)?.status, "PENDING_CARRIER_ACCEPT", "the withdrawn request cancels nothing");
+});
+
+test("/ops/beta shows Finance a payment Razorpay captured after its shipment was cancelled", async t => {
+  const f = await httpFixture(t);
+  const [first] = await requestedTrip(f);
+  const payment = f.store.payments.get(f.store.shipments.get(first)!.paymentId)!;
+  f.store.shipments.set(first, { ...f.store.shipments.get(first)!, status: "FAILED_CARRIER_REFUNDED" });
+  f.store.payments.set(payment.id, { ...payment, provider: "RAZORPAY", status: "CAPTURED_AFTER_CANCEL" });
+  const page = await openOpsBeta(f, f.tokens.finance);
+  const body = page.byId("tripCancelsBody");
+  for (const words of [first, "Synthetic Shipper A, " + rupees(payment.amountPaise), "Money collected after cancel. Refund it in the Razorpay dashboard."]) {
+    assert.ok(body.textContent.includes(words), `the card shows: ${words}`);
+  }
+  assert.equal(page.byId("countTripCancels").textContent, "2", "one trip and one payment to refund");
 });
 
 test("/ops/beta says so when no carrier has asked to cancel a trip", async t => {

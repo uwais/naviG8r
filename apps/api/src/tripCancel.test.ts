@@ -221,7 +221,7 @@ test("the shipper is told the shipment was cancelled, with the route and what ha
   const inbox = (await f.request("/v1/notifications", "GET", undefined, f.tokens.shipperA)).body.notifications as Array<{ eventKey: string; shipmentId: string; data: { title: string; body: string } }>;
   const told = (id: string) => inbox.filter((item) => item.eventKey === "shipment.cancelled" && item.shipmentId === id).map((item) => [item.data.title, item.data.body]);
   const cancelled = "The carrier cannot carry your load from A to B, so it was cancelled.";
-  assert.deepEqual(told(held), [["Shipment cancelled", `${cancelled} Your payment was only held, never taken. Razorpay releases it within 3 days of when you paid; your bank may take 5-7 working days after that.`]]);
+  assert.deepEqual(told(held), [["Shipment cancelled", `${cancelled} NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that.`]]);
   assert.deepEqual(told(taken), [["Shipment cancelled", `${cancelled} Your refund has started.`]]);
   assert.deepEqual(told(unpaid), [["Shipment cancelled", `${cancelled} Nothing was charged.`]]);
 
@@ -229,18 +229,90 @@ test("the shipper is told the shipment was cancelled, with the route and what ha
   assert.deepEqual([...new Set(carrierInbox.filter((item) => item.eventKey === "shipment.cancelled").map((item) => item.data.body))], ["NaviG8r cancelled this shipment on your trip."]);
 });
 
-test("a late Razorpay event does not bring back the payment of a cancelled shipment", async t => {
+const webhook = (f: Fixture, event: string, id: string, orderId: string) =>
+  applyRazorpayWebhookPayload(f.store, { event, payload: { payment: { entity: { id, order_id: orderId } } } });
+const afterCancelAudit = (f: Fixture, shipmentId: string) => [...f.store.auditEvents.values()]
+  .filter((event) => event.resourceId === shipmentId && event.action === "PAYMENT_AFTER_CANCEL")
+  .map((event) => [event.previousState, event.newState, event.reasonCode, event.source]);
+
+test("a late Razorpay event never brings back a cancelled shipment, and money moving after the cancel is recorded once for Finance", async t => {
   const f = await httpFixture(t);
   const held = await book(f, f.trip.id);
   setPayment(f, held, { provider: "RAZORPAY", status: "AUTHORIZED", razorpayOrderId: "order_held", razorpayPaymentId: "pay_held" });
   assert.equal((await failAndRefund(f, held)).status, 200);
-  for (const event of ["payment.authorized", "payment.captured", "payment.failed"]) {
-    applyRazorpayWebhookPayload(f.store, { event, payload: { payment: { entity: { id: "pay_held", order_id: "order_held" } } } });
+  for (const event of ["payment.authorized", "payment.failed"]) {
+    webhook(f, event, "pay_held", "order_held");
     assert.deepEqual([paymentOf(f, held).status, f.store.shipments.get(held)?.status], ["HOLD_RELEASED", "FAILED_CARRIER_REFUNDED"], event);
   }
+  assert.deepEqual(afterCancelAudit(f, held), [], "the authorization NaviG8r already held is not new money");
+  webhook(f, "payment.captured", "pay_held", "order_held");
+  webhook(f, "payment.captured", "pay_held", "order_held");
+  assert.deepEqual([paymentOf(f, held).status, f.store.shipments.get(held)?.status], ["CAPTURED_AFTER_CANCEL", "FAILED_CARRIER_REFUNDED"], "Razorpay captured the released hold");
+  assert.deepEqual(afterCancelAudit(f, held), [["HOLD_RELEASED", "CAPTURED_AFTER_CANCEL", "CAPTURED", "SYSTEM"]], "one row, though Razorpay sent the event twice");
+
   const unpaid = await book(f, f.trip.id);
   setPayment(f, unpaid, { provider: "RAZORPAY", status: "CREATED", razorpayOrderId: "order_unpaid" });
   assert.equal((await failAndRefund(f, unpaid)).status, 200);
-  applyRazorpayWebhookPayload(f.store, { event: "payment.authorized", payload: { payment: { entity: { id: "pay_late", order_id: "order_unpaid" } } } });
-  assert.equal(paymentOf(f, unpaid).status, "REFUNDED", "paying after the cancel does not revive the booking either");
+  webhook(f, "payment.authorized", "pay_late", "order_unpaid");
+  assert.deepEqual([paymentOf(f, unpaid).status, f.store.shipments.get(unpaid)?.status], ["REFUNDED", "FAILED_CARRIER_REFUNDED"], "paying after the cancel does not revive the booking");
+  assert.deepEqual(afterCancelAudit(f, unpaid), [["REFUNDED", "REFUNDED", "AUTHORIZED", "SYSTEM"]], "but the payment is recorded");
+
+  const refunded = await book(f, f.trip.id);
+  setPayment(f, refunded, { provider: "MOCK", status: "CAPTURED", razorpayOrderId: "order_refunded", razorpayPaymentId: "pay_refunded" });
+  assert.equal((await failAndRefund(f, refunded)).status, 200);
+  setPayment(f, refunded, { provider: "RAZORPAY" });
+  webhook(f, "payment.captured", "pay_refunded", "order_refunded");
+  assert.deepEqual([paymentOf(f, refunded).status, afterCancelAudit(f, refunded)], ["REFUNDED", []], "the capture NaviG8r already refunded, sent again");
+
+  const forFinance = (await f.request("/ops/trip-cancel-requests", "GET", undefined, f.tokens.finance)).body;
+  assert.deepEqual(forFinance.collectedAfterCancel.map((row: { shipment: { id: string }; payment: { status: string } }) => [row.shipment.id, row.payment.status]), [[held, "CAPTURED_AFTER_CANCEL"]]);
+  const audit = (await f.request("/v1/audit", "GET", undefined, f.tokens.finance)).body.events as Array<{ action: string }>;
+  assert.equal(audit.filter((event) => event.action === "PAYMENT_AFTER_CANCEL").length, 2, "Finance reads the rows");
+});
+
+test("an ERP-preauthorized payment, AUTHORIZED with no Razorpay payment or order, is no hold: cancelling it is refused as before", async t => {
+  const f = await httpFixture(t);
+  const shipmentId = await book(f, f.trip.id);
+  setPayment(f, shipmentId, { provider: "RAZORPAY", status: "AUTHORIZED", razorpayOrderId: undefined, razorpayPaymentId: undefined });
+  const refused = await failAndRefund(f, shipmentId);
+  assert.deepEqual([refused.status, refused.body.error], [400, "razorpay_payment_id_missing"]);
+  assert.deepEqual([paymentOf(f, shipmentId).status, f.store.shipments.get(shipmentId)?.status], ["AUTHORIZED", "PENDING_CARRIER_ACCEPT"]);
+});
+
+test("Finance cancelling from a cancel request is refused once the carrier withdrew it; the general fail-refund still works", async t => {
+  const f = await httpFixture(t);
+  const first = await book(f, f.trip.id);
+  const second = await book(f, f.trip.id);
+  assert.equal((await askToCancel(f, f.trip.id, { reasonCode: "ROUTE_CHANGED" }, f.tokens.carrierA)).status, 200);
+  assert.equal((await withdraw(f, f.trip.id, f.tokens.carrierA)).status, 200);
+  const refused = await f.request(`/shipments/${first}/fail-refund`, "POST", { fromCancelRequest: true }, f.tokens.finance);
+  assert.deepEqual([refused.status, refused.body.error, refused.body.detail], [409, "cancel_request_withdrawn", "The carrier withdrew this request. Nothing changed."]);
+  assert.deepEqual([f.store.shipments.get(first)?.status, paymentOf(f, first).status], ["PENDING_CARRIER_ACCEPT", "CAPTURED"]);
+
+  assert.equal((await askToCancel(f, f.trip.id, { reasonCode: "ROUTE_CHANGED" }, f.tokens.carrierA)).status, 200);
+  assert.equal((await f.request(`/shipments/${first}/fail-refund`, "POST", { fromCancelRequest: true }, f.tokens.finance)).status, 200, "while the request stands");
+  assert.equal((await withdraw(f, f.trip.id, f.tokens.carrierA)).status, 200);
+  assert.equal((await failAndRefund(f, second)).status, 200, "the general action is unchanged");
+});
+
+test("a booking on a trip its carrier asked to cancel cannot be accepted or delivered until the request is withdrawn", async t => {
+  const f = await httpFixture(t);
+  const driver = await hireDriver(f);
+  assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/assignment`, "POST", { vehicleId: driver.vehicleId, driverUserId: driver.userId }, f.tokens.carrierA)).status, 200);
+  const accepted = await book(f, f.trip.id);
+  assert.equal((await f.request(`/v1/pilot/carrier/shipments/${accepted}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  const waiting = await book(f, f.trip.id);
+  assert.equal((await askToCancel(f, f.trip.id, { reasonCode: "TRUCK_UNAVAILABLE" }, f.tokens.carrierA)).status, 200);
+
+  const accept = await f.request(`/v1/pilot/carrier/shipments/${waiting}/accept`, "POST", {}, f.tokens.carrierA);
+  assert.deepEqual([accept.status, accept.body.error, accept.body.detail],
+    [409, "trip_cancel_requested", "You asked NaviG8r to cancel this trip, so it cannot take this booking. Withdraw the request first."]);
+  assert.equal(f.store.shipments.get(waiting)?.status, "PENDING_CARRIER_ACCEPT");
+  const pod = await f.request(`/shipments/${accepted}/driver-pod`, "POST", {}, driver.token);
+  assert.deepEqual([pod.status, pod.body.error, pod.body.detail],
+    [409, "trip_cancel_requested", "You asked NaviG8r to cancel this trip. Withdraw the request before confirming delivery."]);
+  assert.equal(f.store.shipments.get(accepted)?.status, "BOOKED", "so the trip is never left waiting with no booking to cancel");
+
+  assert.equal((await withdraw(f, f.trip.id, f.tokens.carrierA)).status, 200);
+  assert.equal((await f.request(`/v1/pilot/carrier/shipments/${waiting}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
 });

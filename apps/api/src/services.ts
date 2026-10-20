@@ -1727,6 +1727,10 @@ export function submitDriverPod(
   if (s.status !== "BOOKED") {
     throw new ApiError("shipment_not_deliverable", { status: s.status });
   }
+  // Refused rather than ending the trip: a delivered load means the trip ran, which a cancelled trip would deny.
+  if (store.anchorTrips.get(s.anchorTripId)?.status === "CANCEL_REQUESTED") {
+    throw new ApiError("trip_cancel_requested", { detail: "You asked NaviG8r to cancel this trip. Withdraw the request before confirming delivery." }, 409);
+  }
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
   const payOk =
@@ -1820,6 +1824,9 @@ export function acceptCarrierShipment(
   requireAssistance(store, principal, s.carrierId);
   if (s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new ApiError("shipment_not_acceptable", { status: s.status });
+  }
+  if (store.anchorTrips.get(s.anchorTripId)?.status === "CANCEL_REQUESTED") {
+    throw new ApiError("trip_cancel_requested", { detail: "You asked NaviG8r to cancel this trip, so it cannot take this booking. Withdraw the request first." }, 409);
   }
   assertDispatchReady(store, s.carrierId);
   const pay = store.payments.get(s.paymentId);
@@ -2178,22 +2185,30 @@ export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: 
   store.payments.set(pay.id, { ...pay, status: "CAPTURED", updatedAtUtcMs: nowUtcMs() });
 }
 
-export async function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Promise<Shipment> {
+/**
+ * fromCancelRequest: sent from a carrier's cancel request on the operations page, so it must not cancel once the
+ * carrier has withdrawn that request. The general fail-refund action does not send it.
+ */
+export async function failCarrierAndRefund(store: Store, params: { shipmentId: string; fromCancelRequest?: boolean }): Promise<Shipment> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
   requirePermission(store, "payment.refund", s);
   if (s.status !== "BOOKED" && s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new Error("shipment_not_refundable");
   }
+  if (params.fromCancelRequest && store.anchorTrips.get(s.anchorTripId)?.status !== "CANCEL_REQUESTED") {
+    throw new ApiError("cancel_request_withdrawn", { detail: "The carrier withdrew this request. Nothing changed." }, 409);
+  }
 
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
 
   // Razorpay refunds only captured payments; an authorization nobody captures is released by Razorpay within 3 days
-  // of payment (owner decision, 19 Oct 2026), so a held payment sends nothing.
-  const holdOnly = pay.provider === "RAZORPAY" && pay.status === "AUTHORIZED";
+  // of payment (owner decision, 19 Oct 2026), so a held payment sends nothing. An ERP-preauthorized payment is
+  // AUTHORIZED with no Razorpay payment or order behind it, so it is no hold and is refused as before.
+  const holdOnly = pay.provider === "RAZORPAY" && pay.status === "AUTHORIZED" && Boolean(pay.razorpayPaymentId || pay.razorpayOrderId);
   if (pay.provider === "RAZORPAY") {
-    if (pay.status === "CAPTURED") {
+    if (pay.status === "CAPTURED" || (pay.status === "AUTHORIZED" && !holdOnly)) {
       if (!pay.razorpayPaymentId) {
         throw new ApiError("razorpay_payment_id_missing", { status: pay.status });
       }

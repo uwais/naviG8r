@@ -2,6 +2,7 @@
  * A carrier office takes back a trip it published (owner decision, 19 Oct 2026). With no booking on it, the trip is
  * cancelled at once. With bookings, the carrier asks NaviG8r instead: the trip takes no new bookings, operations
  * sees the request, and Finance cancels each shipment with failCarrierAndRefund, which ends the trip after the last.
+ * Operations also lists here any cancelled shipment whose money Razorpay captured afterwards, for Finance to refund.
  */
 import { AuthorizationError, principalFor, recordAudit, requirePermission } from "./rbac.ts";
 import { ApiError, bookingsOnTrip, tripHasBookings, tripWithCarrierDisplay } from "./services.ts";
@@ -83,4 +84,16 @@ export function listTripCancelRequestsForOps(store: Store) {
       trip: tripWithCarrierDisplay(store, trip),
       shipments: bookingsOnTrip(store, trip.id).map((shipment) => ({ shipment, payment: store.payments.get(shipment.paymentId) ?? null })),
     }));
+}
+
+/** Cancelled shipments whose money Razorpay reported captured after the cancel, for Finance to refund in Razorpay. */
+export function listPaymentsCollectedAfterCancelForOps(store: Store) {
+  if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
+  return [...store.payments.values()]
+    .filter((payment) => payment.status === "CAPTURED_AFTER_CANCEL")
+    .sort((a, b) => a.updatedAtUtcMs - b.updatedAtUtcMs)
+    .flatMap((payment) => {
+      const shipment = store.shipments.get(payment.shipmentId);
+      return shipment ? [{ shipment, payment }] : [];
+    });
 }

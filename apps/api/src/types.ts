@@ -92,8 +92,10 @@ export type LedgerLineStatus = "ACCRUED" | "PAID";
 /**
  * HOLD_RELEASED: the shipment was cancelled while the money was only authorized. Razorpay refunds only captured
  * payments and releases an authorization nobody captures within 3 days of payment by itself, so nothing is sent.
+ * CAPTURED_AFTER_CANCEL: Razorpay reported a capture after the shipment was cancelled. The shipment stays cancelled;
+ * Finance refunds the money in the Razorpay dashboard.
  */
-export type PaymentStatus = "CREATED" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "REFUNDED" | "HOLD_RELEASED";
+export type PaymentStatus = "CREATED" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "REFUNDED" | "HOLD_RELEASED" | "CAPTURED_AFTER_CANCEL";
 
 /** Soft-delete tombstone (INACTIVE). Omitted / null = ACTIVE. */
 export type SoftDeleteFields = {

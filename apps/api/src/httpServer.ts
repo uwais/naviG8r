@@ -8,7 +8,7 @@ import { carrierRejection } from "./carrierRejection.ts";
 import { addEwayBillTruck, checkEwayBill, listEwayBillsForOps, removeEwayBill, saveEwayBill } from "./ewayBill.ts";
 import { ewayPortalAddress, handleEwayDemoPortal, isEwayDemoPortalPath } from "./ewayDemoPortal.ts";
 import { assignTrip, carrierFleet } from "./tripAssignment.ts";
-import { cancelTrip, listTripCancelRequestsForOps, requestTripCancel, withdrawTripCancelRequest } from "./tripCancel.ts";
+import { cancelTrip, listPaymentsCollectedAfterCancelForOps, listTripCancelRequestsForOps, requestTripCancel, withdrawTripCancelRequest } from "./tripCancel.ts";
 import { setCarrierTransporterId } from "./carrierTransporterId.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
@@ -660,7 +660,7 @@ export async function createApp(options: {
       }
       if (method === "GET" && url.pathname === "/v1/audit") {
         const p = requirePermission(store, "audit.read");
-        const financial = new Set(["PAYMENT_CAPTURED", "PAYMENT_REFUNDED", "PAYMENT_HOLD_RELEASED", "SETTLEMENT_RELEASED"]);
+        const financial = new Set(["PAYMENT_CAPTURED", "PAYMENT_REFUNDED", "PAYMENT_HOLD_RELEASED", "PAYMENT_AFTER_CANCEL", "SETTLEMENT_RELEASED"]);
         const events = [...store.auditEvents.values()].filter(e => p.internal ?
           ((p.roles.includes("ADMIN") && ["ROLE_ASSIGNED", "ROLE_REMOVED", "USER_DEACTIVATED"].includes(e.action)) || (p.roles.includes("FINANCE") && financial.has(e.action)) || (p.roles.includes("OPS") && !financial.has(e.action) && !e.action.startsWith("ROLE_"))) : e.actorOrganizationId === p.organizationId && e.actorUserId === p.userId);
         return json(res, 200, { events });
@@ -1384,7 +1384,7 @@ export async function createApp(options: {
       }
 
       if (method === "GET" && url.pathname === "/ops/trip-cancel-requests") {
-        return json(res, 200, { requests: listTripCancelRequestsForOps(store) });
+        return json(res, 200, { requests: listTripCancelRequestsForOps(store), collectedAfterCancel: listPaymentsCollectedAfterCancelForOps(store) });
       }
 
       if (method === "GET" && url.pathname === "/ops/shipments/delivered") {
@@ -1449,7 +1449,8 @@ export async function createApp(options: {
         return json(res, 200, { shipment });
       }
       if (method === "POST" && /^\/shipments\/[^/]+\/fail-refund$/.test(url.pathname)) {
-        const shipment = await failCarrierAndRefund(store, { shipmentId: url.pathname.split("/")[2]! });
+        const body = (await readJson(req, 8 * 1024)) ?? {};
+        const shipment = await failCarrierAndRefund(store, { shipmentId: url.pathname.split("/")[2]!, fromCancelRequest: body.fromCancelRequest === true });
         await persist();
         return json(res, 200, { shipment });
       }

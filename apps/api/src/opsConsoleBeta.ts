@@ -204,7 +204,7 @@ async function request(path, method = 'GET', body, headers = {}) {
   }
   const code = out.error || String(response.status);
   if (response.status === 401) byId('signin').hidden = false;
-  if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, unchanged: refusedBeforeChange.includes(code), retryAfterMs: out.retryAfterMs });
+  if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, code, unchanged: refusedBeforeChange.includes(code), retryAfterMs: out.retryAfterMs });
   return out;
 }
 const nothingChanged = error => error.unchanged ? 'Nothing changed.' : "Couldn't confirm whether it was saved. Reload to see the current status before trying again.";
