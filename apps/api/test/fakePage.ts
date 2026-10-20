@@ -66,9 +66,16 @@ export class FakeElement {
     while (node.parent) node = node.parent;
     return node === this.page.body;
   }
+  readonly dataset: Record<string, string> = {};
+  /** As in the browser, the hidden and disabled attributes switch the matching properties on. */
   setAttribute(key: string, value: unknown): void {
     this.attributes.set(key, String(value));
     if (key === "id") this.id = String(value);
+    if (key === "hidden") this.hidden = true;
+    if (key === "disabled") this.disabled = true;
+  }
+  removeAttribute(key: string): void {
+    this.attributes.delete(key);
   }
   getAttribute(key: string): string | null {
     return this.attributes.get(key) ?? null;
@@ -83,6 +90,10 @@ export class FakeElement {
   }
   descendants(): FakeElement[] {
     return this.children.flatMap((child) => [child, ...child.descendants()]);
+  }
+  /** A form's controls, as form.elements gives them. */
+  get elements(): FakeElement[] {
+    return this.descendants().filter((node) => ["input", "select", "textarea", "button"].includes(node.tagName));
   }
   /** Visible means it and every ancestor are not hidden, the way [hidden] works in the browser. */
   get visible(): boolean {
@@ -130,7 +141,9 @@ export class FakePage {
   private makeContext(): vm.Context {
     const page = this;
     return vm.createContext({
-      document: { getElementById: (id: string) => page.byId(id), createElement: (tag: string) => new FakeElement(tag, page) },
+      // CSS selectors are not supported: they find nothing, which is what a page with no such markup would find.
+      document: { getElementById: (id: string) => page.byId(id), createElement: (tag: string) => new FakeElement(tag, page), querySelector: () => null, querySelectorAll: () => [] },
+      AbortSignal,
       sessionStorage: {
         getItem: (key: string) => page.session.get(key) ?? null,
         setItem: (key: string, value: string) => page.session.set(key, String(value)),

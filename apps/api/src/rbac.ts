@@ -114,10 +114,12 @@ export function requireAssistance(store: Store, p: Principal, carrierId?: string
   const roles = store.membershipRoles.get(`${member.userId}:${member.orgId}`) ?? legacyRoles(member, org!);
   if (!roles.includes(org!.kind === "CUSTOMER" ? "SHIPPER" : "CARRIER")) throw new AuthorizationError("invalid_effective_actor", 400);
 }
-export function recordAudit(store: Store, action: string, resourceType: string, resourceId: string, previousState?: string, newState?: string): void {
+/** reasonCode, when given, is the action's own reason (a trip cancel request's, say) in place of the request's header. */
+export function recordAudit(store: Store, action: string, resourceType: string, resourceId: string, previousState?: string, newState?: string, reasonCode?: string): void {
   const c = authorizationContext.getStore();
   if (!c?.principal && !c?.system) throw new AuthorizationError("audit_actor_required");
-  const event: AuditEvent = { id: randomUUID(), actorUserId: c.principal?.userId ?? "system:payout", actorOrganizationId: c.principal?.organizationId ?? "org_platform_ops", action, resourceType, resourceId, previousState, newState, reasonCode: c.reason && /^[A-Z][A-Z0-9_]{2,63}$/.test(c.reason) ? c.reason : undefined, effectiveActorId: c.effectiveActorId, requestId: c.requestId, timestamp: Date.now(), source: c.system ? "SYSTEM" : c.principal?.roles.includes("OPS") && c.effectiveActorId ? "OPS_ASSISTED" : "USER" };
+  const reason = reasonCode ?? c.reason;
+  const event: AuditEvent = { id: randomUUID(), actorUserId: c.principal?.userId ?? "system:payout", actorOrganizationId: c.principal?.organizationId ?? "org_platform_ops", action, resourceType, resourceId, previousState, newState, reasonCode: reason && /^[A-Z][A-Z0-9_]{2,63}$/.test(reason) ? reason : undefined, effectiveActorId: c.effectiveActorId, requestId: c.requestId, timestamp: Date.now(), source: c.system ? "SYSTEM" : c.principal?.roles.includes("OPS") && c.effectiveActorId ? "OPS_ASSISTED" : "USER" };
   store.auditEvents.set(event.id, event);
 }
 export function migrateAuthorization(store: Store): void {

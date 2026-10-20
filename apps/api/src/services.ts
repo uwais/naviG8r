@@ -14,6 +14,7 @@ import {
 } from "./config.ts";
 import type {
   AnchorTrip,
+  AnchorTripStatus,
   Carrier,
   DriverProfile,
   GeoPoint,
@@ -1763,6 +1764,20 @@ function anchorTripHasActiveShipments(shipments: Shipment[]): boolean {
   return shipments.some((s) => s.status === "BOOKED" || s.status === "PENDING_CARRIER_ACCEPT");
 }
 
+/**
+ * A booking waiting for acceptance, paid or not, or an accepted one, oldest first: what keeps a carrier from
+ * cancelling a trip itself, and what Finance cancels one by one when the carrier asks.
+ */
+export function bookingsOnTrip(store: Store, tripId: string): Shipment[] {
+  return shipmentsOnAnchorTrip(store, tripId)
+    .filter((s) => anchorTripHasActiveShipments([s]))
+    .sort((a, b) => a.createdAtUtcMs - b.createdAtUtcMs);
+}
+
+export function tripHasBookings(store: Store, tripId: string): boolean {
+  return anchorTripHasActiveShipments(shipmentsOnAnchorTrip(store, tripId));
+}
+
 function maybeAutoCompleteAnchorTripAfterPod(store: Store, tripId: string, userId: string): void {
   const trip = store.anchorTrips.get(tripId);
   if (!trip || trip.status !== "IN_PROGRESS") return;
@@ -2174,8 +2189,11 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
 
+  // Razorpay refunds only captured payments; an authorization nobody captures is released by Razorpay within 3 days
+  // of payment (owner decision, 19 Oct 2026), so a held payment sends nothing.
+  const holdOnly = pay.provider === "RAZORPAY" && pay.status === "AUTHORIZED";
   if (pay.provider === "RAZORPAY") {
-    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
+    if (pay.status === "CAPTURED") {
       if (!pay.razorpayPaymentId) {
         throw new ApiError("razorpay_payment_id_missing", { status: pay.status });
       }
@@ -2184,22 +2202,15 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
       } catch (e: any) {
         throw new ApiError("razorpay_refund_failed", { detail: "Payment provider operation failed" });
       }
-    } else if (pay.status !== "CREATED" && pay.status !== "FAILED") {
+    } else if (pay.status !== "CREATED" && pay.status !== "FAILED" && !holdOnly) {
       throw new ApiError("payment_not_refundable", { status: pay.status });
     }
   } else if (pay.status !== "CAPTURED") {
     throw new Error("payment_not_captured");
   }
 
-  const trip = store.anchorTrips.get(s.anchorTripId);
-  if (trip) {
-    trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
-    if (trip.status === "FULL") trip.status = "OPEN";
-    store.anchorTrips.set(trip.id, trip);
-  }
-
   const now = nowUtcMs();
-  store.payments.set(pay.id, { ...pay, status: "REFUNDED", updatedAtUtcMs: now });
+  store.payments.set(pay.id, { ...pay, status: holdOnly ? "HOLD_RELEASED" : "REFUNDED", updatedAtUtcMs: now });
 
   const updated: Shipment = {
     ...s,
@@ -2207,7 +2218,17 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
     updatedAtUtcMs: now,
   };
   store.shipments.set(updated.id, updated);
-  recordAudit(store, "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
+  recordAudit(store, holdOnly ? "PAYMENT_HOLD_RELEASED" : "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
+
+  const trip = store.anchorTrips.get(s.anchorTripId);
+  if (trip) {
+    const reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
+    // Only a full trip reopens. A trip its carrier asked to cancel ends once its last booking is cancelled.
+    let status: AnchorTripStatus = trip.status === "FULL" ? "OPEN" : trip.status;
+    if (trip.status === "CANCEL_REQUESTED" && !tripHasBookings(store, trip.id)) status = "CANCELLED";
+    store.anchorTrips.set(trip.id, { ...trip, reservedKg, status });
+    if (status === "CANCELLED") recordAudit(store, "TRIP_STATUS_CHANGED", "trip", trip.id, trip.status, status);
+  }
   emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: updated.id });
   return updated;
 }

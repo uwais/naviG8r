@@ -26,6 +26,9 @@ export function assignTrip(store: Store, tripId: string, input: Record<string, u
   if (trip.status === "COMPLETED") {
     throw new ApiError("trip_completed", { detail: "This trip is complete, so its truck and driver can no longer change." }, 409);
   }
+  if (trip.status === "CANCELLED") {
+    throw new ApiError("trip_cancelled", { detail: "This trip was cancelled, so its truck and driver can no longer change." }, 409);
+  }
   const vehicleId = input.vehicleId;
   const vehicle = typeof vehicleId === "string" ? store.vehicles.get(vehicleId) : undefined;
   if (!vehicle || !isActiveEntity(vehicle) || vehicle.orgId !== trip.carrierId) {

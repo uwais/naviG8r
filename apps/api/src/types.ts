@@ -15,7 +15,10 @@ export type MembershipRole =
   | "OPS_AGENT"
   | "SHIPPER" | "CARRIER" | "OPS" | "FINANCE" | "ADMIN";
 
-export type AnchorTripStatus = "OPEN" | "FULL" | "IN_PROGRESS" | "COMPLETED";
+/** CANCEL_REQUESTED: the carrier asked NaviG8r to cancel a trip with bookings; it takes no new ones. Lifecycle in tripCancel.ts. */
+export type AnchorTripStatus = "OPEN" | "FULL" | "IN_PROGRESS" | "COMPLETED" | "CANCEL_REQUESTED" | "CANCELLED";
+
+export type TripCancelReasonCode = "TRUCK_UNAVAILABLE" | "DRIVER_UNAVAILABLE" | "ROUTE_CHANGED" | "OTHER";
 
 export type ShipmentStatus =
   | "PENDING_CARRIER_ACCEPT"
@@ -86,7 +89,11 @@ export type ConversationEscalationGrant = {
 
 export type LedgerLineStatus = "ACCRUED" | "PAID";
 
-export type PaymentStatus = "CREATED" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "REFUNDED";
+/**
+ * HOLD_RELEASED: the shipment was cancelled while the money was only authorized. Razorpay refunds only captured
+ * payments and releases an authorization nobody captures within 3 days of payment by itself, so nothing is sent.
+ */
+export type PaymentStatus = "CREATED" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "REFUNDED" | "HOLD_RELEASED";
 
 /** Soft-delete tombstone (INACTIVE). Omitted / null = ACTIVE. */
 export type SoftDeleteFields = {
@@ -216,6 +223,8 @@ export type AnchorTrip = {
   /** The truck and the driver the carrier named for this trip. A DRIVER login sees only trips naming them. */
   assignedVehicleId?: string;
   assignedDriverUserId?: string;
+  /** Set while CANCEL_REQUESTED, and kept once CANCELLED. The audit row keeps the reason code; only this keeps the note. */
+  cancelRequest?: { reasonCode: TripCancelReasonCode; note?: string; requestedAtUtcMs: number };
 } & SoftDeleteFields;
 
 export type EwayBillNotNeededReason = "BELOW_THRESHOLD" | "GOODS_EXEMPT" | "OTHER";

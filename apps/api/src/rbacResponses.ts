@@ -30,7 +30,9 @@ export function serializeResponse(value: unknown): unknown {
   } else if ("originCity" in v && "reservedKg" in v) {
     out = pick(v, ["id", "carrierId", "carrierDisplayName", "originCity", "destCity", "origin", "destination", "windowStart", "windowEnd", "vehicleClass", "capacityKg", "reservedKg", "status", "createdAtUtcMs", "startedAtUtcMs", "completedAtUtcMs",
       // Who drives is the carrier's own business, and ops'. Shippers and public trip lists never get it.
-      ...(p?.roles.some(r => ["CARRIER", "OPS"].includes(r)) ? ["assignedVehicleId", "assignedDriverUserId", "assignedTruckNumber", "assignedDriverName"] : [])]);
+      ...(p?.roles.some(r => ["CARRIER", "OPS"].includes(r)) ? ["assignedVehicleId", "assignedDriverUserId", "assignedTruckNumber", "assignedDriverName"] : []),
+      // The carrier's reason and note for asking NaviG8r to cancel are for the operations team only.
+      ...(p?.internal ? ["cancelRequest"] : [])]);
   } else if ("netToCarrierPaise" in v && "shipmentId" in v) {
     out = pick(v, ["id", "shipmentId", "carrierId", "status", "podAtUtcMs", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs", "paidAtUtcMs", "createdAtUtcMs", ...(p?.roles.some(r => ["CARRIER", "FINANCE"].includes(r)) ? ["netToCarrierPaise"] : []), ...(p?.roles.includes("FINANCE") ? ["grossPaise", "commissionPaise"] : [])]);
   } else {

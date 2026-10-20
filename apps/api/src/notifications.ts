@@ -32,15 +32,18 @@ export function workflowSnapshot(store: Store): WorkflowSnapshot {
 }
 
 export function captureWorkflowNotifications(store: Store, previous: WorkflowSnapshot): void {
-  const emit = (shipment: Shipment | undefined, eventKey: string, occurredAt: number, sourceTransitionId?: string) => {
+  const emit = (shipment: Shipment | undefined, eventKey: string, occurredAt: number, sourceTransitionId?: string, shipperBody?: string) => {
     if (!shipment) return;
     getOrCreateConversation(store, shipment);
-    createNotifications(store, shipment, sourceTransitionId ?? `${eventKey}:${shipment.id}:${occurredAt}`, eventKey, occurredAt);
+    createNotifications(store, shipment, sourceTransitionId ?? `${eventKey}:${shipment.id}:${occurredAt}`, eventKey, occurredAt, undefined, shipperBody);
   };
   for (const [id, shipment] of store.shipments) {
     const old = previous.shipments.get(id);
     if (!old) emit(shipment, "shipment.booked", shipment.createdAtUtcMs);
     else if (old.status !== "BOOKED" && shipment.status === "BOOKED") emit(shipment, "shipment.carrier_accepted", shipment.acceptedAtUtcMs ?? shipment.updatedAtUtcMs);
+    else if (old.status !== "FAILED_CARRIER_REFUNDED" && shipment.status === "FAILED_CARRIER_REFUNDED") {
+      emit(shipment, "shipment.cancelled", shipment.updatedAtUtcMs, undefined, cancelledShipperBody(store, shipment, previous.payments.get(shipment.paymentId)?.status));
+    }
     if ((!old?.podAt || old.podAt === 0) && shipment.podAtUtcMs) emit(shipment, "shipment.pod_submitted", shipment.podAtUtcMs);
     if (!old?.podAcceptedAt && shipment.podAcceptedAtUtcMs) emit(shipment, "shipment.pod_accepted", shipment.podAcceptedAtUtcMs);
   }
@@ -139,7 +142,21 @@ function notificationRecipients(store: Store, shipment: Shipment, eventKey: stri
   return recipients;
 }
 
-function createNotifications(store: Store, shipment: Shipment, eventId: string, eventKey: string, createdAtUtcMs: number, messageId?: string): void {
+/**
+ * What a shipper reads when Finance cancels their shipment because the carrier cannot carry it. Which money words
+ * apply comes from the payment before the cancel: an unpaid booking's payment is also marked REFUNDED.
+ */
+function cancelledShipperBody(store: Store, shipment: Shipment, paymentStatusBefore: string | undefined): string {
+  const trip = store.anchorTrips.get(shipment.anchorTripId);
+  const load = trip?.originCity && trip?.destCity ? `your load from ${trip.originCity} to ${trip.destCity}` : "your load";
+  const status = store.payments.get(shipment.paymentId)?.status;
+  const money = status === "HOLD_RELEASED"
+    ? "Your payment was only held, never taken. Razorpay releases it within 3 days of when you paid; your bank may take 5-7 working days after that."
+    : paymentStatusBefore === "CAPTURED" ? "Your refund has started." : "Nothing was charged.";
+  return `The carrier cannot carry ${load}, so it was cancelled. ${money}`;
+}
+
+function createNotifications(store: Store, shipment: Shipment, eventId: string, eventKey: string, createdAtUtcMs: number, messageId?: string, shipperBody?: string): void {
   const conversationId = shipment.id;
   for (const recipient of notificationRecipients(store, shipment, eventKey)) {
     const duplicate = [...store.notifications.values()].some(n => n.eventId === eventId && n.recipientUserId === recipient.userId && n.recipientOrgId === recipient.orgId);
@@ -148,7 +165,7 @@ function createNotifications(store: Store, shipment: Shipment, eventId: string, 
       id: randomUUID(), recipientSequence: ++store.notificationSequence,
       eventId, eventKey, recipientUserId: recipient.userId, recipientOrgId: recipient.orgId,
       shipmentId: shipment.id, conversationId, ...(messageId ? { messageId } : {}), createdAtUtcMs,
-      data: { shipmentId: shipment.id, audience: recipient.role, title: notificationTitle(eventKey, recipient.role), body: notificationBody(eventKey, recipient.role) },
+      data: { shipmentId: shipment.id, audience: recipient.role, title: notificationTitle(eventKey, recipient.role), body: (recipient.role === "SHIPPER" ? shipperBody : undefined) ?? notificationBody(eventKey, recipient.role) },
     };
     store.notifications.set(notification.id, notification);
     enqueuePushIntentForNotification(store, notification);
@@ -164,6 +181,7 @@ function notificationTitle(eventKey: string, role: "SHIPPER" | "CARRIER"): strin
     "shipment.pod_submitted": ["Proof of delivery submitted", "Proof of delivery submitted"],
     "shipment.pod_accepted": ["Proof of delivery accepted", "Proof of delivery accepted"],
     "payment.status_changed": ["Payment status updated", "Payment status updated"],
+    "shipment.cancelled": ["Shipment cancelled", "Shipment cancelled"],
     "conversation.message": ["New shipment message", "New shipment message"],
   };
   const values = titles[eventKey] ?? ["Shipment update", "Shipment update"];
@@ -179,6 +197,8 @@ function notificationBody(eventKey: string, role: "SHIPPER" | "CARRIER"): string
     "shipment.pod_submitted": ["The carrier submitted proof of delivery.", "Proof of delivery was submitted."],
     "shipment.pod_accepted": ["Proof of delivery was accepted.", "The shipper accepted proof of delivery."],
     "payment.status_changed": ["A payment status for this load changed.", "A payment status for this load changed."],
+    // The shipper's words, with the route and the money, are written per shipment in cancelledShipperBody.
+    "shipment.cancelled": ["This shipment was cancelled.", "NaviG8r cancelled this shipment on your trip."],
     "conversation.message": ["A participant added a message to the shipment conversation.", "A participant added a message to the shipment conversation."],
   };
   const values = bodies[eventKey] ?? ["There is an update for this shipment.", "There is an update for this shipment."];

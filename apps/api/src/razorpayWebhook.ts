@@ -17,6 +17,11 @@ function findPaymentByRazorpayPaymentId(store: Store, razorpayPayId: string): Pa
   }
 }
 
+/** A cancelled shipment's payment says how it ended (refunded, hold released); a late event must not bring it back. */
+function shipmentCancelled(store: Store, pay: Payment): boolean {
+  return store.shipments.get(pay.shipmentId)?.status === "FAILED_CARRIER_REFUNDED";
+}
+
 function paymentEntity(payload: Record<string, unknown>): { id?: string; order_id?: string; status?: string } | null {
   const payWrap = payload.payment as Record<string, unknown> | undefined;
   if (!payWrap) return null;
@@ -47,7 +52,7 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     if (!pay || pay.provider !== "RAZORPAY") return;
     const rid = ent.id ?? pay.razorpayPaymentId;
     if (!rid) return;
-    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") return;
+    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED" || shipmentCancelled(store, pay)) return;
     store.payments.set(pay.id, {
       ...pay,
       status: "AUTHORIZED",
@@ -62,7 +67,7 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     if (!razorpayPayId) return;
     const pay = findPaymentByRazorpayPaymentId(store, razorpayPayId)
       ?? (ent.order_id ? findPaymentByRazorpayOrderId(store, ent.order_id) : undefined);
-    if (!pay || pay.provider !== "RAZORPAY") return;
+    if (!pay || pay.provider !== "RAZORPAY" || shipmentCancelled(store, pay)) return;
     store.payments.set(pay.id, {
       ...pay,
       razorpayPaymentId: razorpayPayId,
@@ -78,7 +83,7 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     const pay = (razorpayPayId ? findPaymentByRazorpayPaymentId(store, razorpayPayId) : undefined)
       ?? (orderId ? findPaymentByRazorpayOrderId(store, orderId) : undefined);
     if (!pay || pay.provider !== "RAZORPAY") return;
-    if (pay.status === "CAPTURED" || pay.status === "REFUNDED") return;
+    if (pay.status === "CAPTURED" || pay.status === "REFUNDED" || shipmentCancelled(store, pay)) return;
     store.payments.set(pay.id, {
       ...pay,
       ...(razorpayPayId ? { razorpayPaymentId: razorpayPayId } : {}),
