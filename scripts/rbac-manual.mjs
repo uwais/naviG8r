@@ -1,7 +1,17 @@
 // Disposable local RBAC demo. Never loads .env, existing stores, or a database.
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
+
+// Anyone can sign in here with the code shown on screen, so it must never sit next to real money or a real database.
+const unsafeReason = ["production", "beta"].includes(process.env.NODE_ENV) ? `NODE_ENV is ${process.env.NODE_ENV}`
+  : process.env.RAZORPAY_KEY_SECRET ? "RAZORPAY_KEY_SECRET is set"
+  : process.env.DATABASE_URL ? "DATABASE_URL is set"
+  : null;
+if (unsafeReason) {
+  console.error(`Refusing to start the practice server: ${unsafeReason}. It runs only with fake accounts and mock payments.`);
+  process.exit(1);
+}
 
 const directory = mkdtempSync(join(tmpdir(), "navig8r-rbac-manual-"));
 Object.assign(process.env, {
@@ -141,8 +151,53 @@ if (!process.argv.includes("--seed-only")) {
   const app = await createApp();
   // Deliberately no background payout or outbound webhook workers.
   app.server.on("error", error => { console.error(error.message); process.exitCode = 1; });
+  if (process.env.RBAC_MANUAL_WEB_DIR) serveWebApp(app.server, process.env.RBAC_MANUAL_WEB_DIR, process.env.MAPS_API_KEY?.trim() ?? "");
   const port = Number(process.env.RBAC_MANUAL_PORT ?? 3139);
-  app.server.listen(port, "127.0.0.1", () => {
-    console.log(`Open http://127.0.0.1:${port}/ops — Ctrl+C stops this local demo.`);
+  const host = process.env.RBAC_MANUAL_HOST ?? "127.0.0.1";
+  app.server.listen(port, host, () => {
+    console.log(`Open http://${host}:${app.server.address().port}/ops — Ctrl+C stops this local demo.`);
+  });
+}
+
+// The hosted demo serves the built web app and the API from one origin. The app calls the API under /api, as it
+// does behind the customer-web proxy, so that prefix is stripped; every other path that is not a built file is the API's.
+function serveWebApp(server, webDirectory, mapsApiKey) {
+  if (mapsApiKey && !/^[A-Za-z0-9_-]+$/.test(mapsApiKey)) {
+    throw new Error("MAPS_API_KEY has characters a Google key never has; refusing to write it into the page.");
+  }
+  const root = resolve(webDirectory);
+  const builtIndex = readFileSync(join(root, "index.html"), "utf8");
+  // Same result as scripts/inject-maps-api-key.sh: the key in the Maps script, or no Maps script at all.
+  const indexHtml = mapsApiKey
+    ? builtIndex.replaceAll("__MAPS_API_KEY__", mapsApiKey)
+    : builtIndex.replace(/<!-- BEGIN MAPS_API_SCRIPT -->[\s\S]*?<!-- END MAPS_API_SCRIPT -->\n?/, "");
+  const runtimeConfig = `window.__NAVI8R_CONFIG__ = { MAPS_API_KEY: ${JSON.stringify(mapsApiKey)} };\n`;
+  const contentTypes = {
+    ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".wasm": "application/wasm",
+    ".css": "text/css", ".png": "image/png", ".ico": "image/x-icon", ".svg": "image/svg+xml", ".ttf": "font/ttf", ".otf": "font/otf",
+  };
+  const send = (res, contentType, body) => {
+    res.writeHead(200, { "content-type": contentType, "cache-control": "no-cache" });
+    res.end(body);
+  };
+  const [handleApiRequest] = server.listeners("request");
+  server.removeAllListeners("request");
+  server.on("request", (req, res) => {
+    const requestUrl = req.url ?? "/";
+    if (/^\/api(?=\/|\?|$)/.test(requestUrl)) {
+      req.url = requestUrl.replace(/^\/api\/?/, "/");
+      return handleApiRequest(req, res);
+    }
+    if (req.method === "GET" || req.method === "HEAD") {
+      let pathname = null;
+      try { pathname = decodeURIComponent(new URL(requestUrl, "http://localhost").pathname); } catch { pathname = null; }
+      if (pathname === "/" || pathname === "/index.html") return send(res, contentTypes[".html"], indexHtml);
+      if (pathname === "/runtime-config.js") return send(res, contentTypes[".js"], runtimeConfig);
+      const file = pathname === null ? null : resolve(root, `.${pathname}`);
+      if (file?.startsWith(root + sep) && existsSync(file) && statSync(file).isFile()) {
+        return send(res, contentTypes[extname(file)] ?? "application/octet-stream", readFileSync(file));
+      }
+    }
+    handleApiRequest(req, res);
   });
 }
