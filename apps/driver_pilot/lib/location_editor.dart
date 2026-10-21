@@ -1,6 +1,6 @@
 // Two jobs in one file for now: the read-only maps the screens share, with their map-point readers
 // (latLngFromGeoMap), and the place editor. The split into two files is deferred until after go-live
-// (owner, 21 Oct 2026); it changes the imports of five lib files and six test files.
+// (owner, 21 Oct 2026); it changes the imports of six lib files and six test files.
 import "dart:math" as math;
 
 import "package:flutter/foundation.dart" show kDebugMode;
