@@ -274,6 +274,14 @@ void main() {
           reason: 'decisions.md 8: 200% text at 360 dp');
       expect(find.textContaining('Book and pay ₹'), findsOneWidget,
           reason: 'Book and pay stays in the action bar at 200% text');
+      final button = tester.getRect(find.textContaining('Book and pay ₹'));
+      for (final pin in ['Pickup pin: ', 'Drop pin: ']) {
+        final line = tester.getRect(find.textContaining(pin));
+        expect(line.height, lessThan(button.height),
+            reason: 'one line each at 200% text, cut short');
+        expect(line.bottom, lessThanOrEqualTo(button.top));
+        expect(line.top, greaterThanOrEqualTo(0), reason: '$pin on screen');
+      }
     });
   });
 }

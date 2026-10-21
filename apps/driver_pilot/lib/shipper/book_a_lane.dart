@@ -512,8 +512,8 @@ class _CustomerBookShipmentScreenState
     );
   }
 
-  /// Both places for the pins check, once both are in: on one map last in the list (owner, 21 Oct
-  /// 2026). The pin decides the place, so the shipper checks it.
+  /// Both places for the pins check, once both are in: on one map last in the list, and as a Pin line
+  /// each just above Book and pay (owner, 21 Oct 2026). The pin decides the place, so the shipper checks it.
   ({BookPlace pickup, BookPlace drop})? get _placesToCheck {
     final (pickup: pickupPin, drop: dropPin, weightKg: _) = _priceInputs;
     if (pickupPin == null || dropPin == null) return null;
@@ -678,6 +678,11 @@ class _CustomerBookShipmentScreenState
             ),
             const SizedBox(height: NvSpace.s3),
           ],
+          // Owner, 21 Oct 2026: "Pin lines just above Book and pay", outside the scroll so they always show.
+          if (_placesToCheck case final places?) ...[
+            BookPinLines(pickup: places.pickup, drop: places.drop),
+            const SizedBox(height: NvSpace.s2),
+          ],
           button,
         ],
       ),
@@ -813,5 +818,29 @@ class BookPinsCheck extends StatelessWidget {
             ],
           ],
         ),
+      );
+}
+
+/// One short line per pin directly above Book and pay (owner, 21 Oct 2026: "Pin lines just above Book
+/// and pay"). Each is cut to one line on screen; a screen reader hears it whole.
+class BookPinLines extends StatelessWidget {
+  const BookPinLines({required this.pickup, required this.drop, super.key});
+  final BookPlace pickup;
+  final BookPlace drop;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (title, place) in [("Pickup", pickup), ("Drop", drop)])
+            _oneLine("$title pin: ${place.pinAddress?.address ?? "not known"}"),
+        ],
+      );
+
+  static Widget _oneLine(String words) => Semantics(
+        label: words,
+        excludeSemantics: true,
+        child: Text(words,
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: NvText.caption),
       );
 }
