@@ -623,7 +623,7 @@ class _CustomerBookShipmentScreenState
         // Owner, 21 Oct 2026: a failed payment is said on screen; the booking stays.
         const Text(
             "If the payment does not go through, the shipment stays booked and unpaid until you contact ${PendingCopy.changeOrCancelContact}.",
-            style: NvText.body),
+            style: NvText.caption),
         const Text(
             "Booking keeps this capacity for you. To cancel, contact ${PendingCopy.changeOrCancelContact}.",
             style: NvText.body),
