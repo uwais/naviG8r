@@ -1892,18 +1892,9 @@ The explanatory copy is fine and is not a dark pattern, but drop any implied dat
 The rest of the fix stands: title from the matching transfer's `netToCarrierPaise`, count from that transfer's `lineIds.length`, and PROCESSING / FAILED / SKIPPED_NO_FUND_ACCOUNT mapped to the plain-language strings given.
 
 
-**MEDIUM — The 10% platform commission is never shown to the carrier, only the post-deduction figure**
-`apps/driver_pilot/lib/driver_flow.dart:850` · hidden-costs
+**MEDIUM — What the carrier sees beside its own amount**
 
-*What goes wrong:* The carrier is shown what they receive but never what the customer paid or what was deducted, and the word "net" is left to carry the whole explanation - to a reader whose first language may not be English. The house rule is that fees appear on the same screen as the headline number; here the fee is in the payload and is simply not rendered, so a carrier cannot check the platform's arithmetic on their own earnings.
-
-*Fix:* The fix is sound in substance but has two flaws worth correcting before implementation.
-
-1. Do not hardcode "10%" in the copy. COMMISSION_BPS lives at config.ts:10 on the server and is never sent in the shipment payload, so a literal "10%" in Dart silently becomes a lie the day the rate changes, on the one screen whose job is to let a carrier check the platform's arithmetic. Either drop the percentage and show only the rupee figure (which is authoritative, since commissionPaise comes from the payload), or derive it at render time from the two values already present: `final ratePercent = gross > 0 ? (commission / gross * 100).round() : null;` and label the row "Platform commission" plus the percentage only when ratePercent is non-null.
-
-2. Do not let `?? 0` render the breakdown. Line 850's existing `as num? ?? 0` guard is fine for a single net figure, but applied to grossPaise it would print "Customer paid ₹0" on any legacy or partial record, which misleads worse than the current omission. Read them as nullable and gate the whole Card: `final gross = s["grossPaise"] as num?; final commission = s["commissionPaise"] as num?;` then render the three-row Card only `if (gross != null && commission != null && gross > 0)`, falling back to the current single "Net to carrier" line otherwise.
-
-Otherwise implement as proposed: on DriverShipmentDetailScreen replace line 850 with one Card holding "Customer paid" / "Platform commission −" / a FontWeight.w700 "You get", using DriverTheme.muted for the first two labels and DriverTheme.navy for the total. The figures always reconcile exactly, because services.ts:143 computes net as `grossPaise - commissionPaise` by subtraction rather than a second floor, so a carrier checking the arithmetic will never see a rounding discrepancy. The list change at 1759 to "You get ₹X of ₹Y" is good and fits the dense-layout house preference; apply the same null gate there and keep the existing "net" wording when gross is unavailable.
+Superseded 21 Oct 2026: each side sees only its own amount.
 
 
 **MEDIUM — "Invite driver" adds a person to the carrier org immediately, with no invitation and no notification**

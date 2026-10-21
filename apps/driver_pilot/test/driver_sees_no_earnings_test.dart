@@ -78,7 +78,7 @@ void main() {
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
       expect(find.text('Drop: Hosur'), findsOneWidget,
           reason: 'the shipment loaded');
-      expect(find.textContaining('Net to carrier'), findsNothing);
+      expect(find.textContaining('to you'), findsNothing);
       expect(find.textContaining('₹'), findsNothing);
     });
 
@@ -90,7 +90,7 @@ void main() {
           }));
       await mountScreen(
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      expect(find.text('Net to carrier: ₹45'), findsOneWidget);
+      expect(find.text('To your company: ₹45'), findsOneWidget);
     });
 
     /// What the server sends after proof of delivery; it leaves the payment hold out for a driver.
@@ -159,7 +159,7 @@ void main() {
       api.dio.httpClientAdapter =
           tripServer(shipmentOnTripA(netToCarrierPaise: 4500));
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
-      expect(find.text('Accepted · ₹45 net'), findsOneWidget);
+      expect(find.text('Accepted · ₹45 to your company'), findsOneWidget);
     });
   });
 

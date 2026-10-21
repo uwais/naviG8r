@@ -8,7 +8,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 
 - [x] **Pilot OTP auth**: `POST /v1/auth/otp/start` + `POST /v1/auth/otp/verify` returns a Bearer token.
 - [x] **Driver pilot flows**: register/login, publish anchor trip, list + view my trips.
-- [x] **Customer marketplace**: browse trips, quote, book (quote supports pickup/drop + optional `anchorTripId` and returns a **breakdown**).
+- [x] **Customer marketplace**: browse trips, quote, book (quote supports pickup/drop + optional `anchorTripId` and returns the shipper's price with a **breakdown**). Quote and booking need a company NaviG8r has approved.
 - [x] **Customer shipment visibility**:
   - [x] Org-scoped listing when booking as logged-in customer (`customerOrgId`).
   - [x] Anonymous booking linkage via phone (`customerPhone` → `Shipment.bookedByPhone`) visible after OTP with same phone.
@@ -17,8 +17,8 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [x] **Customer OTP screen UX fix**: customer flow uses `/login?mode=customer` and renders OTP inside `CustomerScaffold`; after verify, **Continue to customer home** + bottom **Customer** tab route to **`/customer`** (scaffold uses `matchedLocation`, not a fake `/customer` path on login).
 - [x] **B0.2 freight & pricing (shipped)**:
   - [x] Core: `computeFreightGrossPaise` — **shipment** pickup→drop km when both exist, else **lane** trip origin→destination km, else **weight-only**; env `FREIGHT_PAISE_PER_KM_*`, `FREIGHT_MIN_GROSS_PAISE`, `modelVersion` on breakdowns.
-  - [x] `POST /v1/pilot/rates/estimate` (carrier pilot only) + **Publish** “Suggested freight” card (debounced).
-  - [x] `POST /shipments/quote` extended + **Customer book** Quote shows **breakdown**; **`bookShipment` `grossPaise`** uses the same rules (aligned with quote when coords exist).
+  - [x] `POST /v1/pilot/rates/estimate` (approved carrier companies only; samples carry what the carrier would receive, a driver gets weights only) + **Publish** “Suggested amount to you” card for the carrier office, asked again only when the pins or vehicle class change to a different value.
+  - [x] `POST /shipments/quote` extended + **Customer book** Quote shows the estimated price; **`bookShipment` `grossPaise`** uses the same rules (aligned with quote when coords exist).
   - [x] Tests: `apps/api/src/freight.test.ts` + updates in `pilotDriver.test.ts`; docs in `docs/pilot-api.md` + README env notes.
 - [x] **B0.1 Razorpay (repo wiring, test mode)**: `PAYMENT_PROVIDER=RAZORPAY` — order without capture on book, webhook updates, capture at POD, Flutter checkout; **`PERSISTENCE=DB`** Postgres via Prisma for optional persistence.
 - [x] **Local dev verification**: `npm install` in `apps/api` then  
@@ -132,7 +132,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 
 ### B0.2 — Driver-side pricing help (rates by distance / weight)
 
-**Baseline (historic):** Early booking price used only **`weightKg`**. **`AnchorTrip`** still has **no persisted rate field**. **Shipped:** `computeFreightGrossPaise` — when trip + booking have coordinates, **`grossPaise`** uses **shipment** pickup→drop km (preferred) or **lane** km, plus ₹5/kg; otherwise weight-only fallback. **`POST /v1/pilot/rates/estimate`** remains advisory lane samples for publishers.
+**Baseline (historic):** Early booking price used only **`weightKg`**. **`AnchorTrip`** still has **no persisted rate field**. **Shipped:** `computeFreightGrossPaise` — when trip + booking have coordinates, **`grossPaise`** uses **shipment** pickup→drop km (preferred) or **lane** km, plus a per-kg weight leg; otherwise weight-only fallback. **`POST /v1/pilot/rates/estimate`** remains advisory lane samples for publishers.
 
 #### B0.2a — Plan review (what we build first)
 
@@ -140,9 +140,9 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 
 | Phase | Scope | Outcome |
 |-------|--------|--------|
-| **1 — Estimator** | Server function + `POST /v1/pilot/rates/estimate` (Bearer: pilot on carrier org) | **[Done]** Returns `laneKm`, `samples[]` with `grossPaise` + `breakdown` per sample weight (pilot-only). |
-| **2 — Driver UI** | `PublishTripScreen` calls estimate after origin/dest + vehicle class change | **[Done]** Debounced “Suggested freight” card (samples 100/250/500 kg); disclaimer that customer price may use shipment km. |
-| **3 — Customer UI** | Extend `POST /shipments/quote` with pickup/drop + `weightKg` + optional `anchorTripId` | **[Done]** Response `quote.grossPaise` + `quote.breakdown`; customer app prints breakdown on Quote. |
+| **1 — Estimator** | Server function + `POST /v1/pilot/rates/estimate` (Bearer: pilot on carrier org) | **[Done]** Returns `laneKm`, `modelVersion` and `samples[]`: each sample weight with `netToCarrierPaise`, what the carrier would receive; a `DRIVER` gets the weights only. Approved carrier companies only. |
+| **2 — Driver UI** | `PublishTripScreen` calls estimate when the pins or vehicle class change to a different value | **[Done]** “Suggested amount to you” card for the carrier office (samples 100/250/500 kg); a driver sees no card. |
+| **3 — Customer UI** | Extend `POST /shipments/quote` with pickup/drop + `weightKg` + optional `anchorTripId` | **[Done]** Response `quote.grossPaise` + `quote.breakdown` to the shipper; the customer app shows the estimated price. Quote and booking need an approved company. |
 | **4 — Canonical pricing** | `bookShipment` uses same freight model as quote | **[Done]** `grossPaise` reflects distance+weight when coords exist; tests + docs. Coordinate amounts with **B0.1** before live payments. |
 
 **Not done (still optional):** per-trip price hints on **`CustomerEligibleTripsScreen`**; structured logging/metrics for estimates beyond `modelVersion` on payloads.
@@ -163,16 +163,16 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
   - [ ] optional: distance cap, surcharge tiers _(not implemented yet)_
 - [x] **Config knobs** (env — see `apps/api/src/config.ts` + `docs/pilot-api.md`):
   - [x] `FREIGHT_PAISE_PER_KM_SMALL` / `_MEDIUM` / `_LARGE`
-  - [x] **`PRICE_PAISE_PER_KG`** (still the weight leg; default 500 paise/kg)
+  - [x] **`PRICE_PAISE_PER_KG`** (still the weight leg)
   - [x] **`FREIGHT_MIN_GROSS_PAISE`** optional floor
 - [x] **Server**: **`computeFreightGrossPaise`** (+ `quoteShipmentMarketplace`, `pilotRatesEstimate`) + unit tests **`freight.test.ts`**.
 - [x] **API**: `POST /v1/pilot/rates/estimate` — body `{ origin, destination, vehicleClass?, sampleWeightsKg?[] }`; response **`laneKm`**, **`samples[]`**, **`modelVersion`**.
 - [x] **API (customer parity)**: `POST /shipments/quote` — `weightKg` + optional `pickup`/`drop` (+ optional **`anchorTripId`**); **`{ quote: { grossPaise, breakdown } }`** documented in **`docs/pilot-api.md`**.
 - [x] **Driver pilot UI** (`PublishTripScreen`):
-  - [x] Debounced **“Suggested freight”** after map pins / vehicle class (samples 100 / 250 / 500 kg).
-  - [x] Copy explains lane-based estimate vs customer **shipment** distance (see pilot-api / README).
+  - [x] **“Suggested amount to you”** for the carrier office when the map pins or vehicle class change to a different value (samples 100 / 250 / 500 kg); a driver sees no card.
+  - [x] Copy says the amount is advisory: about what the carrier would receive for a load on the lane.
 - [x] **Customer pilot UI** (`CustomerBookShipmentScreen`):
-  - [x] **Quote** sends pickup/drop + optional `anchorTripId`; shows **breakdown** (mode, km, components, `modelVersion`).
+  - [x] **Quote** sends pickup/drop + optional `anchorTripId`; shows the estimated price. Until NaviG8r approves the company, Get quote and Book & pay are hidden and a sentence asks the shipper to contact NaviG8r.
 - [ ] **`CustomerEligibleTripsScreen` (optional)**:
   - [ ] One-line “from ~₹…” per trip tile (needs default weight + shared estimator call).
 - [ ] **Calibration / observability (lightweight)**:
@@ -183,10 +183,10 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 
 | App area | Screen / route | Was (before B0.2) | Now (shipped) |
 |----------|-----------------|-----------------|---------------|
-| **Driver** | `PublishTripScreen` (`/publish`) | Publish only; no pricing hints | **“Suggested freight”** card + `POST /v1/pilot/rates/estimate` (lane km samples); still **no stored rate** on `AnchorTrip` |
+| **Driver** | `PublishTripScreen` (`/publish`) | Publish only; no pricing hints | **“Suggested amount to you”** card for the carrier office + `POST /v1/pilot/rates/estimate` (lane km samples); still **no stored rate** on `AnchorTrip` |
 | **Driver** | `MyTripsScreen` / trip detail (`/trips`, `/trips/:id`) | List/detail only | _Unchanged;_ optional subtitle “Suggested range …” **not** built |
 | **Driver** | `HomeScreen` quick actions | No pricing | _Unchanged;_ optional rate guide **deferred** |
-| **Customer** | `CustomerBookShipmentScreen` (`/customer/book`) | Quote `{ weightKg }` only | Quote sends **pickup/drop** + optional **`anchorTripId`**; UI shows **`breakdown`**; matches **booking** totals when coords align |
+| **Customer** | `CustomerBookShipmentScreen` (`/customer/book`) | Quote `{ weightKg }` only | Quote sends **pickup/drop** + optional **`anchorTripId`**; UI shows the estimated price; matches **booking** totals when coords align; approved companies only |
 | **Customer** | `CustomerEligibleTripsScreen` (`/customer/eligible`) | Eligible trips + navigate to book | _Unchanged;_ per-trip indicative ₹ **optional / not shipped** |
 
 #### B0.2e — Risk / dependency notes
@@ -278,7 +278,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 ### Still on the checklist (unchanged themes)
 
 - [ ] **`flutter run` + device smoke**: full quote/book flow on emulator + physical device (also **B5**).
-- [x] **B0.2 freight & pricing (phases 1–4)** — `rates/estimate`, **Publish** suggested freight, **Quote** breakdown + **`bookShipment` parity** when coords exist; tests + docs. **Still open:** optional eligible-trip ~₹ hints (**B0.2c**) + structured estimate logging/metrics.
+- [x] **B0.2 freight & pricing (phases 1–4)** — `rates/estimate`, **Publish** suggested amount to the carrier, **Quote** estimated price + **`bookShipment` parity** when coords exist; tests + docs. **Still open:** optional eligible-trip ~₹ hints (**B0.2c**) + structured estimate logging/metrics.
 - [ ] **Pilot build (completion)**: versioning cadence + chosen distribution channel + crash reporting (**B2**, **B3**).
 - [ ] **10-device rollout** + weekly feedback triage.
 

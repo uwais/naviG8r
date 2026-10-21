@@ -18,6 +18,10 @@ abstract final class CustomerSession {
       : null;
   static bool get isSignedIn => AuthorizationSession.signedIn;
   static bool get hasCustomerOrg => AuthorizationSession.hasRole("SHIPPER");
+  /// Owner decision, 21 Oct 2026: a company needs NaviG8r's approval to see prices or book.
+  static bool get companyAwaitingApproval =>
+      hasCustomerOrg &&
+      AuthorizationSession.organization?["kycStatus"] != "APPROVED";
   static bool get isOrgAdmin =>
       hasCustomerOrg && AuthorizationSession.can("organization.member.invite");
   static bool get canManageIntegrations =>
@@ -36,14 +40,20 @@ abstract final class CustomerSession {
       String? userPhone,
       String? customerOrgId,
       String? customerOrgName,
-      String? customerRole}) {
+      String? customerRole,
+      String? kycStatus}) {
     AuthorizationSession.user = {
       "id": "test-user",
       "fullName": userFullName,
       "phone": userPhone
     };
     AuthorizationSession.organizations = [
-      {"id": customerOrgId, "displayName": customerOrgName, "kind": "CUSTOMER"}
+      {
+        "id": customerOrgId,
+        "displayName": customerOrgName,
+        "kind": "CUSTOMER",
+        if (kycStatus != null) "kycStatus": kycStatus
+      }
     ];
     AuthorizationSession.principal = {
       "organizationId": customerOrgId,

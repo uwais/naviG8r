@@ -20,9 +20,10 @@ import {
   revokeIntegrationApiKey,
 } from "./integrationServices.ts";
 import { publicRazorpayKeyId } from "./razorpayPayments.ts";
+import { leaveOutCarrierSide } from "./rbacResponses.ts";
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
-  const data = JSON.stringify(body);
+  const data = JSON.stringify(body, leaveOutCarrierSide());
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("content-length", Buffer.byteLength(data));
@@ -44,7 +45,7 @@ function bearerToken(req: http.IncomingMessage): string | null {
 
 function integrationErrorStatus(msg: string): number {
   if (msg === "integration_unauthorized") return 401;
-  if (msg === "integration_forbidden" || msg === "integration_connection_inactive" || msg === "integration_org_invalid") {
+  if (msg === "integration_forbidden" || msg === "integration_connection_inactive" || msg === "integration_org_invalid" || msg === "company_not_approved") {
     return 403;
   }
   if (msg === "shipment_not_found" || msg === "webhook_delivery_not_found" || msg === "integration_key_not_found") {
@@ -250,12 +251,13 @@ export async function handleIntegrationPortalRoutes(
 
     const retryMatch = new RegExp(`^${base}/deliveries/([^/]+)/retry$`).exec(url.pathname);
     if (method === "POST" && retryMatch) {
-      const d = retryWebhookDelivery(store, retryMatch[1]!);
-      if (d.orgId !== orgId) {
+      const deliveryId = retryMatch[1]!;
+      // Look up the delivery's company before changing it.
+      if (store.integrationWebhookDeliveries.get(deliveryId)?.orgId !== orgId) {
         json(res, 404, { error: "webhook_delivery_not_found" });
         return true;
       }
-      json(res, 200, { delivery: d });
+      json(res, 200, { delivery: retryWebhookDelivery(store, deliveryId) });
       return true;
     }
 

@@ -1059,6 +1059,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   }
 }
 
+/// The last rate estimate and the login, pins and vehicle class it was for. Each estimate counts against an
+/// hourly limit, so reopening Publish or retyping the same values reuses it instead of asking again.
+String? _lastRateEstimateKey;
+Map<String, dynamic>? _lastRateEstimate;
+/// The request for [_lastRateEstimateKey], kept so a screen reopened before it answers waits for it.
+Future<Map<String, dynamic>?>? _rateEstimateRequest;
+
 class PublishTripScreen extends StatefulWidget {
   const PublishTripScreen({super.key});
 
@@ -1113,29 +1120,51 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     });
   }
 
+  /// The office sees what it would receive on the lane. A driver, or an estimate with no amount in it, gets no card.
+  bool get _showsSuggestedAmount =>
+      AuthorizationSession.can("payment.read") &&
+      (_rateEstimate == null ||
+          List<dynamic>.from(_rateEstimate!["samples"] as List? ?? const [])
+              .whereType<Map>()
+              .any((s) => s["netToCarrierPaise"] is num));
+
   Future<void> _fetchSuggestedRates() async {
+    // Nothing to show a login that cannot read payments, and each call counts against the hourly limit.
+    if (!AuthorizationSession.can("payment.read")) return;
     final vc = _vehClass.text.trim().toUpperCase();
     if (vc != "SMALL" && vc != "MEDIUM" && vc != "LARGE") return;
+    final key = "${AuthorizationSession.identityGeneration}|${AuthorizationSession.scopeKey}|"
+        "${_originPos.latitude},${_originPos.longitude}|${_destPos.latitude},${_destPos.longitude}|$vc";
+    if (key == _lastRateEstimateKey) {
+      if (_loadingRates || _rateEstimate != null) return;
+      if (_lastRateEstimate != null) {
+        setState(() => _rateEstimate = _lastRateEstimate);
+        return;
+      }
+      if (_rateEstimateRequest == null) return;
+    } else {
+      _lastRateEstimateKey = key;
+      _lastRateEstimate = null;
+      _rateEstimateRequest = _askForRateEstimate(vc);
+    }
+    final request = _rateEstimateRequest!;
     setState(() {
       _loadingRates = true;
       _rateError = "";
     });
     try {
-      final r = await api.post<Map<String, dynamic>>(
-        "/v1/pilot/rates/estimate",
-        data: {
-          "origin": {"lat": _originPos.latitude, "lng": _originPos.longitude},
-          "destination": {"lat": _destPos.latitude, "lng": _destPos.longitude},
-          "vehicleClass": vc,
-          "sampleWeightsKg": [100, 250, 500],
-        },
-      );
-      final d = r.data;
+      final d = await request;
+      // A later change of pins or vehicle class has its own request; this answer is for the earlier values.
+      if (!identical(request, _rateEstimateRequest)) return;
+      _lastRateEstimate = d;
       if (!mounted) return;
       setState(() {
-        _rateEstimate = d is Map<String, dynamic> ? d : null;
+        _rateEstimate = _lastRateEstimate;
       });
     } catch (e) {
+      if (!identical(request, _rateEstimateRequest)) return;
+      // A refused or failed request is asked again the next time the values change back to these.
+      _lastRateEstimateKey = null;
       if (!mounted) return;
       setState(() {
         _rateEstimate = null;
@@ -1144,6 +1173,20 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     } finally {
       if (mounted) setState(() => _loadingRates = false);
     }
+  }
+
+  Future<Map<String, dynamic>?> _askForRateEstimate(String vehicleClass) async {
+    final r = await api.post<Map<String, dynamic>>(
+      "/v1/pilot/rates/estimate",
+      data: {
+        "origin": {"lat": _originPos.latitude, "lng": _originPos.longitude},
+        "destination": {"lat": _destPos.latitude, "lng": _destPos.longitude},
+        "vehicleClass": vehicleClass,
+        "sampleWeightsKg": [100, 250, 500],
+      },
+    );
+    final d = r.data;
+    return d is Map<String, dynamic> ? d : null;
   }
 
   Future<void> _loadPilotMe() async {
@@ -1302,68 +1345,70 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
             onChanged: (_) => _scheduleRateFetch(),
           ),
           const SizedBox(height: 8),
-          Card(
-            color: Theme.of(context)
-                .colorScheme
-                .secondaryContainer
-                .withOpacity(0.45),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Suggested freight (lane reference)",
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    "Advisory — customer quotes use shipment pickup→drop when booked. "
-                    "Tune server env FREIGHT_PAISE_PER_KM_*.",
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 10),
-                  if (_loadingRates)
-                    const SizedBox(
-                      height: 28,
-                      width: 28,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  else if (_rateError.isNotEmpty)
-                    Text(_rateError,
-                        style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                            fontSize: 13))
-                  else if (_rateEstimate != null) ...[
+          if (_showsSuggestedAmount)
+            Card(
+              color: Theme.of(context)
+                  .colorScheme
+                  .secondaryContainer
+                  .withOpacity(0.45),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      "Lane ≈ ${_rateEstimate!["laneKm"]} km · ${_rateEstimate!["modelVersion"] ?? ""}",
+                      "Suggested amount to you (lane reference)",
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      "Advisory: about what you would receive for a load on this lane.",
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    const SizedBox(height: 8),
-                    ...(List<dynamic>.from(
-                            _rateEstimate!["samples"] as List? ?? const [])
-                        .whereType<Map>()
-                        .map((s) {
-                      final m = Map<String, dynamic>.from(s);
-                      final w = m["weightKg"];
-                      final gp = m["grossPaise"];
-                      final rupees = (gp is num)
-                          ? (gp / 100).toStringAsFixed(
-                              (gp.remainder(100).abs() < 1e-6) ? 0 : 2)
-                          : "?";
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text("≈ ₹$rupees total at ${w ?? "?"} kg"),
-                      );
-                    })),
-                  ] else
-                    Text(
-                        "Sign in as a driver and adjust pins to load estimates.",
-                        style: Theme.of(context).textTheme.bodySmall),
-                ],
+                    const SizedBox(height: 10),
+                    if (_loadingRates)
+                      const SizedBox(
+                        height: 28,
+                        width: 28,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else if (_rateError.isNotEmpty)
+                      Text(_rateError,
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontSize: 13))
+                    else if (_rateEstimate != null) ...[
+                      Text(
+                        "Lane ≈ ${_rateEstimate!["laneKm"]} km · ${_rateEstimate!["modelVersion"] ?? ""}",
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      ...(List<dynamic>.from(
+                              _rateEstimate!["samples"] as List? ?? const [])
+                          .whereType<Map>()
+                          // A driver's samples carry no amount, so they show nothing.
+                          .where((s) => s["netToCarrierPaise"] is num)
+                          .map((s) {
+                        final m = Map<String, dynamic>.from(s);
+                        final w = m["weightKg"];
+                        final gp = m["netToCarrierPaise"];
+                        final rupees = (gp is num)
+                            ? (gp / 100).toStringAsFixed(
+                                (gp.remainder(100).abs() < 1e-6) ? 0 : 2)
+                            : "?";
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text("≈ ₹$rupees to your company at ${w ?? "?"} kg"),
+                        );
+                      })),
+                    ] else
+                      Text(
+                          "Move the pins or choose a vehicle class to see an estimate.",
+                          style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
               ),
             ),
-          ),
           TextField(
               controller: _w1,
               decoration:

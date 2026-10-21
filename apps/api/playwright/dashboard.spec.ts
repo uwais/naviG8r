@@ -204,7 +204,7 @@ test("V1 full layout restores all sections for combined roles and retains V2", a
   ).toBeVisible();
   await expect(page.locator("#roles")).toContainText("FINANCE");
   await expect(
-    page.getByRole("heading", { name: "Carrier compliance review" }),
+    page.getByRole("heading", { name: "Company compliance review" }),
   ).toBeVisible();
   await screenshot(page, "04-v2-preserved");
   await page.getByRole("link", { name: "Open full dashboard (V1)" }).click();

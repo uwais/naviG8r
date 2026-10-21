@@ -76,7 +76,7 @@ Cross-org access is rejected. Revoked keys return `401 integration_unauthorized`
 | `pickupAddress`, `dropAddress` | Yes | Human-readable addresses |
 | `pickup`, `drop` | Recommended | Geo for lane matching and tracking |
 | `lanePreference` | No | `auto_match` (default) or `explicit` with `anchorTripId` |
-| `metadata` | No | Free-form strings echoed in webhooks |
+| `metadata` | No | Free-form strings, returned exactly as sent in responses and echoed in webhooks |
 
 **Success (`201` created / `200` duplicate):**
 
@@ -87,11 +87,13 @@ Cross-org access is rejected. Revoked keys return `401 integration_unauthorized`
   "status": "PENDING_CARRIER_ACCEPT",
   "externalLoadId": "ERP-DO-4421",
   "carrierDisplayName": "Raj Logistics",
-  "grossPaise": 523420,
+  "grossPaise": 0,
   "trackingUrl": "https://navig8r-customer.onrender.com/#/customer/shipments/shp_...",
   "checkoutRequired": false
 }
 ```
+
+`grossPaise` is the shipper's price for the load, a whole number of paise.
 
 When `paymentPolicy` is `portal_checkout` and Razorpay is enabled, `checkoutRequired: true` plus `razorpayKeyId` / order refs may be present for human completion in the portal.
 
@@ -99,6 +101,7 @@ When `paymentPolicy` is `portal_checkout` and Razorpay is enabled, `checkoutRequ
 
 | HTTP | `error` | Meaning |
 |------|---------|---------|
+| 403 | `company_not_approved` | NaviG8r has not approved the company yet; no load is created. Ask NaviG8r ops to review it |
 | 422 | `no_eligible_lane` | No open trip matches; retry later or pass `anchorTripId` |
 | 400 | `external_load_id_required` | Missing ERP id |
 | 401 | `integration_unauthorized` | Invalid or revoked key |
@@ -159,7 +162,7 @@ Verify with your per-connection webhook secret (shown once when created or after
     "weightKg": 500,
     "pickupAddress": "...",
     "dropAddress": "...",
-    "grossPaise": 523420,
+    "grossPaise": 0,
     "carrierDisplayName": "Raj Logistics"
   },
   "trip": {
@@ -177,7 +180,7 @@ Verify with your per-connection webhook secret (shown once when created or after
   },
   "tracking": { "url": "...", "isLive": false, "lastLocation": null },
   "pod": { "podAtUtcMs": 1710000000000, "notes": "..." },
-  "payment": { "status": "CAPTURED", "amountPaise": 523420, "provider": "RAZORPAY" },
+  "payment": { "status": "CAPTURED", "amountPaise": 0, "provider": "RAZORPAY" },
   "metadata": { "poNumber": "PO-9912" }
 }
 ```

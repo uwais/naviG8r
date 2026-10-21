@@ -46,9 +46,7 @@ all. But a 50/50 split of design effort is currently an assumption, not a findin
   text and nothing else — no camera, no picker, no signature anywhere in the app. Gate completion
   on a photo plus a short consignee code issued at dispatch, queued offline. A code beats a
   signature because it validates with no signal.
-- [ ] **5. Settlement on one screen.** What the shipper paid, our commission, detention and
-  tolls, and what reaches the driver — together, with the commission visible. Undisclosed take
-  rates get reconstructed by outsiders and published less favourably than the truth.
+- **5. Settlement.** Superseded 21 Oct 2026: each side sees only its own amount.
 
 ## Smaller, and cheap
 

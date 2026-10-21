@@ -25,7 +25,7 @@ const store = createStore();
 const now = Date.now();
 
 for (const [id, kind, displayName, kycStatus] of [
-  ["shipper-a", "CUSTOMER", "Synthetic Shipper A", "NOT_STARTED"],
+  ["shipper-a", "CUSTOMER", "Synthetic Shipper A", "APPROVED"],
   ["shipper-b", "CUSTOMER", "Synthetic Shipper B", "NOT_STARTED"],
   ["carrier-a", "CARRIER_FLEET", "Synthetic Carrier A", "APPROVED"],
   ["carrier-b", "CARRIER_FLEET", "Synthetic Carrier B", "SUBMITTED"],

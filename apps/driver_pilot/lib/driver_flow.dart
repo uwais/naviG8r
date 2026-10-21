@@ -1132,7 +1132,7 @@ class _DriverShipmentDetailScreenState
           // The server leaves it out for a driver; a missing amount is not zero.
           if (s["netToCarrierPaise"] is num)
             Text(
-                "Net to carrier: ${formatInrFromPaise(s["netToCarrierPaise"] as num)}"),
+                "To your company: ${formatInrFromPaise(s["netToCarrierPaise"] as num)}"),
           EwayBillCarrierCard(shipment: s),
           const SizedBox(height: 16),
           if (st == "PENDING_CARRIER_ACCEPT")
@@ -2258,7 +2258,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                           title: Text(
                               "${s["customerOrgName"]} · ${s["weightKg"]}kg"),
                           subtitle: Text(s["netToCarrierPaise"] is num
-                              ? "${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"))} · ${formatInrFromPaise(s["netToCarrierPaise"] as num)} net"
+                              ? "${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"))} · ${formatInrFromPaise(s["netToCarrierPaise"] as num)} to your company"
                               : shipmentStatusLabel(st,
                                   seesPayment:
                                       AuthorizationSession.can("payment.read"))),

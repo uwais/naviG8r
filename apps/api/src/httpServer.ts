@@ -38,7 +38,7 @@ import {
   listOpsAdmins,
   markPodDelivered,
   opsListPendingRelease,
-  opsListUnapprovedCarriers,
+  opsListUnapprovedCompanies,
   opsListRecentlyDelivered,
   opsShipmentDetail,
   releasePaymentAndDeliver,
@@ -244,6 +244,20 @@ function consumePushRateLimit(
   return false;
 }
 
+/** Owner decision, 21 Oct 2026: each login gets at most 30 quotes, and 120 rate estimates, an hour. */
+function consumePriceRateLimit(
+  res: http.ServerResponse,
+  limiter: FixedWindowRateLimiter,
+  route: "quote" | "estimate",
+  userId: string,
+): boolean {
+  const limit = limiter.consume(`price:${route}:user:${userId}`, route === "quote" ? 30 : 120, 60 * 60_000);
+  if (limit.allowed) return true;
+  res.setHeader("retry-after", String(limit.retryAfterSeconds));
+  json(res, 429, { error: "rate_limited" });
+  return false;
+}
+
 function userCanReceiveShipmentPush(store: ReturnType<typeof loadStoreFromDisk>, userId: string): boolean {
   for (const membership of store.memberships.values()) {
     if (membership.userId !== userId) continue;
@@ -417,6 +431,7 @@ export async function createApp(options: {
   }
 
   const pushRateLimiter = new FixedWindowRateLimiter();
+  const priceRateLimiter = new FixedWindowRateLimiter();
   const server = http.createServer((req, res) => {
     // The practice portal takes form bodies from anyone and never touches the store. Served outside the
     // queue, a sender that trickles its body in cannot hold up every other request.
@@ -916,8 +931,9 @@ export async function createApp(options: {
       if (method === "GET" && url.pathname === "/v1/pilot/carrier/fleet") return json(res, 200, carrierFleet(store));
 
       if (method === "POST" && url.pathname === "/v1/pilot/rates/estimate") {
-        const body = await readJson(req);
         const userId = requireUserId(req, store);
+        if (!consumePriceRateLimit(res, priceRateLimiter, "estimate", userId)) return;
+        const body = await readJson(req);
         const out = pilotRatesEstimate(store, userId, {
           origin: body?.origin,
           destination: body?.destination,
@@ -1185,6 +1201,7 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/shipments/quote") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
+        if (!consumePriceRateLimit(res, priceRateLimiter, "quote", requireUserId(req, store))) return;
         const body = await readJson(req);
         const anchorRaw = body?.anchorTripId;
         const anchorTripId =
@@ -1251,6 +1268,7 @@ export async function createApp(options: {
         if (!principal.roles.includes("SHIPPER") && !assisted) throw new AuthorizationError("assisted_booking_requires_target", 400);
         const org = store.organizations.get(assisted ? String(body?.customerOrgId ?? "") : principal.organizationId);
         if (!org || org.kind !== "CUSTOMER" || org.inactiveAtUtcMs != null) throw new AuthorizationError("customer_organization_required", 400);
+        if (org.kycStatus !== "APPROVED") throw new AuthorizationError("company_not_approved");
         const customerOrg = { id: org.id, displayName: org.displayName };
         const bookedByUserId = assisted ? authorizationContext.getStore()?.effectiveActorId : principal.userId;
         const phoneField = bookedByUserId ? store.users.get(bookedByUserId)?.phone : undefined;
@@ -1341,7 +1359,7 @@ export async function createApp(options: {
 
       if (method === "GET" && url.pathname === "/ops/compliance/pending") {
         requirePermission(store, "kyc.verify");
-        return json(res, 200, { organizations: opsListUnapprovedCarriers(store) });
+        return json(res, 200, { organizations: opsListUnapprovedCompanies(store) });
       }
 
       if (method === "GET" && url.pathname === "/ops/shipments/pending-release") {
