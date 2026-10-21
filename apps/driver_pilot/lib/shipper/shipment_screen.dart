@@ -22,6 +22,7 @@ import "../ui/nv_action_bar.dart";
 import "../ui/nv_button.dart";
 import "../ui/nv_map.dart";
 import "../ui/nv_message.dart";
+import "../ui/nv_refresh_button.dart";
 import "../ui/nv_status_label.dart";
 import "../ui/nv_step_list.dart";
 import "../ui/pending_copy.dart";
@@ -584,6 +585,8 @@ class _CustomerShipmentDetailScreenState
     return CustomerScaffold(
       title: _title,
       titleFocus: _titleFocus,
+      titleAction: NvRefreshButton(
+          loading: _loading || _refreshing, onPressed: _refreshAll),
       currentPath: "/customer/shipments/${widget.shipmentId}",
       actionBar: portalIsPrimary && !desktop
           ? const NvActionBar(

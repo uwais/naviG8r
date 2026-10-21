@@ -27,6 +27,7 @@ class NvChoiceChips<T> extends StatelessWidget {
     required this.selected,
     required this.onChanged,
     this.disabledReason,
+    this.trailing,
   }) : assert(onChanged != null || disabledReason != null,
             "a disabled choice always says why");
 
@@ -37,6 +38,10 @@ class NvChoiceChips<T> extends StatelessWidget {
   /// Null disables every chip; [disabledReason] then says why.
   final ValueChanged<T>? onChanged;
   final String? disabledReason;
+
+  /// Sits after the last chip in the same flow, such as a Refresh button, so it takes a line of
+  /// its own only when the chips leave no room beside the last one.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +55,7 @@ class NvChoiceChips<T> extends StatelessWidget {
         children: [
           for (final option in options)
             _chip(option, option.value == selected, disabled),
+          if (trailing != null) trailing!,
         ],
       ),
     );

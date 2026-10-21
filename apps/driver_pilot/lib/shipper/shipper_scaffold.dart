@@ -18,6 +18,7 @@ class CustomerScaffold extends StatelessWidget {
     this.actionBar,
     this.sideBuilder,
     this.titleFocus,
+    this.titleAction,
     super.key,
   });
 
@@ -38,7 +39,10 @@ class CustomerScaffold extends StatelessWidget {
   /// Lets the screen move focus to its title, as after a booking opens the new shipment.
   final FocusNode? titleFocus;
 
-  // Book has no tab: it opens from a lane card, so it sits under Find a lane.
+  /// A small button at the end of the title row, such as Refresh.
+  final Widget? titleAction;
+
+  // Book has no tab: it opens from a trip card, so it sits under Book a trip.
   int _indexForPath(String path) {
     if (path.startsWith("/customer/trips") ||
         path.startsWith("/customer/eligible") ||
@@ -75,6 +79,9 @@ class CustomerScaffold extends StatelessWidget {
         final heading = Semantics(
             header: true,
             child: Text(title, style: desktop ? NvText.display : NvText.title));
+        final titled = titleFocus == null
+            ? heading
+            : Focus(focusNode: titleFocus, child: heading);
         final page = CustomerPageFrame(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -97,10 +104,10 @@ class CustomerScaffold extends StatelessWidget {
                       ),
                       const SizedBox(height: NvSpace.s2),
                     ],
-                    if (titleFocus == null)
-                      heading
+                    if (titleAction == null)
+                      titled
                     else
-                      Focus(focusNode: titleFocus, child: heading),
+                      Row(children: [Expanded(child: titled), titleAction!]),
                     if (subtitle != null) ...[
                       const SizedBox(height: NvSpace.s1),
                       Text(subtitle!, style: NvText.body),

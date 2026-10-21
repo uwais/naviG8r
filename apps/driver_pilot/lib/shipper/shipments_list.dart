@@ -9,6 +9,7 @@ import "../pilot_api.dart";
 import "../shipment_steps.dart";
 import "../ui/nv_button.dart";
 import "../ui/nv_list_card.dart";
+import "../ui/nv_refresh_button.dart";
 import "../ui/nv_status_label.dart";
 import "../ui/tokens.dart";
 import "shipper_scaffold.dart";
@@ -307,6 +308,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
     return CustomerScaffold(
       title: "Shipments",
       currentPath: "/customer/shipments",
+      titleAction: NvRefreshButton(loading: _loading, onPressed: _load),
       bodyBuilder: (_) => RefreshIndicator(
         onRefresh: _load,
         child: ListView(

@@ -35,6 +35,7 @@ import "ui/nv_field.dart";
 import "ui/nv_list_card.dart";
 import "ui/nv_map.dart";
 import "ui/nv_message.dart";
+import "ui/nv_refresh_button.dart";
 import "ui/nv_section_card.dart";
 import "ui/nv_sheet.dart";
 import "ui/nv_status_label.dart";
@@ -1036,6 +1037,7 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
             ],
             selected: _shown,
             onChanged: (group) => setState(() => _shown = group),
+            trailing: NvRefreshButton(loading: _loading, onPressed: _load),
           ),
           const SizedBox(height: NvSpace.s4),
           if (_loading && _bookings.isEmpty) ...[
@@ -1514,8 +1516,14 @@ class _DriverTodayState extends State<_DriverToday> {
         padding: const EdgeInsets.fromLTRB(
             NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
         children: [
-          Text("${_weekdayNames[today.weekday - 1]} ${formatDate(today)}",
-              style: NvText.body),
+          Row(children: [
+            Expanded(
+              child: Text(
+                  "${_weekdayNames[today.weekday - 1]} ${formatDate(today)}",
+                  style: NvText.body),
+            ),
+            NvRefreshButton(loading: _loading, onPressed: _load),
+          ]),
           const SizedBox(height: NvSpace.s4),
           ...content,
         ],
@@ -1542,6 +1550,8 @@ class _DriverShipmentDetailScreenState
   bool _loadFailed = false;
   bool _loadNeverAnswered = false;
   bool _shipmentMissingFromList = false;
+  bool _loading = false;
+  Timer? _poll;
 
   bool get _forDriver => DriverSession.carrierRole == "DRIVER";
 
@@ -1549,6 +1559,31 @@ class _DriverShipmentDetailScreenState
   void initState() {
     super.initState();
     _load();
+    // The shipper's changes (paying, the e-way bill, accepting delivery) show without a pull, every
+    // 15 s as on the shipper's screen. A failed check keeps what is shown and says nothing.
+    _poll = Timer.periodic(const Duration(seconds: 15), (_) {
+      final status = _shipment?["status"]?.toString() ?? "";
+      if (status == "DELIVERED" || status == "FAILED_CARRIER_REFUNDED") {
+        _poll?.cancel();
+        return;
+      }
+      if (!_loading && !_accepting) _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      await _loadBooking();
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _accept() async {
@@ -1574,7 +1609,7 @@ class _DriverShipmentDetailScreenState
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _loadBooking() async {
     Map<String, dynamic>? found;
     try {
       final r =
@@ -1702,9 +1737,14 @@ class _DriverShipmentDetailScreenState
             padding: const EdgeInsets.fromLTRB(
                 NvSpace.gutter, NvSpace.s4, NvSpace.gutter, NvSpace.s6),
             children: [
-              Semantics(
-                  header: true,
-                  child: Text(_shipperName(s), style: NvText.title)),
+              Row(children: [
+                Expanded(
+                  child: Semantics(
+                      header: true,
+                      child: Text(_shipperName(s), style: NvText.title)),
+                ),
+                NvRefreshButton(loading: _loading, onPressed: _load),
+              ]),
               if (statusWords != null) ...[
                 const SizedBox(height: NvSpace.s2),
                 Align(
@@ -1849,8 +1889,14 @@ class _DriverShipmentDetailScreenState
         children: [
           const Text("BOOKING", style: NvText.label),
           const SizedBox(height: NvSpace.s1),
-          Semantics(
-              header: true, child: Text(_shipperName(s), style: NvText.title)),
+          Row(children: [
+            Expanded(
+              child: Semantics(
+                  header: true,
+                  child: Text(_shipperName(s), style: NvText.title)),
+            ),
+            NvRefreshButton(loading: _loading, onPressed: _load),
+          ]),
           const SizedBox(height: NvSpace.s2),
           ...details,
         ],
@@ -2329,6 +2375,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
             ],
             selected: _shown,
             onChanged: (group) => setState(() => _shown = group),
+            trailing: NvRefreshButton(loading: _loading, onPressed: _load),
           ),
           const SizedBox(height: NvSpace.s4),
           if (_loading && !_loaded) ...[
@@ -2912,12 +2959,20 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   bool _sharingStoppedOnThisPhone = false;
   // The stop the driver has just confirmed, shown at the top until the screen loads again (dr-done).
   Map<String, dynamic>? _justDelivered;
+  Timer? _poll;
 
   @override
   void initState() {
     super.initState();
     // The load starts location sharing when it finds the trip in progress.
     _load();
+    _poll = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (_trip?["status"]?.toString() == "COMPLETED") {
+        _poll?.cancel();
+        return;
+      }
+      _checkBookingsQuietly();
+    });
   }
 
   void _stopLocationSharing() {
@@ -3147,17 +3202,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     }
 
     try {
-      final sr = await api.get<Map<String, dynamic>>(
-        "/v1/pilot/carrier/shipments",
-        query: {"anchorTripId": widget.tripId},
-      );
-      final raw = sr.data?["shipments"];
-      final ships = <Map<String, dynamic>>[];
-      if (raw is List) {
-        for (final s in raw) {
-          if (s is Map<String, dynamic>) ships.add(s);
-        }
-      }
+      final ships = await _fetchTripBookings();
       if (mounted) setState(() => _shipments = ships);
     } catch (e) {
       if (mounted) {
@@ -3174,6 +3219,32 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     }
     // Only the driver's view has the map these places are for.
     if (_forDriver) await _geocodeTripCitiesIfNeeded();
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchTripBookings() async {
+    final sr = await api.get<Map<String, dynamic>>(
+      "/v1/pilot/carrier/shipments",
+      query: {"anchorTripId": widget.tripId},
+    );
+    final raw = sr.data?["shipments"];
+    final ships = <Map<String, dynamic>>[];
+    if (raw is List) {
+      for (final s in raw) {
+        if (s is Map<String, dynamic>) ships.add(s);
+      }
+    }
+    return ships;
+  }
+
+  /// The 15 s check: only the bookings, which the shippers change (a new booking, payment, the
+  /// e-way bill). Not [_load], which blanks the screen to a spinner and clears the delivery just
+  /// confirmed. A failed check keeps what is shown and says nothing.
+  Future<void> _checkBookingsQuietly() async {
+    if (_loading || _starting || _completing || _tripNoLongerAssigned) return;
+    try {
+      final ships = await _fetchTripBookings();
+      if (mounted && !_loading) setState(() => _shipments = ships);
+    } catch (_) {}
   }
 
   bool get _forDriver => DriverSession.carrierRole == "DRIVER";
@@ -3219,6 +3290,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
   @override
   void dispose() {
+    _poll?.cancel();
     _stopLocationSharing();
     super.dispose();
   }
@@ -3372,9 +3444,15 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 _deliveredBanner(_justDelivered!),
                 gap,
               ],
-              Semantics(
-                  header: true,
-                  child: Text(_tripRoute(trip) ?? "Trip", style: NvText.title)),
+              Row(children: [
+                Expanded(
+                  child: Semantics(
+                      header: true,
+                      child: Text(_tripRoute(trip) ?? "Trip",
+                          style: NvText.title)),
+                ),
+                NvRefreshButton(loading: _loading, onPressed: _load),
+              ]),
               const SizedBox(height: NvSpace.s2),
               Wrap(
                 alignment: WrapAlignment.spaceBetween,
@@ -3501,9 +3579,15 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         children: [
           const Text("TRIP", style: NvText.label),
           const SizedBox(height: NvSpace.s1),
-          Semantics(
-              header: true,
-              child: Text(_tripRoute(trip) ?? "Trip", style: NvText.title)),
+          Row(children: [
+            Expanded(
+              child: Semantics(
+                  header: true,
+                  child:
+                      Text(_tripRoute(trip) ?? "Trip", style: NvText.title)),
+            ),
+            NvRefreshButton(loading: _loading, onPressed: _load),
+          ]),
           const SizedBox(height: NvSpace.s2),
           Wrap(
             spacing: NvSpace.s2,
