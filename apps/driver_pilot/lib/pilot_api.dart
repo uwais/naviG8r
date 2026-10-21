@@ -219,6 +219,9 @@ String formatApiError(Object e) {
           "You do not have permission to do this in this company.",
       "not_found": "This is not available in the company you chose.",
       "unauthorized": "You were signed out. Please sign in again.",
+      // A 409 from every register screen; without it the screen blamed the connection.
+      "phone_already_registered":
+          "This number already has an account. Sign in instead.",
       "otp_expired": "This code has expired. Send a new code.",
       "otp_incorrect":
           "That code is not right. Check the SMS and type it again, or send a new code.",
