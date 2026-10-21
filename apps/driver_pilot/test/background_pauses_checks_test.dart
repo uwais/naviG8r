@@ -1,5 +1,7 @@
 // A phone in a pocket sends no timed checks: the screens' 15 s checks skip their turn while the
 // app is in the background, and each checks once when it is shown again.
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_session.dart';
@@ -93,6 +95,38 @@ void main() {
         tester, requests, '/v1/pilot/carrier/shipments');
     expect(away, 0, reason: 'no check while in the background');
     expect(back, 1, reason: 'one check on return');
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('the carrier trip screen: coming back just before a tick sends one check, not two',
+      (tester) async {
+    GeolocatorPlatform.instance = NoLocationService();
+    signInAsOwner();
+    final requests = _keepRequests(
+        bookings: [
+          {...shipmentOnTripA(), 'id': 'shipment-a'}
+        ], trips: [trip()]);
+    await _mountCarrierScreen(
+        tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+    const path = '/v1/pilot/carrier/shipments';
+    int count() => requests.where((request) => request.uri.path == path).length;
+    // The check on return stays out while the next 15 s tick comes.
+    final held = Completer<void>();
+    final answering = api.dio.httpClientAdapter as MockApiAdapter;
+    api.dio.httpClientAdapter = MockApiAdapter((request) async {
+      final response = answering.handle(request);
+      if (request.uri.path == path) await held.future;
+      return response;
+    });
+    await sendAppToBackground(tester);
+    await tester.pump(const Duration(seconds: 14));
+    final before = count();
+    await bringAppBack(tester);
+    await tester.pump(const Duration(seconds: 2));
+    expect(count() - before, 1,
+        reason: 'the tick while the check on return is out sends nothing more');
+    held.complete();
+    await tester.pumpAndSettle();
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

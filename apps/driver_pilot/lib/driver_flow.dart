@@ -3010,6 +3010,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   Timer? _poll;
   // Each bookings request's number. The timed check can answer after a newer load; only the newest is used.
   int _newestBookingsRequest = 0;
+  // True while a timed check is out, so coming back to the app just before a tick sends one, not two.
+  bool _checkingBookingsQuietly = false;
   late final AppLifecycleListener _lifecycle;
 
   @override
@@ -3301,13 +3303,23 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   /// e-way bill). Not [_load], which blanks the screen to a spinner and clears the delivery just
   /// confirmed. A failed check keeps what is shown and says nothing.
   Future<void> _checkBookingsQuietly() async {
-    if (_loading || _starting || _completing || _tripNoLongerAssigned) return;
+    if (_loading ||
+        _starting ||
+        _completing ||
+        _tripNoLongerAssigned ||
+        _checkingBookingsQuietly) {
+      return;
+    }
+    _checkingBookingsQuietly = true;
     try {
       final ships = await _fetchTripBookings();
       if (mounted && !_loading && ships != null) {
         setState(() => _shipments = ships);
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _checkingBookingsQuietly = false;
+    }
   }
 
   bool get _forDriver => DriverSession.carrierRole == "DRIVER";

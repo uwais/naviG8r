@@ -5,6 +5,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'app_in_background.dart';
 import 'authorization_session.dart';
 import 'conversation_drafts.dart';
 import 'notice_words.dart';
@@ -49,6 +50,7 @@ class _ShipmentConversationScreenState
   String _clientRequestId = _newClientRequestId();
   String? _lastFailedBody;
   Timer? _poll;
+  late final AppLifecycleListener _lifecycle;
   String get _path =>
       '/v1/shipments/${widget.shipmentId}/conversation/timeline';
   String get _sendPath =>
@@ -194,12 +196,17 @@ class _ShipmentConversationScreenState
   void initState() {
     super.initState();
     _load(restoreDraft: true);
-    _poll = Timer.periodic(const Duration(seconds: 30), (_) => _load());
+    // A load also marks the messages read, so none runs while the phone is in a pocket.
+    _poll = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!appIsInBackground) _load();
+    });
+    _lifecycle = AppLifecycleListener(onShow: _load);
   }
 
   @override
   void dispose() {
     _poll?.cancel();
+    _lifecycle.dispose();
     _composer.dispose();
     super.dispose();
   }

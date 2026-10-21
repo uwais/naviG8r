@@ -14,6 +14,8 @@ import 'package:driver_pilot/notification_center.dart';
 import 'package:driver_pilot/shipment_conversation.dart';
 import 'package:driver_pilot/pilot_api.dart';
 
+import 'support/app_lifecycle.dart';
+
 class _CommunicationAdapter implements HttpClientAdapter {
   final List<String> calls = [];
   final List<Map<String, dynamic>> sentMessages = [];
@@ -383,4 +385,35 @@ void main() {
     expect(await ConversationDrafts.read('user-1:org-1', 'shipment-1'),
         containsPair('body', 'Draft during cleanup'));
   });
+
+  // Second review, 21 Oct 2026: the inbox and the messages screen checked every 30 s with the app in
+  // the background, and a messages check also marks them read.
+  for (final (screen, path) in const [
+    (NotificationInboxScreen(), 'GET /v1/notifications/shipments'),
+    (
+      ShipmentConversationScreen(shipmentId: 'shipment-1'),
+      'GET /v1/shipments/shipment-1/conversation/timeline'
+    ),
+  ]) {
+    testWidgets(
+        '${screen.runtimeType} makes no timed check in the background, and one on return',
+        (tester) async {
+      final adapter = _CommunicationAdapter();
+      _configureApi(adapter);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(splashFactory: NoSplash.splashFactory),
+        home: screen,
+      ));
+      await tester.pumpAndSettle();
+      int checks() => adapter.calls.where((call) => call == path).length;
+      final before = checks();
+      await sendAppToBackground(tester);
+      await tester.pump(const Duration(seconds: 61));
+      expect(checks(), before, reason: 'two 30 s turns pass in the background');
+      await bringAppBack(tester);
+      await tester.pumpAndSettle();
+      expect(checks(), before + 1, reason: 'one check when the app is shown again');
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 }

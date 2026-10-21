@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'app_in_background.dart';
 import 'authorization_session.dart';
 import 'shipper/shipper_words.dart';
 import 'pilot_api.dart';
@@ -36,6 +37,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
   bool _failed = false;
   String? _nextCursor;
   Timer? _poll;
+  late final AppLifecycleListener _lifecycle;
 
   /// A shipper's own shipments and their lanes, to name each row. Other logins see no names.
   Map<String, Map<String, dynamic>> _shipmentsById = {};
@@ -147,12 +149,16 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
     super.initState();
     _load();
     _loadNames();
-    _poll = Timer.periodic(const Duration(seconds: 30), (_) => _load());
+    _poll = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!appIsInBackground) _load();
+    });
+    _lifecycle = AppLifecycleListener(onShow: _load);
   }
 
   @override
   void dispose() {
     _poll?.cancel();
+    _lifecycle.dispose();
     super.dispose();
   }
 
