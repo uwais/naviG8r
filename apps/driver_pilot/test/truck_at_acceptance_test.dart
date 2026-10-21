@@ -249,6 +249,9 @@ void main() {
       expect(sheetPrimary(tester, acceptWithTruck).onPressed, isNull,
           reason: 'nothing can be accepted without the truck list');
       expect(find.text(acceptWithoutTruck), findsNothing);
+      expect(find.text('Tap Try again to load your trucks.'), findsOneWidget,
+          reason: 'the disabled accept says what to do, not "choose a truck" from an empty list');
+      expect(find.text('Choose a truck first.'), findsNothing);
       await tester.tap(find.text('Try again'));
       await tester.pumpAndSettle();
       expect(requests.fleetLoads, 2);

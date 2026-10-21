@@ -76,6 +76,8 @@ Future<bool> acceptBooking(BuildContext context, Map<String, dynamic> shipment,
 typedef _TruckChoice = ({Map<String, dynamic>? truck});
 
 const _chooseFirstReason = 'Choose a truck first.';
+// With no truck list there is nothing to choose, so the reason says how to get the list.
+const _trucksDidNotLoadReason = 'Tap Try again to load your trucks.';
 
 /// "Which truck carries this trip?": one row per truck of the carrier, in the portal's form, none chosen until the
 /// office chooses (spec: nothing preselected). Closes with the choice, or with nothing on Cancel.
@@ -193,7 +195,11 @@ class _TruckChoiceSheetState extends State<_TruckChoiceSheet> {
       choices: _choices(),
       primaryLabel: primaryLabel,
       onPrimary: onPrimary,
-      disabledReason: onPrimary == null ? _chooseFirstReason : null,
+      disabledReason: onPrimary != null
+          ? null
+          : _failed
+              ? _trucksDidNotLoadReason
+              : _chooseFirstReason,
     );
   }
 }
