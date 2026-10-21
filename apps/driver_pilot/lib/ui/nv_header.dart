@@ -20,6 +20,7 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
     this.backLabel,
     this.onBack,
     this.navigation,
+    this.trailing,
     super.key,
   }) : taskTitle = null;
 
@@ -39,7 +40,8 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
         onSwitch = null,
         onSignOut = null,
         onAddCompany = null,
-        navigation = null;
+        navigation = null,
+        trailing = null;
 
   final String? company;
   final String? person;
@@ -59,10 +61,16 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
   /// A wide screen's links, before the account button, which then sits at the right end.
   final Widget? navigation;
 
+  /// At the right end, after the account button, such as the notification bell.
+  final Widget? trailing;
+
   static const height = 72.0;
 
   // Beside the links the account button has no share of the row to shrink into, so it gets a cap.
   static const _accountButtonWidthBesideNavigation = 360.0;
+
+  // Back never shrinks with the row, so at large text it gets a cap that leaves room for the bell.
+  static const _backButtonLargestWidth = 200.0;
 
   /// The header's height is fixed, so its text stops growing here and long names end in
   /// "..."; the account button's spoken label always carries the full words.
@@ -97,14 +105,19 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
               padding: const EdgeInsets.symmetric(horizontal: NvSpace.s2),
               child: Row(children: [
                 if (backLabel != null)
-                  TextButton.icon(
-                    onPressed: onBack,
-                    icon: const Icon(Icons.chevron_left, size: 22),
-                    label: Text(backLabel!, maxLines: 1),
-                    style: TextButton.styleFrom(
-                        foregroundColor: NvColors.navyInk,
-                        padding: const EdgeInsets.only(
-                            left: NvSpace.s1, right: NvSpace.s2)),
+                  ConstrainedBox(
+                    constraints:
+                        const BoxConstraints(maxWidth: _backButtonLargestWidth),
+                    child: TextButton.icon(
+                      onPressed: onBack,
+                      icon: const Icon(Icons.chevron_left, size: 22),
+                      label: Text(backLabel!,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      style: TextButton.styleFrom(
+                          foregroundColor: NvColors.navyInk,
+                          padding: const EdgeInsets.only(
+                              left: NvSpace.s1, right: NvSpace.s2)),
+                    ),
                   ),
                 if (navigation != null) Expanded(child: navigation!),
                 if (company != null && navigation != null)
@@ -113,7 +126,11 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
                           maxWidth: _accountButtonWidthBesideNavigation),
                       child: _accountButton(context))
                 else if (company != null)
-                  Flexible(child: _accountButton(context))
+                  // Expanded so [trailing] sits at the right end; the button keeps its own width.
+                  Expanded(
+                      child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: _accountButton(context)))
                 else if (taskTitle != null)
                   Expanded(
                     child: Padding(
@@ -128,6 +145,7 @@ class NvHeader extends StatelessWidget implements PreferredSizeWidget {
                       ),
                     ),
                   ),
+                if (company != null && trailing != null) trailing!,
               ]),
             ),
           ),

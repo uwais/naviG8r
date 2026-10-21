@@ -1,3 +1,4 @@
+import "package:flutter/widgets.dart";
 import "package:go_router/go_router.dart";
 
 import "shipper_home.dart";
@@ -53,7 +54,10 @@ List<RouteBase> customerFlowRoutes() {
             builder: (_, __) => const CustomerShipmentsScreen()),
         GoRoute(
           path: "shipments/:shipmentId",
+          // Keyed by the id: go_router keeps one page per path pattern, so moving from one shipment
+          // to another (as a notice's View does) would otherwise keep the first one's screen.
           builder: (_, state) => CustomerShipmentDetailScreen(
+              key: ValueKey(state.pathParameters["shipmentId"]),
               shipmentId: state.pathParameters["shipmentId"] ?? ""),
         ),
       ],

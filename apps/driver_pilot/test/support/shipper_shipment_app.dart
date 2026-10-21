@@ -140,6 +140,7 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
           GoRoute(
               path: 'shipments/:id',
               builder: (_, state) => CustomerShipmentDetailScreen(
+                  key: ValueKey(state.pathParameters['id']),
                   shipmentId: state.pathParameters['id']!)),
         ]),
   ]);

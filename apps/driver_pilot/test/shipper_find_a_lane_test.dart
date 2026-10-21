@@ -77,15 +77,16 @@ void main() {
     });
 
     testWidgets(
-        'Home has an Updates row instead of a bell, and no Book or Sign out of its own',
+        'Home has an Updates row and the header bell, and no Book or Sign out of its own',
         (tester) async {
       final server = await showShipperApp(tester, '/customer');
       server.answer(
           '/v1/notifications/shipments', {'shipments': [], 'unreadCount': 2});
       await tester.pumpAndSettle();
       expect(find.text('Home'), findsWidgets, reason: 'sh-home: titled Home');
-      expect(find.byType(NotificationBell), findsNothing,
-          reason: 'screens.md: the Updates row replaces the bell');
+      expect(find.byType(NotificationBell), findsOneWidget,
+          reason:
+              'Rishabh, 20 Oct 2026: the bell is in the header on every signed-in screen, Home too');
       expect(find.text('Book a shipment'), findsNothing,
           reason: 'decisions.md: no Book with no lane');
       expect(find.text('Sign out'), findsNothing,

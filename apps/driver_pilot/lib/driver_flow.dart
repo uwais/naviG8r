@@ -221,9 +221,6 @@ class DriverShell extends StatelessWidget {
                               header: true,
                               child: Text(title, style: NvText.title)),
                         ),
-                        // Stays until Home's "Updates" row replaces it (spec/screens.md).
-                        if (AuthorizationSession.can("notification.read"))
-                          const NotificationBell(),
                       ]),
                     ),
                   Expanded(child: child),
@@ -4895,7 +4892,9 @@ List<RouteBase> driverFlowRoutes() {
                 builder: (_, __) => const DriverShipmentsScreen()),
             GoRoute(
               path: "shipment/:shipmentId",
+              // Keyed by the id, as the shipper's shipment route is: go_router keeps one page per path.
               builder: (_, state) => DriverShipmentDetailScreen(
+                  key: ValueKey(state.pathParameters["shipmentId"]),
                   shipmentId: state.pathParameters["shipmentId"] ?? ""),
               routes: [
                 GoRoute(
