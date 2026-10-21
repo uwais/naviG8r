@@ -333,6 +333,9 @@ LatLngBounds? _boundsForPoints(List<LatLng> points) {
 /// refuse to go on until the person has searched for the place or dragged its pin.
 const pinNotPlacedYet = LatLng(22.5, 79.0);
 
+/// The longest pickup or drop address the server takes (maxAddressLength in the API's services.ts).
+const maxAddressCharacters = 500;
+
 /// Place search + draggable pin; [labelController] is sent to your API as city/label text.
 class LocationEndpointEditor extends StatefulWidget {
   const LocationEndpointEditor({
@@ -616,6 +619,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
         TextField(
           controller: widget.labelController,
           readOnly: widget.readOnly,
+          maxLength: widget.keepsFullAddress ? maxAddressCharacters : null,
           decoration: InputDecoration(
             labelText: widget.hint,
             suffixIcon: _lookupBusy

@@ -195,6 +195,20 @@ void main() {
     expect(warning, isNull, reason: 'the words now name the town of the pin');
   });
 
+  testWidgets('f: a pickup or drop box stops at 500 characters and counts them; a city box does not',
+      (tester) async {
+    await _mountPickup(tester);
+    final box = tester.widget<TextField>(find.byType(TextField));
+    expect(box.maxLength, 500, reason: 'the server refuses a longer address');
+    await tester.enterText(find.byType(TextField), 'a' * 600);
+    await tester.pumpAndSettle();
+    expect(box.controller!.text.length, 500);
+    expect(find.text('500/500'), findsOneWidget, reason: 'the counter shows under the box');
+
+    await _mountPickup(tester, keepsFullAddress: false);
+    expect(tester.widget<TextField>(find.byType(TextField)).maxLength, isNull);
+  });
+
   group('d: zoom', () {
     testWidgets('a pickup map opens at street level after a search pick',
         (tester) async {

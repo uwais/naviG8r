@@ -310,7 +310,7 @@ class _CustomerShipmentDetailScreenState
         final facts = [
           if (booked != null) formatDate(booked),
           if (amount != null && _paymentHeld && !progress.delivered)
-            "${formatRupees(amount)} held until delivery",
+            "${formatRupees(amount)} held by NaviG8r",
         ];
         return NvStep(
             title: step.title,
@@ -324,7 +324,7 @@ class _CustomerShipmentDetailScreenState
         final String waiting;
         if (_paymentHeld) {
           waiting =
-              "Waiting for $carrier to accept. NaviG8r holds your payment until delivery.";
+              "Waiting for $carrier to accept. NaviG8r holds your payment and releases it after delivery.";
         } else if (paymentNotTaken(_paymentStatus)) {
           waiting = "$carrier can accept once this shipment is paid.";
         } else {

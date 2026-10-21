@@ -127,7 +127,8 @@ void main() {
         'NaviG8r released your payment',
         'NaviG8r holds your payment',
         'NaviG8r can release',
-        'Payment released'
+        'Payment released',
+        'release the payment'
       ]) {
         expect(find.textContaining(payout), findsNothing, reason: payout);
       }
@@ -145,10 +146,13 @@ void main() {
           reason: 'the delivery step is done');
       expect(
           find.text(
-              'NaviG8r checks the delivery, then sends the payment to your bank account.'),
+              'NaviG8r checks the delivery, then pays you in the next weekly payment, at least 7 days after delivery.'),
           findsOneWidget,
           reason:
               'copy.md payment (owner only), without the bank digits the API does not send');
+      expect(find.text('Waiting for NaviG8r to release the payment'), findsOneWidget,
+          reason: 'second review: the hold step says who it waits for, not that money is moving');
+      expect(find.text('Payment being released'), findsNothing);
     });
   });
 
@@ -268,7 +272,7 @@ void main() {
         final words = screenWords(tester);
         if (office) {
           expect(words, contains('Waiting for payment'));
-          expect(words, contains('sends the payment to your bank account'));
+          expect(words, contains('pays you in the next weekly payment'));
         } else {
           expect(words, contains('Delivery confirmed'));
           expect(paymentWords.hasMatch(words), isFalse, reason: words);
@@ -328,7 +332,7 @@ void main() {
         (
           'owner',
           () => signInAsCarrierOwner(),
-          'NaviG8r checks the delivery, then sends the payment to your bank account.'
+          'NaviG8r checks the delivery, then pays you in the next weekly payment, at least 7 days after delivery.'
         ),
         (
           'dispatcher',

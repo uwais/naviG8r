@@ -44,7 +44,7 @@ void main() {
           trip: lane());
       expect(
           find.text(
-              'Waiting for Ravi Roadways to accept. NaviG8r holds your payment until delivery.'),
+              'Waiting for Ravi Roadways to accept. NaviG8r holds your payment and releases it after delivery.'),
           findsOneWidget,
           reason: 'brief A.3: the shipper is told the money is held');
       expect(find.text('Waiting for carrier'), findsOneWidget,
@@ -57,7 +57,7 @@ void main() {
               'owner decision: shippers cannot cancel; the contact is shown');
       expect(find.textContaining('Cancel booking'), findsNothing,
           reason: 'no cancel action exists');
-      expect(find.text('${formatDate(bookedAt)} · ₹2,640 held until delivery'),
+      expect(find.text('${formatDate(bookedAt)} · ₹2,640 held by NaviG8r'),
           findsOneWidget,
           reason: 'sh-ship-waiting: when it was booked and what is held');
       expect(find.text('Messages'), findsOneWidget,
@@ -239,7 +239,7 @@ void main() {
             findsOneWidget,
             reason:
                 'what it means and who to contact; there is no way to pay again in the app');
-        expect(find.textContaining('held until delivery'), findsNothing,
+        expect(find.textContaining('held by NaviG8r'), findsNothing,
             reason: 'no money is held');
         expect(find.textContaining('Your payment is on hold'), findsNothing,
             reason: 'no money is held');

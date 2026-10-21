@@ -697,8 +697,9 @@ class _LaneSummary extends StatelessWidget {
             if (remaining != null)
               Text(
                   tooHeavyByKg != null
-                      ? "Too heavy by ${formatKg(tooHeavyByKg)}"
-                      : "Capacity remaining: ${roomLeftWords(remaining)}",
+                      ? "${formatKg(tooHeavyByKg)} more than this trip's capacity"
+                      // A weight that fits exactly leaves 0 kg, a number like the rest, not "None".
+                      : "Capacity remaining: ${formatKg(remaining)}",
                   style: NvText.caption.copyWith(
                       fontWeight: FontWeight.w700, color: NvColors.ink)),
           ]),

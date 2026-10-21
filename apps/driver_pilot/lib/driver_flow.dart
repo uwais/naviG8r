@@ -1974,7 +1974,7 @@ class _DriverShipmentDetailScreenState
               who: "NaviG8r",
               state: NvStepState.done),
           "PENDING_RELEASE" => const NvStep(
-              title: "Payment being released",
+              title: "Waiting for NaviG8r to release the payment",
               who: "NaviG8r",
               state: NvStepState.waiting),
           _ => const NvStep(
@@ -2191,7 +2191,7 @@ class _DriverShipmentDetailScreenState
           children: [
             if (awaitingRelease)
               const Text(
-                  "NaviG8r checks the delivery, then sends the payment to your bank account.",
+                  "NaviG8r checks the delivery, then pays you in the next weekly payment, at least 7 days after delivery.",
                   style: NvText.body),
             if (awaitingRelease && amount is num)
               const SizedBox(height: NvSpace.s3),
@@ -3958,7 +3958,7 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
   /// What confirming leads to, for each reader. Only the owner is told about the payment (ca-booking-owner).
   String get _whatHappensNext {
     if (_seesPaymentAmounts) {
-      return "NaviG8r checks the delivery, then sends the payment to your bank account.";
+      return "NaviG8r checks the delivery, then pays you in the next weekly payment, at least 7 days after delivery.";
     }
     if (AuthorizationSession.can("payment.read")) {
       return "NaviG8r checks the delivery. The owner sees the payment.";

@@ -127,9 +127,13 @@ void main() {
           reason: 'the help under Weight is the fixed limit');
       await tester.enterText(field('Weight'), '600');
       await tester.pump();
-      expect(find.text('Too heavy by 100 kg'), findsOneWidget,
+      expect(find.text("100 kg more than this trip's capacity"), findsOneWidget,
           reason: 'over the limit says by how much, not "Capacity remaining: None"');
       expect(find.textContaining('Capacity remaining'), findsNothing);
+      await tester.enterText(field('Weight'), '500');
+      await tester.pump();
+      expect(find.text('Capacity remaining: 0 kg'), findsOneWidget,
+          reason: 'second review: an exact fit is 0 kg, not "None"');
       await tester.enterText(field('Weight'), '');
       await tester.pump();
       expect(find.text('Capacity remaining: 500 kg'), findsOneWidget,
@@ -554,6 +558,21 @@ void main() {
           reason: 'decisions.md 7: no raw codes');
       expect(find.text('Choose another trip'), findsOneWidget,
           reason: 'copy.md: the way to another lane');
+    });
+
+    testWidgets('after a no-capacity refusal, the trip is loaded again and its capacity is current',
+        (tester) async {
+      final server = await showPricedBook(tester);
+      expect(find.text('Capacity remaining: 25 kg'), findsOneWidget,
+          reason: '105 kg left when the screen opened, less the 80 kg typed');
+      final lanesBefore = server.countOf('/anchor-trips/lane-1');
+      server.answer('/shipments/book', {'error': 'insufficient_capacity'}, 400);
+      server.answer('/anchor-trips/lane-1', {'trip': lane(reservedKg: 950)});
+      await tester.tap(find.text('Book and pay ₹2,640'));
+      await tester.pumpAndSettle();
+      expect(server.countOf('/anchor-trips/lane-1'), lanesBefore + 1);
+      expect(find.text("30 kg more than this trip's capacity"), findsOneWidget,
+          reason: 'someone else booked 55 kg meanwhile: 50 kg are left, not 105');
     });
 
     // The booking exists before checkout opens, so after checkout the shipper goes to it and Pay is
