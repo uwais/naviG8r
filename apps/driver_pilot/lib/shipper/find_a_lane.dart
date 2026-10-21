@@ -266,11 +266,10 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   final _dropName = TextEditingController();
   LatLng? _pickupPin;
   LatLng? _dropPin;
+  String? _pickupPinAddress;
+  String? _dropPinAddress;
   bool _namingPickupPin = false;
   bool _namingDropPin = false;
-  // The editor's warning while a dragged pin is in another town than the typed address.
-  String? _pickupInAnotherTown;
-  String? _dropInAnotherTown;
   String? _pickupError;
   String? _dropError;
   final _weightKg = TextEditingController();
@@ -281,8 +280,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   List<Map<String, dynamic>> _lanes = [];
   // The search these results answer; a lane card carries it to Book, not whatever the fields say now.
   int? _searchedWeightKg;
-  ({String words, LatLng point})? _searchedPickup;
-  ({String words, LatLng point})? _searchedDrop;
+  SearchedPlace? _searchedPickup;
+  SearchedPlace? _searchedDrop;
 
   @override
   void dispose() {
@@ -301,10 +300,9 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   }
 
   /// Why Find trips cannot run yet, or null: a dragged pin still being named (a lane card would carry
-  /// the old name), or a pin in another town than its address.
-  String? get _searchBlockedBy => _namingPickupPin || _namingDropPin
-      ? "Updating address from pin…"
-      : _pickupInAnotherTown ?? _dropInAnotherTown;
+  /// the old name, or no name, to Book).
+  String? get _searchBlockedBy =>
+      _namingPickupPin || _namingDropPin ? "Updating address from pin…" : null;
 
   Future<void> _search() async {
     // Try again stays tappable, so it checks too.
@@ -312,10 +310,15 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
     final weightKg = int.tryParse(_weightKg.text.trim()) ?? 0;
     final pickupPoint = _pickupPin;
     final dropPoint = _dropPin;
-    // Read with the pins: the words can change while the search is out, and a lane card must carry
-    // the names the pins were found for.
-    final pickupWords = _pickupName.text.trim();
-    final dropWords = _dropName.text.trim();
+    // A lane card carries the places as they were sent to Book.
+    final pickupPlace = (
+        words: _pickupName.text.trim(),
+        point: pickupPoint,
+        pinAddress: _pickupPinAddress);
+    final dropPlace = (
+        words: _dropName.text.trim(),
+        point: dropPoint,
+        pinAddress: _dropPinAddress);
     setState(() {
       _weightError =
           weightKg <= 0 ? "Enter a weight greater than 0 kg." : null;
@@ -351,8 +354,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
       setState(() {
         _lanes = lanes;
         _searchedWeightKg = weightKg;
-        _searchedPickup = (words: pickupWords, point: pickupPoint);
-        _searchedDrop = (words: dropWords, point: dropPoint);
+        _searchedPickup = pickupPlace;
+        _searchedDrop = dropPlace;
         _editing = false;
       });
       announce(context,
@@ -377,9 +380,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
       }).toString();
 
   /// The searched places go to Book in memory, never in the link: see [SearchedPlaces].
-  SearchedPlaces get _searchedPlaces => SearchedPlaces(
-      pickup: (words: _searchedPickup!.words, point: _searchedPickup!.point),
-      drop: (words: _searchedDrop!.words, point: _searchedDrop!.point));
+  SearchedPlaces get _searchedPlaces =>
+      SearchedPlaces(pickup: _searchedPickup!, drop: _searchedDrop!);
 
   @override
   Widget build(BuildContext context) {
@@ -433,10 +435,10 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
               _pickupPin = pin;
               _pickupError = null;
             }),
-            onPinStale: () => setState(() => _pickupPin = null),
             onPinNaming: (naming) => setState(() => _namingPickupPin = naming),
-            onPinInAnotherTown: (warning) =>
-                setState(() => _pickupInAnotherTown = warning),
+            onPinAddress: (address) =>
+                setState(() => _pickupPinAddress = address),
+            readOnly: _searching,
             showMap: _pickupPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
@@ -458,10 +460,10 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
               _dropPin = pin;
               _dropError = null;
             }),
-            onPinStale: () => setState(() => _dropPin = null),
             onPinNaming: (naming) => setState(() => _namingDropPin = naming),
-            onPinInAnotherTown: (warning) =>
-                setState(() => _dropInAnotherTown = warning),
+            onPinAddress: (address) =>
+                setState(() => _dropPinAddress = address),
+            readOnly: _searching,
             showMap: _dropPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,

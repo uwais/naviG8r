@@ -212,6 +212,12 @@ void main() {
           reason: 'screens.md: Book starts at the searched pickup');
       expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7),
           reason: 'Rishabh: Book keeps the places Match found, pins placed');
+      expect(
+          find.descendant(
+              of: placeBox('Pickup'),
+              matching: find.text('Pin: Bommasandra, Bengaluru')),
+          findsOneWidget,
+          reason: "Google's address for the pin comes to Book with it");
     });
 
     testWidgets('Match has the search-and-pin place box for pickup and drop',
@@ -273,30 +279,6 @@ void main() {
       expect(server.countOf('/v1/customer/eligible-anchor-trips'), 1);
     });
 
-    testWidgets('a pin dragged into another town than the typed address blocks Find trips',
-        (tester) async {
-      final server = await showShipperApp(tester, '/customer/trips?tab=match',
-          namePin: (point) async =>
-              GeocodeOutcome.ok(point, 'Bagalur Road, Hosur, Tamil Nadu 635109, India'));
-      server.answer('/v1/customer/eligible-anchor-trips', {'trips': []});
-      await tester.pumpAndSettle();
-      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
-      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
-      await tester.enterText(field('Weight'), '80');
-      pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.74, 77.83));
-      await tester.pumpAndSettle();
-      FilledButton findLanes() => tester.widget<FilledButton>(
-          find.widgetWithText(FilledButton, 'Find trips'));
-      expect(findLanes().onPressed, isNull,
-          reason: 'a lane card would carry a pin the address disagrees with to Book');
-      expect(
-          find.text(
-              'The pin is in Hosur, but the address says Bengaluru. Move the pin or change the address.'),
-          findsNWidgets(2),
-          reason: 'under the place box, and under the disabled button to say why');
-      expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
-    });
-
     testWidgets('after a failed match, Try again also waits for a dragged pin to be named',
         (tester) async {
       final server = await showShipperApp(tester, '/customer/trips?tab=match',
@@ -331,24 +313,29 @@ void main() {
       expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
     });
 
-    testWidgets('Match asks again for a place whose words changed after its search',
+    testWidgets('new words in a place box after its search keep the pin, and Match uses it',
         (tester) async {
       final server = await showShipperApp(tester, '/customer/trips?tab=match');
+      server.answer('/v1/customer/eligible-anchor-trips', {'trips': []});
       await tester.pumpAndSettle();
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
-      await tester.enterText(placeField('Pickup'), 'Hosur');
+      await tester.enterText(placeField('Pickup'), 'Gate 2, Hosur Road');
       await tester.enterText(field('Weight'), '80');
       await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
-      expect(find.text('Search for the pickup place.'), findsOneWidget,
-          reason:
-              'reviewer: the match used the Bommasandra pin under the name Hosur');
-      expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
+      expect(find.text('Search for the pickup place.'), findsNothing,
+          reason: 'owner, 21 Oct 2026: typing never drops the pin; the pin decides the place');
+      final searched = server.requests
+          .lastWhere((request) =>
+              request.uri.path == '/v1/customer/eligible-anchor-trips')
+          .uri
+          .queryParameters;
+      expect(searched['pickupLat'], '12.8');
     });
 
     testWidgets(
-        'a lane card carries the place names searched, even when the words change while Match waits',
+        'while Match waits both place boxes are read-only, and a lane card carries the places searched',
         (tester) async {
       final answer = Completer<ResponseBody>();
       final server = await showShipperApp(tester, '/customer/trips?tab=match');
@@ -360,7 +347,11 @@ void main() {
       await tester.enterText(field('Weight'), '80');
       await tester.tap(find.text('Find trips'));
       await pumpWhileWaiting(tester);
-      await tester.enterText(placeField('Pickup'), 'Hosur');
+      for (final title in ['Pickup', 'Drop']) {
+        expect(tester.widget<TextField>(placeField(title)).readOnly, isTrue,
+            reason: 'review: the words could change under a match being sent');
+        expect(pinIn(tester, title).draggable, isFalse);
+      }
       answer.complete(jsonResponse({
         'trips': [
           {
@@ -375,8 +366,7 @@ void main() {
       await tester.tap(find.text('Bengaluru to Chennai'));
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
-          'Bommasandra, Bengaluru',
-          reason: 'review: the Bommasandra pin went to Book under the name Hosur');
+          'Bommasandra, Bengaluru');
       expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7));
     });
 

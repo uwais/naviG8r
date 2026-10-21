@@ -66,8 +66,8 @@ void placeSearchFailureTests() {
         tester, '/customer/book?anchorTripId=lane-1&weightKg=80',
         findPlace: findPlace,
         initialExtra: SearchedPlaces(
-            pickup: (words: pickup, point: null),
-            drop: (words: drop, point: null)));
+            pickup: (words: pickup, point: null, pinAddress: null),
+            drop: (words: drop, point: null, pinAddress: null)));
     server.answer('/anchor-trips/lane-1', {'trip': lane()});
     await tester.pumpAndSettle();
     for (final title in ['Pickup', 'Drop']) {

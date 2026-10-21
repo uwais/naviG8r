@@ -179,8 +179,14 @@ Finder field(String label) => find.descendant(
 const searchedBook = '/customer/book?anchorTripId=lane-1&weightKg=80';
 
 const searchedPlaces = SearchedPlaces(
-    pickup: (words: 'Bommasandra, Bengaluru', point: LatLng(12.8, 77.7)),
-    drop: (words: 'Guindy, Chennai', point: LatLng(13.0, 80.2)));
+    pickup: (
+        words: 'Bommasandra, Bengaluru',
+        point: LatLng(12.8, 77.7),
+        pinAddress: 'Bommasandra, Bengaluru, Karnataka 560099, India'),
+    drop: (
+        words: 'Guindy, Chennai',
+        point: LatLng(13.0, 80.2),
+        pinAddress: 'Guindy, Chennai, Tamil Nadu 600032, India'));
 
 /// The fake price: ₹33 a kg, so 80 kg is ₹2,640 and 90 kg is ₹2,970.
 ResponseBody priceByWeight(RequestOptions request) => jsonResponse({

@@ -47,9 +47,12 @@ typedef _PriceInputs = ({int? weightKg, LatLng? pickup, LatLng? drop});
 /// browser's history, and drops one it cannot, so these never reach the history.
 class SearchedPlaces {
   const SearchedPlaces({required this.pickup, required this.drop});
-  final ({String words, LatLng? point}) pickup;
-  final ({String words, LatLng? point}) drop;
+  final SearchedPlace pickup;
+  final SearchedPlace drop;
 }
+
+/// A place as the match search left it: the typed words, the pin, and Google's address for the pin.
+typedef SearchedPlace = ({String words, LatLng? point, String? pinAddress});
 
 class CustomerBookShipmentScreen extends StatefulWidget {
   const CustomerBookShipmentScreen({
@@ -82,8 +85,8 @@ class CustomerBookShipmentScreen extends StatefulWidget {
 
   final String laneId;
   final int? searchedWeightKg;
-  final ({String words, LatLng? point})? searchedPickup;
-  final ({String words, LatLng? point})? searchedDrop;
+  final SearchedPlace? searchedPickup;
+  final SearchedPlace? searchedDrop;
   final PlaceFinder findPlace;
   final PinNamer namePin;
 
@@ -102,11 +105,10 @@ class _CustomerBookShipmentScreenState
       TextEditingController(text: widget.searchedDrop?.words ?? "");
   late LatLng? _pickupPin = widget.searchedPickup?.point;
   late LatLng? _dropPin = widget.searchedDrop?.point;
+  late String? _pickupPinAddress = widget.searchedPickup?.pinAddress;
+  late String? _dropPinAddress = widget.searchedDrop?.pinAddress;
   bool _namingPickupPin = false;
   bool _namingDropPin = false;
-  // The editor's warning while a dragged pin is in another town than the typed address.
-  String? _pickupInAnotherTown;
-  String? _dropInAnotherTown;
   String? _weightError;
   bool _tooHeavy = false;
   Map<String, dynamic>? _lane;
@@ -127,13 +129,8 @@ class _CustomerBookShipmentScreenState
 
   _PriceInputs get _priceInputs => (
         weightKg: int.tryParse(_weightKg.text.trim()),
-        // A pin in another town than its address counts as no pin, so nothing is priced or booked.
-        pickup: _pickupName.text.trim().isEmpty || _pickupInAnotherTown != null
-            ? null
-            : _pickupPin,
-        drop: _dropName.text.trim().isEmpty || _dropInAnotherTown != null
-            ? null
-            : _dropPin,
+        pickup: _pickupName.text.trim().isEmpty ? null : _pickupPin,
+        drop: _dropName.text.trim().isEmpty ? null : _dropPin,
       );
 
   @override
@@ -416,8 +413,6 @@ class _CustomerBookShipmentScreenState
   String? _missingBeforePrice() {
     // A dragged pin is priced at once but named later; booking before then sends the old name.
     if (_namingPickupPin || _namingDropPin) return "Updating address from pin…";
-    final pinInAnotherTown = _pickupInAnotherTown ?? _dropInAnotherTown;
-    if (pinInAnotherTown != null) return pinInAnotherTown;
     final inputs = _priceInputs;
     final weightMissing = inputs.weightKg == null || inputs.weightKg! <= 0;
     final places = switch ((inputs.pickup == null, inputs.drop == null)) {
@@ -490,10 +485,33 @@ class _CustomerBookShipmentScreenState
                 const SizedBox(height: NvSpace.s4),
                 priceCard,
               ],
+              if (_pinsCheck() case final pinsCheck?) ...[
+                const SizedBox(height: NvSpace.s4),
+                pinsCheck,
+              ],
             ],
           ],
         ],
       ),
+    );
+  }
+
+  /// Both pins on one map once both places are in, last above Book and pay (owner, 21 Oct 2026):
+  /// the pin decides the place, so the shipper checks it there.
+  Widget? _pinsCheck() {
+    final (pickup: pickupPin, drop: dropPin, weightKg: _) = _priceInputs;
+    if (pickupPin == null || dropPin == null) return null;
+    return _PinsCheck(
+      pickup: (
+          words: _pickupName.text.trim(),
+          pin: pickupPin,
+          pinAddress: _pickupPinAddress,
+          naming: _namingPickupPin),
+      drop: (
+          words: _dropName.text.trim(),
+          pin: dropPin,
+          pinAddress: _dropPinAddress,
+          naming: _namingDropPin),
     );
   }
 
@@ -522,15 +540,10 @@ class _CustomerBookShipmentScreenState
           setState(() => _pickupPin = pin);
           _priceInputsChanged();
         },
-        onPinStale: () {
-          setState(() => _pickupPin = null);
-          _priceInputsChanged();
-        },
         onPinNaming: (naming) => setState(() => _namingPickupPin = naming),
-        onPinInAnotherTown: (warning) {
-          setState(() => _pickupInAnotherTown = warning);
-          _priceInputsChanged();
-        },
+        pinAddress: _pickupPinAddress,
+        onPinAddress: (address) =>
+            setState(() => _pickupPinAddress = address),
         readOnly: _booking,
         showMap: _pickupPin != null,
         showApiKeyHint: false,
@@ -550,15 +563,10 @@ class _CustomerBookShipmentScreenState
           setState(() => _dropPin = pin);
           _priceInputsChanged();
         },
-        onPinStale: () {
-          setState(() => _dropPin = null);
-          _priceInputsChanged();
-        },
         onPinNaming: (naming) => setState(() => _namingDropPin = naming),
-        onPinInAnotherTown: (warning) {
-          setState(() => _dropInAnotherTown = warning);
-          _priceInputsChanged();
-        },
+        pinAddress: _dropPinAddress,
+        onPinAddress: (address) =>
+            setState(() => _dropPinAddress = address),
         readOnly: _booking,
         showMap: _dropPin != null,
         showApiKeyHint: false,
@@ -749,3 +757,46 @@ class _PriceCard extends StatelessWidget {
         ),
       );
 }
+
+/// Both pins on one map, each with the words typed for it and Google's address for the pin, so the
+/// shipper checks by eye before Book and pay: the pin decides the place and the price, the words are
+/// what the driver reads.
+class _PinsCheck extends StatelessWidget {
+  const _PinsCheck({required this.pickup, required this.drop});
+  final _PinToCheck pickup;
+  final _PinToCheck drop;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(NvSpace.s4),
+        decoration: BoxDecoration(
+            color: NvColors.card,
+            borderRadius: BorderRadius.circular(NvRadius.card),
+            border: Border.all(color: NvColors.line)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text("Check the pins before you pay", style: NvText.heading),
+            const SizedBox(height: NvSpace.s3),
+            // The same pin colours as the place boxes: pickup green, drop red.
+            routePreviewMap(a: pickup.pin, b: drop.pin),
+            for (final (title, place) in [("Pickup", pickup), ("Drop", drop)]) ...[
+              const SizedBox(height: NvSpace.s3),
+              Text("$title: ${place.words}", style: NvText.bodyStrong),
+              Text(
+                  place.naming
+                      ? "Updating address from pin…"
+                      : pinAddressLine(place.pinAddress),
+                  style: NvText.caption),
+            ],
+          ],
+        ),
+      );
+}
+
+typedef _PinToCheck = ({
+  String words,
+  LatLng pin,
+  String? pinAddress,
+  bool naming
+});

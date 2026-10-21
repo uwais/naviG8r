@@ -1,7 +1,10 @@
-// Rishabh, 21 Oct 2026: "Yes keep typed address. Assuming dragging will be done at high zoom? What if
-// dragging happens first?" A booking's pickup or drop keeps the shipper's words when the pin moves;
-// a drag into an empty box fills it with the pin's address; a small edit after a search keeps the
-// pin; and the map works at street level. A trip's city fields are unchanged.
+// Owner, 21 Oct 2026: "Simplify: pin decides, shipper confirms. Remove the town-matching warning and
+// keep-pin rules. Typed words always kept; Book shows the pin's address and a map to check." A
+// booking's pickup or drop: a search pick or a drag sets the pin, typing never moves or drops it, an
+// empty box takes Google's address, and "Pin: ..." under the box says where the pin is. A trip's city
+// fields are unchanged.
+import 'dart:async';
+
 import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/location_editor.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +13,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 const _pinAddress =
     '14, Lattice Bridge Rd, Adyar, Chennai, Tamil Nadu 600020, India';
+const _searchedAddress = 'Bommasandra, Bengaluru, Karnataka 560099, India';
 
 class _Box {
   _Box(this.words);
@@ -23,7 +27,8 @@ Future<_Box> _mountPickup(WidgetTester tester,
     {LatLng? startingPin,
     String startingWords = '',
     bool keepsFullAddress = true,
-    PlaceFinder? findPlace}) async {
+    PlaceFinder? findPlace,
+    PinNamer? namePin}) async {
   final box = _Box(TextEditingController(text: startingWords))..pin = startingPin;
   addTearDown(box.words.dispose);
   await tester.pumpWidget(MaterialApp(
@@ -45,11 +50,9 @@ Future<_Box> _mountPickup(WidgetTester tester,
                         showMap: box.pin != null,
                         findPlace: findPlace ??
                             (place) async => GeocodeOutcome.ok(
-                                const LatLng(12.8, 77.7),
-                                'Bommasandra, Bengaluru, Karnataka 560099, India',
-                                'Bengaluru'),
-                        namePin: (point) async =>
-                            GeocodeOutcome.ok(point, _pinAddress, 'Chennai'),
+                                const LatLng(12.8, 77.7), _searchedAddress, 'Bengaluru'),
+                        namePin: namePin ??
+                            (point) async => GeocodeOutcome.ok(point, _pinAddress, 'Chennai'),
                         keepsFullAddress: keepsFullAddress,
                       ))))));
   await tester.pumpAndSettle();
@@ -78,22 +81,49 @@ void main() {
     expect(box.words.text, 'Plot 12, 4th Cross, Adyar, Chennai',
         reason: 'the plot number is what the carrier needs');
     expect(box.pin, const LatLng(13.05, 80.25));
-    expect(find.text('Pin is near: $_pinAddress'), findsOneWidget,
-        reason: "Google's address for the pin shows under the box, to check");
   });
 
-  testWidgets('a2: after a drag, the words may name the place another way in the same town',
+  testWidgets("a Pin line under the box shows Google's address for the pin",
+      (tester) async {
+    await _mountPickup(tester,
+        startingPin: const LatLng(13.0, 80.2), startingWords: 'Plot 12, Bengaluru');
+    await _drag(tester, const LatLng(13.05, 80.25));
+    expect(find.text('Pin: $_pinAddress'), findsOneWidget,
+        reason: 'owner, 21 Oct 2026: the shipper checks the pin by its address, whatever the words say');
+
+    await tester.enterText(find.byType(TextField), '');
+    await tester.enterText(find.byType(TextField), 'Gate 2');
+    await tester.pumpAndSettle();
+    expect(find.text('Pin: $_pinAddress'), findsOneWidget,
+        reason: 'typing does not move the pin, so its address stays');
+
+    await tester.enterText(find.byType(TextField), 'Bommasandra, Bengaluru');
+    await _search(tester);
+    expect(find.text('Pin: $_searchedAddress'), findsOneWidget,
+        reason: 'a search pick shows the address the pin went to');
+  });
+
+  testWidgets('a dragged pin Google cannot name says so on its Pin line', (tester) async {
+    await _mountPickup(tester,
+        startingPin: const LatLng(13.0, 80.2),
+        startingWords: 'Plot 12, Adyar, Chennai',
+        namePin: (point) async => GeocodeOutcome.fail('NETWORK'));
+    await _drag(tester, const LatLng(13.05, 80.25));
+    expect(find.text('Pin: address not known. Check the pin on the map.'), findsOneWidget);
+  });
+
+  testWidgets('after a drag, any words typed keep the pin, even another town',
       (tester) async {
     final box = await _mountPickup(tester,
         startingPin: const LatLng(13.0, 80.2), startingWords: 'Plot 12, 4th Cross, Adyar, Chennai');
     await _drag(tester, const LatLng(13.05, 80.25));
-    await tester.enterText(find.byType(TextField), 'Guindy, Chennai');
-    await tester.pumpAndSettle();
-    expect(box.pin, const LatLng(13.05, 80.25),
-        reason: 'the dragged pin is the place; the whole-words rule is for a search pick');
     await tester.enterText(find.byType(TextField), 'Guindy, Bengaluru');
     await tester.pumpAndSettle();
-    expect(box.pin, isNull, reason: 'words in another town drop it');
+    expect(box.pin, const LatLng(13.05, 80.25),
+        reason: 'owner, 21 Oct 2026: the pin decides the place; the words are for the driver');
+    expect(find.textContaining('The pin is in'), findsNothing,
+        reason: 'the town-matching warning is gone');
+    expect(box.staleCount, 0);
   });
 
   testWidgets("b: a drag into an empty box fills it with the pin's address",
@@ -115,98 +145,76 @@ void main() {
   });
 
   group('c: after a search pick', () {
-    testWidgets('the box keeps the words searched, and a small edit keeps the pin',
+    testWidgets('the box keeps the words searched, not the address Google gives',
         (tester) async {
+      final box = await _mountPickup(tester);
+      await tester.enterText(find.byType(TextField), 'Plot 12, Bommasandra');
+      await _search(tester);
+      expect(box.pin, const LatLng(12.8, 77.7));
+      expect(box.words.text, 'Plot 12, Bommasandra');
+    });
+
+    testWidgets('typing anything after a search keeps the pin', (tester) async {
       final box = await _mountPickup(tester);
       await tester.enterText(find.byType(TextField), 'Bommasandra, Bengaluru');
       await _search(tester);
-      expect(box.pin, const LatLng(12.8, 77.7));
-      expect(box.words.text, 'Bommasandra, Bengaluru');
-
-      await tester.enterText(
-          find.byType(TextField), 'Flat 3, Plot 12, Bommasandra, Bengaluru');
-      await tester.pumpAndSettle();
-      expect(box.pin, const LatLng(12.8, 77.7),
-          reason: 'a flat number added is the same place');
+      for (final words in [
+        'Flat 3, Plot 12, Bommasandra, Bengaluru',
+        'Whitefield, Bengaluru',
+        'Hosur',
+        '',
+      ]) {
+        await tester.enterText(find.byType(TextField), words);
+        await tester.pumpAndSettle();
+        expect(box.pin, const LatLng(12.8, 77.7),
+            reason: 'owner, 21 Oct 2026: typing never moves or drops the pin ("$words")');
+      }
       expect(box.staleCount, 0);
     });
 
-    testWidgets('clearing or replacing the words drops the pin', (tester) async {
-      final box = await _mountPickup(tester);
-      await tester.enterText(find.byType(TextField), 'Bommasandra, Bengaluru');
-      await _search(tester);
-      await tester.enterText(find.byType(TextField), 'Hosur');
-      await tester.pumpAndSettle();
-      expect(box.pin, isNull, reason: 'words without the town are another place');
-
-      await tester.enterText(find.byType(TextField), 'Bommasandra, Bengaluru');
-      await _search(tester);
-      await tester.enterText(find.byType(TextField), '');
-      await tester.pumpAndSettle();
-      expect(box.pin, isNull, reason: 'an empty box has no place');
-    });
-
-    // Second review, 21 Oct 2026: the pin stayed while the words merely contained the saved town.
-    Future<void> expectPinDropped(
-        WidgetTester tester, String searched, String retyped) async {
-      final box = await _mountPickup(tester);
-      await tester.enterText(find.byType(TextField), searched);
-      await _search(tester);
-      expect(box.pin, isNotNull);
-      await tester.enterText(find.byType(TextField), retyped);
-      await tester.pumpAndSettle();
-      expect(box.pin, isNull, reason: '"$retyped" is not the place "$searched" was found for');
-      expect(box.staleCount, 1);
-    }
-
-    testWidgets('a road named after the saved town, in another town, drops the pin',
+    testWidgets('a search answer that comes after the shipper typed keeps the typed words',
         (tester) async {
-      await expectPinDropped(
-          tester, 'Hosur', '12 Hosur Road, Koramangala, Bengaluru');
+      final answer = Completer<GeocodeOutcome>();
+      final box = await _mountPickup(tester, findPlace: (place) => answer.future);
+      await tester.enterText(find.byType(TextField), 'Bommasandra');
+      await tester.tap(find.byTooltip('Search for place'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), 'Plot 12, Bommasandra, Bengaluru');
+      answer.complete(GeocodeOutcome.ok(const LatLng(12.8, 77.7), _searchedAddress, 'Bengaluru'));
+      await tester.pumpAndSettle();
+      expect(box.pin, const LatLng(12.8, 77.7), reason: 'the answer sets the pin');
+      expect(box.words.text, 'Plot 12, Bommasandra, Bengaluru',
+          reason: 'and leaves the words typed meanwhile');
     });
 
-    testWidgets("a town named in another town's road drops the pin", (tester) async {
-      await expectPinDropped(tester, 'Okhla, Delhi', 'Delhi Road, Meerut');
-    });
-
-    testWidgets('another area of the same town drops the pin', (tester) async {
-      await expectPinDropped(
-          tester, 'Bommasandra, Bengaluru', 'Whitefield, Bengaluru');
+    testWidgets("a search with the box emptied meanwhile fills it with Google's address",
+        (tester) async {
+      final answer = Completer<GeocodeOutcome>();
+      final box = await _mountPickup(tester, findPlace: (place) => answer.future);
+      await tester.enterText(find.byType(TextField), 'Bommasandra');
+      await tester.tap(find.byTooltip('Search for place'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), '');
+      answer.complete(GeocodeOutcome.ok(const LatLng(12.8, 77.7), _searchedAddress, 'Bengaluru'));
+      await tester.pumpAndSettle();
+      expect(box.words.text, _searchedAddress);
     });
   });
 
-  testWidgets('e: a drag into another town than the typed words warns under the box',
-      (tester) async {
-    String? warning;
-    final words = TextEditingController(text: 'Plot 12, Koramangala, Bengaluru');
-    addTearDown(words.dispose);
-    await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-            body: SingleChildScrollView(
-                child: LocationEndpointEditor(
-      title: 'Pickup',
-      hint: 'City or area',
-      labelController: words,
-      markerId: 'pickup',
-      markerHue: BitmapDescriptor.hueGreen,
-      position: const LatLng(12.93, 77.62),
-      onPositionChanged: (_) {},
-      onPinInAnotherTown: (sentence) => warning = sentence,
-      namePin: (point) async => GeocodeOutcome.ok(point, _pinAddress, 'Chennai'),
-      keepsFullAddress: true,
-    )))));
-    await tester.pumpAndSettle();
+  testWidgets('a slow pin name does not overwrite a newer search pick', (tester) async {
+    final named = Completer<GeocodeOutcome>();
+    final box = await _mountPickup(tester,
+        startingPin: const LatLng(13.0, 80.2),
+        namePin: (point) => named.future);
     await _drag(tester, const LatLng(13.05, 80.25));
-    const sentence =
-        'The pin is in Chennai, but the address says Bengaluru. Move the pin or change the address.';
-    expect(find.text(sentence), findsOneWidget);
-    expect(warning, sentence, reason: 'the screen is told, to block Book and pay');
-    expect(words.text, 'Plot 12, Koramangala, Bengaluru');
-
-    await tester.enterText(find.byType(TextField), 'Plot 12, Adyar, Chennai');
+    await tester.enterText(find.byType(TextField), 'Bommasandra, Bengaluru');
+    await _search(tester);
+    named.complete(GeocodeOutcome.ok(const LatLng(13.05, 80.25), _pinAddress, 'Chennai'));
     await tester.pumpAndSettle();
-    expect(find.text(sentence), findsNothing);
-    expect(warning, isNull, reason: 'the words now name the town of the pin');
+    expect(box.pin, const LatLng(12.8, 77.7));
+    expect(find.text('Pin: $_searchedAddress'), findsOneWidget,
+        reason: 'the address shown is for the pin as it is now');
+    expect(find.text('Pin: $_pinAddress'), findsNothing);
   });
 
   testWidgets('f: a pickup or drop box stops at 500 characters and counts them; a city box does not',
