@@ -23,7 +23,8 @@ test("shipment messages notify all active shipper and carrier actors, including 
 
   const shipperInbox = await f.request("/v1/notifications", "GET", undefined, f.tokens.shipperA);
   assert.equal(shipperInbox.status, 200);
-  assert.equal(shipperInbox.body.unreadCount, 2);
+  // The message only: the shipper who booked is not told of their own booking (owner, 21 Oct 2026).
+  assert.equal(shipperInbox.body.unreadCount, 1);
   assert.ok(shipperInbox.body.notifications.some((item: { messageId?: string }) => item.messageId === sent.body.message.id));
   const carrierInbox = await f.request("/v1/notifications", "GET", undefined, f.tokens.carrierA);
   assert.equal(carrierInbox.body.unreadCount, 2);
@@ -42,15 +43,16 @@ test("shipment messages notify all active shipper and carrier actors, including 
 
   const restored = loadStoreFromDisk(f.dataFilePath!);
   assert.equal(restored.conversationMessages.size, 1);
-  assert.equal(restored.notifications.size, 4);
+  assert.equal(restored.notifications.size, 3);
 });
 
 test("flat notifications hide inactive shipments and cannot mark them read", async t => {
   const f = await httpFixture(t);
   const booked = await f.book();
   const shipmentId = booked.body.shipment.id as string;
+  // The carrier's notice of the booking: the shipper who booked is not told of their own booking.
   const notification = [...f.store.notifications.values()].find(n =>
-    n.shipmentId === shipmentId && n.recipientUserId === f.shipperA.user.id && n.recipientOrgId === f.shipperA.org.id);
+    n.shipmentId === shipmentId && n.recipientUserId === f.carrierA.user.id && n.recipientOrgId === f.carrierA.org.id);
   assert.ok(notification);
 
   f.store.shipments.set(shipmentId, {
@@ -59,12 +61,12 @@ test("flat notifications hide inactive shipments and cannot mark them read", asy
     inactiveReason: "test_tombstone",
   });
 
-  const inbox = await f.request("/v1/notifications", "GET", undefined, f.tokens.shipperA);
+  const inbox = await f.request("/v1/notifications", "GET", undefined, f.tokens.carrierA);
   assert.equal(inbox.status, 200);
   assert.equal(inbox.body.unreadCount, 0);
   assert.deepEqual(inbox.body.notifications, []);
 
-  const markRead = await f.request(`/v1/notifications/${notification.id}/read`, "PATCH", undefined, f.tokens.shipperA);
+  const markRead = await f.request(`/v1/notifications/${notification.id}/read`, "PATCH", undefined, f.tokens.carrierA);
   assert.equal(markRead.status, 404);
   assert.equal(f.store.notifications.get(notification.id)?.readAtUtcMs, undefined);
 });

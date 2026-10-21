@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { effectivePermissions, legacyRoles, principalFor, recordAudit, requirePermission, type Principal } from "./rbac.ts";
+import { authorizationContext, effectivePermissions, legacyRoles, principalFor, recordAudit, requirePermission, type Principal } from "./rbac.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import { assignedDriverMaySee } from "./tripAssignmentRules.ts";
 import type { Store } from "./store.ts";
@@ -32,10 +32,13 @@ export function workflowSnapshot(store: Store): WorkflowSnapshot {
 }
 
 export function captureWorkflowNotifications(store: Store, previous: WorkflowSnapshot): void {
+  // Owner, 21 Oct 2026: "No need for their own action". The person whose request made these changes is not
+  // told about them. A webhook, the payment provider or a timer has no person behind it, so all may hear.
+  const actorUserId = authorizationContext.getStore()?.principal?.userId;
   const emit = (shipment: Shipment | undefined, eventKey: string, occurredAt: number, sourceTransitionId?: string) => {
     if (!shipment) return;
     getOrCreateConversation(store, shipment);
-    createNotifications(store, shipment, sourceTransitionId ?? `${eventKey}:${shipment.id}:${occurredAt}`, eventKey, occurredAt);
+    createNotifications(store, shipment, sourceTransitionId ?? `${eventKey}:${shipment.id}:${occurredAt}`, eventKey, occurredAt, undefined, actorUserId);
   };
   for (const [id, shipment] of store.shipments) {
     const old = previous.shipments.get(id);
@@ -125,7 +128,7 @@ export function captureTerminalConversationWindows(store: Store, now = Date.now(
   }
 }
 
-function notificationRecipients(store: Store, shipment: Shipment, eventKey: string): Array<{ userId: string; orgId: string; role: "SHIPPER" | "CARRIER" }> {
+function notificationRecipients(store: Store, shipment: Shipment, eventKey: string, actorUserId?: string): Array<{ userId: string; orgId: string; role: "SHIPPER" | "CARRIER" }> {
   const recipients: Array<{ userId: string; orgId: string; role: "SHIPPER" | "CARRIER" }> = [];
   const orgs: Array<[string | undefined, "SHIPPER" | "CARRIER"]> = [[shipment.customerOrgId, "SHIPPER"], [shipment.carrierId, "CARRIER"]];
   for (const [orgId, role] of orgs) {
@@ -133,15 +136,15 @@ function notificationRecipients(store: Store, shipment: Shipment, eventKey: stri
     for (const membership of store.memberships.values()) {
       // A driver hears only about shipments on their own trip, push included, and never about payments.
       const mayHear = assignedDriverMaySee(store, { internal: false, subrole: membership.role, userId: membership.userId }, shipment) && !(membership.role === "DRIVER" && eventKey === "payment.status_changed");
-      if (membership.orgId === orgId && mayHear && eligibleActor(store, membership.userId, orgId, role)) recipients.push({ userId: membership.userId, orgId, role });
+      if (membership.orgId === orgId && membership.userId !== actorUserId && mayHear && eligibleActor(store, membership.userId, orgId, role)) recipients.push({ userId: membership.userId, orgId, role });
     }
   }
   return recipients;
 }
 
-function createNotifications(store: Store, shipment: Shipment, eventId: string, eventKey: string, createdAtUtcMs: number, messageId?: string): void {
+function createNotifications(store: Store, shipment: Shipment, eventId: string, eventKey: string, createdAtUtcMs: number, messageId?: string, actorUserId?: string): void {
   const conversationId = shipment.id;
-  for (const recipient of notificationRecipients(store, shipment, eventKey)) {
+  for (const recipient of notificationRecipients(store, shipment, eventKey, actorUserId)) {
     const duplicate = [...store.notifications.values()].some(n => n.eventId === eventId && n.recipientUserId === recipient.userId && n.recipientOrgId === recipient.orgId);
     if (duplicate) continue;
     const notification: Notification = {

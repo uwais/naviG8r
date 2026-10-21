@@ -242,6 +242,9 @@ test("a trip from before assignment existed stays with the driver who started it
   const refunded = await bookAndAccept(f, f.trip.id);
   // Written directly: since this change a driver cannot start a trip that names nobody, as one could before it.
   f.store.anchorTrips.set(f.trip.id, { ...f.store.anchorTrips.get(f.trip.id)!, status: "IN_PROGRESS", startedAtUtcMs: Date.now(), startedByUserId: first.userId });
+  // Saved as the old data was, with nobody's request behind it: a person is not told of their own action, and
+  // the driver's next request would otherwise count as the one that started the trip.
+  await authorizationContext.run({ system: true, requestId: "synthetic-legacy-start" }, () => f.persist());
   const get = (path: string, token: string) => f.request(path, "GET", undefined, token);
   const ping = { lat: 12.9, lng: 77.6 };
 
