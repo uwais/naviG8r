@@ -82,6 +82,20 @@ void main() {
         reason: "Google's address for the pin shows under the box, to check");
   });
 
+  testWidgets('a2: after a drag, the words may name the place another way in the same town',
+      (tester) async {
+    final box = await _mountPickup(tester,
+        startingPin: const LatLng(13.0, 80.2), startingWords: 'Plot 12, 4th Cross, Adyar, Chennai');
+    await _drag(tester, const LatLng(13.05, 80.25));
+    await tester.enterText(find.byType(TextField), 'Guindy, Chennai');
+    await tester.pumpAndSettle();
+    expect(box.pin, const LatLng(13.05, 80.25),
+        reason: 'the dragged pin is the place; the whole-words rule is for a search pick');
+    await tester.enterText(find.byType(TextField), 'Guindy, Bengaluru');
+    await tester.pumpAndSettle();
+    expect(box.pin, isNull, reason: 'words in another town drop it');
+  });
+
   testWidgets("b: a drag into an empty box fills it with the pin's address",
       (tester) async {
     final box = await _mountPickup(tester,

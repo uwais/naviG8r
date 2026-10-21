@@ -418,6 +418,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   // The words the pin was placed for: a trip's city name, or a pickup or drop's words as searched or
   // typed. Null when any words go with the pin (no pin yet, or a drag whose place is still being named).
   String? _pinFoundFor;
+  // True once the shipper drags the pin: then the pin, not the words, is the place.
+  bool _pinDragged = false;
   // The town of the address Google gives for a dragged pickup or drop pin, kept while the shipper's
   // own words stay in the box; null after a search, a drag into an empty box, or no answer.
   String? _townAtPin;
@@ -441,14 +443,16 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     super.dispose();
   }
 
-  /// A trip's field must still say its whole city name. A pickup or drop keeps its pin while the
-  /// words still hold all of [pinFoundFor] and end in the same town, so "Flat 3, Plot 12, " added in
-  /// front keeps it; another area of the town, or another town, drops it.
+  /// A trip's field must still say its whole city name. A searched pickup or drop keeps its pin while
+  /// the words still hold all of [pinFoundFor] and end in the same town, so "Flat 3, Plot 12, " added
+  /// in front keeps it; another area of the town, or another town, drops it. A dragged pin is the
+  /// place itself, so its words may name it another way, as long as they stay in the same town.
   bool _wordsStillFitThePin(String words, String pinFoundFor) {
     if (!widget.keepsFullAddress) return words == pinFoundFor;
-    return words.isNotEmpty &&
-        words.toLowerCase().contains(pinFoundFor.toLowerCase()) &&
+    final sameTown =
         townOfAddress(words).toLowerCase() == townOfAddress(pinFoundFor).toLowerCase();
+    if (words.isEmpty || !sameTown) return false;
+    return _pinDragged || words.toLowerCase().contains(pinFoundFor.toLowerCase());
   }
 
   /// Warns, and tells the screen, while the dragged pin's town differs from the typed words' town.
@@ -477,6 +481,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
       return;
     }
     if (_wordsStillFitThePin(words, pinFoundFor)) return;
+    _pinDragged = false;
     _pinFoundFor = null;
     _townAtPin = null;
     // The map goes away with the pin; the next one opens zoomed out, so the next drag zooms in again.
@@ -540,6 +545,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
         : outcome.placeName ?? widget.labelController.text;
     _pinFoundFor = name.trim();
     _townAtPin = null;
+    _pinDragged = false;
     setState(() {
       _pos = p;
       _hintLine = outcome.formattedAddress;
@@ -554,6 +560,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   Future<void> _onDragEnd(LatLng p) async {
     // The dragged pin is the person's choice of place; only a name found for it ties it to words.
     _pinFoundFor = null;
+    _pinDragged = true;
     _townAtPin = null;
     setState(() {
       _pos = p;
