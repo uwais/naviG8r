@@ -5,6 +5,7 @@
 1. **No new features.** Layout, order and words only. Every action exists today. If a screen needs data or an endpoint that does not exist, stop and report it; do not add it.
 2. **No permission changes.** Owners, dispatchers, drivers and shippers keep exactly what they can do today.
 3. **Drivers never see money.** No price, amount, payout, commission or "net" on any driver route, in any state.
+   **Each side sees only its own amount** (owner hard rule, 21 Oct 2026). A carrier never sees what the shipper pays, a shipper never sees what the carrier receives, and nobody outside NaviG8r sees NaviG8r's cut, as an amount or a rate.
 4. **Light mode only.** `themeMode: ThemeMode.light`, no `darkTheme`.
 5. **No emoji.** Not in copy, labels, notifications or icons.
 6. **No dark patterns.** Full price on the same screen as Pay; nothing preselected; neutral decline words; the way out (the named contact) as visible as Book; ranking only by closeness to the route.

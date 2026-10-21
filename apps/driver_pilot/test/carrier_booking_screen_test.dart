@@ -241,9 +241,11 @@ void main() {
       expect(
           find.textContaining(RegExp(r', \d{2}:\d{2} IST$')), findsOneWidget,
           reason: 'when it was confirmed, in India time');
-      expect(find.text("You receive ₹2,376, after NaviG8r's 10% fee."),
+      expect(find.text('You receive ₹2,376'),
           findsOneWidget,
           reason: 'ca-booking-owner: the amount block, Indian grouping, no paise');
+      expect(find.textContaining(RegExp(r'fee|commission|%', caseSensitive: false)), findsNothing,
+          reason: 'never NaviG8r\'s cut, not even as a rate (owner hard rule, 21 Oct 2026)');
       expect(
           find.text(
               'Only owners see payment amounts. Dispatchers and drivers do not.'),

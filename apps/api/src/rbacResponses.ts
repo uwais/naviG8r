@@ -4,6 +4,9 @@ import type { EwayBill } from "./types.ts";
 const pick = (v: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter(k => v[k] !== undefined).map(k => [k, v[k]]));
 /** What the carrier earns and when it is paid. A DRIVER never gets these, whatever the route (owner decision, 15 Oct 2026). */
 const carrierPayFields = ["netToCarrierPaise", "totalNetToCarrierPaise", "pendingAccruedPaise", "paidPaise", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs", "paidAtUtcMs", "cutoffUtcMs", "paymentReady", "paymentHoldUntilUtcMs"];
+/** Owner hard rule, 21 Oct 2026: a carrier never gets the shipper's price or NaviG8r's cut, and a shipper never gets the carrier's amount or pay-out. */
+const shipperPriceFields = ["grossPaise", "commissionPaise", "amountPaise"];
+const carrierOnlyFields = ["netToCarrierPaise", "totalNetToCarrierPaise", "pendingAccruedPaise", "paidPaise", "commissionPaise", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs"];
 /** Domain allowlists prevent new storage fields from silently becoming API fields. */
 export function serializeResponse(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(serializeResponse);
@@ -12,7 +15,9 @@ export function serializeResponse(value: unknown): unknown {
   const p = authorizationContext.getStore()?.principal;
   let out: Record<string, unknown>;
   if ("customerOrgName" in v && "paymentId" in v) {
-    const keys = ["id", "anchorTripId", "carrierId", "carrierDisplayName", "customerOrgId", "customerOrgName", "status", "weightKg", "createdAtUtcMs", "updatedAtUtcMs", "podAtUtcMs", "podAcceptedAtUtcMs", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs", "externalLoadId"];
+    const keys = ["id", "anchorTripId", "carrierId", "carrierDisplayName", "customerOrgId", "customerOrgName", "status", "weightKg", "createdAtUtcMs", "updatedAtUtcMs", "podAtUtcMs", "podAcceptedAtUtcMs", "externalLoadId"];
+    // When the carrier is paid is the carrier's business and NaviG8r's, never the shipper's (owner, 21 Oct 2026).
+    if (p?.roles.some(r => ["CARRIER", "OPS", "FINANCE", "ADMIN"].includes(r))) keys.push("firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs");
     if (p?.roles.some(r => ["SHIPPER", "CARRIER", "OPS"].includes(r))) keys.push("pickupAddress", "dropAddress", "pickup", "drop", "assignedTruckNumber");
     if (p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r))) keys.push("grossPaise");
     // The shipper enters it on the e-way bill (owner decision, 16 Oct 2026); no other role needs it on a shipment.
@@ -39,5 +44,7 @@ export function serializeResponse(value: unknown): unknown {
   }
   // After every branch, since payout batches, their transfers and the earnings summary have no branch of their own.
   if (p?.subrole === "DRIVER") for (const key of carrierPayFields) delete out[key];
+  if (p?.roles.includes("CARRIER")) for (const key of shipperPriceFields) delete out[key];
+  if (p?.roles.includes("SHIPPER")) for (const key of carrierOnlyFields) delete out[key];
   return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, serializeResponse(v)]));
 }

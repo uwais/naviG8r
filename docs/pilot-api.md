@@ -191,7 +191,9 @@ A trip may name one truck and one driver: `assignedVehicleId` and `assignedDrive
 
 **Trips from before this change.** A trip that names no driver stays with the `DRIVER` who started it (`startedByUserId`) on every route above, in any status, so a driver mid-route at deploy keeps sending location, confirming delivery and completing, and still sees the trip and its shipments once it is complete. It leaves their list only if the office assigns it to someone else, which is possible until it is complete; a completed one cannot be assigned, so it stays with its driver. A trip that was never started has no starter, so one that is `OPEN` or `FULL` and names no driver is visible to no driver. Trips started before assignments existed name nobody; the driver who started one keeps it. Before go-live the carrier office should assign every open trip; in-progress trips started by a driver keep working until assigned.
 
-**A driver never sees carrier earnings (owner decision, 15 Oct 2026).** A `DRIVER` membership does not hold `payment.read`, so `GET /v1/pilot/carrier/earnings`, `/ledger` and `/payout-batches` answer `403` for a driver; owners, owner-drivers and dispatchers keep them. No response to a `DRIVER` carries what the carrier earns or when it is paid: `netToCarrierPaise`, `totalNetToCarrierPaise`, `pendingAccruedPaise`, `paidPaise`, the payout dates `firstPayoutEligibleAtUtcMs`, `payoutBatchCutoffUtcMs`, `paidAtUtcMs` and `cutoffUtcMs`, and the payment hold `paymentReady` and `paymentHoldUntilUtcMs`, whatever the route. Owners, owner-drivers, dispatchers, shippers, finance and ops keep the ones they had. A driver is never notified of a payment status change (`payment.status_changed`).
+**A driver never sees carrier earnings (owner decision, 15 Oct 2026).** A `DRIVER` membership does not hold `payment.read`, so `GET /v1/pilot/carrier/earnings`, `/ledger` and `/payout-batches` answer `403` for a driver; owners, owner-drivers and dispatchers keep them. No response to a `DRIVER` carries what the carrier earns or when it is paid: `netToCarrierPaise`, `totalNetToCarrierPaise`, `pendingAccruedPaise`, `paidPaise`, the payout dates `firstPayoutEligibleAtUtcMs`, `payoutBatchCutoffUtcMs`, `paidAtUtcMs` and `cutoffUtcMs`, and the payment hold `paymentReady` and `paymentHoldUntilUtcMs`, whatever the route. Owners, owner-drivers, dispatchers, finance and ops keep the ones they had. A driver is never notified of a payment status change (`payment.status_changed`).
+
+**Each side gets only its own amount (owner hard rule, 21 Oct 2026).** No response, notification, push, conversation event or ERP payload to a carrier login carries the shipper's price (`grossPaise`, payment `amountPaise`), `commissionPaise` or a fee rate. None to a shipper login or a shipper's ERP carries `netToCarrierPaise`, `commissionPaise`, earnings, ledger or the payout dates `firstPayoutEligibleAtUtcMs` and `payoutBatchCutoffUtcMs`; a shipper keeps its own payment hold, `paymentReady` and `paymentHoldUntilUtcMs`. The serializer removes these per side after every branch. NaviG8r's own logins (ops, finance, admin) keep both.
 
 **`POST /v1/pilot/anchor-trips/:tripId/assignment`** (permission **`trip.assign`**: carrier `OWNER_DRIVER`, `OWNER`, `DISPATCHER`, never `DRIVER`). Body `{ "vehicleId": "...", "driverUserId": "..." }`. Both must belong to the trip's carrier: the vehicle's `orgId` is the trip's `carrierId`, and the driver is an active member with role `DRIVER`, `OWNER_DRIVER` or `OWNER`. Replaces any earlier assignment. Response `200 { "trip": {...}, "driverBusy": false }`; `driverBusy` is `true` when that driver is already named on another trip that is `IN_PROGRESS` (a warning, the assignment is saved). Refusals: `400 { "error": "invalid_trip_assignment", "detail": "a sentence", "field": "vehicleId" | "driverUserId" }`, `409 trip_completed`, `403` for a driver, `404` for another carrier's trip. Audit row `TRIP_ASSIGNED` on the trip, states `UNASSIGNED` or `ASSIGNED` only.
 
@@ -265,7 +267,7 @@ For **`DISPATCHER`**, vehicle fields are optional in the request body — the se
 New carriers: **Register as new carrier** → `POST /v1/pilot/driver/register` → OTP verify → signed-in driver shell. Sign-in alone is for existing users only.
 
 #### `POST /v1/pilot/rates/estimate`
-Pilot-only (Bearer token; user must belong to a **carrier** org). Advisory lane pricing samples for publishing — does **not** persist a trip rate.
+Pilot-only (Bearer token; user must belong to a **carrier** org). Advisory samples of what the carrier would receive on the lane — does **not** persist a trip rate. It never carries the shipper's price or its parts; a driver gets the weights only.
 
 Headers:
 - `Authorization: Bearer <accessToken>`
@@ -288,7 +290,7 @@ Response (subset):
   "laneKm": 236.71,
   "modelVersion": "freight-v1",
   "samples": [
-    { "weightKg": 100, "grossPaise": 523420, "breakdown": { "pricingMode": "distance_weight", "..." : "..." } }
+    { "weightKg": 100, "netToCarrierPaise": 450000 }
   ]
 }
 ```

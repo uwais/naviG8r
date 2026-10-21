@@ -62,7 +62,7 @@ Header on every signed-in screen: one button = company name (title) + "Person ·
 | `ca-accept-chosen` | A truck picked | Accept with [truck] | |
 | `ca-booking-truck` | Bill exists without truck | (none: read only) | "[Shipper] has not added the truck to the bill yet." The carrier only reads the bill (owner decision, 18 Oct 2026) |
 | `ca-booking-deliver` | In transit | Confirm delivery | Disabled until proof of delivery photo added |
-| `ca-booking-owner` | Delivery confirmed, owner | (none) | Owner only: shipper paid, commission, you receive, together |
+| `ca-booking-owner` | Delivery confirmed, owner | (none) | Owner only: you receive. Never the shipper's price or NaviG8r's cut |
 | `ca-booking-dispatcher` | Same, dispatcher | (none) | No amounts. Status "Delivery confirmed" |
 | `ca-trips` | Trips tab | (cards) | No View/Start buttons on cards; whole card opens |
 | `ca-trip` | Trip opened | Assign driver (or Start trip once a driver exists) | "Room left: N kg of C kg". Start lives only here |

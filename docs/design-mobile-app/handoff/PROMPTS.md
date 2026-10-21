@@ -247,7 +247,8 @@ Do:
   disabled with "Choose a truck first.", label becomes "Accept with [truck]".
 - Truck-on-bill step with copy rows (bill number, truck number).
 - Confirm delivery disabled until the proof-of-delivery photo is added.
-- Owner payment block shows shipper paid, NaviG8r commission and you receive together. Dispatchers
+- Owner payment block shows only "You receive" and the carrier's amount, never the shipper's price or
+  NaviG8r's cut (owner hard rule, 21 Oct 2026). Dispatchers
   see "Delivery confirmed" and no amounts. Use the existing role checks; do not add new ones.
 Tests: no truck preselected; disabled reason present; dispatcher widget tree contains no "₹";
 owner tree contains all three labels; booking title is not "Proof of delivery" in any pre-delivery state.

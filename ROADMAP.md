@@ -140,7 +140,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 
 | Phase | Scope | Outcome |
 |-------|--------|--------|
-| **1 — Estimator** | Server function + `POST /v1/pilot/rates/estimate` (Bearer: pilot on carrier org) | **[Done]** Returns `laneKm`, `samples[]` with `grossPaise` + `breakdown` per sample weight (pilot-only). |
+| **1 — Estimator** | Server function + `POST /v1/pilot/rates/estimate` (Bearer: pilot on carrier org) | **[Done]** Returns `laneKm`, `samples[]` with the carrier's `netToCarrierPaise` per sample weight (pilot-only; never the shipper's price, owner hard rule 21 Oct 2026). |
 | **2 — Driver UI** | `PublishTripScreen` calls estimate after origin/dest + vehicle class change | **[Done]** Debounced “Suggested freight” card (samples 100/250/500 kg); disclaimer that customer price may use shipment km. |
 | **3 — Customer UI** | Extend `POST /shipments/quote` with pickup/drop + `weightKg` + optional `anchorTripId` | **[Done]** Response `quote.grossPaise` + `quote.breakdown`; customer app prints breakdown on Quote. |
 | **4 — Canonical pricing** | `bookShipment` uses same freight model as quote | **[Done]** `grossPaise` reflects distance+weight when coords exist; tests + docs. Coordinate amounts with **B0.1** before live payments. |

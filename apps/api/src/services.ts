@@ -1485,6 +1485,7 @@ export function quoteShipmentMarketplace(store: Store, params: {
   });
 }
 
+/** For a carrier: only what the carrier would receive. The shipper's price and its parts stay with NaviG8r. */
 export function pilotRatesEstimate(store: Store, userId: string, body: {
   origin: unknown;
   destination: unknown;
@@ -1492,7 +1493,7 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   sampleWeightsKg?: unknown;
 }): {
   laneKm: number;
-  samples: Array<{ weightKg: number; grossPaise: number; breakdown: FreightBreakdown }>;
+  samples: Array<{ weightKg: number; netToCarrierPaise: number }>;
   modelVersion: string;
 } {
   if (!userHasPilotCarrierMembership(store, userId)) {
@@ -1527,13 +1528,13 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   const laneKmRounded = Math.round(laneKmRaw * 100) / 100;
 
   const samples = sampleWeights.map((weightKg) => {
-    const { grossPaise, breakdown } = computeFreightGrossPaise({
+    const { grossPaise } = computeFreightGrossPaise({
       weightKg,
       vehicleClass: vc,
       laneKm: laneKmRaw,
       shipmentKm: null,
     });
-    return { weightKg, grossPaise, breakdown };
+    return { weightKg, netToCarrierPaise: moneySplit(grossPaise).netToCarrierPaise };
   });
 
   return { laneKm: laneKmRounded, samples, modelVersion: FREIGHT_MODEL_VERSION };

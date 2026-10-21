@@ -94,8 +94,8 @@ void main() {
           }));
       await mountScreen(
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      expect(find.text("You receive ₹45, after NaviG8r's 10% fee."), findsOneWidget,
-          reason: 'ca-booking-owner: the amount the carrier API sends, and what was taken off it');
+      expect(find.text('You receive ₹45'), findsOneWidget,
+          reason: 'ca-booking-owner: the amount the carrier API sends, and nothing about the cut');
     });
 
     /// What the server sends after proof of delivery; it leaves the payment hold out for a driver.

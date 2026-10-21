@@ -148,7 +148,7 @@ Tabs for the office: Home, Bookings, Trips, Publish, Profile. Tabs for drivers: 
 | No trucks | You have no trucks yet. Add one to accept bookings. · Add truck |  |
 | Truck on bill | [Shipper] has not added the truck to the bill yet. · Truck on the bill: [truck] · Valid until: [date], [time] IST · [ops check line] | Read only for every carrier login: no form, no pickers, no portal button (owner decision, 18 Oct 2026) |
 | Confirm delivery | When the goods are handed over at [drop], add a photo of the signed delivery note, then confirm. · Proof of delivery · Add photo · Confirm delivery · Add the proof of delivery first. |  |
-| Payment (owner only) | Awaiting payment release · NaviG8r operations check the proof of delivery, then release the payment to your bank account ending [4 digits]. · Shipper paid · NaviG8r commission · You receive · Only owners see payment amounts. Dispatchers and drivers do not. | All three amounts together |
+| Payment (owner only) | Awaiting payment release · NaviG8r operations check the proof of delivery, then release the payment to your bank account ending [4 digits]. · You receive · Only owners see payment amounts. Dispatchers and drivers do not. | Only the carrier's own amount. Never the shipper's price or NaviG8r's cut (owner hard rule, 21 Oct 2026) |
 | Same, dispatcher | Delivery confirmed · Nothing more for you to do on this booking. · NaviG8r operations check the proof of delivery. The owner sees the payment. | No amounts |
 
 ### Trips, publish, profile

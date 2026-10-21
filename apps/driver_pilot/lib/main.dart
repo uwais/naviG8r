@@ -1321,13 +1321,12 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Suggested freight (lane reference)",
+                    "Suggested amount to you (lane reference)",
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    "Advisory — customer quotes use shipment pickup→drop when booked. "
-                    "Tune server env FREIGHT_PAISE_PER_KM_*.",
+                    "Advisory: about what you would receive for a load on this lane.",
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 10),
@@ -1354,14 +1353,14 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                         .map((s) {
                       final m = Map<String, dynamic>.from(s);
                       final w = m["weightKg"];
-                      final gp = m["grossPaise"];
+                      final gp = m["netToCarrierPaise"];
                       final rupees = (gp is num)
                           ? (gp / 100).toStringAsFixed(
                               (gp.remainder(100).abs() < 1e-6) ? 0 : 2)
                           : "?";
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 4),
-                        child: Text("≈ ₹$rupees total at ${w ?? "?"} kg"),
+                        child: Text("≈ ₹$rupees to you at ${w ?? "?"} kg"),
                       );
                     })),
                   ] else

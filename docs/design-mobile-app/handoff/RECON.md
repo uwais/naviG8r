@@ -328,7 +328,7 @@ new function would replace it.
 | E-way bill valid-until | **Available**: `ewayBill.validUntilUtcMs` (`api/ewayBillVisibility.ts:22`) |
 | Ops check status and note | **Status available** (`check.result`, `checkedAtUtcMs`). **Note missing**: `check` holds only `result`, `problemReason`, `checkedAtUtcMs` (`api/types.ts:243-248`, `api/ewayBill.ts:123-129`). No note text, so the spec's fallback "show the ops note text" is not possible either. Nearest is today's sentence per reason (`eway_bill_words.dart:157-166`) |
 | Proof-of-delivery photo | **Missing.** No camera or picker package in `pubspec.yaml`. `POST /shipments/:id/driver-pod` takes only `notes` (`api/httpServer.ts:1302-1312`); `podNotes` is stripped (`api/rbacResponses.ts:38`). `DriverPodScreen` has a notes field only (`driver_flow.dart:2407-2410`). Shipper has only `podAtUtcMs` |
-| Commission amount | **Missing for carriers.** `commissionPaise` goes to FINANCE only (`api/rbacResponses.ts:21`) |
+| Commission amount | **Missing for carriers.** `commissionPaise` goes to FINANCE only (`api/rbacResponses.ts:21`). Stays that way: owner hard rule, 21 Oct 2026 |
 
 ### Shipper side, not sent to shippers
 
@@ -701,8 +701,8 @@ Each keeps today's behaviour in the redesign. None is to be built around.
 
 ### Carrier office
 
-20. **Shipper paid** (`ca-booking-owner`). `grossPaise` and payment `amountPaise` not sent to CARRIER.
-21. **Commission** (`ca-booking-owner`). `commissionPaise` FINANCE only.
+20. **Shipper paid** (`ca-booking-owner`). `grossPaise` and payment `amountPaise` not sent to CARRIER. Never to be built: owner hard rule, 21 Oct 2026.
+21. **Commission** (`ca-booking-owner`). `commissionPaise` FINANCE only. Never to be built, as an amount or a rate: owner hard rule, 21 Oct 2026.
 22. **Bank account ending NNNN** (`ca-booking-owner`, `ca-profile`). No last-4 or bank name field;
     `accountNumber` stripped.
 23. **Dispatcher sees no amounts** (`ca-booking-dispatcher`). Dispatchers hold `payment.read` and

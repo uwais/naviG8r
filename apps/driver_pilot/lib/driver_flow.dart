@@ -2171,8 +2171,8 @@ class _DriverShipmentDetailScreenState
     );
   }
 
-  /// ca-booking-owner, with only the amount the carrier API sends: "You receive". The shipper's price, the
-  /// commission and the bank account's last digits are not sent to carriers.
+  /// ca-booking-owner: "You receive" and the carrier's own amount, the only amount the carrier API sends. Never
+  /// the shipper's price or NaviG8r's cut, nor anything to work them out from (owner hard rule, 21 Oct 2026).
   List<Widget> _paymentBlock(Map<String, dynamic> s) {
     final awaitingRelease = s["status"] == "PENDING_RELEASE";
     final amount = s["netToCarrierPaise"];
@@ -2196,8 +2196,7 @@ class _DriverShipmentDetailScreenState
             if (awaitingRelease && amount is num)
               const SizedBox(height: NvSpace.s3),
             if (amount is num)
-              // COMMISSION_BPS in the API's config.ts is 1000, 10%.
-              Text("You receive ${formatRupees(amount)}, after NaviG8r's 10% fee.",
+              Text("You receive ${formatRupees(amount)}",
                   style: NvText.bodyStrong),
           ],
         ),

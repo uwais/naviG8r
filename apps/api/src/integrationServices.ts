@@ -312,6 +312,12 @@ export function listIntegrationLoads(
   return rows.slice(0, limit);
 }
 
+/** A shipper's ERP never gets the carrier's amount, NaviG8r's cut or when the carrier is paid (owner hard rule, 21 Oct 2026). */
+function withoutCarrierPay<T extends Shipment>(shipment: T): Omit<T, "netToCarrierPaise" | "commissionPaise" | "firstPayoutEligibleAtUtcMs" | "payoutBatchCutoffUtcMs"> {
+  const { netToCarrierPaise: _net, commissionPaise: _commission, firstPayoutEligibleAtUtcMs: _eligible, payoutBatchCutoffUtcMs: _cutoff, ...rest } = shipment;
+  return rest;
+}
+
 export function getIntegrationShipmentTracking(store: Store, orgId: string, shipmentId: string) {
   const shipment = store.shipments.get(shipmentId);
   if (!shipment || shipment.customerOrgId !== orgId) throw new Error("shipment_not_found");
@@ -323,7 +329,7 @@ export function getIntegrationShipmentTracking(store: Store, orgId: string, ship
   const fresh = loc != null && now - loc.recordedAtUtcMs <= staleMs;
   const isLive = fresh && shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
   return {
-    shipment: withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment)))),
+    shipment: withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment))))),
     trip: withoutTripAssignment(tripWithCarrierDisplay(store, trip)),
     liveLocation: loc,
     isLive,
@@ -344,7 +350,7 @@ export function getIntegrationShipmentSnapshot(store: Store, orgId: string, ship
   const trip = store.anchorTrips.get(shipment.anchorTripId);
   return {
     ...integrationLoadResponse(store, shipment, conn),
-    shipment: withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(enriched))),
+    shipment: withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(enriched)))),
     payment,
     trip: trip ? withoutTripAssignment(trip) : null,
   };
