@@ -16,7 +16,7 @@ import "driver_session.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
 import "pilot_api.dart";
-import "notification_center.dart";
+import "shipment_conversation.dart";
 import "push_notifications.dart";
 
 Future<void> _copyToClipboard(

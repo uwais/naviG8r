@@ -2,7 +2,7 @@ import "package:flutter/material.dart";
 import "package:go_router/go_router.dart";
 
 import "authorization_session.dart";
-import "notification_center.dart";
+import "notification_bell.dart";
 import "pilot_api.dart";
 import "ui/format.dart";
 import "ui/nv_account_sheet.dart";

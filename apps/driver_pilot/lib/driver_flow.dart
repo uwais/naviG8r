@@ -22,7 +22,7 @@ import "google_geocoding.dart";
 import "location_editor.dart";
 import "maps_config.dart";
 import "pilot_api.dart";
-import "notification_center.dart";
+import "shipment_conversation.dart";
 import "plain_error_sentence.dart";
 import "signed_in_header.dart";
 import "sign_in_screen.dart";

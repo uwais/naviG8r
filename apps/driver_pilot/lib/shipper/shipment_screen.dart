@@ -14,7 +14,7 @@ import "../eway_bill_portal_link.dart";
 import "../customer_layout.dart";
 import "../location_editor.dart";
 import "../pilot_api.dart";
-import "../notification_center.dart";
+import "../shipment_conversation.dart";
 import "../plain_error_sentence.dart";
 import "../shipment_steps.dart";
 import "../ui/format.dart";

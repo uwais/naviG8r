@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/conversation_drafts.dart';
 import 'package:driver_pilot/notification_center.dart';
+import 'package:driver_pilot/shipment_conversation.dart';
 import 'package:driver_pilot/pilot_api.dart';
 
 class _CommunicationAdapter implements HttpClientAdapter {

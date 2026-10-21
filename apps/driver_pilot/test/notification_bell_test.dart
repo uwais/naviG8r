@@ -3,7 +3,7 @@
 // app, and a new notice shows a short banner.
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/main.dart';
-import 'package:driver_pilot/notification_center.dart';
+import 'package:driver_pilot/notification_bell.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/ui/nv_header.dart';
 import 'package:flutter/material.dart';
