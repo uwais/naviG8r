@@ -273,6 +273,30 @@ void main() {
       expect(server.countOf('/v1/customer/eligible-anchor-trips'), 1);
     });
 
+    testWidgets('a pin dragged into another town than the typed address blocks Find trips',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/trips?tab=match',
+          namePin: (point) async =>
+              GeocodeOutcome.ok(point, 'Bagalur Road, Hosur, Tamil Nadu 635109, India'));
+      server.answer('/v1/customer/eligible-anchor-trips', {'trips': []});
+      await tester.pumpAndSettle();
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await tester.enterText(field('Weight'), '80');
+      pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.74, 77.83));
+      await tester.pumpAndSettle();
+      FilledButton findLanes() => tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Find trips'));
+      expect(findLanes().onPressed, isNull,
+          reason: 'a lane card would carry a pin the address disagrees with to Book');
+      expect(
+          find.text(
+              'The pin is in Hosur, but the address says Bengaluru. Move the pin or change the address.'),
+          findsNWidgets(2),
+          reason: 'under the place box, and under the disabled button to say why');
+      expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
+    });
+
     testWidgets('after a failed match, Try again also waits for a dragged pin to be named',
         (tester) async {
       final server = await showShipperApp(tester, '/customer/trips?tab=match',

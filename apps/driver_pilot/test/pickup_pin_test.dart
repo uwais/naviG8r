@@ -161,6 +161,40 @@ void main() {
     });
   });
 
+  testWidgets('e: a drag into another town than the typed words warns under the box',
+      (tester) async {
+    String? warning;
+    final words = TextEditingController(text: 'Plot 12, Koramangala, Bengaluru');
+    addTearDown(words.dispose);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SingleChildScrollView(
+                child: LocationEndpointEditor(
+      title: 'Pickup',
+      hint: 'City or area',
+      labelController: words,
+      markerId: 'pickup',
+      markerHue: BitmapDescriptor.hueGreen,
+      position: const LatLng(12.93, 77.62),
+      onPositionChanged: (_) {},
+      onPinInAnotherTown: (sentence) => warning = sentence,
+      namePin: (point) async => GeocodeOutcome.ok(point, _pinAddress, 'Chennai'),
+      keepsFullAddress: true,
+    )))));
+    await tester.pumpAndSettle();
+    await _drag(tester, const LatLng(13.05, 80.25));
+    const sentence =
+        'The pin is in Chennai, but the address says Bengaluru. Move the pin or change the address.';
+    expect(find.text(sentence), findsOneWidget);
+    expect(warning, sentence, reason: 'the screen is told, to block Book and pay');
+    expect(words.text, 'Plot 12, Koramangala, Bengaluru');
+
+    await tester.enterText(find.byType(TextField), 'Plot 12, Adyar, Chennai');
+    await tester.pumpAndSettle();
+    expect(find.text(sentence), findsNothing);
+    expect(warning, isNull, reason: 'the words now name the town of the pin');
+  });
+
   group('d: zoom', () {
     testWidgets('a pickup map opens at street level after a search pick',
         (tester) async {

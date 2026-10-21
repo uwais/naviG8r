@@ -103,6 +103,9 @@ class _CustomerBookShipmentScreenState
   late LatLng? _dropPin = widget.searchedDrop?.point;
   bool _namingPickupPin = false;
   bool _namingDropPin = false;
+  // The editor's warning while a dragged pin is in another town than the typed address.
+  String? _pickupInAnotherTown;
+  String? _dropInAnotherTown;
   String? _weightError;
   bool _tooHeavy = false;
   Map<String, dynamic>? _lane;
@@ -123,8 +126,13 @@ class _CustomerBookShipmentScreenState
 
   _PriceInputs get _priceInputs => (
         weightKg: int.tryParse(_weightKg.text.trim()),
-        pickup: _pickupName.text.trim().isEmpty ? null : _pickupPin,
-        drop: _dropName.text.trim().isEmpty ? null : _dropPin,
+        // A pin in another town than its address counts as no pin, so nothing is priced or booked.
+        pickup: _pickupName.text.trim().isEmpty || _pickupInAnotherTown != null
+            ? null
+            : _pickupPin,
+        drop: _dropName.text.trim().isEmpty || _dropInAnotherTown != null
+            ? null
+            : _dropPin,
       );
 
   @override
@@ -407,6 +415,8 @@ class _CustomerBookShipmentScreenState
   String? _missingBeforePrice() {
     // A dragged pin is priced at once but named later; booking before then sends the old name.
     if (_namingPickupPin || _namingDropPin) return "Updating address from pin…";
+    final pinInAnotherTown = _pickupInAnotherTown ?? _dropInAnotherTown;
+    if (pinInAnotherTown != null) return pinInAnotherTown;
     final inputs = _priceInputs;
     final weightMissing = inputs.weightKg == null || inputs.weightKg! <= 0;
     final places = switch ((inputs.pickup == null, inputs.drop == null)) {
@@ -516,6 +526,10 @@ class _CustomerBookShipmentScreenState
           _priceInputsChanged();
         },
         onPinNaming: (naming) => setState(() => _namingPickupPin = naming),
+        onPinInAnotherTown: (warning) {
+          setState(() => _pickupInAnotherTown = warning);
+          _priceInputsChanged();
+        },
         readOnly: _booking,
         showMap: _pickupPin != null,
         showApiKeyHint: false,
@@ -540,6 +554,10 @@ class _CustomerBookShipmentScreenState
           _priceInputsChanged();
         },
         onPinNaming: (naming) => setState(() => _namingDropPin = naming),
+        onPinInAnotherTown: (warning) {
+          setState(() => _dropInAnotherTown = warning);
+          _priceInputsChanged();
+        },
         readOnly: _booking,
         showMap: _dropPin != null,
         showApiKeyHint: false,

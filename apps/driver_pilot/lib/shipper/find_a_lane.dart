@@ -268,6 +268,9 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   LatLng? _dropPin;
   bool _namingPickupPin = false;
   bool _namingDropPin = false;
+  // The editor's warning while a dragged pin is in another town than the typed address.
+  String? _pickupInAnotherTown;
+  String? _dropInAnotherTown;
   String? _pickupError;
   String? _dropError;
   final _weightKg = TextEditingController();
@@ -297,9 +300,15 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
     return null;
   }
 
+  /// Why Find trips cannot run yet, or null: a dragged pin still being named (a lane card would carry
+  /// the old name), or a pin in another town than its address.
+  String? get _searchBlockedBy => _namingPickupPin || _namingDropPin
+      ? "Updating address from pin…"
+      : _pickupInAnotherTown ?? _dropInAnotherTown;
+
   Future<void> _search() async {
-    // Try again stays tappable while a dragged pin is named; a lane card would carry the old name.
-    if (_namingPickupPin || _namingDropPin) return;
+    // Try again stays tappable, so it checks too.
+    if (_searchBlockedBy != null) return;
     final weightKg = int.tryParse(_weightKg.text.trim()) ?? 0;
     final pickupPoint = _pickupPin;
     final dropPoint = _dropPin;
@@ -426,6 +435,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             }),
             onPinStale: () => setState(() => _pickupPin = null),
             onPinNaming: (naming) => setState(() => _namingPickupPin = naming),
+            onPinInAnotherTown: (warning) =>
+                setState(() => _pickupInAnotherTown = warning),
             showMap: _pickupPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
@@ -449,6 +460,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             }),
             onPinStale: () => setState(() => _dropPin = null),
             onPinNaming: (naming) => setState(() => _namingDropPin = naming),
+            onPinInAnotherTown: (warning) =>
+                setState(() => _dropInAnotherTown = warning),
             showMap: _dropPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
@@ -469,10 +482,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             label: "Find trips",
             fullWidth: true,
             loading: _searching,
-            onPressed: _namingPickupPin || _namingDropPin ? null : _search,
-            disabledReason: _namingPickupPin || _namingDropPin
-                ? "Updating address from pin…"
-                : null),
+            onPressed: _searchBlockedBy == null ? _search : null,
+            disabledReason: _searchBlockedBy),
         if (_failed) ...[
           const SizedBox(height: NvSpace.s3),
           NvListError(

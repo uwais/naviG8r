@@ -9,6 +9,7 @@ import 'package:driver_pilot/shipper/book_a_lane.dart';
 import 'package:driver_pilot/shipper/shipper_routes.dart';
 import 'package:driver_pilot/customer_session.dart';
 import 'package:driver_pilot/google_geocoding.dart';
+import 'package:driver_pilot/location_editor.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/ui/nv_action_bar.dart';
 import 'package:driver_pilot/ui/nv_button.dart';
@@ -364,6 +365,69 @@ void main() {
           reason:
               'Rishabh, 21 Oct 2026: keep the typed address; the drag moves only the point');
       expect((booked['drop'] as Map)['lat'], 13.05);
+    });
+
+    testWidgets(
+        'a pin dragged into another town than the typed address blocks Book and pay until they agree',
+        (tester) async {
+      var pinAddress = 'Bagalur Road, Hosur, Tamil Nadu 635109, India';
+      final server = await showShipperApp(tester, searchedBook,
+          namePin: (point) async => GeocodeOutcome.ok(point, pinAddress),
+          initialExtra: searchedPlaces);
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).onPressed, isNotNull);
+
+      pinIn(tester, 'Drop').onDragEnd!(const LatLng(12.74, 77.83));
+      await tester.pumpAndSettle();
+      const warning =
+          'The pin is in Hosur, but the address says Chennai. Move the pin or change the address.';
+      expect(
+          find.descendant(
+              of: find.byType(LocationEndpointEditor), matching: find.text(warning)),
+          findsOneWidget,
+          reason: 'second review: the warning shows under the box');
+      expect(bookButton(tester).onPressed, isNull,
+          reason: 'a pin in another town is treated as no pin');
+      expect(bookButton(tester).label, 'Book and pay',
+          reason: 'no price is shown for a pin the address disagrees with');
+      expect(
+          find.descendant(
+              of: find.byType(NvActionBar), matching: find.text(warning)),
+          findsOneWidget,
+          reason: 'a disabled button says why');
+
+      pinAddress = '14, Lattice Bridge Rd, Adyar, Chennai, Tamil Nadu 600020, India';
+      pinIn(tester, 'Drop').onDragEnd!(const LatLng(13.05, 80.25));
+      await tester.pumpAndSettle();
+      expect(find.text(warning), findsNothing);
+      expect(bookButton(tester).label, 'Book and pay ₹2,640',
+          reason: 'moving the pin back into the town of the address lifts the block');
+      expect(bookButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets(
+        'changing the address to the town of a dragged pin lifts the block and keeps the pin',
+        (tester) async {
+      final server = await showShipperApp(tester, searchedBook,
+          namePin: (point) async => GeocodeOutcome.ok(
+              point, 'Bagalur Road, Hosur, Tamil Nadu 635109, India'),
+          initialExtra: searchedPlaces);
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
+      await tester.pumpAndSettle();
+      pinIn(tester, 'Drop').onDragEnd!(const LatLng(12.74, 77.83));
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).onPressed, isNull);
+
+      await tester.enterText(placeField('Drop'), 'Plot 4, Bagalur Road, Hosur');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('The pin is in Hosur'), findsNothing);
+      expect(pinIn(tester, 'Drop').position, const LatLng(12.74, 77.83),
+          reason: 'the dragged pin stays for the words that now agree with it');
+      expect(bookButton(tester).label, 'Book and pay ₹2,640');
+      expect(bookButton(tester).onPressed, isNotNull);
     });
 
     testWidgets(

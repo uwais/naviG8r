@@ -346,6 +346,7 @@ class LocationEndpointEditor extends StatefulWidget {
     required this.onPositionChanged,
     this.onPinStale,
     this.onPinNaming,
+    this.onPinInAnotherTown,
     this.readOnly = false,
     this.showApiKeyHint = true,
     this.showMap = true,
@@ -369,6 +370,11 @@ class LocationEndpointEditor extends StatefulWidget {
   /// Called with true while a dragged pin's town name is being looked up, and false once it is
   /// settled. [onPositionChanged] reports the pin before the name, so the words lag until then.
   final ValueChanged<bool>? onPinNaming;
+
+  /// Called with the warning shown under the box when a dragged pin lands in another town than the
+  /// typed address names, and with null once they agree or the pin is searched again or dropped.
+  /// A screen treats the place as having no pin while the warning stands.
+  final ValueChanged<String?>? onPinInAnotherTown;
 
   /// True while the place is being sent, so the words, search and pin stay as they were sent.
   final bool readOnly;
@@ -407,6 +413,10 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   // The words the pin was placed for: a trip's city name, or a pickup or drop's words as searched or
   // typed. Null when any words go with the pin (no pin yet, or a drag whose place is still being named).
   String? _pinFoundFor;
+  // The town of the address Google gives for a dragged pickup or drop pin, kept while the shipper's
+  // own words stay in the box; null after a search, a drag into an empty box, or no answer.
+  String? _townAtPin;
+  String? _pinInAnotherTown;
   // A pickup or drop map goes to street level once, after a search or the first drag.
   bool _atStreetLevel = false;
 
@@ -436,17 +446,39 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
         townOfAddress(words).toLowerCase() == townOfAddress(pinFoundFor).toLowerCase();
   }
 
+  /// Warns, and tells the screen, while the dragged pin's town differs from the typed words' town.
+  void _checkPinTown() {
+    final townAtPin = _townAtPin;
+    final typedTown = townOfAddress(widget.labelController.text.trim());
+    final warning = townAtPin == null || townAtPin.toLowerCase() == typedTown.toLowerCase()
+        ? null
+        : "The pin is in $townAtPin, but the address says $typedTown. Move the pin or change the address.";
+    if (warning == _pinInAnotherTown) return;
+    setState(() => _pinInAnotherTown = warning);
+    widget.onPinInAnotherTown?.call(warning);
+  }
+
   void _wordsChanged() {
     final pinFoundFor = _pinFoundFor;
-    if (pinFoundFor == null ||
-        _wordsStillFitThePin(widget.labelController.text.trim(), pinFoundFor)) {
+    if (pinFoundFor == null) return;
+    final words = widget.labelController.text.trim();
+    final townAtPin = _townAtPin;
+    // A pin in another town: words changed to name the pin's own town now agree with it, so it stays.
+    if (_pinInAnotherTown != null &&
+        townAtPin != null &&
+        townOfAddress(words).toLowerCase() == townAtPin.toLowerCase()) {
+      _pinFoundFor = words;
+      _checkPinTown();
       return;
     }
+    if (_wordsStillFitThePin(words, pinFoundFor)) return;
     _pinFoundFor = null;
+    _townAtPin = null;
     setState(() {
       _hintLine = null;
       _searchTried = false;
     });
+    _checkPinTown();
     widget.onPinStale?.call();
   }
 
@@ -500,11 +532,13 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
         ? widget.labelController.text
         : outcome.placeName ?? widget.labelController.text;
     _pinFoundFor = name.trim();
+    _townAtPin = null;
     setState(() {
       _pos = p;
       _hintLine = outcome.formattedAddress;
       widget.labelController.text = name;
     });
+    _checkPinTown();
     widget.onPositionChanged(p);
     _atStreetLevel = widget.keepsFullAddress;
     await _map?.animateCamera(CameraUpdate.newLatLngZoom(p, _zoomForAPlace));
@@ -513,12 +547,14 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   Future<void> _onDragEnd(LatLng p) async {
     // The dragged pin is the person's choice of place; only a name found for it ties it to words.
     _pinFoundFor = null;
+    _townAtPin = null;
     setState(() {
       _pos = p;
       _hintLine = null;
       // A search still out is overtaken by the drag and will not answer, so its spinner goes now.
       _lookupBusy = false;
     });
+    _checkPinTown();
     widget.onPositionChanged(p);
     if (widget.keepsFullAddress && !_atStreetLevel) {
       _atStreetLevel = true;
@@ -539,9 +575,12 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     final typed = widget.labelController.text.trim();
     if (widget.keepsFullAddress && typed.isNotEmpty) {
       _pinFoundFor = typed;
-      setState(() => _hintLine = outcome.isOk
-          ? "Pin is near: ${outcome.formattedAddress}"
+      final pinAddress = outcome.isOk ? outcome.formattedAddress : null;
+      _townAtPin = pinAddress == null ? null : townOfAddress(pinAddress);
+      setState(() => _hintLine = pinAddress != null
+          ? "Pin is near: $pinAddress"
           : "Could not check the address at the pin. Make sure the pin is in the right place.");
+      _checkPinTown();
       return;
     }
     final name = !outcome.isOk
@@ -602,6 +641,19 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
             child: Text(
               _hintLine!,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+        ],
+        if (_pinInAnotherTown != null) ...[
+          const SizedBox(height: 6),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              _pinInAnotherTown!,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: scheme.error, fontWeight: FontWeight.w600),
             ),
           ),
         ],
