@@ -66,8 +66,43 @@ Widget routePreviewMap({
   );
 }
 
-/// Route + optional live driver position (customer tracking).
+/// How long the truck pin takes to reach a new position, so it glides there instead of jumping.
+const truckPinGlide = Duration(milliseconds: 1500);
+
+/// The straight line between two map points. With no earlier point the pin starts where it is.
+class _LatLngTween extends Tween<LatLng?> {
+  _LatLngTween({super.begin, super.end});
+
+  @override
+  LatLng? lerp(double t) {
+    final from = begin, to = end;
+    if (from == null || to == null) return to;
+    return LatLng(from.latitude + (to.latitude - from.latitude) * t,
+        from.longitude + (to.longitude - from.longitude) * t);
+  }
+}
+
+/// Route + optional live driver position (customer tracking). A new [driver] position glides
+/// there over [truckPinGlide] from the one shown.
 Widget tripTrackingMap({
+  required LatLng origin,
+  required LatLng destination,
+  LatLng? driver,
+  LatLng? pickup,
+  LatLng? drop,
+}) =>
+    TweenAnimationBuilder<LatLng?>(
+      tween: _LatLngTween(begin: driver, end: driver),
+      duration: truckPinGlide,
+      builder: (_, shownDriver, __) => _tripTrackingMapWithDriverAt(
+          origin: origin,
+          destination: destination,
+          driver: shownDriver,
+          pickup: pickup,
+          drop: drop),
+    );
+
+Widget _tripTrackingMapWithDriverAt({
   required LatLng origin,
   required LatLng destination,
   LatLng? driver,
