@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'support/shipper_lanes_app.dart';
+import 'support/shipper_screen_checks.dart';
 
 void main() {
   group('Book', () {
@@ -109,7 +110,7 @@ void main() {
         expect(find.text(address), findsNWidgets(2),
             reason: 'under its place box, and again in the check by the map');
       }
-      expect(find.text('Plot 12, Bommasandra'), findsWidgets,
+      expect(find.text('Pickup: Plot 12, Bommasandra'), findsOneWidget,
           reason: 'the check shows the typed words beside the pin they go with');
     });
 
@@ -235,5 +236,98 @@ void main() {
           reason: 'the searched place is priced');
     });
 
+    testWidgets('words typed after the pins check shows are the words it shows',
+        (tester) async {
+      await showPricedBook(tester, height: 4000);
+      expect(find.text('Pickup: Bommasandra, Bengaluru'), findsOneWidget,
+          reason: 'the check is there before any typing');
+      await tester.enterText(placeField('Pickup'), 'Plot 12, Bommasandra');
+      await tester.pumpAndSettle();
+      expect(find.text('Pickup: Plot 12, Bommasandra'), findsOneWidget,
+          reason: 'review: the check showed the words from before the typing');
+      expect(find.text('Pickup: Bommasandra, Bengaluru'), findsNothing);
+    });
+
+    testWidgets('Book and pay waits while a place search is out, then goes on',
+        (tester) async {
+      final found = Completer<GeocodeOutcome>();
+      final server = await showShipperApp(tester, searchedBook,
+          findPlace: (_) => found.future, initialExtra: searchedPlaces);
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).onPressed, isNotNull);
+      await tester.enterText(placeField('Drop'), 'Adyar, Chennai');
+      await tester.tap(find.descendant(
+          of: placeBox('Drop'), matching: find.byTooltip('Search for place')));
+      await pumpWhileWaiting(tester);
+      expect(bookButton(tester).onPressed, isNull,
+          reason: 'review: the answer would move the pin after paying');
+      expect(
+          find.descendant(
+              of: find.byType(NvActionBar),
+              matching: find.text('Searching for the place…')),
+          findsOneWidget,
+          reason: 'a disabled button says why');
+      found.complete(GeocodeOutcome.ok(const LatLng(13.0, 80.25),
+          'Adyar, Chennai, Tamil Nadu 600020, India', 'Chennai'));
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).onPressed, isNotNull);
+      expect((server.sentTo('/shipments/quote').last['drop'] as Map)['lng'], 80.25,
+          reason: 'the place found is priced before booking');
+    });
+
+    testWidgets('the pins on Book are labelled Pickup and Drop', (tester) async {
+      await showPricedBook(tester, height: 4000);
+      final bothPins = tester
+          .widgetList<GoogleMap>(find.byType(GoogleMap))
+          .where((map) => map.markers.length == 2)
+          .single
+          .markers;
+      expect(bothPins.map((pin) => pin.infoWindow.title), unorderedEquals(['Pickup', 'Drop']),
+          reason: 'review: which pin is which, when tapped');
+      expect(pinIn(tester, 'Pickup').infoWindow.title, 'Pickup');
+      expect(pinIn(tester, 'Drop').infoWindow.title, 'Drop');
+    });
+
+    testWidgets('the place boxes ask for the address for the driver', (tester) async {
+      await showPricedBook(tester);
+      for (final title in ['Pickup', 'Drop']) {
+        final box = tester.widget<TextField>(placeField(title)).decoration!;
+        expect(box.labelText, 'Address for the driver', reason: title);
+        expect(box.hintText, 'House or plot, street, area', reason: title);
+      }
+    });
+
+    testWidgets(
+        'a pin naming still out when its box scrolls off screen still lets Book and pay go on',
+        (tester) async {
+      final address = Completer<GeocodeOutcome>();
+      final server = await showShipperApp(tester, searchedBook,
+          height: 800,
+          namePin: (_) => address.future,
+          initialExtra: searchedPlaces);
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
+      await tester.pumpAndSettle();
+      await scrollTo(tester,
+          find.descendant(of: placeBox('Pickup'), matching: find.byType(GoogleMap)));
+      pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.85, 77.65));
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).onPressed, isNull,
+          reason: 'waiting for the pin to be named');
+      final list = tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      list.jumpTo(list.maxScrollExtent);
+      await tester.pumpAndSettle();
+      expect(placeBox('Pickup'), findsNothing, reason: 'the box is off screen');
+      address.complete(GeocodeOutcome.ok(const LatLng(12.85, 77.65),
+          'Electronic City, Bengaluru, Karnataka 560100, India', 'Bengaluru'));
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).onPressed, isNotNull,
+          reason: 'review: a box scrolled off screen lost the naming, and Book and pay waited for ever');
+      expect(find.text('Pin: Electronic City, Bengaluru, Karnataka 560100, India'),
+          findsOneWidget,
+          reason: 'the pins check shows the address the pin was named');
+    });
   });
 }

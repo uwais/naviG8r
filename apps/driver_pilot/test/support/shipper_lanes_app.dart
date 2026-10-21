@@ -184,11 +184,11 @@ const searchedPlaces = SearchedPlaces(
     pickup: (
         words: 'Bommasandra, Bengaluru',
         point: LatLng(12.8, 77.7),
-        pinAddress: 'Bommasandra, Bengaluru, Karnataka 560099, India'),
+        pinAddress: (address: 'Bommasandra, Bengaluru, Karnataka 560099, India', lookupFailed: false)),
     drop: (
         words: 'Guindy, Chennai',
         point: LatLng(13.0, 80.2),
-        pinAddress: 'Guindy, Chennai, Tamil Nadu 600032, India'));
+        pinAddress: (address: 'Guindy, Chennai, Tamil Nadu 600032, India', lookupFailed: false)));
 
 /// The fake price: ₹33 a kg, so 80 kg is ₹2,640 and 90 kg is ₹2,970.
 ResponseBody priceByWeight(RequestOptions request) => jsonResponse({

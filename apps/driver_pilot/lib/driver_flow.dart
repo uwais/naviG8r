@@ -1970,22 +1970,22 @@ class _DriverShipmentDetailScreenState
       if (_seesPaymentAmounts)
         switch (status) {
           "DELIVERED" => const NvStep(
-              title: "Payment released",
+              title: "Delivery checked by NaviG8r",
               who: "NaviG8r",
               state: NvStepState.done),
           "PENDING_RELEASE" => const NvStep(
-              title: "Waiting for NaviG8r to release the payment",
+              title: "Waiting for NaviG8r to check the delivery",
               who: "NaviG8r",
               state: NvStepState.waiting),
           _ => const NvStep(
-              title: "Payment released",
+              title: "Delivery checked by NaviG8r",
               who: "NaviG8r",
               state: NvStepState.later),
         }
       // After delivery a dispatcher reads "Nothing more for you to do" instead of the payment step.
       else if (!delivered)
         const NvStep(
-            title: "Payment released",
+            title: "Delivery checked by NaviG8r",
             who: "NaviG8r",
             state: NvStepState.later),
     ];

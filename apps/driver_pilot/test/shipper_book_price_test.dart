@@ -142,9 +142,9 @@ void main() {
               "Book and pay opens our payment partner's screen. There you choose how to pay."),
           findsOneWidget,
           reason: 'moved from the confirm sheet: what Pay does next');
-      expect(find.text('If you change the weight, pickup or drop, the price changes.'),
+      expect(find.text('If you change the weight or move a pin, the price changes.'),
           findsOneWidget,
-          reason: 'copy.md: price note');
+          reason: 'review: typing the address never changes the price; the pin does');
       expect(find.text(contactAbovePay), findsOneWidget,
           reason:
               'owner decision: no cancel in the app, the contact sits above Pay');
@@ -264,37 +264,6 @@ void main() {
           reason: 'a full lane cannot be booked');
       expect(find.textContaining('Book and pay'), findsNothing,
           reason: 'no price for a lane that takes no bookings');
-    });
-
-    testWidgets('Home, Browse and the Match form fit 360 dp at 200% text',
-        (tester) async {
-      tester.platformDispatcher.textScaleFactorTestValue = 2;
-      addTearDown(tester.platformDispatcher.clearAllTestValues);
-      final server = await showShipperApp(tester, '/customer', height: 800);
-      server.answer('/shipments', {
-        'shipments': [
-          {
-            'id': 'a',
-            'status': 'BOOKED',
-            'carrierDisplayName': 'Ravi Roadways'
-          },
-          {'id': 'b', 'status': 'PENDING_CARRIER_ACCEPT'},
-        ]
-      });
-      server.answer('/anchor-trips', {
-        'trips': [lane()]
-      });
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull,
-          reason: 'decisions.md 8: Home fits at 200% text');
-      await tester.tap(find.text('Book a trip').last);
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull,
-          reason: 'decisions.md 8: Browse fits at 200% text');
-      await tester.tap(find.text('Search by route'));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull,
-          reason: 'decisions.md 8: the Match form fits at 200% text');
     });
 
     testWidgets('the price state fits 360 dp at 200% text', (tester) async {

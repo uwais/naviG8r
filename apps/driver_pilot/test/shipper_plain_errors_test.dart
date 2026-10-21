@@ -60,7 +60,7 @@ void main() {
             statusCode: 400,
             data: {'error': 'address_too_long'}));
     expect(plainErrorSentence(refusal, 'Could not book.'),
-        'The pickup or drop address is over 500 characters. Shorten it.');
+        'That address is too long. Shorten it.');
   });
 
   tearDown(() {

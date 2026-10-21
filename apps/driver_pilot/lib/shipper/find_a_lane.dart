@@ -266,10 +266,12 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   final _dropName = TextEditingController();
   LatLng? _pickupPin;
   LatLng? _dropPin;
-  String? _pickupPinAddress;
-  String? _dropPinAddress;
+  PinAddress? _pickupPinAddress;
+  PinAddress? _dropPinAddress;
   bool _namingPickupPin = false;
   bool _namingDropPin = false;
+  bool _searchingPickup = false;
+  bool _searchingDrop = false;
   String? _pickupError;
   String? _dropError;
   final _weightKg = TextEditingController();
@@ -299,10 +301,14 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
     return null;
   }
 
-  /// Why Find trips cannot run yet, or null: a dragged pin still being named (a lane card would carry
-  /// the old name, or no name, to Book).
-  String? get _searchBlockedBy =>
-      _namingPickupPin || _namingDropPin ? "Updating address from pin…" : null;
+  /// Why Find trips cannot run yet, or null: a place search still out (it would move a pin after the
+  /// trips were found), or a dragged pin still being named (a lane card would carry the old name, or
+  /// no name, to Book).
+  String? get _searchBlockedBy => _searchingPickup || _searchingDrop
+      ? "Searching for the place…"
+      : _namingPickupPin || _namingDropPin
+          ? "Updating address from pin…"
+          : null;
 
   Future<void> _search() async {
     // Try again stays tappable, so it checks too.
@@ -426,7 +432,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
         _placeWithError(
           LocationEndpointEditor(
             title: "Pickup",
-            hint: "City or area",
+            hint: "Address for the driver",
+            example: "House or plot, street, area",
             labelController: _pickupName,
             markerId: "match_pickup",
             markerHue: BitmapDescriptor.hueGreen,
@@ -436,6 +443,9 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
               _pickupError = null;
             }),
             onPinNaming: (naming) => setState(() => _namingPickupPin = naming),
+            onSearching: (searching) =>
+                setState(() => _searchingPickup = searching),
+            pinAddress: _pickupPinAddress,
             onPinAddress: (address) =>
                 setState(() => _pickupPinAddress = address),
             readOnly: _searching,
@@ -451,7 +461,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
         _placeWithError(
           LocationEndpointEditor(
             title: "Drop",
-            hint: "City or area",
+            hint: "Address for the driver",
+            example: "House or plot, street, area",
             labelController: _dropName,
             markerId: "match_drop",
             markerHue: BitmapDescriptor.hueRed,
@@ -461,6 +472,9 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
               _dropError = null;
             }),
             onPinNaming: (naming) => setState(() => _namingDropPin = naming),
+            onSearching: (searching) =>
+                setState(() => _searchingDrop = searching),
+            pinAddress: _dropPinAddress,
             onPinAddress: (address) =>
                 setState(() => _dropPinAddress = address),
             readOnly: _searching,

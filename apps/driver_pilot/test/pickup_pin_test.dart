@@ -103,13 +103,23 @@ void main() {
         reason: 'a search pick shows the address the pin went to');
   });
 
-  testWidgets('a dragged pin Google cannot name says so on its Pin line', (tester) async {
+  testWidgets('a dragged pin whose lookup failed says so on its Pin line', (tester) async {
     await _mountPickup(tester,
         startingPin: const LatLng(13.0, 80.2),
         startingWords: 'Plot 12, Adyar, Chennai',
         namePin: (point) async => GeocodeOutcome.fail('NETWORK'));
     await _drag(tester, const LatLng(13.05, 80.25));
-    expect(find.text('Pin: address not known. Check the pin on the map.'), findsOneWidget);
+    expect(find.text('Pin: could not look up this spot. Check the pin on the map.'), findsOneWidget);
+  });
+
+  testWidgets('a dragged pin Google has no address for says so on its Pin line', (tester) async {
+    await _mountPickup(tester,
+        startingPin: const LatLng(13.0, 80.2),
+        startingWords: 'Plot 12, Adyar, Chennai',
+        namePin: (point) async => GeocodeOutcome.fail('ZERO_RESULTS'));
+    await _drag(tester, const LatLng(13.05, 80.25));
+    expect(find.text('Pin: Google has no address for this spot. Check the pin on the map.'), findsOneWidget,
+        reason: 'review: no address is not the same as a failed lookup');
   });
 
   testWidgets('after a drag, any words typed keep the pin, even another town',
@@ -258,5 +268,47 @@ void main() {
           keepsFullAddress: false);
       expect(_openingZoom(tester), 12);
     });
+  });
+
+  testWidgets('a search answer that comes back once the box is read-only changes nothing',
+      (tester) async {
+    final found = Completer<GeocodeOutcome>();
+    final words = TextEditingController(text: 'Guindy, Chennai');
+    addTearDown(words.dispose);
+    var readOnly = false;
+    LatLng? movedTo;
+    final searching = <bool>[];
+    late StateSetter rebuild;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SingleChildScrollView(
+                child: StatefulBuilder(builder: (context, setState) {
+      rebuild = setState;
+      return LocationEndpointEditor(
+        title: 'Drop',
+        hint: 'Address for the driver',
+        labelController: words,
+        markerId: 'drop',
+        markerHue: BitmapDescriptor.hueRed,
+        position: const LatLng(13.0, 80.2),
+        onPositionChanged: (pin) => movedTo = pin,
+        onSearching: searching.add,
+        readOnly: readOnly,
+        findPlace: (_) => found.future,
+        keepsFullAddress: true,
+      );
+    })))));
+    await tester.tap(find.byTooltip('Search for place'));
+    await tester.pump();
+    expect(searching, [true], reason: 'the screen hears a search is out');
+    rebuild(() => readOnly = true);
+    await tester.pump();
+    found.complete(GeocodeOutcome.ok(const LatLng(12.8, 77.7), _searchedAddress, 'Bengaluru'));
+    await tester.pumpAndSettle();
+    expect(searching, [true, false], reason: 'and that it is over');
+    expect(movedTo, isNull, reason: 'review: the place being sent must not move under it');
+    expect(words.text, 'Guindy, Chennai');
+    expect(tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.single.position,
+        const LatLng(13.0, 80.2));
   });
 }

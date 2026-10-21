@@ -39,7 +39,7 @@ const _couldNotPrice =
     "Could not get a price. Check your connection, then try again.";
 
 const _priceChangesNote =
-    "If you change the weight, pickup or drop, the price changes.";
+    "If you change the weight or move a pin, the price changes.";
 
 /// What the price depends on. A place without a name counts as not found, so nothing is booked
 /// under an empty name.
@@ -55,7 +55,7 @@ class SearchedPlaces {
 }
 
 /// A place as the match search left it: the typed words, the pin, and Google's address for the pin.
-typedef SearchedPlace = ({String words, LatLng? point, String? pinAddress});
+typedef SearchedPlace = ({String words, LatLng? point, PinAddress? pinAddress});
 
 class CustomerBookShipmentScreen extends StatefulWidget {
   const CustomerBookShipmentScreen({
@@ -108,10 +108,12 @@ class _CustomerBookShipmentScreenState
       TextEditingController(text: widget.searchedDrop?.words ?? "");
   late LatLng? _pickupPin = widget.searchedPickup?.point;
   late LatLng? _dropPin = widget.searchedDrop?.point;
-  late String? _pickupPinAddress = widget.searchedPickup?.pinAddress;
-  late String? _dropPinAddress = widget.searchedDrop?.pinAddress;
+  late PinAddress? _pickupPinAddress = widget.searchedPickup?.pinAddress;
+  late PinAddress? _dropPinAddress = widget.searchedDrop?.pinAddress;
   bool _namingPickupPin = false;
   bool _namingDropPin = false;
+  bool _searchingPickup = false;
+  bool _searchingDrop = false;
   String? _weightError;
   bool _tooHeavy = false;
   Map<String, dynamic>? _lane;
@@ -150,8 +152,11 @@ class _CustomerBookShipmentScreenState
     for (final input in [_weightKg, _pickupName, _dropName]) {
       input.addListener(_priceInputsChanged);
     }
-    // Capacity remaining follows every keystroke, even one that leaves the price inputs the same.
-    _weightKg.addListener(() => setState(() {}));
+    // Capacity remaining and the pins check follow every keystroke, even one that leaves the price
+    // inputs the same.
+    for (final input in [_weightKg, _pickupName, _dropName]) {
+      input.addListener(() => setState(() {}));
+    }
     scheduleMicrotask(_loadLane);
   }
 
@@ -414,6 +419,8 @@ class _CustomerBookShipmentScreenState
 
   /// What still has to be filled in before there is a price, or null when nothing is missing.
   String? _missingBeforePrice() {
+    // A search still out would move a pin after Book and pay; wait for it.
+    if (_searchingPickup || _searchingDrop) return "Searching for the place…";
     // A dragged pin is priced at once but named later; booking before then sends the old name.
     if (_namingPickupPin || _namingDropPin) return "Updating address from pin…";
     final inputs = _priceInputs;
@@ -494,9 +501,9 @@ class _CustomerBookShipmentScreenState
                 const SizedBox(height: NvSpace.s3),
                 const Text(_priceChangesNote, style: NvText.caption),
               ],
-              if (_pinsCheck() case final pinsCheck?) ...[
+              if (_placesToCheck case final places?) ...[
                 const SizedBox(height: NvSpace.s4),
-                pinsCheck,
+                BookPinsCheck(pickup: places.pickup, drop: places.drop),
               ],
             ],
           ],
@@ -505,17 +512,15 @@ class _CustomerBookShipmentScreenState
     );
   }
 
-  /// Both pins on one map once both places are in, last above Book and pay (owner, 21 Oct 2026):
-  /// the pin decides the place, so the shipper checks it there.
-  Widget? _pinsCheck() {
+  /// Both places for the pins check, once both are in: on one map last in the list (owner, 21 Oct
+  /// 2026). The pin decides the place, so the shipper checks it.
+  ({BookPlace pickup, BookPlace drop})? get _placesToCheck {
     final (pickup: pickupPin, drop: dropPin, weightKg: _) = _priceInputs;
     if (pickupPin == null || dropPin == null) return null;
-    String pinLine(bool naming, String? address) =>
-        naming ? "Updating address from pin…" : pinAddressLine(address);
-    return _PinsCheck(pickupPin: pickupPin, dropPin: dropPin, places: [
-      ("Pickup: ${_pickupName.text.trim()}", pinLine(_namingPickupPin, _pickupPinAddress)),
-      ("Drop: ${_dropName.text.trim()}", pinLine(_namingDropPin, _dropPinAddress)),
-    ]);
+    return (
+      pickup: (words: _pickupName.text.trim(), pin: pickupPin, pinAddress: _pickupPinAddress, naming: _namingPickupPin),
+      drop: (words: _dropName.text.trim(), pin: dropPin, pinAddress: _dropPinAddress, naming: _namingDropPin),
+    );
   }
 
   List<Widget> _fields(Map<String, dynamic> lane) {
@@ -534,7 +539,8 @@ class _CustomerBookShipmentScreenState
       // Each map shows once its place has a pin; a place from the match search arrives with one.
       LocationEndpointEditor(
         title: "Pickup",
-        hint: "City or area",
+        hint: "Address for the driver",
+        example: "House or plot, street, area",
         labelController: _pickupName,
         markerId: "book_pickup",
         markerHue: BitmapDescriptor.hueGreen,
@@ -544,6 +550,7 @@ class _CustomerBookShipmentScreenState
           _priceInputsChanged();
         },
         onPinNaming: (naming) => setState(() => _namingPickupPin = naming),
+        onSearching: (searching) => setState(() => _searchingPickup = searching),
         pinAddress: _pickupPinAddress,
         onPinAddress: (address) =>
             setState(() => _pickupPinAddress = address),
@@ -553,11 +560,14 @@ class _CustomerBookShipmentScreenState
         findPlace: widget.findPlace,
         namePin: widget.namePin,
         keepsFullAddress: true,
+        // A drag naming or a search still out when the box scrolls off screen would be lost.
+        staysAliveOffScreen: true,
       ),
       const SizedBox(height: NvSpace.s4),
       LocationEndpointEditor(
         title: "Drop",
-        hint: "City or area",
+        hint: "Address for the driver",
+        example: "House or plot, street, area",
         labelController: _dropName,
         markerId: "book_drop",
         markerHue: BitmapDescriptor.hueRed,
@@ -567,6 +577,7 @@ class _CustomerBookShipmentScreenState
           _priceInputsChanged();
         },
         onPinNaming: (naming) => setState(() => _namingDropPin = naming),
+        onSearching: (searching) => setState(() => _searchingDrop = searching),
         pinAddress: _dropPinAddress,
         onPinAddress: (address) =>
             setState(() => _dropPinAddress = address),
@@ -576,6 +587,8 @@ class _CustomerBookShipmentScreenState
         findPlace: widget.findPlace,
         namePin: widget.namePin,
         keepsFullAddress: true,
+        // A drag naming or a search still out when the box scrolls off screen would be lost.
+        staysAliveOffScreen: true,
       ),
       // Last in the list: a row added above the place boxes would rebuild them and lose their search state.
       if (_tooHeavy) ...[
@@ -764,16 +777,15 @@ class _PriceCard extends StatelessWidget {
       );
 }
 
-/// Both pins on one map, each with the words typed for it and Google's address for the pin, so the
-/// shipper checks by eye before Book and pay: the pin decides the place and the price, the words are
-/// what the driver reads.
-class _PinsCheck extends StatelessWidget {
-  const _PinsCheck({required this.pickupPin, required this.dropPin, required this.places});
-  final LatLng pickupPin;
-  final LatLng dropPin;
+/// A place on Book as the check shows it: the words typed, its pin, Google's address for the pin, and
+/// whether a dragged pin is still being named.
+typedef BookPlace = ({String words, LatLng pin, PinAddress? pinAddress, bool naming});
 
-  /// Each place's typed words, then its Pin line.
-  final List<(String, String)> places;
+/// Both pins on one map, each with the words typed for it and its Pin line, below the place boxes.
+class BookPinsCheck extends StatelessWidget {
+  const BookPinsCheck({required this.pickup, required this.drop, super.key});
+  final BookPlace pickup;
+  final BookPlace drop;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -788,11 +800,16 @@ class _PinsCheck extends StatelessWidget {
             const Text("Check the pins before you pay", style: NvText.heading),
             const SizedBox(height: NvSpace.s3),
             // The same pin colours as the place boxes: pickup green, drop red.
-            routePreviewMap(a: pickupPin, b: dropPin),
-            for (final (words, pinLine) in places) ...[
+            routePreviewMap(
+                a: pickup.pin, b: drop.pin, aLabel: "Pickup", bLabel: "Drop"),
+            for (final (title, place) in [("Pickup", pickup), ("Drop", drop)]) ...[
               const SizedBox(height: NvSpace.s3),
-              Text(words, style: NvText.bodyStrong),
-              Text(pinLine, style: NvText.caption),
+              Text("$title: ${place.words}", style: NvText.bodyStrong),
+              Text(
+                  place.naming
+                      ? "Updating address from pin…"
+                      : pinAddressLine(place.pinAddress),
+                  style: NvText.caption),
             ],
           ],
         ),

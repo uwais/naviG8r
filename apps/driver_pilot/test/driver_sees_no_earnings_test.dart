@@ -14,7 +14,7 @@ import 'support/mock_api.dart';
 
 /// Any word about the carrier's pay, whatever its case: a check by exact text passed with payment words on screen.
 final paymentWords = RegExp(
-    r'payment|ledger|earn|net to carrier|net-to-carrier',
+    r'payment|pays you|ledger|earn|fee|you receive|₹|net to carrier|net-to-carrier',
     caseSensitive: false);
 
 /// Every word the screen shows right now, snackbars included.
@@ -149,9 +149,25 @@ void main() {
           findsOneWidget,
           reason:
               'copy.md payment (owner only), without the bank digits the API does not send');
-      expect(find.text('Waiting for NaviG8r to release the payment'), findsOneWidget,
-          reason: 'second review: the hold step says who it waits for, not that money is moving');
+      expect(find.text('Waiting for NaviG8r to check the delivery'), findsOneWidget,
+          reason: 'review: payouts are not live, so the step says what NaviG8r does, not that money moves');
+      expect(find.textContaining('release'), findsNothing);
       expect(find.text('Payment being released'), findsNothing);
+    });
+
+    testWidgets('tells the owner NaviG8r checked the delivery, never that a payment was released',
+        (tester) async {
+      signInAsCarrierOwner();
+      api.dio.httpClientAdapter = MockApiAdapter((_) => jsonResponse({
+            'shipments': [
+              {...deliveredShipment(withPaymentHold: true), 'status': 'DELIVERED'}
+            ]
+          }));
+      await mountScreen(
+          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
+      expect(find.text('Delivery checked by NaviG8r'), findsOneWidget,
+          reason: 'review: payouts are not live, so nothing is said to be paid out');
+      expect(find.textContaining('released'), findsNothing);
     });
   });
 

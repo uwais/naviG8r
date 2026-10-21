@@ -10,23 +10,27 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 import "google_geocoding.dart";
 
 /// Read-only route line between two points (publish / book preview). [aPinHue] and [bPinHue] let a
-/// screen match the pins of its own place boxes.
+/// screen match the pins of its own place boxes; [aLabel] and [bLabel] name a pin when it is tapped.
 Widget routePreviewMap({
   required LatLng a,
   required LatLng b,
   double aPinHue = BitmapDescriptor.hueGreen,
   double bPinHue = BitmapDescriptor.hueRed,
+  String? aLabel,
+  String? bLabel,
 }) {
   final markers = <Marker>{
     Marker(
       markerId: const MarkerId("route_a"),
       position: a,
       icon: BitmapDescriptor.defaultMarkerWithHue(aPinHue),
+      infoWindow: aLabel == null ? InfoWindow.noText : InfoWindow(title: aLabel),
     ),
     Marker(
       markerId: const MarkerId("route_b"),
       position: b,
       icon: BitmapDescriptor.defaultMarkerWithHue(bPinHue),
+      infoWindow: bLabel == null ? InfoWindow.noText : InfoWindow(title: bLabel),
     ),
   };
   final line = Polyline(
@@ -336,10 +340,18 @@ const pinNotPlacedYet = LatLng(22.5, 79.0);
 /// The longest pickup or drop address the server takes (maxAddressLength in the API's services.ts).
 const maxAddressCharacters = 500;
 
+/// Google's address for a pickup or drop pin, or none: [lookupFailed] when the lookup itself failed (no
+/// connection, a refused key), false when Google has no address for the spot.
+typedef PinAddress = ({String? address, bool lookupFailed});
+
 /// Google's address for a pickup or drop pin, under its box and again on Book, so the shipper checks
 /// the pin itself whatever the typed words say.
-String pinAddressLine(String? pinAddress) =>
-    "Pin: ${pinAddress ?? "address not known. Check the pin on the map."}";
+String pinAddressLine(PinAddress? pin) => switch (pin) {
+      (address: final String address, lookupFailed: _) => "Pin: $address",
+      (address: null, lookupFailed: true) =>
+        "Pin: could not look up this spot. Check the pin on the map.",
+      _ => "Pin: Google has no address for this spot. Check the pin on the map.",
+    };
 
 /// Place search and a draggable pin. [labelController] holds the words sent with the pin: a city for a
 /// trip's From and To, the full address for a booking's pickup and drop ([keepsFullAddress]).
@@ -348,6 +360,7 @@ class LocationEndpointEditor extends StatefulWidget {
     super.key,
     required this.title,
     required this.hint,
+    this.example,
     required this.labelController,
     required this.markerId,
     required this.markerHue,
@@ -355,6 +368,7 @@ class LocationEndpointEditor extends StatefulWidget {
     required this.onPositionChanged,
     this.onPinStale,
     this.onPinNaming,
+    this.onSearching,
     this.pinAddress,
     this.onPinAddress,
     this.readOnly = false,
@@ -363,10 +377,16 @@ class LocationEndpointEditor extends StatefulWidget {
     this.findPlace = GoogleGeocodingService.forwardAddress,
     this.namePin = GoogleGeocodingService.reverseLatLng,
     this.keepsFullAddress = false,
+    this.staysAliveOffScreen = false,
   });
 
   final String title;
+
+  /// The box's label.
   final String hint;
+
+  /// Greyed words in the empty box, showing what to type.
+  final String? example;
   final TextEditingController labelController;
   final String markerId;
   final double markerHue;
@@ -382,12 +402,16 @@ class LocationEndpointEditor extends StatefulWidget {
   /// settled. [onPositionChanged] reports the pin before the name, so the words lag until then.
   final ValueChanged<bool>? onPinNaming;
 
+  /// Called with true while a place search is out, and false once it answers or is overtaken, so the
+  /// screen waits instead of going on with the place as it was.
+  final ValueChanged<bool>? onSearching;
+
   /// Google's address for a pickup or drop pin the screen already holds, as the match search found it.
-  final String? pinAddress;
+  final PinAddress? pinAddress;
 
   /// Called with Google's address for a pickup or drop pin each time the pin is set, and with null
-  /// while a dragged pin is being named or when Google gives none.
-  final ValueChanged<String?>? onPinAddress;
+  /// while a dragged pin is being named.
+  final ValueChanged<PinAddress?>? onPinAddress;
 
   /// True while the place is being sent, so the words, search and pin stay as they were sent.
   final bool readOnly;
@@ -407,11 +431,19 @@ class LocationEndpointEditor extends StatefulWidget {
   /// at street level. Pass [GoogleGeocodingService.reverseAddress] as [namePin].
   final bool keepsFullAddress;
 
+  /// True keeps the box in memory when a list scrolls it off screen, so a search or a pin naming
+  /// still out is not lost with it.
+  final bool staysAliveOffScreen;
+
   @override
   State<LocationEndpointEditor> createState() => _LocationEndpointEditorState();
 }
 
-class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
+class _LocationEndpointEditorState extends State<LocationEndpointEditor>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => widget.staysAliveOffScreen;
+
   /// Street level for a pickup or drop, to place the pin at a gate; a trip's town is seen whole.
   double get _zoomForAPlace => widget.keepsFullAddress ? 17 : 12;
 
@@ -427,7 +459,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   // A trip's city name the pin was found for. Null when any words go with the pin (no pin yet, or a
   // drag whose place is still being named).
   String? _pinFoundFor;
-  late String? _pinAddress = widget.pinAddress;
+  late PinAddress? _pinAddress = widget.pinAddress;
   // A pickup or drop map goes to street level once, after a search or the first drag.
   bool _atStreetLevel = false;
 
@@ -469,9 +501,15 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     }
   }
 
-  void _setPinAddress(String? pinAddress) {
+  void _setPinAddress(PinAddress? pinAddress) {
     setState(() => _pinAddress = pinAddress);
     if (widget.keepsFullAddress) widget.onPinAddress?.call(pinAddress);
+  }
+
+  void _setSearching(bool searching) {
+    if (searching == _lookupBusy) return;
+    setState(() => _lookupBusy = searching);
+    widget.onSearching?.call(searching);
   }
 
   @override
@@ -495,16 +533,16 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     final lookup = ++_newestLookup;
     if (_reverseBusy) widget.onPinNaming?.call(false);
     setState(() {
-      _lookupBusy = true;
       _reverseBusy = false;
       _hintLine = null;
     });
+    _setSearching(true);
     final outcome = await widget.findPlace(widget.labelController.text);
     if (!mounted || lookup != _newestLookup) return;
-    setState(() {
-      _lookupBusy = false;
-      _searchTried = true;
-    });
+    _setSearching(false);
+    // The place is being sent, and the words, search and pin stay as they were sent.
+    if (widget.readOnly) return;
+    setState(() => _searchTried = true);
     if (!outcome.isOk) {
       setState(() => _hintLine = placeSearchFailureSentence(outcome.failure, pinOnMap: true));
       if (outcome.status == "NO_API_KEY" && mounted && widget.showApiKeyHint && kDebugMode) {
@@ -529,7 +567,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
         _hintLine = outcome.formattedAddress;
       }
     });
-    _setPinAddress(outcome.formattedAddress);
+    _setPinAddress((address: outcome.formattedAddress, lookupFailed: false));
     widget.onPositionChanged(p);
     _atStreetLevel = widget.keepsFullAddress;
     await _map?.animateCamera(CameraUpdate.newLatLngZoom(p, _zoomForAPlace));
@@ -541,9 +579,9 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     setState(() {
       _pos = p;
       _hintLine = null;
-      // A search still out is overtaken by the drag and will not answer, so its spinner goes now.
-      _lookupBusy = false;
     });
+    // A search still out is overtaken by the drag and will not answer, so its spinner goes now.
+    _setSearching(false);
     _setPinAddress(null);
     widget.onPositionChanged(p);
     if (widget.keepsFullAddress && !_atStreetLevel) {
@@ -561,7 +599,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     if (widget.keepsFullAddress) {
       final pinAddress = outcome.isOk ? outcome.formattedAddress : null;
       setState(() => _fillEmptyBox(pinAddress));
-      _setPinAddress(pinAddress);
+      _setPinAddress((address: pinAddress, lookupFailed: !outcome.isOk && outcome.failure != PlaceSearchFailure.notFound));
       return;
     }
     // Without a key nothing can name the pin, so the name typed by hand stays.
@@ -585,6 +623,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final scheme = Theme.of(context).colorScheme;
     final caption = Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     return Column(
@@ -598,6 +637,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
           maxLength: widget.keepsFullAddress ? maxAddressCharacters : null,
           decoration: InputDecoration(
             labelText: widget.hint,
+            hintText: widget.example,
             suffixIcon: _lookupBusy
                 ? const Padding(
                     padding: EdgeInsets.all(12),
@@ -642,6 +682,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
                     position: _pos,
                     draggable: !widget.readOnly,
                     icon: BitmapDescriptor.defaultMarkerWithHue(widget.markerHue),
+                    infoWindow: InfoWindow(title: widget.title),
                     onDragEnd: _onDragEnd,
                   ),
                 },

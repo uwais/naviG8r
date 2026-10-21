@@ -398,6 +398,105 @@ void main() {
       expect(find.text('Bengaluru to Chennai'), findsOneWidget,
           reason: 'See all trips switches to Browse');
     });
+
+    testWidgets('Home, Browse and the Match form fit 360 dp at 200% text',
+        (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+      final server = await showShipperApp(tester, '/customer', height: 800);
+      server.answer('/shipments', {
+        'shipments': [
+          {
+            'id': 'a',
+            'status': 'BOOKED',
+            'carrierDisplayName': 'Ravi Roadways'
+          },
+          {'id': 'b', 'status': 'PENDING_CARRIER_ACCEPT'},
+        ]
+      });
+      server.answer('/anchor-trips', {
+        'trips': [lane()]
+      });
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull,
+          reason: 'decisions.md 8: Home fits at 200% text');
+      await tester.tap(find.text('Book a trip').last);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull,
+          reason: 'decisions.md 8: Browse fits at 200% text');
+      await tester.tap(find.text('Search by route'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull,
+          reason: 'decisions.md 8: the Match form fits at 200% text');
+    });
+
+    testWidgets('Find trips waits while a place search is out', (tester) async {
+      final found = Completer<GeocodeOutcome>();
+      final server = await showShipperApp(tester, '/customer/trips?tab=match',
+          findPlace: (place) => place.contains('Adyar')
+              ? found.future
+              : findAnyPlace(place));
+      server.answer('/v1/customer/eligible-anchor-trips', {'trips': []});
+      await tester.pumpAndSettle();
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await tester.enterText(field('Weight'), '80');
+      await tester.enterText(placeField('Drop'), 'Adyar, Chennai');
+      await tester.tap(find.descendant(
+          of: placeBox('Drop'), matching: find.byTooltip('Search for place')));
+      await pumpWhileWaiting(tester);
+      FilledButton findTrips() => tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Find trips'));
+      expect(findTrips().onPressed, isNull,
+          reason: 'review: the answer would move the pin after the trips were found');
+      expect(find.text('Searching for the place…'), findsOneWidget,
+          reason: 'a disabled button says why');
+      found.complete(GeocodeOutcome.ok(const LatLng(13.0, 80.25),
+          'Adyar, Chennai, Tamil Nadu 600020, India', 'Chennai'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Find trips'));
+      await tester.pumpAndSettle();
+      expect(
+          server.requests
+              .lastWhere((request) =>
+                  request.uri.path == '/v1/customer/eligible-anchor-trips')
+              .uri
+              .queryParameters['dropLng'],
+          '80.25',
+          reason: 'the place found is the one matched');
+    });
+
+    testWidgets('after Change, each place box still shows its Pin line', (tester) async {
+      final server = await showShipperApp(tester, '/customer/trips?tab=match');
+      server.answer('/v1/customer/eligible-anchor-trips', {'trips': []});
+      await tester.pumpAndSettle();
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await tester.enterText(field('Weight'), '80');
+      await tester.tap(find.text('Find trips'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Change'));
+      await tester.pumpAndSettle();
+      for (final (title, address) in [
+        ('Pickup', 'Bommasandra, Bengaluru'),
+        ('Drop', 'Guindy, Chennai'),
+      ]) {
+        expect(
+            find.descendant(of: placeBox(title), matching: find.text('Pin: $address')),
+            findsOneWidget,
+            reason: 'review: Find did not hand the box its pin address, as Book does');
+      }
+    });
+
+    testWidgets('Match asks for the address for the driver', (tester) async {
+      await showShipperApp(tester, '/customer/trips?tab=match');
+      await tester.pumpAndSettle();
+      for (final title in ['Pickup', 'Drop']) {
+        final box = tester.widget<TextField>(placeField(title)).decoration!;
+        expect(box.labelText, 'Address for the driver', reason: title);
+        expect(box.hintText, 'House or plot, street, area', reason: title);
+      }
+    });
   });
 
   announcementTests();
