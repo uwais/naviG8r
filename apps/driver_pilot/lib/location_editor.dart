@@ -70,21 +70,8 @@ Widget routePreviewMap({
 /// How long the truck pin takes to reach a new position, so it glides there instead of jumping.
 const truckPinGlide = Duration(milliseconds: 1500);
 
-/// The straight line between two map points. With no earlier point the pin starts where it is.
-class _LatLngTween extends Tween<LatLng?> {
-  _LatLngTween({super.begin, super.end});
-
-  @override
-  LatLng? lerp(double t) {
-    final from = begin, to = end;
-    if (from == null || to == null) return to;
-    return LatLng(from.latitude + (to.latitude - from.latitude) * t,
-        from.longitude + (to.longitude - from.longitude) * t);
-  }
-}
-
 /// Route + optional live driver position (customer tracking). A new [driver] position glides
-/// there over [truckPinGlide] from the one shown.
+/// there over [truckPinGlide] from the one shown; a first position, or none, shows at once.
 Widget tripTrackingMap({
   required LatLng origin,
   required LatLng destination,
@@ -92,85 +79,148 @@ Widget tripTrackingMap({
   LatLng? pickup,
   LatLng? drop,
 }) =>
-    TweenAnimationBuilder<LatLng?>(
-      tween: _LatLngTween(begin: driver, end: driver),
-      duration: truckPinGlide,
-      builder: (_, shownDriver, __) => _tripTrackingMapWithDriverAt(
-          origin: origin,
-          destination: destination,
-          driver: shownDriver,
-          pickup: pickup,
-          drop: drop),
+    _TripTrackingMap(
+        origin: origin,
+        destination: destination,
+        driver: driver,
+        pickup: pickup,
+        drop: drop);
+
+class _TripTrackingMap extends StatefulWidget {
+  const _TripTrackingMap({
+    required this.origin,
+    required this.destination,
+    this.driver,
+    this.pickup,
+    this.drop,
+  });
+
+  final LatLng origin;
+  final LatLng destination;
+  final LatLng? driver;
+  final LatLng? pickup;
+  final LatLng? drop;
+
+  @override
+  State<_TripTrackingMap> createState() => _TripTrackingMapState();
+}
+
+class _TripTrackingMapState extends State<_TripTrackingMap>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _glide =
+      AnimationController(vsync: this, duration: truckPinGlide);
+  LatLng? _glideFrom;
+
+  @override
+  void didUpdateWidget(_TripTrackingMap old) {
+    super.didUpdateWidget(old);
+    if (widget.driver == old.driver) return;
+    final shown = _shownDriverGoingTo(old.driver);
+    if (shown == null || widget.driver == null) {
+      _glideFrom = null;
+      _glide.value = 1;
+    } else {
+      _glideFrom = shown;
+      _glide.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _glide.dispose();
+    super.dispose();
+  }
+
+  LatLng? _shownDriver() => _shownDriverGoingTo(widget.driver);
+
+  LatLng? _shownDriverGoingTo(LatLng? to) {
+    final from = _glideFrom;
+    if (from == null || to == null) return to;
+    final t = _glide.value;
+    return LatLng(from.latitude + (to.latitude - from.latitude) * t,
+        from.longitude + (to.longitude - from.longitude) * t);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pickup = widget.pickup, drop = widget.drop, driver = widget.driver;
+    final placeMarkers = <Marker>{
+      Marker(
+        markerId: const MarkerId("track_origin"),
+        position: widget.origin,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+      ),
+      Marker(
+        markerId: const MarkerId("track_dest"),
+        position: widget.destination,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      ),
+      if (pickup != null)
+        Marker(
+          markerId: const MarkerId("track_pickup"),
+          position: pickup,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        ),
+      if (drop != null)
+        Marker(
+          markerId: const MarkerId("track_drop"),
+          position: drop,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+        ),
+    };
+    final points = <LatLng>[
+      widget.origin,
+      widget.destination,
+      if (pickup != null) pickup,
+      if (drop != null) drop,
+      if (driver != null) driver,
+    ];
+    final bounds = _boundsForPoints(points);
+    final polylines = <Polyline>{
+      Polyline(
+        polylineId: const PolylineId("track_lane"),
+        points: [widget.origin, widget.destination],
+        width: 4,
+        color: const Color(0xFF3F51B5),
+      ),
+    };
+
+    return SizedBox(
+      height: 220,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        // A glide frame rebuilds only the marker set; the lane, bounds and place pins are made per update.
+        child: AnimatedBuilder(
+          animation: _glide,
+          builder: (_, __) {
+            final shownDriver = _shownDriver();
+            return GoogleMap(
+              initialCameraPosition: CameraPosition(target: widget.origin, zoom: 6),
+              markers: {
+                ...placeMarkers,
+                if (shownDriver != null)
+                  Marker(
+                    markerId: const MarkerId("track_driver"),
+                    position: shownDriver,
+                    icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
+                    infoWindow: const InfoWindow(title: "Driver"),
+                  ),
+              },
+              polylines: polylines,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              onMapCreated: (controller) async {
+                if (bounds == null) return;
+                try {
+                  await controller.moveCamera(CameraUpdate.newLatLngBounds(bounds, 48));
+                } catch (_) {}
+              },
+            );
+          },
+        ),
+      ),
     );
-
-Widget _tripTrackingMapWithDriverAt({
-  required LatLng origin,
-  required LatLng destination,
-  LatLng? driver,
-  LatLng? pickup,
-  LatLng? drop,
-}) {
-  final markers = <Marker>{
-    Marker(
-      markerId: const MarkerId("track_origin"),
-      position: origin,
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-    ),
-    Marker(
-      markerId: const MarkerId("track_dest"),
-      position: destination,
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-    ),
-    if (pickup != null)
-      Marker(
-        markerId: const MarkerId("track_pickup"),
-        position: pickup,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-      ),
-    if (drop != null)
-      Marker(
-        markerId: const MarkerId("track_drop"),
-        position: drop,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
-      ),
-    if (driver != null)
-      Marker(
-        markerId: const MarkerId("track_driver"),
-        position: driver,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
-        infoWindow: const InfoWindow(title: "Driver"),
-      ),
-  };
-  final points = <LatLng>[origin, destination, if (pickup != null) pickup, if (drop != null) drop, if (driver != null) driver];
-  final bounds = _boundsForPoints(points);
-  final polylines = <Polyline>{
-    Polyline(
-      polylineId: const PolylineId("track_lane"),
-      points: [origin, destination],
-      width: 4,
-      color: const Color(0xFF3F51B5),
-    ),
-  };
-
-  return SizedBox(
-    height: 220,
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: GoogleMap(
-        initialCameraPosition: CameraPosition(target: origin, zoom: 6),
-        markers: markers,
-        polylines: polylines,
-        myLocationButtonEnabled: false,
-        zoomControlsEnabled: false,
-        onMapCreated: (controller) async {
-          if (bounds == null) return;
-          try {
-            await controller.moveCamera(CameraUpdate.newLatLngBounds(bounds, 48));
-          } catch (_) {}
-        },
-      ),
-    ),
-  );
+  }
 }
 
 LatLng? latLngFromGeoMap(Map<String, dynamic>? parent, String field) {
