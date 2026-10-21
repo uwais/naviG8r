@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/carrier_app.dart';
+import 'support/carrier_fixtures.dart' show carrierOrganization;
 import 'support/mock_api.dart';
 
 /// 23:59 India time tomorrow, as a shipper types a bill's valid-until.
@@ -308,6 +309,23 @@ void main() {
   });
 
   group('Profile (dr-profile)', () {
+    testWidgets('a driver with no truck is told who adds one', (tester) async {
+      signInToCarrierApp(CarrierServer(
+          allowed: driverAllowed,
+          subrole: 'DRIVER',
+          extraAnswers: {
+            '/v1/pilot/me': {
+              'organizations': [carrierOrganization],
+              'vehicles': <Object>[],
+            },
+          }));
+      await mountCarrierApp(tester, '/driver/profile');
+      expect(find.text('No truck yet. Ask your owner to add your truck.'),
+          findsOneWidget,
+          reason: 'a driver cannot add a company truck, so the next step is to ask');
+      expect(find.text('You have no trucks yet.'), findsNothing);
+    });
+
     testWidgets('who the driver is and Sign out, with no bank, earnings or payouts',
         (tester) async {
       signInAsDriver();

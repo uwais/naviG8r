@@ -2595,12 +2595,15 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
               : "Trucks (${rows.length})",
       children: [
         const SizedBox(height: NvSpace.s2),
-        if (rows.isEmpty && !fleetFailed) ...[
-          const Text("You have no trucks yet.", style: NvText.body),
-          if (DriverSession.canInviteDrivers)
+        if (rows.isEmpty && !fleetFailed)
+          if (DriverSession.canInviteDrivers) ...[
+            const Text("You have no trucks yet.", style: NvText.body),
             const Text("To add a truck, add its driver with Add driver.",
                 style: NvText.caption),
-        ],
+          ] else
+            // Only someone who can add drivers can add a truck, so the next step is to ask.
+            const Text("No truck yet. Ask your owner to add your truck.",
+                style: NvText.body),
         for (final (index, row) in rows.indexed) ...[
           if (index > 0) const Divider(height: 1, color: NvColors.line),
           row,
