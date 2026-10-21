@@ -81,7 +81,9 @@ test("a driver gets 403 on earnings, ledger and payout batches, and no carrier m
     const rows = (await get("/v1/pilot/carrier/shipments", token)).shipments as Array<{ id: string; netToCarrierPaise?: number }>;
     assert.equal(typeof rows.find((row) => row.id === delivered)?.netToCarrierPaise, "number", `${who} still sees net to carrier`);
     const heard = (await get("/v1/notifications", token)).notifications as Array<{ eventKey: string; shipmentId: string }>;
-    assert.ok(heard.some((item) => item.eventKey === "payment.status_changed" && item.shipmentId === refunded), `${who} is told about the payment`);
+    // Owner, 21 Oct 2026: dispatchers keep the money figures but get no payment notices.
+    const toldOfPayment = heard.some((item) => item.eventKey === "payment.status_changed" && item.shipmentId === refunded);
+    assert.equal(toldOfPayment, who !== "dispatcher", `${who} ${who === "dispatcher" ? "is not" : "is"} told about the payment`);
   }
   const summary = (await get(`/v1/pilot/carrier/earnings?orgId=${orgId}`, tokens.ownerDriver)).summary as Record<string, unknown>;
   assert.equal(typeof summary.pendingAccruedPaise, "number");

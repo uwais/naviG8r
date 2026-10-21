@@ -5,7 +5,8 @@ import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { httpFixture } from "../test/httpFixtures.ts";
-import { authorizationContext } from "./rbac.ts";
+import { listConversationTimeline, listGroupedNotifications, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
+import { authorizationContext, resolvePrincipal } from "./rbac.ts";
 import { inviteCarrierDriver, registerCustomerUser } from "./services.ts";
 
 /** Carrier A with a dispatcher and a driver on the fixture's trip, all signed in. */
@@ -45,8 +46,7 @@ test("the shipper who books gets no notice of their own booking; the carrier doe
   assert.equal(heard(f, f.shipperA.user.id, "shipment.booked", shipmentId), false);
   assert.equal(heard(f, f.carrierA.user.id, "shipment.booked", shipmentId), true);
 });
-
-test("a payment change with no person behind it still goes to everyone who may hear it, drivers excepted", async t => {
+test("a payment change with no person behind it goes to the shipper and the carrier owner, never a dispatcher or driver", async t => {
   const { f, dispatcher, driver } = await carrierWithStaff(t);
   const booked = (await f.book()).body.shipment;
   const shipmentId = booked.id as string;
@@ -55,8 +55,53 @@ test("a payment change with no person behind it still goes to everyone who may h
     f.store.payments.set(payment.id, { ...payment, status: "REFUNDED", updatedAtUtcMs: Date.now() });
     await f.persist();
   });
-  for (const [who, userId] of [["the shipper", f.shipperA.user.id], ["the owner", f.carrierA.user.id], ["the dispatcher", dispatcher.user.id]] as const) {
+  for (const [who, userId] of [["the shipper", f.shipperA.user.id], ["the owner", f.carrierA.user.id]] as const) {
     assert.equal(heard(f, userId, "payment.status_changed", shipmentId), true, who);
   }
+  // Owner, 21 Oct 2026: dispatchers do not get payment notices.
+  assert.equal(heard(f, dispatcher.user.id, "payment.status_changed", shipmentId), false, "never a dispatcher");
   assert.equal(heard(f, driver.user.id, "payment.status_changed", shipmentId), false, "never a driver");
+});
+
+test("a dispatcher's payment notice from before the rule is hidden from the inbox, the grouped inbox and the timeline", async t => {
+  const { f, orgId, dispatcher, tokens } = await carrierWithStaff(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  f.store.notifications.set("synthetic-old-payment", {
+    id: "synthetic-old-payment", recipientSequence: ++f.store.notificationSequence,
+    eventId: "synthetic-old-payment-event", eventKey: "payment.status_changed",
+    recipientUserId: dispatcher.user.id, recipientOrgId: orgId, shipmentId, conversationId: shipmentId,
+    createdAtUtcMs: Date.now(), data: { shipmentId, audience: "CARRIER", title: "Payment status updated", body: "A payment status for this load changed." },
+  });
+  const inbox = await f.request("/v1/notifications", "GET", undefined, tokens.dispatcher);
+  assert.equal(inbox.status, 200);
+  assert.equal(inbox.body.notifications.some((n: { eventKey: string }) => n.eventKey.startsWith("payment.")), false, "flat inbox");
+  const grouped = await f.request("/v1/notifications/shipments", "GET", undefined, tokens.dispatcher);
+  assert.equal(grouped.status, 200);
+  const group = (grouped.body.shipments as Array<{ shipmentId: string; unreadCount: number }>).find(g => g.shipmentId === shipmentId);
+  assert.equal(group?.unreadCount ?? 0, 1, "the grouped count leaves the payment notice out; the booking notice stays");
+  const timeline = await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, tokens.dispatcher);
+  assert.equal(timeline.status, 200);
+  assert.equal(timeline.body.items.some((item: { eventKey?: string }) => item.eventKey?.startsWith("payment.")), false, "timeline");
+});
+
+test("the database readers are told to leave payment notices out for a dispatcher and a driver, not the owner", async t => {
+  const { f, dispatcher, driver } = await carrierWithStaff(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  const asked: boolean[] = [];
+  const groupedReader: GroupedInboxPageReader = async request => {
+    asked.push(request.hidePaymentNotices);
+    return { notificationSequence: f.store.notificationSequence, unreadCount: 0, groups: [] };
+  };
+  const timelineReader: TimelinePageReader = async request => {
+    asked.push(request.hidePaymentNotices);
+    return { messages: [], notifications: [], notificationSequence: f.store.notificationSequence, messageSequence: 0 };
+  };
+  for (const [who, userId, hidden] of [["the dispatcher", dispatcher.user.id, true], ["the driver", driver.user.id, true], ["the owner", f.carrierA.user.id, false]] as const) {
+    asked.length = 0;
+    await authorizationContext.run({ principal: resolvePrincipal(f.store, userId), requestId: "synthetic" }, async () => {
+      await listGroupedNotifications(f.store, 30, undefined, groupedReader);
+      await listConversationTimeline(f.store, shipmentId, 50, undefined, timelineReader);
+    });
+    assert.deepEqual(asked, [hidden, hidden], who);
+  }
 });

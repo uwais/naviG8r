@@ -134,8 +134,8 @@ function notificationRecipients(store: Store, shipment: Shipment, eventKey: stri
   for (const [orgId, role] of orgs) {
     if (!orgId) continue;
     for (const membership of store.memberships.values()) {
-      // A driver hears only about shipments on their own trip, push included, and never about payments.
-      const mayHear = assignedDriverMaySee(store, { internal: false, subrole: membership.role, userId: membership.userId }, shipment) && !(membership.role === "DRIVER" && eventKey === "payment.status_changed");
+      // A driver hears only about shipments on their own trip, push included; see mustNotHearPaymentEvent.
+      const mayHear = assignedDriverMaySee(store, { internal: false, subrole: membership.role, userId: membership.userId }, shipment) && !mustNotHearPaymentEvent(membership.role, eventKey);
       if (membership.orgId === orgId && membership.userId !== actorUserId && mayHear && eligibleActor(store, membership.userId, orgId, role)) recipients.push({ userId: membership.userId, orgId, role });
     }
   }
@@ -188,17 +188,20 @@ function notificationBody(eventKey: string, role: "SHIPPER" | "CARRIER"): string
   return values[role === "SHIPPER" ? 0 : 1];
 }
 
-// A driver never sees a payment notice. New ones are not written to drivers; this hides the rows written
-// before the 15 Oct decision, which are still in the store.
-function hiddenFromDriver(principal: Principal, n: Notification): boolean {
-  return principal.subrole === "DRIVER" && n.eventKey.startsWith("payment.");
+export const PAYMENT_EVENT_PREFIX = "payment.";
+
+// Payment notices reach neither a carrier's drivers (15 Oct 2026) nor its dispatchers (owner, 21 Oct 2026).
+// The one rule for which notices are written and, since rows written before it are still stored, which
+// are shown. The database readers apply it in SQL, through hidePaymentNotices.
+export function mustNotHearPaymentEvent(memberRole: string, eventKey: string): boolean {
+  return (memberRole === "DRIVER" || memberRole === "DISPATCHER") && eventKey.startsWith(PAYMENT_EVENT_PREFIX);
 }
 
 export function listNotifications(store: Store, limit = 30, before?: string) {
   const principal = principalFor(store);
   requirePermission(store, "notification.read");
   const pageSize = Math.max(1, Math.min(100, Number.isFinite(limit) ? Math.trunc(limit) : 30));
-  const all = [...store.notifications.values()].filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && !hiddenFromDriver(principal, n))
+  const all = [...store.notifications.values()].filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && !mustNotHearPaymentEvent(principal.subrole, n.eventKey))
     .filter(n => {
       const shipment = store.shipments.get(n.shipmentId);
       if (!shipment || !isActiveEntity(shipment)) return false;
@@ -241,6 +244,8 @@ type TimelineCursor = {
 export type TimelinePageRequest = {
   conversationId: string; shipmentId: string; userId: string; orgId: string; limit: number;
   notificationSequence?: number; messageSequence?: number; before?: TimelineKey;
+  /** Leave payment notices out in the query, so the page size and hasMore count only rows shown. */
+  hidePaymentNotices: boolean;
 };
 export type TimelinePageSource = {
   messages: ConversationMessage[]; notifications: Notification[];
@@ -256,6 +261,8 @@ export type GroupedInboxPageRequest = {
   limit: number;
   notificationSequence?: number;
   before?: { latestAt: number; shipmentId: string };
+  /** Leave payment notices out in the query, so the counts and paging match what is shown. */
+  hidePaymentNotices: boolean;
 };
 export type GroupedInboxPageSource = {
   notificationSequence: number;
@@ -300,7 +307,7 @@ export async function listConversationTimeline(store: Store, shipmentId: string,
   const cursorScope = { v: 1 as const, userId: principal.userId, orgId: principal.organizationId, shipmentId, limit: pageSize };
   const decoded = before ? decodeTimelineCursor(before, cursorScope) : undefined;
   const snapshot = readPage
-    ? await readPage({ conversationId: conversation.id, shipmentId, userId: principal.userId, orgId: principal.organizationId, limit: pageSize, ...(decoded ? { notificationSequence: decoded.notificationSequence, messageSequence: decoded.messageSequence, before: decoded.before } : {}) })
+    ? await readPage({ conversationId: conversation.id, shipmentId, userId: principal.userId, orgId: principal.organizationId, limit: pageSize, hidePaymentNotices: mustNotHearPaymentEvent(principal.subrole, PAYMENT_EVENT_PREFIX), ...(decoded ? { notificationSequence: decoded.notificationSequence, messageSequence: decoded.messageSequence, before: decoded.before } : {}) })
     : {
       notificationSequence: decoded?.notificationSequence ?? store.notificationSequence,
       messageSequence: decoded?.messageSequence ?? [...store.conversationMessages.values()].filter(m => m.conversationId === conversation.id).reduce((max, m) => Math.max(max, m.sequence), 0),
@@ -313,7 +320,7 @@ export async function listConversationTimeline(store: Store, shipmentId: string,
     .filter(m => m.conversationId === conversation.id && m.sequence <= messageSequence)
     .map(m => ({ type: "message", id: m.id, createdAtUtcMs: m.createdAtUtcMs, sequence: m.sequence, senderUserId: m.senderUserId, senderOrgId: m.senderOrgId, body: m.body }));
   const events: TimelineItem[] = principal.roles.includes("OPS") ? [] : snapshot.notifications
-    .filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && n.shipmentId === shipmentId && (n.conversationId === conversation.id || n.conversationId == null) && n.recipientSequence <= notificationSequence && n.eventKey !== "conversation.message" && !hiddenFromDriver(principal, n))
+    .filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && n.shipmentId === shipmentId && (n.conversationId === conversation.id || n.conversationId == null) && n.recipientSequence <= notificationSequence && n.eventKey !== "conversation.message" && !mustNotHearPaymentEvent(principal.subrole, n.eventKey))
     .map(n => ({ type: "event", id: n.id, createdAtUtcMs: n.createdAtUtcMs, recipientSequence: n.recipientSequence, eventKey: n.eventKey, title: String(n.data?.title ?? "Shipment update"), body: String(n.data?.body ?? "There is an update for this shipment."), ...(n.readAtUtcMs == null ? {} : { readAtUtcMs: n.readAtUtcMs }) }));
   const all = [...messages, ...events];
   const eligible = decoded ? all.filter(item => compareTimelineKeys(keyForTimelineItem(item), decoded.before) < 0) : all;
@@ -353,6 +360,7 @@ export async function listGroupedNotifications(store: Store, limit = 30, before?
       isShipper: principal.roles.includes("SHIPPER"),
       isCarrier: principal.roles.includes("CARRIER"),
       limit: pageSize,
+      hidePaymentNotices: mustNotHearPaymentEvent(principal.subrole, PAYMENT_EVENT_PREFIX),
       ...(before ? { notificationSequence, before: cursor } : {}),
     });
     const hasMore = page.groups.length > pageSize;
@@ -370,7 +378,7 @@ export async function listGroupedNotifications(store: Store, limit = 30, before?
   }
   const groups = new Map<string, { shipmentId: string; latestAtUtcMs: number; unreadCount: number }>();
   for (const n of store.notifications.values()) {
-    if (n.recipientUserId !== principal.userId || n.recipientOrgId !== principal.organizationId || n.recipientSequence > notificationSequence || hiddenFromDriver(principal, n)) continue;
+    if (n.recipientUserId !== principal.userId || n.recipientOrgId !== principal.organizationId || n.recipientSequence > notificationSequence || mustNotHearPaymentEvent(principal.subrole, n.eventKey)) continue;
     const shipment = store.shipments.get(n.shipmentId);
     if (!shipment || !isActiveEntity(shipment)) continue;
     const belongs = (principal.roles.includes("SHIPPER") && shipment.customerOrgId === principal.organizationId) || (principal.roles.includes("CARRIER") && shipment.carrierId === principal.organizationId);

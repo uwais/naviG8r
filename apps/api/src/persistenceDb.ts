@@ -450,6 +450,7 @@ export const readTimelinePageFromDatabase: TimelinePageReader = async request =>
       FROM "NotificationRow"
       WHERE "recipientUserId" = ${request.userId} AND "recipientOrgId" = ${request.orgId} AND "shipmentId" = ${request.shipmentId}
         AND "recipientSequence" <= ${BigInt(notificationSequence)} AND "eventKey" <> 'conversation.message'
+        ${request.hidePaymentNotices ? Prisma.sql`AND "eventKey" NOT LIKE 'payment.%'` : Prisma.empty}
         AND ("conversationId" = ${request.conversationId} OR "conversationId" IS NULL)
       ${eventCursor}
       ORDER BY "createdAtUtcMs" DESC, "id" COLLATE "C" DESC
@@ -467,6 +468,8 @@ export const readTimelinePageFromDatabase: TimelinePageReader = async request =>
 /** Aggregate shipment inbox rows in PostgreSQL and fetch only the requested page. */
 export const readGroupedInboxPageFromDatabase: GroupedInboxPageReader = async request => {
   const notificationSequence = request.notificationSequence ?? Number((await prisma.notificationRow.aggregate({ _max: { recipientSequence: true } }))._max.recipientSequence ?? 0n);
+  // mustNotHearPaymentEvent in SQL, so a group of only payment notices, and their unread count, never appear.
+  const paymentNotices = request.hidePaymentNotices ? Prisma.sql`AND n."eventKey" NOT LIKE 'payment.%'` : Prisma.empty;
   const [groupRows, unreadRow] = await Promise.all([
     prisma.$queryRaw<Array<{ shipmentId: string; latestAtUtcMs: bigint; unreadCount: bigint; shipmentReference: string | null }>>(Prisma.sql`
       SELECT n."shipmentId",
@@ -479,6 +482,7 @@ export const readGroupedInboxPageFromDatabase: GroupedInboxPageReader = async re
         AND n."recipientOrgId" = ${request.orgId}
         AND n."recipientSequence" <= ${BigInt(notificationSequence)}
         AND s."inactiveAtUtcMs" IS NULL
+        ${paymentNotices}
         AND ((${request.isShipper} = TRUE AND s."customerOrgId" = ${request.orgId})
           OR (${request.isCarrier} = TRUE AND s."carrierId" = ${request.orgId}))
       GROUP BY n."shipmentId"
@@ -494,6 +498,7 @@ export const readGroupedInboxPageFromDatabase: GroupedInboxPageReader = async re
         AND n."recipientOrgId" = ${request.orgId}
         AND n."recipientSequence" <= ${BigInt(notificationSequence)}
         AND s."inactiveAtUtcMs" IS NULL
+        ${paymentNotices}
         AND ((${request.isShipper} = TRUE AND s."customerOrgId" = ${request.orgId})
           OR (${request.isCarrier} = TRUE AND s."carrierId" = ${request.orgId}))
     `),
