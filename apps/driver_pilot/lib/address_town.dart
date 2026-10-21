@@ -16,6 +16,9 @@ const _statesAndTerritories = {
 /// names it is the town instead ("New Delhi, Delhi").
 const _territoriesThatAreCities = {"chandigarh", "delhi", "puducherry"};
 
+/// Puducherry's towns away from the city: "Karaikal, Puducherry 609602, India" is in Karaikal.
+const _puducherryTowns = {"karaikal", "mahe", "mahé", "yanam"};
+
 final _pinCode = RegExp(r"\s*\b\d{6}\b\s*");
 
 /// A Google plus code at the start of a part: "J8V2+QW Hoskote".
@@ -40,7 +43,7 @@ String townOfAddress(String address) {
     if (!_statesAndTerritories.contains(name)) return false;
     if (!_territoriesThatAreCities.contains(name)) return true;
     final before = parts.length > 1 ? parts[parts.length - 2].toLowerCase() : "";
-    return before.contains(name);
+    return before.contains(name) || (name == "puducherry" && _puducherryTowns.contains(before));
   }
 
   while (parts.length > 1 && notATown(parts.last)) {

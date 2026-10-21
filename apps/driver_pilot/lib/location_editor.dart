@@ -477,6 +477,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     if (_wordsStillFitThePin(words, pinFoundFor)) return;
     _pinFoundFor = null;
     _townAtPin = null;
+    // The map goes away with the pin; the next one opens zoomed out, so the next drag zooms in again.
+    _atStreetLevel = false;
     setState(() {
       _hintLine = null;
       _searchTried = false;

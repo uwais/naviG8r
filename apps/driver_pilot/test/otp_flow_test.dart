@@ -357,7 +357,8 @@ void main() {
       return jsonResponse({}, 401);
     });
     final router = GoRouter(
-        initialLocation: '/customer/login?phone=9876543210',
+        initialLocation: '/customer/login',
+        initialExtra: const PhoneForSignIn('9876543210'),
         routes: customerFlowRoutes());
     addTearDown(router.dispose);
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
@@ -365,7 +366,7 @@ void main() {
     expect(
         tester.widget<TextField>(find.byType(TextField)).controller?.text,
         '9876543210',
-        reason: 'the register screen hands its number to the sign-in');
+        reason: 'the register screen hands its number to the sign-in, in memory');
     expect(starts, 0, reason: 'no SMS goes until the person taps Send code');
   });
 

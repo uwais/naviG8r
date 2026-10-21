@@ -114,13 +114,19 @@ void main() {
     expect(find.text('Join a carrier company'), findsOneWidget);
   });
 
-  testWidgets('an old saved code link keeps its number', (tester) async {
-    await showSignIn(tester, '/driver/onboarding/otp?phone=9845012345');
-    expect(find.text('Sign in with your phone'), findsOneWidget);
-    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
-        '9845012345',
-        reason: 'the number in the old link is filled in on the one sign-in');
-  });
+  // Second review, 21 Oct 2026: phone numbers stay out of links. The number a carrier registers with
+  // reaches the sign-in in memory (PhoneForSignIn); a link, old or reloaded, opens an empty box.
+  for (final link in [
+    '/driver/onboarding/otp?phone=9845012345',
+    '/customer/login?phone=9845012345'
+  ]) {
+    testWidgets('a number in the link $link is not filled in', (tester) async {
+      await showSignIn(tester, link);
+      expect(find.text('Sign in with your phone'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
+          isEmpty);
+    });
+  }
 
   testWidgets('a register link opens its existing screen', (tester) async {
     await showSignIn(tester, '/customer/login');

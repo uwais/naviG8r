@@ -10,6 +10,7 @@ import 'package:driver_pilot/ui/nv_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:driver_pilot/sign_in_screen.dart';
 import 'package:go_router/go_router.dart';
 
 import 'support/carrier_fixtures.dart';
@@ -422,7 +423,7 @@ void main() {
             path: '/customer/login',
             builder: (_, state) => Scaffold(
                 body: Text(
-                    'Sign-in for ${state.uri.queryParameters['phone']}'))),
+                    'Sign-in for ${(state.extra as PhoneForSignIn?)?.number} at ${state.uri}'))),
       ]);
       tester.view.physicalSize = const Size(800, 2000);
       tester.view.devicePixelRatio = 1;
@@ -462,8 +463,8 @@ void main() {
       expect((sent.single as Map)['transporterId'], '29abcde1234f1z5');
       expect((sent.single as Map)['vehicleClass'], 'MEDIUM',
           reason: 'the size chosen on the chips is the one sent');
-      expect(find.text('Sign-in for 8000000017'), findsOneWidget,
-          reason: 'sign-up goes on to the one sign-in with the number');
+      expect(find.text('Sign-in for 8000000017 at /customer/login'), findsOneWidget,
+          reason: 'sign-up goes on to the one sign-in with the number, which stays out of the link');
     });
 
     testWidgets('left empty, it is not sent at all', (tester) async {
@@ -475,7 +476,7 @@ void main() {
         (tester) async {
       await signUp(tester, transporterId: '12345', status: 400);
       expect(find.text(transporterIdRule), findsOneWidget);
-      expect(find.text('Sign-in for 8000000017'), findsNothing);
+      expect(find.textContaining('Sign-in for'), findsNothing);
     });
 
     testWidgets(
@@ -491,7 +492,7 @@ void main() {
           '27AAAAA0000A1Z5');
       await tester.tap(find.text('Create company and continue'));
       await tester.pumpAndSettle();
-      expect(find.text('Sign-in for 8000000017'), findsOneWidget,
+      expect(find.text('Sign-in for 8000000017 at /customer/login'), findsOneWidget,
           reason: 'sign-up goes on to the one sign-in with the number');
       expect(find.text(transporterIdRule), findsNothing,
           reason: 'the 10-second refusal is hidden when the next try starts');

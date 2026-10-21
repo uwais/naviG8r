@@ -20,7 +20,10 @@ List<RouteBase> customerFlowRoutes() {
         GoRoute(
             path: "login",
             builder: (_, state) => SignInScreen(
-                startingPhone: state.uri.queryParameters["phone"])),
+                startingPhone: switch (state.extra) {
+              PhoneForSignIn(:final number) => number,
+              _ => null,
+            })),
         GoRoute(
             path: "register",
             builder: (_, __) => const CustomerRegisterScreen()),

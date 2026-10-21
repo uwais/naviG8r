@@ -27,6 +27,14 @@ void main() {
           reason: 'a territory that is not a city is dropped like a state');
     });
 
+    test('Karaikal, Mahe and Yanam before Puducherry stay the town', () {
+      expect(townOfAddress('Karaikal, Puducherry 609602, India'), 'Karaikal');
+      expect(townOfAddress('Beach Road, Mahe, Puducherry 673310, India'), 'Mahe');
+      expect(townOfAddress('Yanam, Puducherry 533464, India'), 'Yanam');
+      expect(townOfAddress('Lawspet, Puducherry 605008, India'), 'Puducherry',
+          reason: 'an area of the city itself keeps the city as the town');
+    });
+
     test('a leading plus code is not part of the town', () {
       expect(townOfAddress('J8V2+QW Hoskote, Karnataka, India'), 'Hoskote');
     });

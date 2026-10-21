@@ -51,4 +51,44 @@ void main() {
     router.go('/');
     await tester.pumpAndSettle();
   }, skip: kMapsApiKey.isEmpty);
+
+  testWidgets('a trip with one city already on the map looks up only the other',
+      (tester) async {
+    final geocoded = <RequestOptions>[];
+    GoogleGeocodingService.dio.httpClientAdapter = MockApiAdapter((request) {
+      geocoded.add(request);
+      return jsonResponse({
+        'status': 'OK',
+        'results': [
+          {
+            'formatted_address': 'Chennai, Tamil Nadu, India',
+            'geometry': {
+              'location': {'lat': 13.08, 'lng': 80.27}
+            },
+          }
+        ],
+      });
+    });
+    signInToCarrierApp(CarrierServer(
+      allowed: driverAllowed,
+      subrole: 'DRIVER',
+      trips: [
+        {
+          ...carrierTrip('trip-moving', status: 'IN_PROGRESS'),
+          'origin': {'lat': 12.97, 'lng': 77.59},
+        }
+      ],
+    ));
+    final router = await mountCarrierApp(
+        tester, '/driver/trip/trip-moving/active',
+        size: const Size(800, 3000));
+    expect(geocoded, hasLength(1), reason: 'second review: Bengaluru has its point; only Chennai is paid for');
+    expect(geocoded.single.queryParameters['address'], 'Chennai, India');
+
+    await tester.tap(find.byTooltip('Refresh').first);
+    await tester.pumpAndSettle();
+    expect(geocoded, hasLength(1), reason: 'Refresh pays for nothing new');
+    router.go('/');
+    await tester.pumpAndSettle();
+  }, skip: kMapsApiKey.isEmpty);
 }

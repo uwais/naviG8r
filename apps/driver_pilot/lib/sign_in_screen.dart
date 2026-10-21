@@ -33,6 +33,14 @@ String _sendCodeErrorSentence(Object error) {
   };
 }
 
+/// The number a carrier just registered with, handed to the sign-in as the router's extra and never
+/// put in the link. A class, not a String: go_router 14 writes an extra it can turn into JSON into
+/// the browser's history. A reload has no extra and opens an empty box.
+class PhoneForSignIn {
+  const PhoneForSignIn(this.number);
+  final String number;
+}
+
 /// The one sign-in, for shippers and carriers alike. It asks nothing about the person; after the
 /// code the app lands by the account's role (AuthorizationSession.home).
 class SignInScreen extends StatefulWidget {

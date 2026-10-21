@@ -341,7 +341,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
         const SnackBar(
             content: Text("Company created. Now sign in with your mobile number.")),
       );
-      context.go("/customer/login?phone=$phone");
+      context.go("/customer/login", extra: PhoneForSignIn(phone));
     } catch (e) {
       // Ten seconds because the server's sentence (what a transporter ID looks like, say) is too long to read in four.
       if (mounted)
@@ -3332,20 +3332,27 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   Future<void> _geocodeTripCitiesIfNeeded() async {
     final trip = _trip;
     if (trip == null) return;
-    // Each look-up is a paid call: Refresh reloads the trip, and must not pay for the same cities again.
-    if (_geocodedOrigin != null && _geocodedDest != null) return;
-    if (latLngFromGeoMap(trip, "origin") != null &&
-        latLngFromGeoMap(trip, "destination") != null) return;
+    // Each look-up is a paid call: only a city with no point yet is looked up, so Refresh, or a trip
+    // whose other city has its point, pays for nothing it already has.
     if (kMapsApiKey.isEmpty) return;
-    final oc = trip["originCity"]?.toString().trim() ?? "";
-    final dc = trip["destCity"]?.toString().trim() ?? "";
-    if (oc.isEmpty || dc.isEmpty) return;
-    final o = await GoogleGeocodingService.forwardAddress("$oc, India");
-    final d = await GoogleGeocodingService.forwardAddress("$dc, India");
-    if (!mounted) return;
+    String? cityToFind(String pointField, String cityField, LatLng? found) {
+      if (found != null || latLngFromGeoMap(trip, pointField) != null) return null;
+      final city = trip[cityField]?.toString().trim() ?? "";
+      return city.isEmpty ? null : city;
+    }
+
+    final originCity = cityToFind("origin", "originCity", _geocodedOrigin);
+    final destCity = cityToFind("destination", "destCity", _geocodedDest);
+    final o = originCity == null
+        ? null
+        : await GoogleGeocodingService.forwardAddress("$originCity, India");
+    final d = destCity == null
+        ? null
+        : await GoogleGeocodingService.forwardAddress("$destCity, India");
+    if (!mounted || (o == null && d == null)) return;
     setState(() {
-      if (o.isOk) _geocodedOrigin = o.position;
-      if (d.isOk) _geocodedDest = d.position;
+      if (o != null && o.isOk) _geocodedOrigin = o.position;
+      if (d != null && d.isOk) _geocodedDest = d.position;
     });
   }
 
@@ -5023,18 +5030,14 @@ List<RouteBase> driverFlowRoutes() {
         ),
       ],
     ),
-    // The carriers' old sign-in addresses, kept so saved links still open the one sign-in.
+    // The carriers' old sign-in addresses, kept so saved links still open the one sign-in. A number in
+    // an old link is not carried on: the app keeps phone numbers out of links (see PhoneForSignIn).
     GoRoute(
         path: "/driver/onboarding/phone",
         redirect: (_, __) => "/customer/login"),
     GoRoute(
         path: "/driver/onboarding/otp",
-        redirect: (_, state) {
-          final phone = state.uri.queryParameters["phone"];
-          return phone == null
-              ? "/customer/login"
-              : "/customer/login?phone=${Uri.encodeQueryComponent(phone)}";
-        }),
+        redirect: (_, __) => "/customer/login"),
     GoRoute(
         path: "/driver/onboarding/register",
         builder: (_, __) => const DriverRegisterScreen()),
