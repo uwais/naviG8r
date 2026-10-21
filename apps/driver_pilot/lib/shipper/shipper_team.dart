@@ -1,3 +1,4 @@
+import "package:dio/dio.dart";
 import "package:flutter/material.dart";
 import "package:go_router/go_router.dart";
 
@@ -96,7 +97,7 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
           .showSnackBar(const SnackBar(content: Text("Teammate invited.")));
     } catch (e) {
       if (mounted) {
-        setState(() => _error = plainErrorSentence(e,
+        setState(() => _error = _inviteRefusalSentence(e,
             "Could not invite this teammate. Check your connection, then try again."));
       }
     } finally {
@@ -178,4 +179,13 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
       ),
     );
   }
+}
+
+/// An invite's own words for a number with no account: only here may the app say "invite".
+String _inviteRefusalSentence(Object error, [String? fallback]) {
+  final body = error is DioException ? error.response?.data : null;
+  if (body is Map && body["error"] == "user_not_found") {
+    return "No account uses this number. Ask them to register their phone first, then invite them.";
+  }
+  return plainErrorSentence(error, fallback);
 }

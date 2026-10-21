@@ -126,8 +126,9 @@ void main() {
           reason: 'the help under Weight is the fixed limit');
       await tester.enterText(field('Weight'), '600');
       await tester.pump();
-      expect(find.text('Capacity remaining: None'), findsOneWidget,
-          reason: 'never below 0');
+      expect(find.text('Too heavy by 100 kg'), findsOneWidget,
+          reason: 'over the limit says by how much, not "Capacity remaining: None"');
+      expect(find.textContaining('Capacity remaining'), findsNothing);
       await tester.enterText(field('Weight'), '');
       await tester.pump();
       expect(find.text('Capacity remaining: 500 kg'), findsOneWidget,
@@ -165,7 +166,7 @@ void main() {
           reason: 'moved from the confirm sheet onto the screen');
       expect(
           find.text(
-              "Book and pay opens a payment screen. There you choose how to pay."),
+              "Book and pay opens our payment partner's screen. There you choose how to pay."),
           findsOneWidget,
           reason: 'moved from the confirm sheet: what Pay does next');
       expect(find.text('If you change the weight, pickup or drop, the price changes.'),
@@ -556,7 +557,7 @@ void main() {
       expect(
           announced,
           contains(
-              'Booked. We could not confirm the payment yet. Open the shipment to see if it went through.'),
+              'Booked. We could not confirm the payment yet. The shipment shows whether it went through.'),
           reason:
               'the confirm call failed, so the app does not know the payment is held');
     });

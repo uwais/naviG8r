@@ -425,7 +425,7 @@ class _CustomerShipmentDetailScreenState
           if (open) ...[
             const SizedBox(height: NvSpace.s3),
             const Text(
-                "You cannot cancel a booked shipment in the app. To change it, contact ${PendingCopy.changeOrCancelContact}.",
+                "You cannot cancel a booked shipment in the app. To change or cancel it, contact ${PendingCopy.changeOrCancelContact}.",
                 style: NvText.caption),
           ],
         ],

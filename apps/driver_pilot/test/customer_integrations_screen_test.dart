@@ -44,7 +44,7 @@ void main() {
                     {
                       "id": "whd_2",
                       "eventId": "evt_retry",
-                      "status": "PENDING",
+                      "status": "DEAD",
                       "attempts": 3,
                       "lastHttpStatus": 500,
                     },
@@ -98,6 +98,11 @@ void main() {
     expect(find.text("Recent webhook calls"), findsOneWidget);
     expect(find.text("abc123"), findsOneWidget);
     expect(find.text("evt_test"), findsOneWidget);
+    await tester.scrollUntilVisible(
+        find.textContaining("Failed. No more automatic tries"), 200,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.textContaining("Failed. No more automatic tries"), findsOneWidget,
+        reason: "a delivery given up on says the automatic tries have stopped");
   });
 
   for (final textScale in [1.0, 2.0]) {

@@ -90,7 +90,7 @@ void desktopTests() {
           of: find.byType(CustomerTopNavigation),
           matching: find.text('Book a trip')));
       await tester.pumpAndSettle();
-      expect(find.text('Pick a truck going your way.'), findsOneWidget,
+      expect(find.text('Pick a trip going your way.'), findsOneWidget,
           reason: 'the top bar link opens Book a trip');
     });
 

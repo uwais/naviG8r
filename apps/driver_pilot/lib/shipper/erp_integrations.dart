@@ -258,7 +258,7 @@ class _CustomerIntegrationsScreenState
       case "DELIVERED":
         return "Delivered";
       case "DEAD":
-        return "Failed. Will not retry";
+        return "Failed. No more automatic tries";
       case "PENDING":
       default:
         return "Waiting to send";

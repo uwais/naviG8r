@@ -125,7 +125,7 @@ void main() {
       });
       await tester.pumpAndSettle();
 
-      expect(find.text('Pick a truck going your way.'), findsOneWidget,
+      expect(find.text('Pick a trip going your way.'), findsOneWidget,
           reason: 'copy.md: lanes sub');
       expect(
           find.text(
@@ -141,6 +141,8 @@ void main() {
           reason: 'the dates are when the truck leaves, never an arrival');
       expect(find.text('105 kg'), findsOneWidget,
           reason: 'room left = capacity 1000 minus booked 895');
+      expect(find.text('Capacity remaining'), findsWidgets,
+          reason: 'Find keeps the trip\'s own figure as Capacity remaining');
       expect(find.text('Capacity 1000 kg (895 kg reserved)'), findsNothing,
           reason: 'copy.md Formats: never capacity with reserved');
       expect(find.text('None'), findsOneWidget,

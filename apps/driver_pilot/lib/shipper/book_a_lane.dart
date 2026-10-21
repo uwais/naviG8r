@@ -298,7 +298,7 @@ class _CustomerBookShipmentScreenState
       _openBookedShipment(id,
           announcement: confirmed
               ? null
-              : "Booked. We could not confirm the payment yet. Open the shipment to see if it went through.");
+              : "Booked. We could not confirm the payment yet. The shipment shows whether it went through.");
     }
     _pendingShipmentIdForCheckout = null;
   }
@@ -652,6 +652,8 @@ class _LaneSummary extends StatelessWidget {
     final remaining = room == null || typed == null || typed <= 0
         ? room
         : (room - typed < 0 ? 0 : room - typed);
+    final tooHeavyByKg =
+        room != null && typed != null && typed > room ? typed - room : null;
     final dates = laneDates(lane);
     final carrier = lane["carrierDisplayName"]?.toString() ?? "Carrier";
     return Container(
@@ -670,7 +672,10 @@ class _LaneSummary extends StatelessWidget {
             Text(dates == null ? carrier : "$carrier · Leaves $dates",
                 style: NvText.caption),
             if (remaining != null)
-              Text("Capacity remaining: ${roomLeftWords(remaining)}",
+              Text(
+                  tooHeavyByKg != null
+                      ? "Too heavy by ${formatKg(tooHeavyByKg)}"
+                      : "Capacity remaining: ${roomLeftWords(remaining)}",
                   style: NvText.caption.copyWith(
                       fontWeight: FontWeight.w700, color: NvColors.ink)),
           ]),
@@ -711,7 +716,7 @@ class _PriceCard extends StatelessWidget {
                 style: NvText.body),
             const SizedBox(height: NvSpace.s2),
             const Text(
-                "Book and pay opens a payment screen. There you choose how to pay.",
+                "Book and pay opens our payment partner's screen. There you choose how to pay.",
                 style: NvText.body),
             const SizedBox(height: NvSpace.s2),
             const Text("If you change the weight, pickup or drop, the price changes.",

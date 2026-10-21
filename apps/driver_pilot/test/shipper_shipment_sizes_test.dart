@@ -12,7 +12,7 @@ import 'support/shipper_screen_checks.dart';
 import 'support/shipper_shipment_app.dart';
 
 const noCancelLine =
-    'You cannot cancel a booked shipment in the app. To change it, contact ${PendingCopy.changeOrCancelContact}.';
+    'You cannot cancel a booked shipment in the app. To change or cancel it, contact ${PendingCopy.changeOrCancelContact}.';
 
 void main() {
   textSizeTests();

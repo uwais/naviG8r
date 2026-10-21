@@ -2,6 +2,7 @@
 // go-live and stability, and an unrelated change should not start it.
 import "dart:async";
 
+import "package:dio/dio.dart";
 import "package:flutter/material.dart";
 import "package:flutter/semantics.dart";
 import "package:geolocator/geolocator.dart";
@@ -589,7 +590,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Driver invited to your company.")));
     } catch (e) {
-      if (mounted) setState(() => _error = plainErrorSentence(e));
+      if (mounted) setState(() => _error = _inviteRefusalSentence(e));
     } finally {
       if (mounted) setState(() => _inviting = false);
     }
@@ -687,6 +688,15 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
       ],
     );
   }
+}
+
+/// An invite's own words for a number with no account: only here may the app say "invite".
+String _inviteRefusalSentence(Object error) {
+  final body = error is DioException ? error.response?.data : null;
+  if (body is Map && body["error"] == "user_not_found") {
+    return "No account uses this number. Ask them to register their phone first, then invite them.";
+  }
+  return plainErrorSentence(error);
 }
 
 /// "Bengaluru to Chennai", or null when the trip is not known.
@@ -1703,7 +1713,7 @@ class _DriverShipmentDetailScreenState
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text(
               _shipmentMissingFromList && _forDriver
-                  ? "This booking is not on a trip assigned to you now. Go back to Trips and tap Refresh."
+                  ? "This booking is no longer on your trip. Go back to Trips and tap Refresh."
                   : _loadNeverAnswered
                       ? "Could not load this booking. Check your connection and try again."
                       : "Could not load this booking.",
@@ -2636,8 +2646,11 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             const Text("To add a truck, add its driver with Add driver.",
                 style: NvText.caption),
           ] else
-            // Only someone who can add drivers can add a truck, so the next step is to ask.
-            const Text("No truck yet. Ask your owner to add your truck.",
+            // Only someone who can add drivers can add a truck, so the next step is to ask. Drivers say office.
+            Text(
+                DriverSession.carrierRole == "DRIVER"
+                    ? "No truck yet. Ask your office to add your truck."
+                    : "No truck yet. Ask your owner to add your truck.",
                 style: NvText.body),
         for (final (index, row) in rows.indexed) ...[
           if (index > 0) const Divider(height: 1, color: NvColors.line),
@@ -2953,7 +2966,7 @@ class _TruckSheetState extends State<_TruckSheet> {
 
 /// What a driver reads when the office has given their trip to someone else since they opened it.
 const _tripNoLongerAssignedSentence =
-    "This trip is no longer assigned to you. Go back to Trips and tap Refresh.";
+    "This trip is no longer yours. Go back to Trips and tap Refresh.";
 
 /// While a trip is in transit the driver's phone sends its position, and shippers see it.
 const _locationSharedSentence =

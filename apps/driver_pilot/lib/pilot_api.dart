@@ -222,9 +222,8 @@ String formatApiError(Object e) {
       // A 409 from every register screen; without it the screen blamed the connection.
       "phone_already_registered":
           "This number already has an account. Sign in instead.",
-      // The invite screens' refusals; in this app only an invite meets these two.
-      "user_not_found":
-          "No account uses this number. Ask them to register their phone first, then invite them.",
+      // An invite's refusal. Its other one, user_not_found, is worded on the invite screens, which can
+      // say "invite"; sign-in words it its own way.
       "membership_already_exists": "This number is already in your company.",
       "otp_expired": "This code has expired. Send a new code.",
       "otp_incorrect":

@@ -126,7 +126,7 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> {
     );
     return CustomerScaffold(
       title: "Book a trip",
-      subtitle: "Pick a truck going your way.",
+      subtitle: "Pick a trip going your way.",
       currentPath: "/customer/trips",
       bodyBuilder: (_) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
