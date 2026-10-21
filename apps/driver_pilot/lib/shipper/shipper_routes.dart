@@ -44,7 +44,8 @@ List<RouteBase> customerFlowRoutes() {
                     ? "/customer/trips"
                     : null,
             builder: (_, state) =>
-                CustomerBookShipmentScreen.fromQuery(state.uri.queryParameters)),
+                CustomerBookShipmentScreen.fromQuery(state.uri.queryParameters,
+                    extra: state.extra)),
         GoRoute(
           path: "eligible",
           redirect: (_, __) => "/customer/trips?tab=match",

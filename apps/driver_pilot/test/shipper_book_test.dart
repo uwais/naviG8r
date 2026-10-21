@@ -5,6 +5,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:driver_pilot/shipper/book_a_lane.dart';
 import 'package:driver_pilot/shipper/shipper_routes.dart';
 import 'package:driver_pilot/customer_session.dart';
 import 'package:driver_pilot/google_geocoding.dart';
@@ -184,7 +185,8 @@ void main() {
     testWidgets('while the price is coming the button says so',
         (tester) async {
       final answer = Completer<ResponseBody>();
-      final server = await showShipperApp(tester, searchedBook);
+      final server = await showShipperApp(tester, searchedBook,
+          initialExtra: searchedPlaces);
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
       server.answers['/shipments/quote'] = (_) => answer.future;
       await pumpWhileWaiting(tester);
@@ -322,7 +324,7 @@ void main() {
         (tester) async {
       final town = Completer<GeocodeOutcome>();
       final server = await showShipperApp(tester, searchedBook,
-          namePin: (_) => town.future);
+          namePin: (_) => town.future, initialExtra: searchedPlaces);
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
       server.answers['/shipments/quote'] = priceByWeight;
       server.answer('/shipments/book', {
@@ -390,7 +392,8 @@ void main() {
     testWidgets('a late price answer for older inputs is ignored',
         (tester) async {
       final answers = <int, Completer<ResponseBody>>{};
-      final server = await showShipperApp(tester, searchedBook);
+      final server = await showShipperApp(tester, searchedBook,
+          initialExtra: searchedPlaces);
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
       server.answers['/shipments/quote'] = (request) => answers
           .putIfAbsent((request.data as Map)['weightKg'] as int,
@@ -578,18 +581,20 @@ void main() {
     });
 
     testWidgets(
-        'a link point off the globe is never sent; the place waits for a search',
+        'a searched place with no point is never priced; the place waits for a search',
         (tester) async {
-      final server = await showShipperApp(
-          tester, searchedBook.replaceFirst('pickupLat=12.8', 'pickupLat=NaN'));
+      final server = await showShipperApp(tester, searchedBook,
+          initialExtra: SearchedPlaces(
+              pickup: (words: 'Bommasandra, Bengaluru', point: null),
+              drop: searchedPlaces.drop));
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
       server.answers['/shipments/quote'] = priceByWeight;
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
           'Bommasandra, Bengaluru',
-          reason: 'the words from the link stay');
+          reason: 'the searched words stay');
       expect(server.countOf('/shipments/quote'), 0,
-          reason: 'a NaN latitude is never sent');
+          reason: 'a place with no point is never sent');
       expect(find.text('To see the price, search for the pickup.'),
           findsOneWidget);
       await tester.tap(find.descendant(
@@ -621,7 +626,8 @@ void main() {
 
     testWidgets('a server error never shows HTTP text, and Try again re-asks',
         (tester) async {
-      final server = await showShipperApp(tester, searchedBook);
+      final server = await showShipperApp(tester, searchedBook,
+          initialExtra: searchedPlaces);
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
       server.answer('/shipments/quote', {'error': 'boom', 'detail': 'x'}, 500);
       await tester.pumpAndSettle();

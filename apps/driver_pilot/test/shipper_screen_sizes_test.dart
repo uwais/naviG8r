@@ -256,7 +256,8 @@ void doubleTextTests() {
 
       await tester.pumpWidget(const SizedBox());
       final answer = Completer<ResponseBody>();
-      server = await showShipperApp(tester, searchedBook, height: 800);
+      server = await showShipperApp(tester, searchedBook,
+          height: 800, initialExtra: searchedPlaces);
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
       server.answers['/shipments/quote'] = (_) => answer.future;
       await pumpWhileWaiting(tester);

@@ -3307,6 +3307,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   Future<void> _geocodeTripCitiesIfNeeded() async {
     final trip = _trip;
     if (trip == null) return;
+    // Each look-up is a paid call: Refresh reloads the trip, and must not pay for the same cities again.
+    if (_geocodedOrigin != null && _geocodedDest != null) return;
     if (latLngFromGeoMap(trip, "origin") != null &&
         latLngFromGeoMap(trip, "destination") != null) return;
     if (kMapsApiKey.isEmpty) return;

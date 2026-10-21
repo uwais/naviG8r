@@ -1,6 +1,7 @@
 // The place boxes on Match and Book when the place search fails: each failure gets its own plain
 // sentence, and a blank place is asked for, not searched.
 import 'package:driver_pilot/google_geocoding.dart';
+import 'package:driver_pilot/shipper/book_a_lane.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -61,9 +62,12 @@ void placeSearchFailureTests() {
 
   Future<FakeServer> fillBook(WidgetTester tester, PlaceFinder findPlace,
       {String pickup = 'gurugram', String drop = 'jaipur'}) async {
-    final server = await showShipperApp(tester,
-        '/customer/book?anchorTripId=lane-1&weightKg=80&pickup=$pickup&drop=$drop',
-        findPlace: findPlace);
+    final server = await showShipperApp(
+        tester, '/customer/book?anchorTripId=lane-1&weightKg=80',
+        findPlace: findPlace,
+        initialExtra: SearchedPlaces(
+            pickup: (words: pickup, point: null),
+            drop: (words: drop, point: null)));
     server.answer('/anchor-trips/lane-1', {'trip': lane()});
     await tester.pumpAndSettle();
     for (final title in ['Pickup', 'Drop']) {

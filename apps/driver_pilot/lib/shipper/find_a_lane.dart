@@ -22,6 +22,7 @@ import "shipper_scaffold.dart";
 import "shipper_words.dart";
 import "search_summary.dart";
 import "announce.dart";
+import "book_a_lane.dart";
 
 NvStatusLabel _laneStatusLabel(String status) {
   final word = tripStatusLabel(status);
@@ -364,13 +365,12 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
       Uri(path: "/customer/book", queryParameters: {
         "anchorTripId": lane["id"]?.toString() ?? "",
         "weightKg": "$_searchedWeightKg",
-        "pickup": _searchedPickup!.words,
-        "pickupLat": "${_searchedPickup!.point.latitude}",
-        "pickupLng": "${_searchedPickup!.point.longitude}",
-        "drop": _searchedDrop!.words,
-        "dropLat": "${_searchedDrop!.point.latitude}",
-        "dropLng": "${_searchedDrop!.point.longitude}",
       }).toString();
+
+  /// The searched places go to Book in memory, never in the link: see [SearchedPlaces].
+  SearchedPlaces get _searchedPlaces => SearchedPlaces(
+      pickup: (words: _searchedPickup!.words, point: _searchedPickup!.point),
+      drop: (words: _searchedDrop!.words, point: _searchedDrop!.point));
 
   @override
   Widget build(BuildContext context) {
@@ -508,7 +508,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
               child:
                   Text(_resultLine(_lanes.length), style: NvText.caption)),
           ..._laneCards(context, _lanes,
-              onOpen: (lane) => context.go(_bookPath(lane))),
+              onOpen: (lane) =>
+                  context.go(_bookPath(lane), extra: _searchedPlaces)),
         ],
       ];
 }

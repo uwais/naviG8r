@@ -185,11 +185,17 @@ function notificationBody(eventKey: string, role: "SHIPPER" | "CARRIER"): string
   return values[role === "SHIPPER" ? 0 : 1];
 }
 
+// A driver never sees a payment notice. New ones are not written to drivers; this hides the rows written
+// before the 15 Oct decision, which are still in the store.
+function hiddenFromDriver(principal: Principal, n: Notification): boolean {
+  return principal.subrole === "DRIVER" && n.eventKey.startsWith("payment.");
+}
+
 export function listNotifications(store: Store, limit = 30, before?: string) {
   const principal = principalFor(store);
   requirePermission(store, "notification.read");
   const pageSize = Math.max(1, Math.min(100, Number.isFinite(limit) ? Math.trunc(limit) : 30));
-  const all = [...store.notifications.values()].filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId)
+  const all = [...store.notifications.values()].filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && !hiddenFromDriver(principal, n))
     .filter(n => {
       const shipment = store.shipments.get(n.shipmentId);
       if (!shipment || !isActiveEntity(shipment)) return false;
@@ -304,7 +310,7 @@ export async function listConversationTimeline(store: Store, shipmentId: string,
     .filter(m => m.conversationId === conversation.id && m.sequence <= messageSequence)
     .map(m => ({ type: "message", id: m.id, createdAtUtcMs: m.createdAtUtcMs, sequence: m.sequence, senderUserId: m.senderUserId, senderOrgId: m.senderOrgId, body: m.body }));
   const events: TimelineItem[] = principal.roles.includes("OPS") ? [] : snapshot.notifications
-    .filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && n.shipmentId === shipmentId && (n.conversationId === conversation.id || n.conversationId == null) && n.recipientSequence <= notificationSequence && n.eventKey !== "conversation.message")
+    .filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && n.shipmentId === shipmentId && (n.conversationId === conversation.id || n.conversationId == null) && n.recipientSequence <= notificationSequence && n.eventKey !== "conversation.message" && !hiddenFromDriver(principal, n))
     .map(n => ({ type: "event", id: n.id, createdAtUtcMs: n.createdAtUtcMs, recipientSequence: n.recipientSequence, eventKey: n.eventKey, title: String(n.data?.title ?? "Shipment update"), body: String(n.data?.body ?? "There is an update for this shipment."), ...(n.readAtUtcMs == null ? {} : { readAtUtcMs: n.readAtUtcMs }) }));
   const all = [...messages, ...events];
   const eligible = decoded ? all.filter(item => compareTimelineKeys(keyForTimelineItem(item), decoded.before) < 0) : all;
@@ -361,7 +367,7 @@ export async function listGroupedNotifications(store: Store, limit = 30, before?
   }
   const groups = new Map<string, { shipmentId: string; latestAtUtcMs: number; unreadCount: number }>();
   for (const n of store.notifications.values()) {
-    if (n.recipientUserId !== principal.userId || n.recipientOrgId !== principal.organizationId || n.recipientSequence > notificationSequence) continue;
+    if (n.recipientUserId !== principal.userId || n.recipientOrgId !== principal.organizationId || n.recipientSequence > notificationSequence || hiddenFromDriver(principal, n)) continue;
     const shipment = store.shipments.get(n.shipmentId);
     if (!shipment || !isActiveEntity(shipment)) continue;
     const belongs = (principal.roles.includes("SHIPPER") && shipment.customerOrgId === principal.organizationId) || (principal.roles.includes("CARRIER") && shipment.carrierId === principal.organizationId);

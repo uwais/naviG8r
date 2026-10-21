@@ -41,6 +41,15 @@ const _couldNotPrice =
 /// under an empty name.
 typedef _PriceInputs = ({int? weightKg, LatLng? pickup, LatLng? drop});
 
+/// The match search's places, handed to Book as the router's extra and never put in the link: they are
+/// street addresses. A class, not a map: go_router 14 writes an extra it can turn into JSON into the
+/// browser's history, and drops one it cannot, so these never reach the history.
+class SearchedPlaces {
+  const SearchedPlaces({required this.pickup, required this.drop});
+  final ({String words, LatLng? point}) pickup;
+  final ({String words, LatLng? point}) drop;
+}
+
 class CustomerBookShipmentScreen extends StatefulWidget {
   const CustomerBookShipmentScreen({
     required this.laneId,
@@ -52,31 +61,19 @@ class CustomerBookShipmentScreen extends StatefulWidget {
     super.key,
   });
 
-  /// From the Book link a lane card builds: the lane, and the match search's weight and places.
+  /// From the Book link a lane card builds: the lane and the match search's weight. The search's places
+  /// come as the router's [extra], in memory only; a reload has none and opens the empty boxes.
   factory CustomerBookShipmentScreen.fromQuery(Map<String, String> query,
-      {PlaceFinder findPlace = GoogleGeocodingService.forwardAddress,
+      {Object? extra,
+      PlaceFinder findPlace = GoogleGeocodingService.forwardAddress,
       PinNamer namePin = GoogleGeocodingService.reverseAddress}) {
-    ({String words, LatLng? point})? place(String name) {
-      final words = query[name] ?? "";
-      if (words.isEmpty) return null;
-      final lat = double.tryParse(query["${name}Lat"] ?? "");
-      final lng = double.tryParse(query["${name}Lng"] ?? "");
-      // tryParse takes "NaN" and "Infinity"; without a point on the globe the place is searched again.
-      final onTheGlobe = lat != null &&
-          lng != null &&
-          lat >= -90 &&
-          lat <= 90 &&
-          lng >= -180 &&
-          lng <= 180;
-      return (words: words, point: onTheGlobe ? LatLng(lat, lng) : null);
-    }
-
+    final places = extra is SearchedPlaces ? extra : null;
     final weightKg = int.tryParse(query["weightKg"] ?? "");
     return CustomerBookShipmentScreen(
       laneId: query["anchorTripId"] ?? "",
       searchedWeightKg: weightKg != null && weightKg > 0 ? weightKg : null,
-      searchedPickup: place("pickup"),
-      searchedDrop: place("drop"),
+      searchedPickup: places?.pickup,
+      searchedDrop: places?.drop,
       findPlace: findPlace,
       namePin: namePin,
     );

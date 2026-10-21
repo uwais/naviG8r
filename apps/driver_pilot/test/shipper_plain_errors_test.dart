@@ -1,5 +1,7 @@
 // PR 10 of the redesign: when a request fails on a shipper screen, the screen says what failed in
 // plain words, never "HTTP 500", a server address or an exception's text (decisions.md 7).
+import 'package:dio/dio.dart';
+import 'package:driver_pilot/plain_error_sentence.dart';
 import 'package:driver_pilot/shipper/erp_integrations.dart';
 import 'package:driver_pilot/sign_in_screen.dart';
 import 'package:driver_pilot/shipper/shipper_team.dart';
@@ -48,6 +50,19 @@ void expectPlainSentence(String sentence) {
 }
 
 void main() {
+  test('a booking refused for a long address says to shorten it', () {
+    api = Api('http://test');
+    final request = RequestOptions(path: '/shipments/book');
+    final refusal = DioException(
+        requestOptions: request,
+        response: Response(
+            requestOptions: request,
+            statusCode: 400,
+            data: {'error': 'address_too_long'}));
+    expect(plainErrorSentence(refusal, 'Could not book.'),
+        'That address is too long. Shorten it.');
+  });
+
   tearDown(() {
     CustomerSession.skipRefreshInTests = false;
     CustomerSession.clear();

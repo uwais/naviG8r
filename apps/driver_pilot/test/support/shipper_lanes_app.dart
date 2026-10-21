@@ -105,7 +105,8 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
     {double height = 2000,
     double width = 360,
     PlaceFinder findPlace = findAnyPlace,
-    PinNamer namePin = GoogleGeocodingService.reverseAddress}) async {
+    PinNamer namePin = GoogleGeocodingService.reverseAddress,
+    Object? initialExtra}) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -133,7 +134,8 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
     final answer = server.answers[request.uri.path];
     return answer == null ? jsonResponse({}) : answer(request);
   });
-  final router = GoRouter(initialLocation: start, routes: [
+  final router =
+      GoRouter(initialLocation: start, initialExtra: initialExtra, routes: [
     GoRoute(
         path: '/customer',
         builder: (_, __) => const CustomerHomeScreen(),
@@ -148,6 +150,7 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
               path: 'book',
               builder: (_, state) => CustomerBookShipmentScreen.fromQuery(
                   state.uri.queryParameters,
+                  extra: state.extra,
                   findPlace: findPlace,
                   namePin: namePin)),
           GoRoute(
@@ -170,9 +173,13 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
 Finder field(String label) => find.descendant(
     of: find.widgetWithText(NvField, label), matching: find.byType(TextField));
 
-/// Book for lane-1 as a lane card opens it after a match search for 80 kg.
-const searchedBook =
-    '/customer/book?anchorTripId=lane-1&weightKg=80&pickup=Bommasandra%2C+Bengaluru&pickupLat=12.8&pickupLng=77.7&drop=Guindy%2C+Chennai&dropLat=13.0&dropLng=80.2';
+/// Book for lane-1 as a lane card opens it after a match search for 80 kg. The places come as the
+/// router's extra, [searchedPlaces]; the link holds no address.
+const searchedBook = '/customer/book?anchorTripId=lane-1&weightKg=80';
+
+const searchedPlaces = SearchedPlaces(
+    pickup: (words: 'Bommasandra, Bengaluru', point: LatLng(12.8, 77.7)),
+    drop: (words: 'Guindy, Chennai', point: LatLng(13.0, 80.2)));
 
 /// The fake price: ₹33 a kg, so 80 kg is ₹2,640 and 90 kg is ₹2,970.
 ResponseBody priceByWeight(RequestOptions request) => jsonResponse({
@@ -183,7 +190,8 @@ ResponseBody priceByWeight(RequestOptions request) => jsonResponse({
 Future<FakeServer> showPricedBook(WidgetTester tester,
     {double height = 2000, double width = 360}) async {
   final server =
-      await showShipperApp(tester, searchedBook, height: height, width: width);
+      await showShipperApp(tester, searchedBook,
+          height: height, width: width, initialExtra: searchedPlaces);
   server.answer('/anchor-trips/lane-1', {'trip': lane()});
   server.answers['/shipments/quote'] = priceByWeight;
   await tester.pumpAndSettle();

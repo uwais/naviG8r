@@ -138,3 +138,29 @@ test("pay fields with no branch of their own are dropped for a driver and kept f
   for (const kept of ["bookedCount", "line-1", "batch-1", "transfers"]) assert.ok(forDriver.includes(kept), `${kept} stays`);
   assert.equal(serializedFor(f.carrierA.user.id), JSON.stringify(payouts), "the owner-driver gets it all");
 });
+
+test("a payment notice written to a driver before 15 Oct is never returned to them", async t => {
+  const { f, orgId, driver, tokens } = await carrierWithStaff(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  assert.equal((await f.request(`/v1/pilot/carrier/shipments/${shipmentId}/accept`, "POST", {}, tokens.driver)).status, 200);
+  const before = await f.request("/v1/notifications", "GET", undefined, tokens.driver);
+  const groupedBefore = await f.request("/v1/notifications/shipments", "GET", undefined, tokens.driver);
+  // Rows from before the owner's decision still sit in the store, addressed to the driver.
+  f.store.notifications.set("old-payment-notice", {
+    id: "old-payment-notice", recipientSequence: ++f.store.notificationSequence,
+    eventId: `payment:old:${shipmentId}`, eventKey: "payment.status_changed",
+    recipientUserId: driver.user.id, recipientOrgId: orgId,
+    shipmentId, conversationId: shipmentId, createdAtUtcMs: Date.now(),
+    data: { shipmentId, audience: "CARRIER", title: "Payment status changed", body: "Payment status changed" },
+  });
+
+  const flat = await f.request("/v1/notifications", "GET", undefined, tokens.driver);
+  assert.equal(flat.status, 200);
+  assert.equal(JSON.stringify(flat.body).includes("payment."), false, "no payment notice in the list");
+  assert.equal(flat.body.unreadCount, before.body.unreadCount, "nor in the unread count");
+  const grouped = await f.request("/v1/notifications/shipments", "GET", undefined, tokens.driver);
+  assert.equal(grouped.body.unreadCount, groupedBefore.body.unreadCount, "nor in the inbox count");
+  const timeline = await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, tokens.driver);
+  assert.equal(timeline.status, 200);
+  assert.equal(JSON.stringify(timeline.body).includes("payment."), false, "nor in the shipment's messages");
+});
