@@ -210,4 +210,4 @@ const contactAbovePay =
 
 /// Owner, 21 Oct 2026: a failed payment is said on screen before paying.
 const failedPaymentLine =
-    'If the payment does not go through, the shipment stays booked and unpaid until you contact ${PendingCopy.changeOrCancelContact}.';
+    'If you close the payment screen or the payment does not go through, the shipment stays booked and unpaid. To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.';

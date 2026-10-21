@@ -38,6 +38,9 @@ String _apiErrorCode(Object error) {
 const _couldNotPrice =
     "Could not get a price. Check your connection, then try again.";
 
+const _priceChangesNote =
+    "If you change the weight, pickup or drop, the price changes.";
+
 /// What the price depends on. A place without a name counts as not found, so nothing is booked
 /// under an empty name.
 typedef _PriceInputs = ({int? weightKg, LatLng? pickup, LatLng? drop});
@@ -438,7 +441,9 @@ class _CustomerBookShipmentScreenState
     final priceCard = laneOpen && _pricePaise != null
         ? _PriceCard(
             pricePaise: _pricePaise!,
-            carrier: lane["carrierDisplayName"]?.toString() ?? "The carrier")
+            carrier: lane["carrierDisplayName"]?.toString() ?? "The carrier",
+            // On a desktop the note sits under the fields it is about, so Pay stays on a 900-high screen.
+            withChangesNote: !desktop)
         : null;
     return CustomerScaffold(
       title: "Book this trip",
@@ -484,6 +489,10 @@ class _CustomerBookShipmentScreenState
               if (!desktop && priceCard != null) ...[
                 const SizedBox(height: NvSpace.s4),
                 priceCard,
+              ],
+              if (desktop && priceCard != null) ...[
+                const SizedBox(height: NvSpace.s3),
+                const Text(_priceChangesNote, style: NvText.caption),
               ],
               if (_pinsCheck() case final pinsCheck?) ...[
                 const SizedBox(height: NvSpace.s4),
@@ -630,7 +639,7 @@ class _CustomerBookShipmentScreenState
             style: NvText.bodyStrong),
         // Owner, 21 Oct 2026: a failed payment is said on screen; the booking stays.
         const Text(
-            "If the payment does not go through, the shipment stays booked and unpaid until you contact ${PendingCopy.changeOrCancelContact}.",
+            "If you close the payment screen or the payment does not go through, the shipment stays booked and unpaid. To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.",
             style: NvText.caption),
         const Text(
             "Booking keeps this capacity for you. To cancel, contact ${PendingCopy.changeOrCancelContact}.",
@@ -705,7 +714,7 @@ class _LaneSummary extends StatelessWidget {
             if (remaining != null)
               Text(
                   tooHeavyByKg != null
-                      ? "${formatKg(tooHeavyByKg)} more than this trip's capacity"
+                      ? "${formatKg(tooHeavyByKg)} more than the capacity remaining"
                       // A weight that fits exactly leaves 0 kg, a number like the rest, not "None".
                       : "Capacity remaining: ${formatKg(remaining)}",
                   style: NvText.caption.copyWith(
@@ -720,9 +729,13 @@ class _LaneSummary extends StatelessWidget {
 /// The price and what happens after Book and pay. With the lane above and the words beside the
 /// button, it holds everything the confirm sheet used to show before money moved (sh-book-price).
 class _PriceCard extends StatelessWidget {
-  const _PriceCard({required this.pricePaise, required this.carrier});
+  const _PriceCard(
+      {required this.pricePaise,
+      required this.carrier,
+      required this.withChangesNote});
   final num pricePaise;
   final String carrier;
+  final bool withChangesNote;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -750,9 +763,10 @@ class _PriceCard extends StatelessWidget {
             const Text(
                 "Book and pay opens our payment partner's screen. There you choose how to pay.",
                 style: NvText.body),
-            const SizedBox(height: NvSpace.s2),
-            const Text("If you change the weight, pickup or drop, the price changes.",
-                style: NvText.caption),
+            if (withChangesNote) ...[
+              const SizedBox(height: NvSpace.s2),
+              const Text(_priceChangesNote, style: NvText.caption),
+            ],
           ],
         ),
       );

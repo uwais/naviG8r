@@ -1831,7 +1831,7 @@ class _DriverShipmentDetailScreenState
       // Owners only: dispatchers and drivers are not told about payments (ca-booking-dispatcher).
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(_seesPaymentAmounts
-              ? "Delivery confirmed. NaviG8r checks it, then releases the payment."
+              ? "Delivery confirmed. NaviG8r checks the delivery, then pays you in batches."
               : "Delivery confirmed.")));
     }
     // Confirming delivery changes the status, so the button must not stay on offer.
@@ -2191,16 +2191,14 @@ class _DriverShipmentDetailScreenState
           children: [
             if (awaitingRelease)
               const Text(
-                  "NaviG8r checks the delivery, then pays you in the next weekly payment, at least 7 days after delivery.",
+                  "NaviG8r checks the delivery, then pays you in batches.",
                   style: NvText.body),
             if (awaitingRelease && amount is num)
               const SizedBox(height: NvSpace.s3),
             if (amount is num)
-              Row(children: [
-                const Expanded(
-                    child: Text("You receive", style: NvText.bodyStrong)),
-                Text(formatRupees(amount), style: NvText.bodyStrong),
-              ]),
+              // COMMISSION_BPS in the API's config.ts is 1000, 10%.
+              Text("You receive ${formatRupees(amount)}, after NaviG8r's 10% fee.",
+                  style: NvText.bodyStrong),
           ],
         ),
       ),
@@ -3965,7 +3963,7 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
   /// What confirming leads to, for each reader. Only the owner is told about the payment (ca-booking-owner).
   String get _whatHappensNext {
     if (_seesPaymentAmounts) {
-      return "NaviG8r checks the delivery, then pays you in the next weekly payment, at least 7 days after delivery.";
+      return "NaviG8r checks the delivery, then pays you in batches.";
     }
     if (AuthorizationSession.can("payment.read")) {
       return "NaviG8r checks the delivery. The owner sees the payment.";

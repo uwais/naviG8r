@@ -241,10 +241,9 @@ void main() {
       expect(
           find.textContaining(RegExp(r', \d{2}:\d{2} IST$')), findsOneWidget,
           reason: 'when it was confirmed, in India time');
-      expect(find.text('You receive'), findsOneWidget,
-          reason: 'ca-booking-owner: the amount block');
-      expect(find.text('₹2,376'), findsOneWidget,
-          reason: 'Indian grouping, no paise');
+      expect(find.text("You receive ₹2,376, after NaviG8r's 10% fee."),
+          findsOneWidget,
+          reason: 'ca-booking-owner: the amount block, Indian grouping, no paise');
       expect(
           find.text(
               'Only owners see payment amounts. Dispatchers and drivers do not.'),
@@ -272,7 +271,7 @@ void main() {
           findsOneWidget);
       expect(screenWords(tester), isNot(contains('₹')),
           reason: 'PR 6: no amount anywhere in a dispatcher\'s tree');
-      expect(find.text('You receive'), findsNothing);
+      expect(find.textContaining('You receive'), findsNothing);
       expect(find.text('Waiting for payment'), findsNothing);
     });
   });

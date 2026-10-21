@@ -127,7 +127,7 @@ void main() {
           reason: 'the help under Weight is the fixed limit');
       await tester.enterText(field('Weight'), '600');
       await tester.pump();
-      expect(find.text("100 kg more than this trip's capacity"), findsOneWidget,
+      expect(find.text("100 kg more than the capacity remaining"), findsOneWidget,
           reason: 'over the limit says by how much, not "Capacity remaining: None"');
       expect(find.textContaining('Capacity remaining'), findsNothing);
       await tester.enterText(field('Weight'), '500');
@@ -552,7 +552,7 @@ void main() {
       await tester.tap(find.text('Book and pay ₹2,640'));
       await tester.pumpAndSettle();
       expect(server.countOf('/anchor-trips/lane-1'), lanesBefore + 1);
-      expect(find.text("30 kg more than this trip's capacity"), findsOneWidget,
+      expect(find.text("30 kg more than the capacity remaining"), findsOneWidget,
           reason: 'someone else booked 55 kg meanwhile: 50 kg are left, not 105');
     });
 

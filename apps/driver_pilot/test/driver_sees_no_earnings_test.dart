@@ -94,9 +94,8 @@ void main() {
           }));
       await mountScreen(
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      expect(find.text('You receive'), findsOneWidget,
-          reason: 'ca-booking-owner: the amount the carrier API sends');
-      expect(find.text('₹45'), findsOneWidget);
+      expect(find.text("You receive ₹45, after NaviG8r's 10% fee."), findsOneWidget,
+          reason: 'ca-booking-owner: the amount the carrier API sends, and what was taken off it');
     });
 
     /// What the server sends after proof of delivery; it leaves the payment hold out for a driver.
@@ -146,7 +145,7 @@ void main() {
           reason: 'the delivery step is done');
       expect(
           find.text(
-              'NaviG8r checks the delivery, then pays you in the next weekly payment, at least 7 days after delivery.'),
+              'NaviG8r checks the delivery, then pays you in batches.'),
           findsOneWidget,
           reason:
               'copy.md payment (owner only), without the bank digits the API does not send');
@@ -272,7 +271,7 @@ void main() {
         final words = screenWords(tester);
         if (office) {
           expect(words, contains('Waiting for payment'));
-          expect(words, contains('pays you in the next weekly payment'));
+          expect(words, contains('pays you in batches'));
         } else {
           expect(words, contains('Delivery confirmed'));
           expect(paymentWords.hasMatch(words), isFalse, reason: words);
@@ -332,7 +331,7 @@ void main() {
         (
           'owner',
           () => signInAsCarrierOwner(),
-          'NaviG8r checks the delivery, then pays you in the next weekly payment, at least 7 days after delivery.'
+          'NaviG8r checks the delivery, then pays you in batches.'
         ),
         (
           'dispatcher',
@@ -411,7 +410,7 @@ void main() {
       expect(
           words,
           contains(
-              'Delivery confirmed. NaviG8r checks it, then releases the payment.'),
+              'Delivery confirmed. NaviG8r checks the delivery, then pays you in batches.'),
           reason: 'owners only since PR 8; dispatchers are not told about payments');
     });
   });
