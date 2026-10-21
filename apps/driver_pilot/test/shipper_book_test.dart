@@ -321,7 +321,7 @@ void main() {
     });
 
     testWidgets(
-        'after a pin drag, Book and pay waits until the pin has its address, then books the full address',
+        'after a pin drag, Book and pay waits until the pin is named, then books the typed words at the pin',
         (tester) async {
       final town = Completer<GeocodeOutcome>();
       final server = await showShipperApp(tester, searchedBook,
@@ -352,13 +352,17 @@ void main() {
           'Chennai'));
       await tester.pumpAndSettle();
       expect(bookButton(tester).onPressed, isNotNull);
+      expect(
+          find.text(
+              'Pin is near: 14, Lattice Bridge Rd, Adyar, Chennai, Tamil Nadu 600020, India'),
+          findsOneWidget,
+          reason: 'the pin\'s own address shows under the box to check');
       await tester.tap(find.text('Book and pay ₹2,640'));
       await tester.pumpAndSettle();
       final booked = server.sentTo('/shipments/book').single;
-      expect(booked['dropAddress'],
-          '14, Lattice Bridge Rd, Adyar, Chennai, Tamil Nadu 600020, India',
+      expect(booked['dropAddress'], 'Guindy, Chennai',
           reason:
-              'Rishabh, 20 Oct 2026: the carrier needs the street, area, town and pin, not the town');
+              'Rishabh, 21 Oct 2026: keep the typed address; the drag moves only the point');
       expect((booked['drop'] as Map)['lat'], 13.05);
     });
 
