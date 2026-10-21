@@ -131,6 +131,34 @@ void main() {
       await tester.pumpAndSettle();
       expect(box.pin, isNull, reason: 'an empty box has no place');
     });
+
+    // Second review, 21 Oct 2026: the pin stayed while the words merely contained the saved town.
+    Future<void> expectPinDropped(
+        WidgetTester tester, String searched, String retyped) async {
+      final box = await _mountPickup(tester);
+      await tester.enterText(find.byType(TextField), searched);
+      await _search(tester);
+      expect(box.pin, isNotNull);
+      await tester.enterText(find.byType(TextField), retyped);
+      await tester.pumpAndSettle();
+      expect(box.pin, isNull, reason: '"$retyped" is not the place "$searched" was found for');
+      expect(box.staleCount, 1);
+    }
+
+    testWidgets('a road named after the saved town, in another town, drops the pin',
+        (tester) async {
+      await expectPinDropped(
+          tester, 'Hosur', '12 Hosur Road, Koramangala, Bengaluru');
+    });
+
+    testWidgets("a town named in another town's road drops the pin", (tester) async {
+      await expectPinDropped(tester, 'Okhla, Delhi', 'Delhi Road, Meerut');
+    });
+
+    testWidgets('another area of the same town drops the pin', (tester) async {
+      await expectPinDropped(
+          tester, 'Bommasandra, Bengaluru', 'Whitefield, Bengaluru');
+    });
   });
 
   group('d: zoom', () {

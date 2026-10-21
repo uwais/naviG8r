@@ -404,9 +404,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
   int _newestLookup = 0;
   // A failed search still opens the map, so the pin can be dragged to a place Google cannot find.
   bool _searchTried = false;
-  // What the words must still say for the pin to stay: a trip's whole city name, or for a pickup
-  // or drop the town of its words, so a flat number added after a search keeps the pin. Null when
-  // any words go with the pin (no pin yet, or a drag whose place is still being named).
+  // The words the pin was placed for: a trip's city name, or a pickup or drop's words as searched or
+  // typed. Null when any words go with the pin (no pin yet, or a drag whose place is still being named).
   String? _pinFoundFor;
   // A pickup or drop map goes to street level once, after a search or the first drag.
   bool _atStreetLevel = false;
@@ -416,7 +415,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     super.initState();
     _pos = widget.position;
     final words = widget.labelController.text.trim();
-    _pinFoundFor = words.isEmpty ? null : _wordsThePinNeeds(words);
+    _pinFoundFor = words.isEmpty ? null : words;
     _atStreetLevel = widget.keepsFullAddress && widget.showMap;
     widget.labelController.addListener(_wordsChanged);
   }
@@ -427,14 +426,15 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     super.dispose();
   }
 
-  /// A trip's field needs its whole city name. A pickup or drop needs only its town, so the
-  /// shipper can add a plot or flat number without searching again.
-  String _wordsThePinNeeds(String words) =>
-      widget.keepsFullAddress ? townOfAddress(words.trim()) : words.trim();
-
-  bool _wordsStillFitThePin(String words, String needed) => widget.keepsFullAddress
-      ? words.isNotEmpty && words.toLowerCase().contains(needed.toLowerCase())
-      : words == needed;
+  /// A trip's field must still say its whole city name. A pickup or drop keeps its pin while the
+  /// words still hold all of [pinFoundFor] and end in the same town, so "Flat 3, Plot 12, " added in
+  /// front keeps it; another area of the town, or another town, drops it.
+  bool _wordsStillFitThePin(String words, String pinFoundFor) {
+    if (!widget.keepsFullAddress) return words == pinFoundFor;
+    return words.isNotEmpty &&
+        words.toLowerCase().contains(pinFoundFor.toLowerCase()) &&
+        townOfAddress(words).toLowerCase() == townOfAddress(pinFoundFor).toLowerCase();
+  }
 
   void _wordsChanged() {
     final pinFoundFor = _pinFoundFor;
@@ -499,7 +499,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     final name = widget.keepsFullAddress
         ? widget.labelController.text
         : outcome.placeName ?? widget.labelController.text;
-    _pinFoundFor = _wordsThePinNeeds(name);
+    _pinFoundFor = name.trim();
     setState(() {
       _pos = p;
       _hintLine = outcome.formattedAddress;
@@ -538,7 +538,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     // the pin's own address shows under the box to check against.
     final typed = widget.labelController.text.trim();
     if (widget.keepsFullAddress && typed.isNotEmpty) {
-      _pinFoundFor = _wordsThePinNeeds(typed);
+      _pinFoundFor = typed;
       setState(() => _hintLine = outcome.isOk
           ? "Pin is near: ${outcome.formattedAddress}"
           : "Could not check the address at the pin. Make sure the pin is in the right place.");
@@ -552,7 +552,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     final noTownAtPin = outcome.failure == PlaceSearchFailure.notFound || (outcome.isOk && name == null);
     setState(() {
       if (name != null) {
-        _pinFoundFor = _wordsThePinNeeds(name);
+        _pinFoundFor = name.trim();
         widget.labelController.text = name;
         // The field already holds the full address for a pickup or drop.
         _hintLine = widget.keepsFullAddress ? null : outcome.formattedAddress;
