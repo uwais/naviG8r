@@ -55,6 +55,11 @@ class _CustomerShipmentDetailScreenState
     extends State<CustomerShipmentDetailScreen> {
   bool _loading = false;
   bool _refreshing = false;
+  // The timed check: no spinner on Refresh, which stays free to tap.
+  bool _checkingQuietly = false;
+  // Each request's number. A timed check can answer after a newer Refresh; only the newest answer is used.
+  int _newestShipmentRequest = 0;
+  int _newestTrackingRequest = 0;
   String? _error;
   String? _trackingError;
   Map<String, dynamic>? _shipment;
@@ -134,10 +139,11 @@ class _CustomerShipmentDetailScreenState
       });
     }
     final identity = _signedInIdentity();
+    final request = ++_newestShipmentRequest;
     try {
       final r = await api
           .get<Map<String, dynamic>>("/shipments/${widget.shipmentId}");
-      if (!mounted) return;
+      if (!mounted || request != _newestShipmentRequest) return;
       if (identity != _signedInIdentity()) {
         setState(_forgetEarlierIdentity);
         return;
@@ -145,7 +151,7 @@ class _CustomerShipmentDetailScreenState
       setState(() => _takeShipment(r.data));
       await _loadTracking();
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _newestShipmentRequest) return;
       if (identity != _signedInIdentity()) {
         setState(_forgetEarlierIdentity);
       } else {
@@ -158,10 +164,15 @@ class _CustomerShipmentDetailScreenState
 
   Future<void> _loadTracking() async {
     final identity = _signedInIdentity();
+    final request = ++_newestTrackingRequest;
     try {
       final r = await api.get<Map<String, dynamic>>(
           "/shipments/${widget.shipmentId}/tracking");
-      if (!mounted || identity != _signedInIdentity()) return;
+      if (!mounted ||
+          identity != _signedInIdentity() ||
+          request != _newestTrackingRequest) {
+        return;
+      }
       setState(() {
         _trip = r.data?["trip"] is Map<String, dynamic>
             ? r.data!["trip"] as Map<String, dynamic>
@@ -173,20 +184,30 @@ class _CustomerShipmentDetailScreenState
         _trackingError = null;
       });
     } catch (e) {
-      if (!mounted || identity != _signedInIdentity()) return;
+      if (!mounted ||
+          identity != _signedInIdentity() ||
+          request != _newestTrackingRequest) {
+        return;
+      }
       setState(() => _trackingError = plainErrorSentence(e,
           "Could not load the trip. Check your connection, then tap Refresh."));
     }
   }
 
-  Future<void> _refreshAll() async {
-    if (_refreshing) return;
-    setState(() => _refreshing = true);
+  /// Refresh, or with [quietly] the timed check, which leaves the Refresh button as it is.
+  Future<void> _refreshAll({bool quietly = false}) async {
+    if (_refreshing || (quietly && _checkingQuietly)) return;
+    if (quietly) {
+      _checkingQuietly = true;
+    } else {
+      setState(() => _refreshing = true);
+    }
     final identity = _signedInIdentity();
+    final request = ++_newestShipmentRequest;
     try {
       final r = await api
           .get<Map<String, dynamic>>("/shipments/${widget.shipmentId}");
-      if (!mounted) return;
+      if (!mounted || request != _newestShipmentRequest) return;
       if (identity != _signedInIdentity()) {
         setState(_forgetEarlierIdentity);
         return;
@@ -197,14 +218,18 @@ class _CustomerShipmentDetailScreenState
       });
       await _loadTracking();
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _newestShipmentRequest) return;
       if (identity != _signedInIdentity()) {
         setState(_forgetEarlierIdentity);
       } else {
         setState(() => _showLoadFailure(e));
       }
     } finally {
-      if (mounted) setState(() => _refreshing = false);
+      if (quietly) {
+        _checkingQuietly = false;
+      } else if (mounted) {
+        setState(() => _refreshing = false);
+      }
     }
   }
 
@@ -213,7 +238,7 @@ class _CustomerShipmentDetailScreenState
     final st = _shipment?["status"]?.toString() ?? "";
     if (st == "DELIVERED" || st == "FAILED_CARRIER_REFUNDED") return;
     _poll = Timer.periodic(const Duration(seconds: 15), (_) async {
-      if (!appIsInBackground) await _refreshAll();
+      if (!appIsInBackground) await _refreshAll(quietly: true);
     });
   }
 
@@ -232,7 +257,7 @@ class _CustomerShipmentDetailScreenState
       if (mounted) _schedulePoll();
     });
     _lifecycle = AppLifecycleListener(onShow: () {
-      if (_poll?.isActive ?? false) _refreshAll();
+      if (_poll?.isActive ?? false) _refreshAll(quietly: true);
     });
     // After Pay and book, a screen reader starts on the new shipment's title (accessibility.md).
     if (widget.shipmentId == lastBookedShipmentId) {

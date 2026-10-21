@@ -1550,6 +1550,11 @@ class _DriverShipmentDetailScreenState
   bool _loadNeverAnswered = false;
   bool _shipmentMissingFromList = false;
   bool _loading = false;
+  // The timed check: no spinner on Refresh, which stays free to tap.
+  bool _checkingQuietly = false;
+  // Each request's number. A timed check can answer after a newer load; only the newest answer is used.
+  int _newestBookingRequest = 0;
+  int _newestTripRequest = 0;
   Timer? _poll;
   late final AppLifecycleListener _lifecycle;
 
@@ -1575,7 +1580,18 @@ class _DriverShipmentDetailScreenState
       _poll?.cancel();
       return;
     }
-    if (!_loading && !_accepting) _load();
+    // The list has answered without this booking; asking again every 15 s cannot bring it back.
+    if (_shipmentMissingFromList) return;
+    if (!_loading && !_checkingQuietly && !_accepting) _checkQuietly();
+  }
+
+  Future<void> _checkQuietly() async {
+    _checkingQuietly = true;
+    try {
+      await _loadBooking();
+    } finally {
+      _checkingQuietly = false;
+    }
   }
 
   @override
@@ -1586,6 +1602,7 @@ class _DriverShipmentDetailScreenState
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     try {
       await _loadBooking();
@@ -1618,6 +1635,7 @@ class _DriverShipmentDetailScreenState
   }
 
   Future<void> _loadBooking() async {
+    final request = ++_newestBookingRequest;
     Map<String, dynamic>? found;
     try {
       final r =
@@ -1632,7 +1650,7 @@ class _DriverShipmentDetailScreenState
         }
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && request == _newestBookingRequest) {
         setState(() {
           _loadFailed = true;
           _loadNeverAnswered = serverNeverAnswered(e);
@@ -1641,7 +1659,7 @@ class _DriverShipmentDetailScreenState
       }
       return;
     }
-    if (!mounted) return;
+    if (!mounted || request != _newestBookingRequest) return;
     if (found == null) {
       setState(() {
         _loadFailed = true;
@@ -1652,18 +1670,24 @@ class _DriverShipmentDetailScreenState
       });
       return;
     }
-    setState(() => _shipment = found);
+    setState(() {
+      _shipment = found;
+      _shipmentMissingFromList = false;
+    });
     if (!_forDriver) await _loadTrip(found);
   }
 
   Future<void> _loadTrip(Map<String, dynamic> shipment) async {
     final tripId = shipment["anchorTripId"];
     if (tripId is! String || tripId.isEmpty) return;
+    final request = ++_newestTripRequest;
     try {
       final response =
           await api.get<Map<String, dynamic>>("/v1/pilot/anchor-trips/$tripId");
       final trip = response.data?["trip"];
-      if (mounted && trip is Map<String, dynamic>) setState(() => _trip = trip);
+      if (mounted && request == _newestTripRequest && trip is Map<String, dynamic>) {
+        setState(() => _trip = trip);
+      }
     } catch (_) {
       // The trip only adds its route, dates, room and progress; the booking reads without them.
     }
@@ -2971,6 +2995,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   // The stop the driver has just confirmed, shown at the top until the screen loads again (dr-done).
   Map<String, dynamic>? _justDelivered;
   Timer? _poll;
+  // Each bookings request's number. The timed check can answer after a newer load; only the newest is used.
+  int _newestBookingsRequest = 0;
   late final AppLifecycleListener _lifecycle;
 
   @override
@@ -3222,7 +3248,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
     try {
       final ships = await _fetchTripBookings();
-      if (mounted) setState(() => _shipments = ships);
+      if (mounted && ships != null) setState(() => _shipments = ships);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -3240,11 +3266,14 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     if (_forDriver) await _geocodeTripCitiesIfNeeded();
   }
 
-  Future<List<Map<String, dynamic>>> _fetchTripBookings() async {
+  /// Null when a newer request was sent while this one waited: its answer is older, so it is dropped.
+  Future<List<Map<String, dynamic>>?> _fetchTripBookings() async {
+    final request = ++_newestBookingsRequest;
     final sr = await api.get<Map<String, dynamic>>(
       "/v1/pilot/carrier/shipments",
       query: {"anchorTripId": widget.tripId},
     );
+    if (request != _newestBookingsRequest) return null;
     final raw = sr.data?["shipments"];
     final ships = <Map<String, dynamic>>[];
     if (raw is List) {
@@ -3262,7 +3291,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     if (_loading || _starting || _completing || _tripNoLongerAssigned) return;
     try {
       final ships = await _fetchTripBookings();
-      if (mounted && !_loading) setState(() => _shipments = ships);
+      if (mounted && !_loading && ships != null) {
+        setState(() => _shipments = ships);
+      }
     } catch (_) {}
   }
 
