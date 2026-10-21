@@ -266,7 +266,7 @@ class _CustomerShipmentDetailScreenState
 
   String _notPaidSentence(String carrier) =>
       "${_paymentStatus == "FAILED" ? "Payment did not go through. " : ""}"
-      "This booking is not paid, so $carrier cannot accept it yet. "
+      "This shipment is not paid. $carrier cannot accept it until it is. "
       "To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.";
 
   NvStep _step(ShipmentStep step, Map<String, dynamic> shipment,
@@ -293,9 +293,9 @@ class _CustomerShipmentDetailScreenState
         final String waiting;
         if (_paymentHeld) {
           waiting =
-              "Waiting for $carrier to accept. Your payment is on hold. It is collected after delivery.";
+              "Waiting for $carrier to accept. Your payment is on hold. It is paid to the carrier after delivery.";
         } else if (paymentNotTaken(_paymentStatus)) {
-          waiting = "$carrier can accept once this booking is paid.";
+          waiting = "$carrier can accept once this shipment is paid.";
         } else {
           waiting = "Waiting for $carrier to accept.";
         }
@@ -312,7 +312,7 @@ class _CustomerShipmentDetailScreenState
         return NvStep(
             title: step.title,
             state: step.state,
-            who: partOne ? "You · Part 1 of 2" : step.who,
+            who: partOne ? "You · Step 1 of 2" : step.who,
             panelAlwaysShown: true,
             panel: EwayBillCard(
                 key: const ValueKey("eway-bill-card"),
@@ -325,7 +325,7 @@ class _CustomerShipmentDetailScreenState
             state: step.state,
             who: step.who,
             panel: const Text(
-                "NaviG8r staff check the bill on the portal by hand. If they find a problem, this shipment and your Home screen show what to fix.",
+                "NaviG8r checks the bill on the portal by hand. If NaviG8r finds a problem, this shipment and your Home screen show what to fix.",
                 style: NvText.body));
       case ShipmentStepName.onTheWay:
         final started = _momentFromUtcMs(_trip?["startedAtUtcMs"]);
@@ -381,7 +381,7 @@ class _CustomerShipmentDetailScreenState
           const SizedBox(height: NvSpace.s2),
           Text(facts, style: NvText.caption),
           if (externalId.isNotEmpty)
-            Text("Synced from ERP · $externalId", style: NvText.caption),
+            Text("From your ERP · $externalId", style: NvText.caption),
           if (AuthorizationSession.can("conversation.read")) ...[
             const SizedBox(height: NvSpace.s3),
             NvButton(
@@ -415,13 +415,13 @@ class _CustomerShipmentDetailScreenState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-              "${carrierOf(shipment)} confirmed delivery and added proof of delivery."
+              "${carrierOf(shipment)} confirmed delivery."
               // Until the payment is released the hold line below says what happens to it.
-              "${released && paid != null ? " Your payment of ${formatRupees(paid)} is collected now." : ""}",
+              "${released && paid != null ? " Your payment of ${formatRupees(paid)} is now paid to the carrier." : ""}",
               style: NvText.body),
           const SizedBox(height: NvSpace.s3),
           NvButton(
-              label: "Book another shipment",
+              label: "Book another trip",
               kind: NvButtonKind.secondary,
               fullWidth: true,
               onPressed: () => context.go("/customer/trips")),
@@ -466,7 +466,7 @@ class _CustomerShipmentDetailScreenState
               ),
               const SizedBox(height: NvSpace.s2),
               if (nothingPaid)
-                const Text("Nothing was paid for this booking.",
+                const Text("Nothing was paid for this shipment.",
                     style: NvText.body)
               else ...[
                 if (_paymentHeld && amount != null)
@@ -474,12 +474,12 @@ class _CustomerShipmentDetailScreenState
                 if (refunded)
                   Text(
                       amount == null
-                          ? "If you paid for this booking, all of it is refunded."
-                          : "If you paid the ${formatRupees(amount)} for this booking, all of it is refunded.",
+                          ? "If you paid for this shipment, all of it is refunded."
+                          : "If you paid the ${formatRupees(amount)} for this shipment, all of it is refunded.",
                       style: NvText.body),
                 const SizedBox(height: NvSpace.s2),
                 const Text(
-                    "Refunds reach your account in the time your bank or payment app takes.",
+                    "How long the refund takes depends on your bank or payment app.",
                     style: NvText.caption),
               ],
             ],
@@ -495,7 +495,7 @@ class _CustomerShipmentDetailScreenState
             TextSpan(children: [
               TextSpan(
                   text: nothingPaid
-                      ? "Questions about this booking? "
+                      ? "Questions about this shipment? "
                       : "Questions about this refund? ",
                   style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
               const TextSpan(

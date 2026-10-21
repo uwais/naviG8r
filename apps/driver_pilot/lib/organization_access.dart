@@ -60,7 +60,7 @@ class OrganizationAccess extends StatelessWidget {
                           if (AuthorizationSession.error != null)
                             const TextButton(
                                 onPressed: AuthorizationSession.refresh,
-                                child: Text('Retry')),
+                                child: Text('Try again')),
                         ]),
                       )))
                     : KeyedSubtree(
@@ -197,7 +197,7 @@ class OrganizationToolbar extends StatelessWidget {
                       ),
                     ),
                     const IconButton(
-                        tooltip: 'Refresh access',
+                        tooltip: 'Refresh',
                         onPressed: AuthorizationSession.refresh,
                         icon: Icon(Icons.refresh)),
                     const IconButton(

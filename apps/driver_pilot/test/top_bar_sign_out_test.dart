@@ -40,7 +40,7 @@ void main() {
 
     expect(find.byIcon(Icons.logout), findsNothing,
         reason: 'spec/screens.md: the header has no sign-out icon');
-    expect(find.byTooltip('Refresh access'), findsNothing,
+    expect(find.byTooltip('Refresh'), findsNothing,
         reason: 'spec/screens.md: pull to refresh replaces the refresh icon');
     expect(find.byType(DropdownButton<String>), findsNothing,
         reason: 'spec/screens.md: the header replaces the company drop-down');
@@ -57,7 +57,7 @@ void main() {
         const MaterialApp(home: Scaffold(body: OrganizationToolbar())));
     expect(find.byTooltip('Sign out of all companies'), findsOneWidget,
         reason: 'with no company chosen there is no header, so the gate signs out');
-    expect(find.byTooltip('Refresh access'), findsOneWidget,
+    expect(find.byTooltip('Refresh'), findsOneWidget,
         reason: 'the gate still reloads access');
   });
 }

@@ -63,7 +63,7 @@ void main() {
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
       server.answers['/shipments/quote'] = priceByWeight;
       await tester.pumpAndSettle();
-      expect(find.text('Book space'), findsOneWidget, reason: 'copy.md: title');
+      expect(find.text('Book this trip'), findsOneWidget, reason: 'copy.md: title');
       expect(find.text('Check the price, then pay.'), findsOneWidget,
           reason: 'copy.md: sub');
       expect(find.text('Capacity remaining: 105 kg'), findsOneWidget,
@@ -167,7 +167,7 @@ void main() {
               "Book and pay opens a payment screen. There you choose how to pay."),
           findsOneWidget,
           reason: 'moved from the confirm sheet: what Pay does next');
-      expect(find.text('Changing weight, pickup or drop gets a new price.'),
+      expect(find.text('If you change the weight, pickup or drop, the price changes.'),
           findsOneWidget,
           reason: 'copy.md: price note');
       expect(find.text(contactAbovePay), findsOneWidget,
@@ -527,13 +527,13 @@ void main() {
       expect(find.text('Shipment shipment-9'), findsOneWidget,
           reason:
               'the booking already exists; tapping Pay again would book a second shipment');
-      expect(find.text('Payment did not go through. This booking is not paid.'),
+      expect(find.text('Payment did not go through. This shipment is not paid.'),
           findsOneWidget,
           reason: 'says why the shipment opened, in plain words');
       expect(find.textContaining('Payment cancelled'), findsNothing,
           reason: "the payment provider's own message is not shown");
       expect(announced,
-          contains('Payment did not go through. This booking is not paid.'),
+          contains('Payment did not go through. This shipment is not paid.'),
           reason: 'never announce "Booked. Waiting" for an unpaid booking');
     });
 
@@ -553,7 +553,7 @@ void main() {
       expect(
           announced,
           contains(
-              'Booked, but the payment could not be confirmed yet. The shipment shows whether it went through.'),
+              'Booked. We could not confirm the payment yet. Open the shipment to see if it went through.'),
           reason:
               'the confirm call failed, so the app does not know the payment is held');
     });
@@ -573,7 +573,7 @@ void main() {
       expect(
           announced,
           contains(
-              'Booked, but payment did not start. This booking is not paid.'),
+              'Booked, but payment did not start. This shipment is not paid.'),
           reason: 'checkout never opened, so nothing was paid');
     });
 
@@ -593,7 +593,7 @@ void main() {
       expect(find.text('To see the price, search for the pickup.'),
           findsOneWidget);
       await tester.tap(find.descendant(
-          of: placeBox('Pickup'), matching: find.byTooltip('Look up place')));
+          of: placeBox('Pickup'), matching: find.byTooltip('Search for place')));
       await tester.pumpAndSettle();
       expect((server.sentTo('/shipments/quote').single['pickup'] as Map)['lat'],
           12.8,

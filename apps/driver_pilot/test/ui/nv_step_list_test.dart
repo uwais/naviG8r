@@ -69,7 +69,7 @@ void main() {
     expect(find.text('Ravi Roadways'), findsOneWidget,
         reason: 'a later step names who does it');
     expect(
-        find.bySemanticsLabel('Step 4 of 5, later: On the way, Ravi Roadways'),
+        find.bySemanticsLabel('Step 4 of 5, not yet: On the way, Ravi Roadways'),
         findsOneWidget,
         reason:
             'spec/components.md: later steps are read as "Step n of m, later:"');
@@ -119,20 +119,20 @@ void main() {
             title: 'Bill check',
             who: 'NaviG8r staff',
             state: NvStepState.waiting,
-            panel: Text('NaviG8r staff check the bill on the portal by hand.'),
+            panel: Text('NaviG8r checks the bill on the portal by hand.'),
           ),
         ]));
 
     expect(find.byIcon(Icons.schedule), findsOneWidget,
         reason: 'waiting steps differ by a clock marker');
-    expect(find.text('NaviG8r staff check the bill on the portal by hand.'),
+    expect(find.text('NaviG8r checks the bill on the portal by hand.'),
         findsOneWidget,
         reason: 'a waiting step says who is acting');
     expect(find.byType(ButtonStyleButton), findsNothing,
         reason: 'a waiting step has no button');
     expect(
         panelDecorationAround(
-                tester, 'NaviG8r staff check the bill on the portal by hand.')
+                tester, 'NaviG8r checks the bill on the portal by hand.')
             .color,
         NvColors.sunken,
         reason: 'the waiting panel is grey');

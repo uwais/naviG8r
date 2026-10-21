@@ -147,7 +147,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
     final filledFromTrip = widget.assignedTruckNumber?.isNotEmpty == true;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text(widget.lead ??
-          'Add the truck to the bill on the $ewayBillPortalName first, then copy the truck number and the valid-until time from it.'),
+          'First add the truck to the bill on the $ewayBillPortalName. Then copy the truck number and the valid-until time from it.'),
       const SizedBox(height: 12),
       TextField(
           controller: _truckNumber,
@@ -174,7 +174,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
               : 'Time in India: ${ewayBillClockTime(time.hour, time.minute)}')),
       const SizedBox(height: 8),
       if (widget.clearsCheck)
-        const Text('Changing these details clears the check.'),
+        const Text('If you change these, the bill goes back to "Not checked yet".'),
       EwayBillErrorText(_error),
       const SizedBox(height: 8),
       Wrap(spacing: 8, runSpacing: 8, children: [

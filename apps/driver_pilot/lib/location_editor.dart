@@ -2,6 +2,7 @@
 // out of server data.
 import "dart:math" as math;
 
+import "package:flutter/foundation.dart" show kDebugMode;
 import "package:flutter/material.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
@@ -251,7 +252,7 @@ Widget activeTripMap({
           padding: const EdgeInsets.all(16),
           child: Text(
             emptyMessage ??
-                "No map location yet. Publish the trip again with map pins, or wait for GPS.",
+                "No map location yet. Add the trip again with map pins, or wait for GPS.",
             textAlign: TextAlign.center,
             style: const TextStyle(color: Color(0xFF757575), fontSize: 13),
           ),
@@ -320,6 +321,8 @@ class LocationEndpointEditor extends StatefulWidget {
 
   /// True while the place is being sent, so the words, search and pin stay as they were sent.
   final bool readOnly;
+
+  /// Shows the developer's missing-maps-key snackbar. Debug builds only: release users never see it.
   final bool showApiKeyHint;
 
   /// False leaves out the map and its drag caption, so a screen can keep the form short until the place is found.
@@ -413,7 +416,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     });
     if (!outcome.isOk) {
       setState(() => _hintLine = placeSearchFailureSentence(outcome.failure, pinOnMap: true));
-      if (outcome.status == "NO_API_KEY" && mounted && widget.showApiKeyHint) {
+      if (outcome.status == "NO_API_KEY" && mounted && widget.showApiKeyHint && kDebugMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Add --dart-define=MAPS_API_KEY=… when running Flutter (same key as android/local.properties)."),
@@ -476,7 +479,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
         widget.labelController.text = "";
         _hintLine = "Could not name the place at the pin. Type its name above.";
       } else {
-        _hintLine = "Could not check the name at the pin. Check it is still right.";
+        _hintLine = "Could not check the place name at the pin. Make sure it is still right.";
       }
     });
   }
@@ -500,7 +503,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
                     child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
                   )
                 : IconButton(
-                    tooltip: "Look up place",
+                    tooltip: "Search for place",
                     icon: const Icon(Icons.search),
                     onPressed: widget.readOnly ? null : _lookup,
                   ),

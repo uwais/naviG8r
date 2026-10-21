@@ -231,12 +231,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               _HomeRows(children: [
                 _HomeRow(
                   title: CustomerSession.customerOrgName ?? "Your company",
-                  caption: "Manage who can book and view shipments",
+                  caption: "Choose who can book and see shipments",
                   onTap: () => context.go("/customer/team"),
                 ),
                 _HomeRow(
                   title: "ERP integrations",
-                  caption: "API keys, webhooks, and sync status for your ERP",
+                  caption: "Connect your ERP to NaviG8r",
                   onTap: () => context.go("/customer/integrations"),
                 ),
               ]),
@@ -265,10 +265,10 @@ class _NeedsYouCard extends StatelessWidget {
       final date = formatDate(DateTime.fromMillisecondsSinceEpoch(
           deliveredAt.toInt(),
           isUtc: true));
-      return "$carrier confirmed delivery on $date. Check the goods. If you accept, payment can go before the hold ends. "
-          "If you do nothing, it can go when the hold ends.";
+      return "$carrier confirmed delivery on $date. Check the goods. If you accept, it can be paid to the carrier before the hold ends. "
+          "If you do nothing, it is paid to the carrier when the hold ends.";
     }
-    if (task == "Fix the e-way bill") return "NaviG8r staff found a difference.";
+    if (task == "Fix the e-way bill") return "NaviG8r found a problem with the e-way bill.";
     if (bill is Map && bill["billNumber"] is String) {
       return "Bill ${formatBillNumber(bill["billNumber"] as String)} saved. The truck is not on it yet.";
     }

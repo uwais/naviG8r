@@ -40,8 +40,8 @@ Future<void> openShipmentConversation(
 String? noticeWords(String eventKey, {required bool forShipper}) {
   if (forShipper) {
     return switch (eventKey) {
-      'shipment.booked' => 'Your booking is made.',
-      'shipment.carrier_accepted' => 'The carrier accepted your booking.',
+      'shipment.booked' => 'Your shipment is booked.',
+      'shipment.carrier_accepted' => 'The carrier accepted your shipment.',
       'trip.started' => 'Your goods are on the way.',
       'trip.completed' => 'The trip is complete.',
       'shipment.pod_submitted' => 'The carrier confirmed delivery.',
@@ -218,7 +218,7 @@ class _NotificationBellState extends State<NotificationBell> {
         valueListenable: NotificationWatch.unread,
         builder: (context, unread, _) => IconButton(
           tooltip:
-              unread > 0 ? 'Notifications, $unread unread' : 'Notifications',
+              unread > 0 ? 'Updates, $unread new' : 'Updates',
           onPressed: _openInbox,
           color: NvColors.navyInk,
           icon: Badge(
@@ -304,7 +304,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Shipment alerts'),
         content: const Text(
-            'Get alerts on this device when something new happens on your shipments. Alerts do not show message text or shipment details.'),
+            'Get alerts on this phone when something new happens on your shipments. Alerts do not show message text or shipment details.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -322,8 +322,8 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(enabled
-          ? 'Shipment alerts are enabled on this device.'
-          : 'Alerts were not enabled. Check that notifications are allowed for this app in Android settings.'),
+          ? 'Alerts are on for this phone.'
+          : 'Alerts are not on. In Android settings, allow notifications for this app.'),
     ));
   }
 
@@ -477,7 +477,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
     if (_items.isEmpty) {
       return const [
         SizedBox(height: NvSpace.s4),
-        NvListEmpty(title: 'You’re all caught up.'),
+        NvListEmpty(title: 'No new updates.'),
       ];
     }
     final fresh = _items.where((item) => _unreadOf(item) > 0).toList();
@@ -494,7 +494,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
       if (_nextCursor != null) ...[
         const SizedBox(height: NvSpace.s3),
         NvButton(
-            label: 'Load earlier notifications',
+            label: 'Show earlier updates',
             kind: NvButtonKind.quiet,
             loading: _loadingEarlier,
             fullWidth: true,
@@ -522,7 +522,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
               if (PushNotifications.instance.available) ...[
                 const SizedBox(height: NvSpace.s4),
                 NvButton(
-                    label: 'Enable alerts on this device',
+                    label: 'Turn on alerts on this phone',
                     kind: NvButtonKind.quiet,
                     fullWidth: true,
                     onPressed: _enablePushAlerts),
@@ -716,7 +716,7 @@ class _ShipmentConversationScreenState
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: _background,
-        appBar: AppBar(title: const Text('Shipment conversation')),
+        appBar: AppBar(title: const Text('Messages')),
         body: Column(children: [
           if (!_canSend && !_loading)
             const MaterialBanner(
@@ -736,7 +736,7 @@ class _ShipmentConversationScreenState
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.history),
-              label: const Text('Load earlier messages'),
+              label: const Text('Show earlier messages'),
             ),
           Expanded(
               child: _loading

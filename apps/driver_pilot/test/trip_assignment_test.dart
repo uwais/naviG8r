@@ -21,18 +21,18 @@ import 'support/mock_api.dart';
 const savedSentence =
     'Saved. The driver is not sent a message. The trip shows on their Trips screen when they refresh it.';
 const busySentence =
-    'This driver is already on another trip that is in progress.';
-const replacedSentence = 'A driver who is replaced stops seeing this trip.';
+    'This driver is already on another trip that is on the way.';
+const replacedSentence = 'If you change the driver, the old driver stops seeing this trip.';
 const changedSentence =
     'This trip, or your trucks and drivers, changed. Tap Refresh to load this screen again.';
 const unassignedSentence =
-    'Your carrier has not assigned you a trip yet. Ask your carrier to assign one.';
+    'Your office has not given you a trip yet. Ask your office for one.';
 const completedSentence =
     'This trip is complete, so its truck and driver can no longer change.';
 const staleChoiceSentence =
     'Choose a truck from your own fleet. Tap Refresh to load your trucks and drivers again.';
 const onTheRoadSentence =
-    'This trip is already on the road with no driver assigned. If a driver started it, they stop seeing it once you choose someone else.';
+    'This trip is on the road with no driver. If a driver started it, they stop seeing it when you choose someone else.';
 const sheetTitle = 'Who drives this trip?';
 const driverSees =
     'The driver sees the trip and the e-way bill, never the payment.';
@@ -63,7 +63,7 @@ Finder inSheet(Finder finder) =>
     find.descendant(of: find.byType(BottomSheet), matching: finder);
 
 Future<void> openSheet(WidgetTester tester) async {
-  await tester.tap(find.text('Assign driver'));
+  await tester.tap(find.text('Choose driver'));
   await tester.pumpAndSettle();
 }
 
@@ -88,7 +88,7 @@ Future<void> chooseAndSave(WidgetTester tester,
   await openSheet(tester);
   await choose(tester, truck);
   await choose(tester, driver);
-  await tester.tap(inSheet(find.text('Assign $driver')));
+  await tester.tap(inSheet(find.text('Choose $driver')));
   await tester.pumpAndSettle();
 }
 
@@ -123,9 +123,9 @@ void main() {
               tripInWords: 'Bengaluru to Chennai, 18 – 19 Oct',
               onAssigned: reported.add));
       await tester.pumpAndSettle();
-      expect(find.text('Not assigned'), findsNWidgets(2),
+      expect(find.text('Not chosen yet'), findsNWidgets(2),
           reason: 'ca-trip: the Truck and Driver rows say Not assigned');
-      expect(find.text('Assign driver'), findsOneWidget,
+      expect(find.text('Choose driver'), findsOneWidget,
           reason: 'ca-trip: the card opens the assign sheet');
 
       await openSheet(tester);
@@ -151,7 +151,7 @@ void main() {
               'Bengaluru to Chennai, 18 – 19 Oct, truck KA02XY9999. $driverSees')),
           findsOneWidget,
           reason: 'copy.md Assign sheet names the truck');
-      await tester.tap(inSheet(find.text('Assign Synthetic Driver One')));
+      await tester.tap(inSheet(find.text('Choose Synthetic Driver One')));
       await tester.pumpAndSettle();
       expect(sent['path'], '/v1/pilot/anchor-trips/trip-a/assignment');
       expect(
@@ -202,7 +202,7 @@ void main() {
       answer.complete();
       await tester.pumpAndSettle();
       expect(find.text('Loading trucks and drivers...'), findsNothing);
-      expect(find.text('Assign driver'), findsOneWidget);
+      expect(find.text('Choose driver'), findsOneWidget);
     });
 
     testWidgets('with no truck to choose, the card says so instead of a sheet',
@@ -212,9 +212,9 @@ void main() {
           jsonResponse({'vehicles': <Object>[], 'drivers': fleet['drivers']!}));
       await mountCard(tester, TripAssignmentCard(trip: trip()));
       await tester.pumpAndSettle();
-      expect(find.text('No trucks or drivers are set up for this carrier yet.'),
+      expect(find.text('You have no trucks or drivers yet.'),
           findsOneWidget);
-      expect(find.text('Assign driver'), findsNothing);
+      expect(find.text('Choose driver'), findsNothing);
     });
 
     testWidgets(
@@ -235,7 +235,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('KA01AB1234'), findsOneWidget);
       expect(find.text('Synthetic Driver Two'), findsOneWidget);
-      expect(find.text('Not assigned'), findsNothing);
+      expect(find.text('Not chosen yet'), findsNothing);
       await openSheet(tester);
       expect(chosenIn(tester, 'KA01AB1234'), 'vehicle-1',
           reason: "the trip's own truck, so it can still be changed here");
@@ -426,7 +426,7 @@ void main() {
       expect(find.text(savedSentence), findsOneWidget);
       await openSheet(tester);
       await choose(tester, 'Synthetic Driver Two');
-      await tester.tap(inSheet(find.text('Assign Synthetic Driver Two')));
+      await tester.tap(inSheet(find.text('Choose Synthetic Driver Two')));
       await tester.pumpAndSettle();
       expect(find.text(completedSentence), findsOneWidget);
       await tester.tap(inSheet(find.text('Cancel')));
@@ -485,7 +485,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('KA01AB1234'), findsOneWidget);
       expect(find.text('Synthetic Driver One'), findsOneWidget);
-      expect(find.text('Assign driver'), findsNothing);
+      expect(find.text('Choose driver'), findsNothing);
       expect(find.byType(FilledButton), findsNothing);
       expect(requests, 0, reason: 'the fleet list is not even asked for');
     });
@@ -551,7 +551,7 @@ void main() {
             home: Scaffold(body: DriverLoadsScreen(key: ValueKey(subrole)))));
         await tester.pumpAndSettle();
         const publishHelp =
-            'Shippers can book space on a trip once it is published.';
+            'Shippers can book it once you add it.';
         if (subrole == 'DRIVER') {
           expect(find.text(unassignedSentence), findsOneWidget);
           expect(find.text(publishHelp), findsNothing,
@@ -573,13 +573,13 @@ void main() {
       signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
       final forDriver = tripPublishedMessage();
       expect((forDriver.content as Text).data,
-          'Trip published. Your carrier must assign it to a driver. You will see it under Trips only if it is assigned to you.');
+          'Trip added. Your office must choose a driver for it. You see it under Trips only if they choose you.');
       expect(forDriver.duration, const Duration(seconds: 10));
       expect(forDriver.action?.label, 'Close');
 
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
       final forOffice = tripPublishedMessage();
-      expect((forOffice.content as Text).data, 'Trip published.');
+      expect((forOffice.content as Text).data, 'Trip added.');
       expect(forOffice.duration, const SnackBar(content: SizedBox()).duration,
           reason: 'the default length');
       expect(forOffice.action, isNull);
@@ -622,7 +622,7 @@ void main() {
     Map<String, dynamic> onTrip(String truck) =>
         {...shipment(bill: billWithTruck), 'assignedTruckNumber': truck};
     final forCarrierOffice =
-        'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right; if the e-way bill is wrong, ask the shipper to change it. If you updated the truck on the e-way bill site yourself, change it there and tell the shipper.';
+        'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right. If the e-way bill is wrong, ask the shipper to change it. If you changed the truck on the e-way bill portal yourself, change it there and tell the shipper.';
 
     testWidgets(
         'the carrier office is asked to check which truck is right and to ask the shipper about the bill',
@@ -642,7 +642,7 @@ void main() {
           tester, EwayBillCarrierCard(shipment: onTrip('KA02XY9999')));
       expect(
           find.text(
-              'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your carrier.'),
+              'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your office.'),
           findsOneWidget);
       expect(find.textContaining('update it'), findsNothing);
     });
@@ -654,7 +654,7 @@ void main() {
       await mountCard(tester, EwayBillCard(shipment: onTrip('KA02XY9999')));
       expect(
           find.text(
-              'The e-way bill shows KA01AB1234. Your carrier has assigned KA02XY9999 to this trip. Ask your carrier which truck is right; if the e-way bill is wrong, change it in your billing software or on the e-way bill site, then here. If the site refuses, your carrier may have updated it; ask them to change it.'),
+              'The e-way bill shows KA01AB1234. The carrier put KA02XY9999 on this trip. Ask the carrier which truck is right. If the e-way bill is wrong, change it in your billing software or on the e-way bill portal, then here. If the portal refuses, the carrier may have changed it. Ask them to change it.'),
           findsOneWidget);
     });
 

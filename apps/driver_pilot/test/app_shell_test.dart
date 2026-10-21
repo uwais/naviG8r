@@ -130,7 +130,7 @@ void main() {
 
     for (final (organization, subrole, tabs) in [
       (sharma, 'CUSTOMER_ADMIN', ['Home', 'Book a trip', 'Shipments']),
-      (ravi, 'OWNER', ['Home', 'Bookings', 'Trips', 'Publish', 'Profile']),
+      (ravi, 'OWNER', ['Home', 'Bookings', 'Trips', 'Add trip', 'Profile']),
     ]) {
       testWidgets('the one sign-in lands a $subrole on their own Home',
           (tester) async {
@@ -234,7 +234,7 @@ void main() {
           });
       expect(find.byType(DropdownButton<String>), findsNothing,
           reason: 'screens.md: the header replaces the company drop-down');
-      expect(find.byTooltip('Refresh access'), findsNothing,
+      expect(find.byTooltip('Refresh'), findsNothing,
           reason: 'screens.md: pull to refresh replaces the refresh icon');
       expect(find.byIcon(Icons.logout), findsNothing,
           reason: 'screens.md: no sign-out icon in the header');
@@ -295,14 +295,14 @@ void main() {
 
     for (final subrole in ['OWNER', 'DISPATCHER']) {
       testWidgets(
-          'the office ($subrole) has exactly Home, Bookings, Trips, Publish, Profile',
+          'the office ($subrole) has exactly Home, Bookings, Trips, Add trip, Profile',
           (tester) async {
         await launchSignedIn(tester,
             person: 'Ravi Shetty',
             startAt: 'org-ravi',
             subroleAt: {'org-ravi': subrole});
         expect(tabLabels(tester),
-            ['Home', 'Bookings', 'Trips', 'Publish', 'Profile'],
+            ['Home', 'Bookings', 'Trips', 'Add trip', 'Profile'],
             reason: 'screens.md: the office tabs are renamed, not removed');
         expect(find.text('Home'), findsWidgets,
             reason: 'the office home is titled Home');
@@ -327,7 +327,7 @@ void main() {
       GoRouter.of(tester.element(find.byType(NavigationBar)))
           .go('/customer/book?anchorTripId=lane-1');
       await pumpFrames(tester);
-      expect(find.text('Book space'), findsOneWidget,
+      expect(find.text('Book this trip'), findsOneWidget,
           reason: 'PR 4: the Book route keeps working without a tab');
       expect(find.byType(NavigationBar), findsNothing,
           reason: 'PR 4: on Book the action bar takes the tabs\' place');

@@ -157,7 +157,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
           Text(label, style: NvText.body.copyWith(color: NvColors.slate)),
           const SizedBox(width: NvSpace.s3),
           Expanded(
-              child: Text(value ?? 'Not assigned',
+              child: Text(value ?? 'Not chosen yet',
                   textAlign: TextAlign.end, style: valueStyle)),
         ]),
       ),
@@ -189,13 +189,13 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
     // Saving needs both, so with either list empty there is nothing to choose.
     if (_vehicles.isEmpty || _drivers.isEmpty) {
       return [
-        const Text('No trucks or drivers are set up for this carrier yet.',
+        const Text('You have no trucks or drivers yet.',
             style: NvText.body)
       ];
     }
     return [
       NvButton(
-        label: 'Assign driver',
+        label: 'Choose driver',
         // Once a driver is named, Start trip below is the screen's main action.
         kind: _driverWords == null
             ? NvButtonKind.primary
@@ -225,7 +225,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
       if (_driverBusy) ...[
         const SizedBox(height: NvSpace.s3),
         const NvMessage(
-            'This driver is already on another trip that is in progress.',
+            'This driver is already on another trip that is on the way.',
             tone: NvMessageTone.attention),
       ],
     ]);
@@ -302,7 +302,7 @@ class _AssignSheetState extends State<_AssignSheet> {
       final trip = response.data?['trip'];
       closeNvSheetAfterSuccess<_Assignment>(context,
           announcement:
-              '${_driverName(driver)} assigned. You can start the trip on loading day.',
+              '${_driverName(driver)} drives this trip. You can start it on loading day.',
           result: (
             trip: trip is Map<String, dynamic> ? trip : null,
             driverBusy: response.data?['driverBusy'] == true,
@@ -373,11 +373,11 @@ class _AssignSheetState extends State<_AssignSheet> {
           onChanged: (value) => setState(() => _driverUserId = value),
         ),
         if (replacingDriver)
-          const Text('A driver who is replaced stops seeing this trip.',
+          const Text('If you change the driver, the old driver stops seeing this trip.',
               style: NvText.body),
         if (onTheRoadWithNoDriverAssigned)
           const Text(
-              'This trip is already on the road with no driver assigned. If a driver started it, they stop seeing it once you choose someone else.',
+              'This trip is on the road with no driver. If a driver started it, they stop seeing it when you choose someone else.',
               style: NvText.body),
         const SizedBox(height: NvSpace.s2),
         NvChoiceRows<String>(
@@ -391,7 +391,7 @@ class _AssignSheetState extends State<_AssignSheet> {
           onChanged: (value) => setState(() => _vehicleId = value),
         ),
       ],
-      primaryLabel: ready ? 'Assign ${_driverName(driver)}' : 'Assign driver',
+      primaryLabel: ready ? 'Choose ${_driverName(driver)}' : 'Choose driver',
       onPrimary: ready ? _save : null,
       disabledReason: ready
           ? null
@@ -399,7 +399,7 @@ class _AssignSheetState extends State<_AssignSheet> {
               ? 'Choose a driver first.'
               : 'Choose a truck first.'),
       loading: _saving,
-      loadingLabel: 'Assigning',
+      loadingLabel: 'Saving',
       footer: widget.onAddDriver == null
           ? null
           : NvButton(

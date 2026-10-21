@@ -134,7 +134,7 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
               controller: _phone,
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(
-                  labelText: "Teammate phone (10 digits)"),
+                  labelText: "Teammate's mobile number (10 digits)"),
             ),
             const SizedBox(height: 8),
             FilledButton(
@@ -151,7 +151,7 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
               Text(_error!, style: const TextStyle(color: Colors.red)),
             ],
             const SizedBox(height: 16),
-            const Text("Members",
+            const Text("Your team",
                 style: TextStyle(fontWeight: FontWeight.w600)),
             if (_loading)
               const Padding(

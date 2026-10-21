@@ -100,10 +100,10 @@ void main() {
 
     server.answers['/v1/notifications'] =
         _notices(1, 'shipment.carrier_accepted', 'shp_9f2c41');
-    await _pumpUntilShown(tester, find.text('The carrier accepted your booking.'));
+    await _pumpUntilShown(tester, find.text('The carrier accepted your shipment.'));
     await tester.pumpAndSettle();
-    expect(find.text('The carrier accepted your booking.'), findsOneWidget);
-    expect(find.byTooltip('Notifications, 1 unread'), findsOneWidget);
+    expect(find.text('The carrier accepted your shipment.'), findsOneWidget);
+    expect(find.byTooltip('Updates, 1 new'), findsOneWidget);
     await tester.pump(NotificationWatch.bannerTime);
     await tester.pumpAndSettle();
     expect(find.byType(MaterialBanner), findsNothing,

@@ -98,7 +98,7 @@ void main() {
       '/driver/shipment/delivered': 'Delivered',
       '/driver/shipment/booked/pod': 'Confirm the goods are handed over',
       '/driver/profile': 'Sign out',
-      '/driver/publish': 'Publish trip',
+      '/driver/publish': 'Add trip',
       '/driver/track': 'Trip',
       '/driver/fleet': 'Today',
       '/driver/earnings': 'Today',
@@ -118,7 +118,7 @@ void main() {
 
     // The Trips tab's other groups, the start sheet and the screen after a confirmed delivery.
     await openPath(tester, router, '/driver/loads');
-    for (final group in ['In transit', 'Done']) {
+    for (final group in ['On the way', 'Done']) {
       await tester.tap(find.text(group));
       await tester.pumpAndSettle();
       expectNoMoney('Trips, $group');

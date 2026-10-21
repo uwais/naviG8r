@@ -151,7 +151,7 @@ void main() {
 
       await tester.tap(find.text('Bengaluru to Chennai'));
       await tester.pumpAndSettle();
-      expect(find.text('Book space'), findsOneWidget,
+      expect(find.text('Book this trip'), findsOneWidget,
           reason: 'a lane card opens Book for that lane');
     });
 

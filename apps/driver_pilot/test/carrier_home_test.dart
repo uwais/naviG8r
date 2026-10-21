@@ -46,7 +46,7 @@ void main() {
               'owner decision 18 Oct 2026: the shipper adds the truck, so it is never the carrier\'s task');
       expect(find.text('Hosur to Coimbatore · Lakshmi Foods'), findsNothing,
           reason: 'no task row for the missing truck');
-      expect(find.text('Assign a driver'), findsNWidgets(2),
+      expect(find.text('Choose a driver'), findsNWidgets(2),
           reason: 'both booked trips wait for a driver');
       expect(find.text('Hosur to Coimbatore · Leaves 18 – 19 Oct'),
           findsOneWidget,
@@ -54,14 +54,14 @@ void main() {
       expect(find.text('Today'), findsOneWidget,
           reason: 'ca-home: the trips on the road');
       expect(find.text('Bengaluru to Mysuru'), findsOneWidget);
-      expect(find.text('In transit'), findsOneWidget);
+      expect(find.text('On the way'), findsOneWidget);
       expect(
           find.text('KA01AB5678 · Suresh Kumar · 0 bookings'), findsOneWidget,
           reason:
               'truck in the portal form, the driver, and the bookings on it');
       for (final link in [
         'Sign in with phone',
-        'Register as new carrier',
+        'Register a carrier company',
         'Developer lab',
         'Sign out',
       ]) {

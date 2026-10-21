@@ -10,6 +10,7 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "accept_booking.dart";
 import "access_refresh.dart";
+import "address_town.dart";
 import "authorization_session.dart";
 import "carrier_approval_banner.dart";
 import "eway_bill_carrier_card.dart";
@@ -53,10 +54,10 @@ String driverShellTitle(String path, {bool forDriver = false}) {
   if (path == "/driver") return forDriver ? "Today" : "Home";
   if (path.startsWith("/driver/shipments")) return "Bookings";
   if (path.startsWith("/driver/loads")) return "Trips";
-  if (path.startsWith("/driver/publish")) return "Publish a trip";
+  if (path.startsWith("/driver/publish")) return "Add a trip";
   if (path.startsWith("/driver/track")) return "Track";
   if (path.startsWith("/driver/profile")) return forDriver ? "Profile" : "Company";
-  if (path.startsWith("/driver/fleet")) return "Fleet";
+  if (path.startsWith("/driver/fleet")) return "Invite to your company";
   // The trip screens name themselves: "TRIP" over the route for the office, the route for a driver, and
   // "E-way bills" beside the truck.
   if (path.startsWith("/driver/trip/")) return "";
@@ -65,8 +66,8 @@ String driverShellTitle(String path, {bool forDriver = false}) {
     return path.endsWith("/pod") ? "Confirm delivery" : "";
   }
   if (path.startsWith("/driver/earnings")) return "Earnings";
-  if (path.startsWith("/driver/payout-setup")) return "Payout method";
-  if (path.startsWith("/driver/payout-history")) return "Payout history";
+  if (path.startsWith("/driver/payout-setup")) return "Bank account";
+  if (path.startsWith("/driver/payout-history")) return "Payments to you";
   return "NaviG8r";
 }
 
@@ -115,7 +116,7 @@ class DriverShell extends StatelessWidget {
     NavigationDestination(
         icon: Icon(Icons.add_road_outlined),
         selectedIcon: Icon(Icons.add_road),
-        label: "Publish"),
+        label: "Add trip"),
     NavigationDestination(
         icon: Icon(Icons.person_outline),
         selectedIcon: Icon(Icons.person),
@@ -303,7 +304,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       final phone = digitsOnly(_phone.text.trim());
       if (phone.length != 10) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Enter a 10-digit phone number.")));
+            const SnackBar(content: Text("Enter a 10-digit mobile number.")));
         return;
       }
       final cap = int.tryParse(_cap.text.trim()) ?? 0;
@@ -336,7 +337,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text("Carrier created — verify your phone to continue.")),
+            content: Text("Company created. Now sign in with your mobile number.")),
       );
       context.go("/customer/login?phone=$phone");
     } catch (e) {
@@ -354,23 +355,23 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Register carrier")),
+      appBar: AppBar(title: const Text("Register your company")),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            "Set up your carrier company and owner profile. Next, verify your phone. Then you can publish trips and accept bookings.",
+            "Set up your carrier company and owner profile. Next, sign in with your mobile number. Then you can add trips and accept bookings.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
           TextField(
               controller: _fullName,
-              decoration: const InputDecoration(labelText: "Your full name")),
+              decoration: const InputDecoration(labelText: "Your name")),
           TextField(
               controller: _phone,
               keyboardType: TextInputType.phone,
               decoration:
-                  const InputDecoration(labelText: "Phone (10 digits)")),
+                  const InputDecoration(labelText: "Mobile number (10 digits)")),
           TextField(
               controller: _org,
               decoration: const InputDecoration(
@@ -407,7 +408,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text("Create carrier & continue"),
+                : const Text("Create company and continue"),
           ),
           TextButton(
               onPressed: () => context.go("/driver"),
@@ -449,7 +450,7 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text(
-                "Account created — ask your carrier admin to invite you, then sign in.")),
+                "Account created. Ask the carrier owner to invite you. Then sign in.")),
       );
       context.go("/customer/login");
     } catch (e) {
@@ -464,23 +465,23 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Join a fleet")),
+      appBar: AppBar(title: const Text("Join a carrier company")),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            "Create your own account so your carrier admin can invite you to their company. This does not create a carrier company for you.",
+            "Create your own account. Then the carrier owner can invite you to their company. This does not create a company for you.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
           TextField(
               controller: _fullName,
-              decoration: const InputDecoration(labelText: "Your full name")),
+              decoration: const InputDecoration(labelText: "Your name")),
           TextField(
               controller: _phone,
               keyboardType: TextInputType.phone,
               decoration:
-                  const InputDecoration(labelText: "Phone (10 digits)")),
+                  const InputDecoration(labelText: "Mobile number (10 digits)")),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _busy ? null : _submit,
@@ -602,7 +603,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          DriverSession.carrierOrgName ?? "Your carrier",
+          DriverSession.carrierOrgName ?? "Your company",
           style: const TextStyle(
               fontWeight: FontWeight.w700,
               color: DriverTheme.navy,
@@ -610,7 +611,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
         ),
         const SizedBox(height: 8),
         const Text(
-          "Invite a driver who has already registered their phone, or used Join a fleet. Adding drivers makes your company a fleet.",
+          "Invite a driver who has already registered their mobile number, or used Join a carrier company.",
           style: TextStyle(color: DriverTheme.muted, height: 1.4),
         ),
         if (!DriverSession.canInviteDrivers) ...[
@@ -623,10 +624,10 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
               controller: _phone,
               keyboardType: TextInputType.phone,
               decoration:
-                  const InputDecoration(labelText: "Driver phone (10 digits)")),
+                  const InputDecoration(labelText: "Driver's mobile number (10 digits)")),
           const SizedBox(height: NvSpace.s3),
           NvChoiceChips<String>(
-            label: "Role",
+            label: "Invite as",
             options: const [
               NvChoice("DRIVER", "Driver"),
               NvChoice("DISPATCHER", "Dispatcher"),
@@ -770,11 +771,11 @@ bool get _seesPaymentAmounts =>
         return ("Truck not on bill", NvStatusTone.attention);
       }
       return _tripStarted(trip)
-          ? ("In transit", NvStatusTone.info)
+          ? ("On the way", NvStatusTone.info)
           : ("Accepted", NvStatusTone.info);
     case "PENDING_RELEASE":
       return _seesPaymentAmounts
-          ? ("Awaiting payment release", NvStatusTone.attention)
+          ? ("Waiting for payment", NvStatusTone.attention)
           : ("Delivery confirmed", NvStatusTone.good);
     case "DELIVERED":
       return ("Delivered", NvStatusTone.good);
@@ -989,8 +990,8 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
   Widget _card(Map<String, dynamic> booking) {
     final trip = _tripsById[booking["anchorTripId"]];
     final status = _bookingStatus(booking, trip);
-    final pickup = booking["pickupAddress"]?.toString() ?? "";
-    final drop = booking["dropAddress"]?.toString() ?? "";
+    final pickup = townOfAddress(booking["pickupAddress"]?.toString() ?? "");
+    final drop = townOfAddress(booking["dropAddress"]?.toString() ?? "");
     final leaves = _tripLeaves(trip);
     final weight = _weightWords(booking);
     final billWords = _ewayBillCardWords(booking);
@@ -1106,7 +1107,7 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
       if (!waitingForDriver) continue;
       final leaves = _tripLeaves(trip);
       tasks.add(_OfficeTask(
-        title: "Assign a driver",
+        title: "Choose a driver",
         detail: [_tripRoute(trip) ?? "Trip", if (leaves != null) leaves]
             .join(" · "),
         actionLabel: "Open trip",
@@ -1220,7 +1221,7 @@ class _OfficeHomeState extends State<_OfficeHome> {
     ];
     return NvListCard(
       title: _tripRoute(trip) ?? "Trip",
-      status: const NvStatusLabel("In transit", tone: NvStatusTone.info),
+      status: const NvStatusLabel("On the way", tone: NvStatusTone.info),
       footnote: facts.join(" · "),
       onOpen: () => _open("/driver/trip/${trip["id"]}/active"),
     );
@@ -1405,7 +1406,7 @@ class _DriverTodayState extends State<_DriverToday> {
         _nonEmpty(city) == null ? "$count" : "$count, in $city";
     final NvStatusLabel? status;
     if (trip["status"] == "IN_PROGRESS") {
-      status = const NvStatusLabel("In transit", tone: NvStatusTone.info);
+      status = const NvStatusLabel("On the way", tone: NvStatusTone.info);
     } else if (accepted != null && accepted > 0) {
       status = const NvStatusLabel("Ready to start", tone: NvStatusTone.good);
     } else {
@@ -1493,7 +1494,7 @@ class _DriverTodayState extends State<_DriverToday> {
         else
           const NvListEmpty(
               title: "No trip today.",
-              help: "Your office assigns trips. They appear here."),
+              help: "Your office gives you trips. They show here."),
         if (later.isNotEmpty) ...[
           const SizedBox(height: NvSpace.s6),
           Semantics(
@@ -1670,8 +1671,8 @@ class _DriverShipmentDetailScreenState
               _shipmentMissingFromList && _forDriver
                   ? "This booking is not on a trip assigned to you now. Go back to Trips and tap Refresh."
                   : _loadNeverAnswered
-                      ? "Could not load this shipment. Check your connection and try again."
-                      : "Could not load this shipment.",
+                      ? "Could not load this booking. Check your connection and try again."
+                      : "Could not load this booking.",
               style: NvText.body,
               textAlign: TextAlign.center),
           // A driver's retry would ask the same list, which has already answered without this shipment; the office
@@ -1705,7 +1706,7 @@ class _DriverShipmentDetailScreenState
     if (!DriverSession.complianceApproved) {
       cannotAcceptReason = "You can accept once NaviG8r approves your company.";
     } else if (!AuthorizationSession.can("carrier.offer_accept")) {
-      cannotAcceptReason = "Your role cannot accept bookings.";
+      cannotAcceptReason = "You cannot accept bookings. Ask your office.";
     } else {
       cannotAcceptReason = null;
     }
@@ -1786,7 +1787,7 @@ class _DriverShipmentDetailScreenState
       // Owners only: dispatchers and drivers are not told about payments (ca-booking-dispatcher).
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(_seesPaymentAmounts
-              ? "Delivery confirmed. Payment will be released after ops review."
+              ? "Delivery confirmed. NaviG8r checks it, then releases the payment."
               : "Delivery confirmed.")));
     }
     // Confirming delivery changes the status, so the button must not stay on offer.
@@ -1926,22 +1927,22 @@ class _DriverShipmentDetailScreenState
         switch (status) {
           "DELIVERED" => const NvStep(
               title: "Payment released",
-              who: "NaviG8r operations",
+              who: "NaviG8r",
               state: NvStepState.done),
           "PENDING_RELEASE" => const NvStep(
-              title: "Payment release",
-              who: "NaviG8r operations",
+              title: "Payment being released",
+              who: "NaviG8r",
               state: NvStepState.waiting),
           _ => const NvStep(
               title: "Payment released",
-              who: "NaviG8r operations",
+              who: "NaviG8r",
               state: NvStepState.later),
         }
       // After delivery a dispatcher reads "Nothing more for you to do" instead of the payment step.
       else if (!delivered)
         const NvStep(
             title: "Payment released",
-            who: "NaviG8r operations",
+            who: "NaviG8r",
             state: NvStepState.later),
     ];
   }
@@ -1968,7 +1969,7 @@ class _DriverShipmentDetailScreenState
     if (!DriverSession.complianceApproved) {
       cannotAcceptReason = "You can accept once NaviG8r approves your company.";
     } else if (!AuthorizationSession.can("carrier.offer_accept")) {
-      cannotAcceptReason = "Your role cannot accept bookings.";
+      cannotAcceptReason = "You cannot accept bookings. Ask the owner.";
     } else {
       cannotAcceptReason = null;
     }
@@ -2054,7 +2055,7 @@ class _DriverShipmentDetailScreenState
 
   /// Assigning the driver and starting happen on the trip screen, so this step opens it.
   NvStep _tripStep({required bool pending, required bool delivered}) {
-    const title = "Driver assigned and trip started";
+    const title = "Driver chosen and trip started";
     final trip = _trip;
     if (delivered || _tripStarted(trip)) {
       final driver = trip?["assignedDriverName"];
@@ -2102,7 +2103,7 @@ class _DriverShipmentDetailScreenState
           title: "Delivery confirmed",
           who: moment == null
               ? null
-              : "${formatDate(moment)}, ${formatTimeIst(moment)} · Proof of delivery added",
+              : "${formatDate(moment)}, ${formatTimeIst(moment)}",
           state: NvStepState.done);
     }
     final driver = _trip?["assignedDriverName"];
@@ -2146,7 +2147,7 @@ class _DriverShipmentDetailScreenState
           children: [
             if (awaitingRelease)
               const Text(
-                  "NaviG8r operations check the proof of delivery, then release the payment to your bank account.",
+                  "NaviG8r checks the delivery, then sends the payment to your bank account.",
                   style: NvText.body),
             if (awaitingRelease && amount is num)
               const SizedBox(height: NvSpace.s3),
@@ -2181,7 +2182,7 @@ class _DriverShipmentDetailScreenState
             if (status == "PENDING_RELEASE") ...[
               const SizedBox(height: NvSpace.s1),
               const Text(
-                  "NaviG8r operations check the proof of delivery. The owner sees the payment.",
+                  "NaviG8r checks the delivery. The owner sees the payment.",
                   style: NvText.body),
             ],
           ],
@@ -2207,7 +2208,7 @@ NvStatusLabel? _tripStatusLabel(Map<String, dynamic>? trip) =>
       "OPEN" => const NvStatusLabel("Open", tone: NvStatusTone.good),
       "FULL" => const NvStatusLabel("Full", tone: NvStatusTone.ended),
       "IN_PROGRESS" =>
-        const NvStatusLabel("In transit", tone: NvStatusTone.info),
+        const NvStatusLabel("On the way", tone: NvStatusTone.info),
       "COMPLETED" => const NvStatusLabel("Done", tone: NvStatusTone.ended),
       _ => null,
     };
@@ -2319,7 +2320,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
       return "${portalTruckNumber(truck)} · ${driver ?? "No driver yet"}";
     }
     if (_tripGroup(trip) == _TripGroup.open) {
-      return "Truck chosen when you accept the first booking";
+      return "You choose the truck when you accept the first booking";
     }
     return driver;
   }
@@ -2348,9 +2349,9 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
             title: "No open trips.",
             help: AuthorizationSession.can("trip.publish") &&
                     DriverSession.carrierRole != "DRIVER"
-                ? "Shippers can book space on a trip once it is published."
+                ? "Shippers can book it once you add it."
                 : null),
-        _TripGroup.inTransit => const NvListEmpty(title: "No trips in transit."),
+        _TripGroup.inTransit => const NvListEmpty(title: "No trips on the way."),
         _TripGroup.done => const NvListEmpty(title: "No finished trips yet."),
       };
 
@@ -2367,7 +2368,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
           NvChoiceChips<_TripGroup>(
             options: const [
               NvChoice(_TripGroup.open, "Open"),
-              NvChoice(_TripGroup.inTransit, "In transit"),
+              NvChoice(_TripGroup.inTransit, "On the way"),
               NvChoice(_TripGroup.done, "Done"),
             ],
             selected: _shown,
@@ -2453,7 +2454,7 @@ class _DriverTrackScreenState extends State<DriverTrackScreen> {
             NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
         children: [
           const Text(
-              "Trips in transit with bookings on them. Open one to see it on the map.",
+              "Trips on the way with bookings. Open one to see it on the map.",
               style: NvText.body),
           const SizedBox(height: NvSpace.s4),
           if (_error != null) ...[
@@ -2662,7 +2663,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         Align(
           alignment: Alignment.centerLeft,
           child: NvButton(
-              label: "Earnings & payouts",
+              label: "Earnings and payments",
               kind: NvButtonKind.quiet,
               onPressed: () => context.push("/driver/earnings")),
         ),
@@ -2679,7 +2680,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         children: const [
           SizedBox(height: NvSpace.s2),
           Text(
-              "Dispatchers accept bookings and assign drivers. They do not see payments.",
+              "Dispatchers accept bookings and choose drivers. They do not see payments.",
               style: NvText.caption),
         ],
       );
@@ -2787,13 +2788,13 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             Align(
               alignment: Alignment.centerLeft,
               child: NvButton(
-                  label: "Publish a trip",
+                  label: "Add a trip",
                   kind: NvButtonKind.secondary,
                   onPressed: () => context.go("/driver/publish")),
             ),
             gap,
             const Text(
-                "Your office assigns your trips. If something about a trip is wrong, ask your office.",
+                "Your office gives you your trips. If something about a trip is wrong, ask your office.",
                 style: NvText.caption),
           ],
         ],
@@ -2888,7 +2889,7 @@ class _TruckSheetState extends State<_TruckSheet> {
             identifier: true,
             textCapitalization: TextCapitalization.characters,
             help:
-                "As on the registration certificate. Spaces are removed for the e-way bill.",
+                "Type it as on your registration certificate (RC). We remove the spaces for the e-way bill.",
           ),
           const SizedBox(height: NvSpace.s2),
           NvChoiceRows<String>(
@@ -2922,7 +2923,7 @@ const _tripNoLongerAssignedSentence =
 
 /// While a trip is in transit the driver's phone sends its position, and shippers see it.
 const _locationSharedSentence =
-    "Your location is shared with the shippers while this trip is in transit.";
+    "Shippers see your location while this trip is on the way.";
 
 /// A 404 to a driver: the trip, or the shipment's trip, is no longer assigned to them.
 bool _answeredTripNoLongerAssigned(Object error) =>
@@ -3387,7 +3388,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     final status = _bookingStatus(stop, trip);
     final weight = _weightWords(stop);
     return NvListCard(
-      title: _nonEmpty(stop["dropAddress"]) ?? _shipperName(stop),
+      title: _nonEmpty(townOfAddress(stop["dropAddress"]?.toString() ?? "")) ??
+          _shipperName(stop),
       subtitle: [_shipperName(stop), if (weight != null) weight].join(" · "),
       status: status == null
           ? null
@@ -3416,7 +3418,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     final startBlocked = trip == null ? null : _startBlockedReason(trip);
     final NvStatusLabel? statusLabel = switch (status) {
       "IN_PROGRESS" =>
-        const NvStatusLabel("In transit", tone: NvStatusTone.info),
+        const NvStatusLabel("On the way", tone: NvStatusTone.info),
       "COMPLETED" => const NvStatusLabel("Done", tone: NvStatusTone.ended),
       "OPEN" || "FULL" when _acceptedBookings.isNotEmpty =>
         const NvStatusLabel("Ready to start", tone: NvStatusTone.good),
@@ -3485,7 +3487,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               if (canComplete) ...[
                 gap,
                 const NvMessage(
-                    "Every delivery is confirmed. Complete the trip to stop sharing your location.",
+                    "All deliveries are confirmed. Complete the trip to stop sharing your location.",
                     tone: NvMessageTone.info),
               ],
               if (started) ...[
@@ -3548,12 +3550,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   /// Why the office cannot start the trip yet, or null when it can (copy.md, "Start (disabled)").
   String? _startBlockedReason(Map<String, dynamic> trip) {
     if (!DriverSession.complianceApproved) {
-      return "NaviG8r has not approved this carrier yet.";
+      return "NaviG8r has not approved your company yet.";
     }
     if (_acceptedBookings.isEmpty) return "Accept a booking on this trip first.";
     // A driver only ever sees the trips they drive.
     if (!_forDriver && _nonEmpty(trip["assignedDriverUserId"]) == null) {
-      return "Assign a driver first. Then start on loading day.";
+      return "Choose a driver first. Then start on loading day.";
     }
     return null;
   }
@@ -3619,8 +3621,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   Widget _bookingOnTrip(
       Map<String, dynamic> booking, Map<String, dynamic>? trip) {
     final status = _bookingStatus(booking, trip);
-    final pickup = booking["pickupAddress"]?.toString() ?? "";
-    final drop = booking["dropAddress"]?.toString() ?? "";
+    final pickup = townOfAddress(booking["pickupAddress"]?.toString() ?? "");
+    final drop = townOfAddress(booking["dropAddress"]?.toString() ?? "");
     final weight = _weightWords(booking);
     return NvListCard(
       title: [_shipperName(booking), if (weight != null) weight].join(" · "),
@@ -3783,10 +3785,10 @@ class _StartTripSheet extends StatelessWidget {
     return NvSheet(
       title: "Start ${_tripRoute(trip) ?? "this trip"} now?",
       choices: [
-        _fact("Truck", truck == null ? "Not assigned" : portalTruckNumber(truck),
+        _fact("Truck", truck == null ? "Not chosen yet" : portalTruckNumber(truck),
             identifier: truck != null),
         const Divider(height: 1, color: NvColors.line),
-        _fact("Driver", _nonEmpty(trip["assignedDriverName"]) ?? "Not assigned"),
+        _fact("Driver", _nonEmpty(trip["assignedDriverName"]) ?? "Not chosen yet"),
         const Divider(height: 1, color: NvColors.line),
         _fact("Bookings", "${accepted.length} · ${formatKg(totalKg)}"),
         for (final booking in missingTruck)
@@ -3879,12 +3881,12 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
   /// What confirming leads to, for each reader. Only the owner is told about the payment (ca-booking-owner).
   String get _whatHappensNext {
     if (_seesPaymentAmounts) {
-      return "NaviG8r operations check the proof of delivery, then release the payment to your bank account.";
+      return "NaviG8r checks the delivery, then sends the payment to your bank account.";
     }
     if (AuthorizationSession.can("payment.read")) {
-      return "NaviG8r operations check the proof of delivery. The owner sees the payment.";
+      return "NaviG8r checks the delivery. The owner sees the payment.";
     }
-    return "Confirming delivery sends your proof of delivery to NaviG8r.";
+    return "This tells NaviG8r the goods are handed over.";
   }
 
   @override
@@ -4005,7 +4007,7 @@ class _DriverTripEwayBillsScreenState extends State<DriverTripEwayBillsScreen> {
   String? _problem(Map<String, dynamic> booking, Map<String, dynamic> bill) {
     final onBill = bill["truckNumber"];
     if (onBill is! String || onBill.isEmpty) {
-      return "This truck is not on this bill. Call your office now so they can add it.";
+      return "This truck is not on this bill. Call your office now. The shipper must add it to the bill.";
     }
     final mismatch = ewayBillTruckMismatchSentence(booking, bill,
         reader: TruckMismatchReader.driver);
@@ -4019,7 +4021,8 @@ class _DriverTripEwayBillsScreenState extends State<DriverTripEwayBillsScreen> {
 
   Widget _billCard(Map<String, dynamic> booking) {
     final shipper = _shipperName(booking);
-    final drop = _nonEmpty(booking["dropAddress"]);
+    final drop =
+        _nonEmpty(townOfAddress(booking["dropAddress"]?.toString() ?? ""));
     final bill = _ewayBillOf(booking);
     final List<Widget> details;
     String? problem;
@@ -4212,12 +4215,12 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                 children: [
                   Expanded(
                       child: _StatTile(
-                          label: "Pending (accrued)",
+                          label: "Earned, not paid yet",
                           value: formatRupees(pending))),
                   const SizedBox(width: 12),
                   Expanded(
                       child: _StatTile(
-                          label: "Paid out", value: formatRupees(paid))),
+                          label: "Paid to you", value: formatRupees(paid))),
                 ],
               ),
               const SizedBox(height: 12),
@@ -4237,11 +4240,11 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
               if (DriverSession.canSetUpPayouts)
                 FilledButton(
                   onPressed: () => context.push("/driver/payout-setup"),
-                  child: const Text("Manage payout method"),
+                  child: const Text("Change bank account"),
                 ),
               OutlinedButton(
                   onPressed: () => context.push("/driver/payout-history"),
-                  child: const Text("Payout history")),
+                  child: const Text("See payments to you")),
             ],
           );
   }
@@ -4350,7 +4353,7 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
             duration: const Duration(seconds: 10),
             action: SnackBarAction(label: "Close", onPressed: () {}),
             content: Text("$msg\n"
-                "You changed a field after tapping Save. The details sent are the ones from when you tapped. "
+                "You changed something after you tapped Save. We sent the details from before. "
                 "Tap Save again to send the change.")));
         return;
       }
@@ -4373,7 +4376,7 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
     if (!DriverSession.canSetUpPayouts)
       return const Center(
           child: Text(
-              "Only an authorized carrier owner can manage the payout method."));
+              "Only the owner can change the bank account."));
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -4392,7 +4395,7 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
           TextField(
               controller: _ifsc,
               onChanged: (_) => _edited("ifsc"),
-              decoration: _decoration("IFSC / bank identifier", "ifsc")),
+              decoration: _decoration("IFSC code", "ifsc")),
           TextField(
             controller: _accountNumber,
             keyboardType: TextInputType.number,
@@ -4462,7 +4465,7 @@ class _DriverPayoutHistoryScreenState extends State<DriverPayoutHistoryScreen> {
             children: [
               if (_batches.isEmpty)
                 const Text(
-                    "No payout batches yet. Complete POD on shipments and wait for batch settlement."),
+                    "No payments yet. Confirm delivery on your bookings. NaviG8r then pays you in batches."),
               ..._batches.map((b) {
                 final cutoff = b["cutoffUtcMs"];
                 final moment = cutoff is num
@@ -4495,8 +4498,8 @@ SnackBar tripPublishedMessage() => DriverSession.carrierRole == "DRIVER"
         duration: const Duration(seconds: 10),
         action: SnackBarAction(label: "Close", onPressed: () {}),
         content: const Text(
-            "Trip published. Your carrier must assign it to a driver. You will see it under Trips only if it is assigned to you."))
-    : const SnackBar(content: Text("Trip published."));
+            "Trip added. Your office must choose a driver for it. You see it under Trips only if they choose you."))
+    : const SnackBar(content: Text("Trip added."));
 
 /// The calendar day in India at [moment], held as midnight UTC so days compare directly.
 DateTime _dayInIndia(DateTime moment) {
@@ -4681,7 +4684,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
       if (!mounted) return;
       final orgId = DriverSession.carrierOrgId;
       if (orgId == null || orgId.isEmpty) {
-        _showError("Sign in and complete carrier registration first.");
+        _showError("Sign in and register your company first.");
         return;
       }
       const india = Duration(hours: 5, minutes: 30);
@@ -4769,7 +4772,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 NvMessage(_error!, tone: NvMessageTone.problem),
                 gap,
               ],
-              const Text("Shippers can book space on it once it is published.",
+              const Text("Shippers can book it once you add it.",
                   style: NvText.body),
               gap,
               // Each map shows once its place has a point, so the form stays short while typing.
@@ -4852,11 +4855,11 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
       ),
       NvActionBar(
         child: NvButton(
-          label: "Publish trip",
+          label: "Add trip",
           onPressed: namingPin ? null : _submit,
           disabledReason: namingPin ? "Updating address from pin…" : null,
           loading: _submitting,
-          loadingLabel: "Publishing",
+          loadingLabel: "Adding",
           fullWidth: true,
         ),
       ),

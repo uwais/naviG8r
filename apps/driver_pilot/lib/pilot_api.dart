@@ -209,14 +209,14 @@ String formatApiError(Object e) {
     }
     const messages = {
       "carrier_compliance_required":
-          "NaviG8r must approve your company before you can accept shipments or start trips.",
+          "NaviG8r must approve your company before you can accept bookings or start trips.",
       "payment_hold_active":
-          "Payment is on hold until the shipper accepts delivery or the 48-hour hold expires.",
+          "Payment is on hold until the shipper accepts delivery or the 48-hour hold ends.",
       "active_organization_required": "Choose a company to continue.",
       "membership_inactive":
           "You no longer have access to this company. Choose another company.",
       "forbidden":
-          "You do not have permission to do this in this company.",
+          "You are not allowed to do this in this company.",
       "not_found": "This is not available in the company you chose.",
       "unauthorized": "You were signed out. Please sign in again.",
       // A 409 from every register screen; without it the screen blamed the connection.
@@ -366,7 +366,7 @@ String tripStatusLabel(String status) {
     case "FULL":
       return "Full";
     case "IN_PROGRESS":
-      return "In transit";
+      return "On the way";
     case "COMPLETED":
       return "Done";
     default:

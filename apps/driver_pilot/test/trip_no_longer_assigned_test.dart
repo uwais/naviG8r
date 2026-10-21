@@ -127,7 +127,7 @@ void main() {
           MockApiAdapter((_) => jsonResponse({'shipments': <Object>[]}));
       await mountScreen(
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      expect(find.text('Could not load this shipment.'), findsOneWidget);
+      expect(find.text('Could not load this booking.'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.text('Try again'), findsOneWidget);
     });
@@ -243,7 +243,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(tripNoLongerYours), findsOneWidget,
           reason: 'on screen, with no snack bar repeating it');
-      expect(find.text('In transit'), findsNothing);
+      expect(find.text('On the way'), findsNothing);
       expect(location.sharing, isFalse);
     });
 
@@ -267,15 +267,15 @@ void main() {
       });
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
       const gpsLine =
-          'Your location is shared with the shippers while this trip is in transit.';
-      expect(find.text('In transit'), findsOneWidget);
+          'Shippers see your location while this trip is on the way.';
+      expect(find.text('On the way'), findsOneWidget);
       expect(find.text(gpsLine), findsOneWidget);
       expect(location.sharing, isTrue);
 
       await pullDown(tester);
       expect(find.text(tripNoLongerYours), findsOneWidget);
       for (final stale in [
-        'In transit',
+        'On the way',
         'Show e-way bills',
         gpsLine,
         'Truck and driver'
@@ -286,7 +286,7 @@ void main() {
       expect(location.sharing, isFalse);
 
       await pullDown(tester);
-      expect(find.text('In transit'), findsOneWidget,
+      expect(find.text('On the way'), findsOneWidget,
           reason: 'pulling down asks again');
       expect(location.streams, hasLength(2),
           reason: 'listening again after the give-back');
@@ -346,7 +346,7 @@ void main() {
 
   group('An owner driving a trip in transit', () {
     const sharedLine =
-        'Your location is shared with the shippers while this trip is in transit.';
+        'Shippers see your location while this trip is on the way.';
     const stoppedLine =
         "Location sharing has stopped on this phone. You are no longer this trip's driver.";
     Map<String, dynamic> tripDrivenBy(String driver) => {
@@ -409,13 +409,13 @@ void main() {
     /// The Assign driver sheet on the trip screen, with the trip's truck and [driver] chosen.
     Future<void> assignFromTheTripScreen(
         WidgetTester tester, String driver) async {
-      await tester.tap(find.text('Assign driver'));
+      await tester.tap(find.text('Choose driver'));
       await tester.pumpAndSettle();
       await tester.tap(inSheet(find.text('KA01AB1234')));
       await tester.pumpAndSettle();
       await tester.tap(inSheet(find.text(driver)));
       await tester.pumpAndSettle();
-      await tester.tap(inSheet(find.text('Assign $driver')));
+      await tester.tap(inSheet(find.text('Choose $driver')));
       await tester.pumpAndSettle();
     }
 
@@ -467,13 +467,13 @@ void main() {
       expect(location.sharing, isTrue, reason: 'the owner is the driver');
       expect(find.text(sharedLine), findsOneWidget);
 
-      await tester.tap(find.text('Assign driver'));
+      await tester.tap(find.text('Choose driver'));
       await tester.pumpAndSettle();
       await tester.tap(inSheet(find.text('KA01AB1234')));
       await tester.pumpAndSettle();
       await tester.tap(inSheet(find.text('Synthetic Driver Two')));
       await tester.pumpAndSettle();
-      await tester.tap(inSheet(find.text('Assign Synthetic Driver Two')));
+      await tester.tap(inSheet(find.text('Choose Synthetic Driver Two')));
       await tester.pumpAndSettle();
 
       expect(location.sharing, isFalse,

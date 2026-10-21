@@ -106,6 +106,8 @@ void main() {
         expect(find.text(fact), findsOneWidget,
             reason: 'ca-booking-new fact: $fact');
       }
+      expect(find.text('Peenya, Bengaluru'), findsOneWidget,
+          reason: 'the booking screen keeps the full pickup address; lists show the town');
       expect(find.text('Not needed (shipper said so).'), findsOneWidget,
           reason: "ca-booking-new shows the shipper's e-way bill answer");
       expect(
@@ -201,7 +203,7 @@ void main() {
           bookings: [shipmentOnTripA()],
           trips: [trip(status: 'IN_PROGRESS', driverName: 'Suresh Kumar')]);
       await mountBooking(tester);
-      expect(find.text('In transit'), findsOneWidget);
+      expect(find.text('On the way'), findsOneWidget);
       expect(find.text('You or Suresh Kumar'), findsOneWidget,
           reason: 'ca-booking-deliver: who confirms');
       final confirm = find.widgetWithText(FilledButton, 'Confirm delivery');
@@ -233,11 +235,11 @@ void main() {
       signInAsOwner();
       answer(bookings: [delivered(netToCarrierPaise: 237600)], trips: [trip()]);
       await mountBooking(tester);
-      expect(find.text('Awaiting payment release'), findsOneWidget);
+      expect(find.text('Waiting for payment'), findsOneWidget);
       expect(find.text('Delivery confirmed'), findsOneWidget,
           reason: 'the delivery step is done');
       expect(
-          find.textContaining(' IST · Proof of delivery added'), findsOneWidget,
+          find.textContaining(RegExp(r', \d{2}:\d{2} IST$')), findsOneWidget,
           reason: 'when it was confirmed, in India time');
       expect(find.text('You receive'), findsOneWidget,
           reason: 'ca-booking-owner: the amount block');
@@ -266,12 +268,12 @@ void main() {
           findsOneWidget);
       expect(
           find.text(
-              'NaviG8r operations check the proof of delivery. The owner sees the payment.'),
+              'NaviG8r checks the delivery. The owner sees the payment.'),
           findsOneWidget);
       expect(screenWords(tester), isNot(contains('₹')),
           reason: 'PR 6: no amount anywhere in a dispatcher\'s tree');
       expect(find.text('You receive'), findsNothing);
-      expect(find.text('Awaiting payment release'), findsNothing);
+      expect(find.text('Waiting for payment'), findsNothing);
     });
   });
 }

@@ -1,6 +1,6 @@
 // The transport details in the shipper's e-way bill step: what is shown before and after the
 // carrier accepts, that the rows stay until the truck is on the bill, what Copy all puts on the
-// clipboard, and that the words name billing software as well as the e-way bill site.
+// clipboard, and that the words name billing software as well as the e-way bill portal.
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/eway_bill_card.dart';
 import 'package:driver_pilot/eway_bill_transport_details.dart';
@@ -32,7 +32,7 @@ Map<String, dynamic> carriedBy(Map<String, dynamic> shipment,
         [Map<String, dynamic> extra = const {}]) =>
     {...shipment, 'carrierDisplayName': 'Ravi Roadways', ...extra};
 
-const softwareOrSite = 'your billing software or on the e-way bill site';
+const softwareOrSite = 'your billing software or on the e-way bill portal';
 
 void main() {
   setUp(signInAsShipper);
@@ -143,7 +143,7 @@ void main() {
   });
 
   testWidgets(
-      'the words name billing software and the e-way bill site, and the portal button stays',
+      'the words name billing software and the e-way bill portal, and the portal button stays',
       (tester) async {
     await mountCard(
         tester,
@@ -151,7 +151,7 @@ void main() {
             shipment: carriedBy(shipment()), portalButtonInPanel: true));
     expect(
         find.text(
-            'Make the bill in your billing software or on the e-way bill site. Copy these in:'),
+            'Make the bill in your billing software or on the e-way bill portal. Copy in these details:'),
         findsOneWidget);
     expect(
         find.text(
@@ -170,13 +170,13 @@ void main() {
         tester, EwayBillCard(shipment: carriedBy(shipment(bill: savedBill))));
     expect(
         find.text(
-            'Add the truck in $softwareOrSite before the goods move, then enter it here.'),
+            'Before the goods move, add the truck in $softwareOrSite. Then enter it here.'),
         findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, 'Add truck'));
     await tester.pump();
     expect(
         find.text(
-            'Add the truck to the bill in $softwareOrSite first, then copy the truck number and the valid-until time from it.'),
+            'First add the truck to the bill in $softwareOrSite. Then copy the truck number and the valid-until time from it.'),
         findsOneWidget);
   });
 

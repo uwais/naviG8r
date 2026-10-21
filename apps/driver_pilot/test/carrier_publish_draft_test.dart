@@ -33,7 +33,7 @@ void main() {
       Future<void> fillIn(WidgetTester tester) async {
         for (final (index, place) in [(0, 'Hoskote'), (1, 'Kolar')]) {
           await tester.enterText(find.byType(TextField).at(index), place);
-          await tester.tap(find.byTooltip('Look up place').at(index));
+          await tester.tap(find.byTooltip('Search for place').at(index));
           await tester.pumpAndSettle();
         }
         for (final _ in [1, 2]) {
@@ -77,7 +77,7 @@ void main() {
         var router =
             await mount(tester, publish(), size: const Size(800, 3000));
         await fillIn(tester);
-        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
         await tester.pumpAndSettle();
         expect(server.sent, hasLength(1));
         router.go('/screen');
@@ -110,7 +110,7 @@ void main() {
         final router =
             await mount(tester, publish(), size: const Size(800, 3000));
         await fillIn(tester);
-        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         expect(server.sent, hasLength(1));
@@ -142,7 +142,7 @@ void main() {
             reason: 'the places and the room are still good');
         expect(find.text('Choose a date'), findsNWidgets(2),
             reason: 'review: yesterday was restored and sent to the server');
-        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
         await tester.pumpAndSettle();
         expect(server.sent, isEmpty);
         expect(find.text('Choose the first day the truck can leave.'),

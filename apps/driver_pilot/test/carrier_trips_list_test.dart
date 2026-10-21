@@ -34,7 +34,7 @@ void main() {
       signInWith(
           Server(allowed: ownerAllowed, trips: trips, bookings: bookings));
       await mount(tester, const DriverLoadsScreen());
-      for (final chip in ['Open', 'In transit', 'Done']) {
+      for (final chip in ['Open', 'On the way', 'Done']) {
         expect(find.widgetWithText(ChoiceChip, chip), findsOneWidget,
             reason: 'copy.md Trips list chips');
       }
@@ -56,12 +56,12 @@ void main() {
       expect(find.text('3'), findsOneWidget, reason: 'Bookings count');
       expect(find.text('KA01AB1234 · No driver yet'), findsOneWidget);
       expect(find.text('KA01AB1234 · Synthetic Driver One'), findsOneWidget);
-      expect(find.text('Truck chosen when you accept the first booking'),
+      expect(find.text('You choose the truck when you accept the first booking'),
           findsOneWidget,
           reason: 'copy.md: an open trip with no truck yet');
       expect(find.text('Full'), findsOneWidget, reason: 'status word');
 
-      await tester.tap(find.widgetWithText(ChoiceChip, 'In transit'));
+      await tester.tap(find.widgetWithText(ChoiceChip, 'On the way'));
       await tester.pumpAndSettle();
       expect(find.text('Bengaluru to Chennai'), findsOneWidget);
     });
@@ -72,7 +72,7 @@ void main() {
       signInWith(
           Server(allowed: ownerAllowed, trips: trips, bookings: bookings));
       await mount(tester, const DriverLoadsScreen());
-      for (final chip in ['Open', 'In transit', 'Done']) {
+      for (final chip in ['Open', 'On the way', 'Done']) {
         await tester.tap(find.widgetWithText(ChoiceChip, chip));
         await tester.pumpAndSettle();
         expect(find.textContaining('Start'), findsNothing,

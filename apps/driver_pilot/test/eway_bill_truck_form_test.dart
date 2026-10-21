@@ -95,10 +95,10 @@ void main() {
         'Expires in less than an hour',
         reason: 'never "Expires in 0 hours"');
     expect(linesAt(Duration.zero).last,
-        'The valid-until time entered has passed. Check the portal.',
+        'The valid-until time has passed. Check the bill on the portal.',
         reason: 'at the valid-until time; naviG8r cannot see the portal');
     expect(linesAt(const Duration(hours: -3)).last,
-        'The valid-until time entered has passed. Check the portal.',
+        'The valid-until time has passed. Check the bill on the portal.',
         reason: 'past the valid-until time');
     expect(ewayBillTruckLines({'kind': 'BILL', 'billNumber': '123456789012'}),
         isEmpty,
@@ -115,7 +115,7 @@ void main() {
     await mountTruckForm(tester);
     expect(
         find.text(
-            'Add the truck to the bill on the government portal first, then copy the truck number and the valid-until time from it.'),
+            'First add the truck to the bill on the government portal. Then copy the truck number and the valid-until time from it.'),
         findsOneWidget,
         reason: 'says where the details come from');
     expect(truckField(), findsOneWidget, reason: 'truck number field');
@@ -124,7 +124,7 @@ void main() {
         reason: 'date button, nothing chosen');
     expect(find.text('Time in India: choose the time'), findsOneWidget,
         reason: 'time button, nothing chosen');
-    expect(find.text('Changing these details clears the check.'), findsNothing,
+    expect(find.text('If you change these, the bill goes back to "Not checked yet".'), findsNothing,
         reason: 'no check to clear');
     expect(find.widgetWithText(FilledButton, 'Save truck'), findsOneWidget,
         reason: 'save is the filled button');
@@ -156,7 +156,7 @@ void main() {
     });
     await mountTruckForm(tester, clearsCheck: true);
     expect(
-        find.text('Changing these details clears the check.'), findsOneWidget,
+        find.text('If you change these, the bill goes back to "Not checked yet".'), findsOneWidget,
         reason: 'the bill had a check');
     await tester.enterText(truckField(), 'ka 01 ab 1234');
     await tester.tap(find.text('Valid until, date in India: choose the date'));
@@ -312,7 +312,7 @@ void main() {
           reason: 'copy.md step 3: the bill is saved, the truck is not on it');
       expect(
           find.text(
-              'Add the truck in your billing software or on the e-way bill site before the goods move, then enter it here.'),
+              'Before the goods move, add the truck in your billing software or on the e-way bill portal. Then enter it here.'),
           findsOneWidget,
           reason: 'copy.md step 3: what to do, and when');
       expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget,
@@ -322,7 +322,7 @@ void main() {
       expect(find.widgetWithText(TextField, 'Truck number'), findsOneWidget,
           reason: 'the truck form opens');
       expect(
-          find.text('Changing these details clears the check.'), findsNothing,
+          find.text('If you change these, the bill goes back to "Not checked yet".'), findsNothing,
           reason: 'the bill has no check to clear');
       expect(find.text('Open the e-way bill portal'), findsOneWidget,
           reason: 'the portal is one tap from the form');
@@ -371,7 +371,7 @@ void main() {
       expect(find.text('KA01AB1234'), findsOneWidget,
           reason: 'the saved truck is filled in');
       expect(
-          find.text('Changing these details clears the check.'), findsOneWidget,
+          find.text('If you change these, the bill goes back to "Not checked yet".'), findsOneWidget,
           reason: 'the bill was checked, and a change clears it');
       await tester.tap(find.text('Save truck'));
       await tester.pumpAndSettle();
@@ -393,7 +393,7 @@ void main() {
           reason: 'the missing truck is still said');
       expect(find.text('Add truck'), findsNothing,
           reason: 'no eway_bill.add_truck, no button');
-      expect(find.text('Edit'), findsOneWidget,
+      expect(find.text('Edit the bill'), findsOneWidget,
           reason: 'the bill itself can still be edited');
     });
 

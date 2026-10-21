@@ -92,10 +92,10 @@ void main() {
     expect(find.text('New to NaviG8r?'), findsOneWidget,
         reason: 'the ways to register are grouped under the form');
     for (final link in [
-      'Register business',
-      'Register as teammate',
-      'Register as new carrier',
-      'Join a carrier fleet',
+      'Register a shipper company',
+      'Join a shipper company',
+      'Register a carrier company',
+      'Join a carrier company',
     ]) {
       expect(find.text(link), findsOneWidget,
           reason: 'today\'s sign-ups stay reachable signed out');
@@ -111,7 +111,7 @@ void main() {
     await showSignIn(tester, '/driver/onboarding/phone');
     expect(find.text('Sign in with your phone'), findsOneWidget,
         reason: 'one sign-in for shippers and carriers');
-    expect(find.text('Join a carrier fleet'), findsOneWidget);
+    expect(find.text('Join a carrier company'), findsOneWidget);
   });
 
   testWidgets('an old saved code link keeps its number', (tester) async {
@@ -124,11 +124,11 @@ void main() {
 
   testWidgets('a register link opens its existing screen', (tester) async {
     await showSignIn(tester, '/customer/login');
-    await tester.scrollUntilVisible(find.text('Join a carrier fleet'), 200,
+    await tester.scrollUntilVisible(find.text('Join a carrier company'), 200,
         scrollable: find.byType(Scrollable).first);
-    await tester.tap(find.text('Join a carrier fleet'));
+    await tester.tap(find.text('Join a carrier company'));
     await tester.pumpAndSettle();
-    expect(find.text('Join a fleet'), findsOneWidget,
+    expect(find.text('Join a carrier company'), findsOneWidget,
         reason: 'the link goes to today\'s join screen');
   });
 

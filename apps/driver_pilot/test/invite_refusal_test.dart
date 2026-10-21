@@ -42,7 +42,7 @@ Future<void> _inviteAndRead(WidgetTester tester, String refusal) async {
       MaterialApp.router(theme: DriverTheme.theme(), routerConfig: router));
   await tester.pumpAndSettle();
   await tester.enterText(
-      find.widgetWithText(TextField, 'Teammate phone (10 digits)'),
+      find.widgetWithText(TextField, "Teammate's mobile number (10 digits)"),
       '9845012399');
   await tester.tap(find.text('Invite to company'));
   await tester.pumpAndSettle();

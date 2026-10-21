@@ -41,8 +41,8 @@ void main() {
     await tester.ensureVisible(find.text('Not yet'));
     await tester.tap(find.text('Not yet'));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Assign driver'), 200);
-    await tester.tap(find.text('Assign driver'));
+    await tester.scrollUntilVisible(find.text('Choose driver'), 200);
+    await tester.tap(find.text('Choose driver'));
     await tester.pumpAndSettle();
     await expectNoOverflow('Assign sheet');
     await mount(tester, const DriverPublishTripScreen(key: ValueKey('publish')),
@@ -62,7 +62,7 @@ void main() {
         reason: 'PR 8, dr-trip: the route names the driver trip screen');
     expect(driverShellTitle('/driver/trip/t/eway-bills', forDriver: true), '',
         reason: 'PR 8, dr-ewb: "E-way bills" beside the truck names the screen');
-    expect(driverShellTitle('/driver/publish'), 'Publish a trip');
+    expect(driverShellTitle('/driver/publish'), 'Add a trip');
     expect(driverShellTitle('/driver/profile'), 'Company');
     expect(driverShellTitle('/driver/profile', forDriver: true), 'Profile');
   });

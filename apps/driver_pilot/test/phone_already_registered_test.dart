@@ -36,7 +36,7 @@ void main() {
     await tester.enterText(
         find.widgetWithText(TextField, 'Your name'), 'Priya Raman');
     await tester.enterText(
-        find.widgetWithText(TextField, 'Phone (10 digits)'), '9845012345');
+        find.widgetWithText(TextField, 'Mobile number (10 digits)'), '9845012345');
     await tester.enterText(
         find.widgetWithText(TextField, 'Company name'), 'Sharma Textiles');
     await tester.tap(find.text('Create account'));

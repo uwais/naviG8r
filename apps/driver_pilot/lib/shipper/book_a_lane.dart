@@ -301,7 +301,7 @@ class _CustomerBookShipmentScreenState
       _openBookedShipment(id,
           announcement: confirmed
               ? null
-              : "Booked, but the payment could not be confirmed yet. The shipment shows whether it went through.");
+              : "Booked. We could not confirm the payment yet. Open the shipment to see if it went through.");
     }
     _pendingShipmentIdForCheckout = null;
   }
@@ -320,7 +320,7 @@ class _CustomerBookShipmentScreenState
     final id = _pendingShipmentIdForCheckout;
     _pendingShipmentIdForCheckout = null;
     if (!mounted) return;
-    const sentence = "Payment did not go through. This booking is not paid.";
+    const sentence = "Payment did not go through. This shipment is not paid.";
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text(sentence)));
     if (id != null) _openBookedShipment(id, announcement: sentence);
@@ -384,7 +384,7 @@ class _CustomerBookShipmentScreenState
         _openBookedShipment(shipmentId,
             announcement: held
                 ? null
-                : "Booked, but payment did not start. This booking is not paid.");
+                : "Booked, but payment did not start. This shipment is not paid.");
       }
     } catch (error) {
       if (!mounted) return;
@@ -438,7 +438,7 @@ class _CustomerBookShipmentScreenState
             carrier: lane["carrierDisplayName"]?.toString() ?? "The carrier")
         : null;
     return CustomerScaffold(
-      title: "Book space",
+      title: "Book this trip",
       subtitle: "Check the price, then pay.",
       currentPath: "/customer/book",
       actionBar: desktop
@@ -717,7 +717,7 @@ class _PriceCard extends StatelessWidget {
                 "Book and pay opens a payment screen. There you choose how to pay.",
                 style: NvText.body),
             const SizedBox(height: NvSpace.s2),
-            const Text("Changing weight, pickup or drop gets a new price.",
+            const Text("If you change the weight, pickup or drop, the price changes.",
                 style: NvText.caption),
           ],
         ),

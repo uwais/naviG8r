@@ -90,7 +90,7 @@ void main() {
       (tester) async {
     signInCarrier(kycStatus: 'NOT_STARTED', owner: false);
     await showBanner(tester);
-    expect(find.textContaining('Ask the carrier owner to add bank details'),
+    expect(find.textContaining('Ask the owner to add bank details'),
         findsOneWidget);
     expect(find.byType(FilledButton), findsNothing);
   });
@@ -100,7 +100,7 @@ void main() {
       (tester) async {
     signInCarrier(kycStatus: 'SUBMITTED', owner: true);
     await showBanner(tester);
-    expect(find.textContaining('waiting for NaviG8r operations to review'),
+    expect(find.textContaining('NaviG8r is checking your company'),
         findsOneWidget);
     // Test data can start a carrier waiting for review with no bank details saved.
     expect(find.textContaining(RegExp('bank', caseSensitive: false)),
@@ -115,9 +115,9 @@ void main() {
     await showBanner(tester);
     expect(
         bannerMessage(tester),
-        "NaviG8r operations did not approve this carrier. You can submit your bank details for another review. "
-        "While this carrier is not approved, you can't accept shipments or start trips.");
-    expect(find.widgetWithText(FilledButton, 'Submit bank details'),
+        "NaviG8r did not approve your company. You can send your bank details for a new check. "
+        "Until your company is approved, you cannot accept bookings or start trips.");
+    expect(find.widgetWithText(FilledButton, 'Send bank details'),
         findsOneWidget);
   });
 
@@ -136,8 +136,8 @@ void main() {
       await showBanner(tester);
       expect(
           bannerMessage(tester),
-          "NaviG8r operations did not approve this carrier. Ask the carrier owner for details. "
-          "While this carrier is not approved, you can't accept shipments or start trips.",
+          "NaviG8r did not approve your company. Ask the owner for details. "
+          "Until your company is approved, you cannot accept bookings or start trips.",
           reason: '$code');
       expect(find.byType(FilledButton), findsNothing, reason: '$code');
     }
@@ -147,20 +147,20 @@ void main() {
       'the owner reads each reason in plain words, and only the bank reason offers the bank form',
       (tester) async {
     const reasons = {
-      'DOCUMENTS_MISSING': 'NaviG8r needs documents from this carrier.',
+      'DOCUMENTS_MISSING': 'NaviG8r needs documents from your company.',
       'BANK_DETAILS_MISMATCH':
-          "The name entered as the bank account holder doesn't match the carrier's name.",
-      'DUPLICATE_ACCOUNT': 'NaviG8r already has an account for this carrier.',
+          "The bank account holder's name does not match your company name.",
+      'DUPLICATE_ACCOUNT': 'NaviG8r already has an account for your company.',
       'NOT_A_CARRIER': 'NaviG8r decided this is not a carrier business.',
     };
     for (final MapEntry(key: code, value: words) in reasons.entries) {
       signInCarrier(kycStatus: 'REJECTED', owner: true, rejectionReasonCode: code);
       await showBanner(tester);
       expect(bannerMessage(tester),
-          startsWith('NaviG8r operations did not approve this carrier. $words '),
+          startsWith('NaviG8r did not approve your company. $words '),
           reason: code);
       expect(bannerMessage(tester), isNot(contains('again')), reason: code);
-      expect(find.widgetWithText(FilledButton, 'Submit bank details'),
+      expect(find.widgetWithText(FilledButton, 'Send bank details'),
           code == 'BANK_DETAILS_MISMATCH' ? findsOneWidget : findsNothing,
           reason: code);
     }
@@ -191,14 +191,14 @@ void main() {
     signInCarrier(kycStatus: 'REJECTED', owner: true, approvalTakenBack: true);
     await showBanner(tester);
     expect(bannerMessage(tester),
-        startsWith("NaviG8r operations took back this carrier's approval."));
+        startsWith("NaviG8r took back your company's approval."));
     expect(bannerMessage(tester), isNot(contains('did not approve')));
     signInCarrier(kycStatus: 'REJECTED', owner: false, approvalTakenBack: true);
     await showBanner(tester);
     expect(
         bannerMessage(tester),
-        "NaviG8r operations took back this carrier's approval. Ask the carrier owner for details. "
-        "While this carrier is not approved, you can't accept shipments or start trips.");
+        "NaviG8r took back your company's approval. Ask the owner for details. "
+        "Until your company is approved, you cannot accept bookings or start trips.");
   });
 
   testWidgets(
@@ -209,10 +209,10 @@ void main() {
       await showBanner(tester);
       expect(
           bannerMessage(tester),
-          "NaviG8r operations did not approve this carrier. You can submit your bank details for another review. "
-          "While this carrier is not approved, you can't accept shipments or start trips.",
+          "NaviG8r did not approve your company. You can send your bank details for a new check. "
+          "Until your company is approved, you cannot accept bookings or start trips.",
           reason: '$code');
-      expect(find.widgetWithText(FilledButton, 'Submit bank details'),
+      expect(find.widgetWithText(FilledButton, 'Send bank details'),
           findsOneWidget,
           reason: '$code');
     }
@@ -233,7 +233,7 @@ void main() {
     AuthorizationSession.organizations.first['kycStatus'] = 'SUBMITTED';
     AuthorizationSession.revision.value++;
     await tester.pump();
-    expect(find.textContaining('waiting for NaviG8r operations to review'),
+    expect(find.textContaining('NaviG8r is checking your company'),
         findsOneWidget);
 
     AuthorizationSession.organizations.first['kycStatus'] = 'APPROVED';
@@ -244,7 +244,7 @@ void main() {
 
   test('every approval status has plain words', () {
     expect(approvalStatusInWords('APPROVED'), 'Approved');
-    expect(approvalStatusInWords('SUBMITTED'), 'Waiting for NaviG8r review');
+    expect(approvalStatusInWords('SUBMITTED'), 'Waiting for NaviG8r to check');
     expect(approvalStatusInWords('REJECTED'), 'Not approved');
     expect(approvalStatusInWords('NOT_STARTED'), 'Bank details not added yet');
     expect(approvalStatusInWords(null), 'Bank details not added yet');

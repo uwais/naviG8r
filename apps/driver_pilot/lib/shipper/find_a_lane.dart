@@ -233,7 +233,7 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
             const SizedBox(height: NvSpace.s3),
             const NvListEmpty(
                 title: "No trips are open right now.",
-                help: "New trips show here when carriers publish them."),
+                help: "New trips show here when carriers add them."),
           ] else
             ..._laneCards(context, _lanes,
                 onOpen: (lane) => context.go(Uri(

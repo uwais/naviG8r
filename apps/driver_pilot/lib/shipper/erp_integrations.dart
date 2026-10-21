@@ -211,7 +211,7 @@ class _CustomerIntegrationsScreenState
     } catch (e) {
       if (mounted) {
         setState(() => _error = plainErrorSentence(e,
-            "Could not send the test ping. Check your connection, then try again."));
+            "Could not send the test webhook. Check your connection, then try again."));
       }
     } finally {
       if (mounted) setState(() => _testingWebhook = false);
@@ -226,11 +226,11 @@ class _CustomerIntegrationsScreenState
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Delivery queued for retry.")));
+          const SnackBar(content: Text("Sending it again.")));
     } catch (e) {
       if (mounted) {
         setState(() => _error = plainErrorSentence(e,
-            "Could not retry this delivery. Check your connection, then try again."));
+            "Could not resend this call. Check your connection, then try again."));
       }
     }
   }
@@ -258,10 +258,10 @@ class _CustomerIntegrationsScreenState
       case "DELIVERED":
         return "Delivered";
       case "DEAD":
-        return "Failed (dead letter)";
+        return "Failed. Will not retry";
       case "PENDING":
       default:
-        return "Pending";
+        return "Waiting to send";
     }
   }
 
@@ -284,7 +284,7 @@ class _CustomerIntegrationsScreenState
           ),
           const SizedBox(height: 8),
           const Text(
-            "Connect your ERP to create loads automatically and receive carrier, tracking, and payment updates via webhooks.",
+            "Connect your ERP. It can then create shipments by itself and get carrier, tracking and payment updates by webhook.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 8),
@@ -360,7 +360,7 @@ class _CustomerIntegrationsScreenState
                           ? null
                           : () =>
                               _saveConnection(regenerateWebhookSecret: true),
-                      child: const Text("Rotate secret"),
+                      child: const Text("Make a new secret"),
                     ),
                   ),
                 ],
@@ -369,7 +369,7 @@ class _CustomerIntegrationsScreenState
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
                   child: Text(
-                      "Webhook HMAC secret is configured. Rotate to reveal a new secret.",
+                      "A webhook secret is set. To see a new one, tap Make a new secret.",
                       style: TextStyle(fontSize: 11, color: DriverTheme.muted)),
                 ),
               const SizedBox(height: 8),
@@ -383,7 +383,7 @@ class _CustomerIntegrationsScreenState
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.send_outlined, size: 18),
-                label: const Text("Send test ping"),
+                label: const Text("Send a test webhook"),
               ),
               const SizedBox(height: 24),
               Wrap(
@@ -407,7 +407,7 @@ class _CustomerIntegrationsScreenState
               ),
               const SizedBox(height: 4),
               const Text(
-                "Use Bearer nvg8r_{keyId}_{secret} or X-Api-Key + X-Api-Secret headers. The full token is shown only once at creation.",
+                "Use Bearer nvg8r_{keyId}_{secret} or X-Api-Key + X-Api-Secret headers. You see the full token only once, when you create it.",
                 style: TextStyle(
                     fontSize: 12, color: DriverTheme.muted, height: 1.35),
               ),
@@ -439,7 +439,7 @@ class _CustomerIntegrationsScreenState
                       style: TextStyle(color: DriverTheme.muted)),
                 ),
               const SizedBox(height: 24),
-              const Text("Recent webhook deliveries",
+              const Text("Recent webhook calls",
                   style: TextStyle(fontWeight: FontWeight.w600)),
               ..._deliveries.map((d) {
                 final id = d["id"]?.toString() ?? "";
@@ -467,7 +467,7 @@ class _CustomerIntegrationsScreenState
               if (_deliveries.isEmpty)
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
-                  child: Text("No deliveries yet.",
+                  child: Text("No webhook calls yet.",
                       style: TextStyle(color: DriverTheme.muted)),
                 ),
             ],

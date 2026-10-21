@@ -45,12 +45,14 @@ void main() {
       expect(find.text('Team'), findsOneWidget);
       expect(
           find.text(
-              'Dispatchers accept bookings and assign drivers. They do not see payments.'),
+              'Dispatchers accept bookings and choose drivers. They do not see payments.'),
           findsOneWidget);
       expect(find.text('Sign out'), findsNothing,
           reason: 'the account menu under the header signs out');
       expect(find.textContaining('Publish'), findsNothing,
-          reason: 'the office has a Publish tab; no developer or publish rows');
+          reason: 'the office has an Add trip tab; no developer or publish rows');
+      expect(find.textContaining('Add a trip'), findsNothing,
+          reason: 'the office has an Add trip tab; no add-a-trip row here');
     });
 
     testWidgets(
@@ -102,7 +104,7 @@ void main() {
           reason: 'the screen loaded');
       expect(find.text('Bank details'), findsNothing,
           reason: 'copy.md: bank details owner only');
-      expect(find.text('Earnings & payouts'), findsNothing);
+      expect(find.text('Earnings and payments'), findsNothing);
       expect(find.textContaining('₹'), findsNothing);
     });
 
@@ -122,7 +124,7 @@ void main() {
       expect(inSheet(find.text('Registration number')), findsOneWidget);
       expect(
           inSheet(find.text(
-              'As on the registration certificate. Spaces are removed for the e-way bill.')),
+              'Type it as on your registration certificate (RC). We remove the spaces for the e-way bill.')),
           findsOneWidget);
       expect(inSheet(find.text('[Size guide from the team]')), findsNWidgets(3),
           reason: 'the size guide placeholder from pending_copy.dart');

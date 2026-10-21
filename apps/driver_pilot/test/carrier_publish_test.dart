@@ -58,7 +58,7 @@ void main() {
 
       await mount(
           tester, const DriverPublishTripScreen(key: ValueKey('phone')));
-      final publish = find.widgetWithText(FilledButton, 'Publish trip');
+      final publish = find.widgetWithText(FilledButton, 'Add trip');
       expect(
           (Offset.zero & const Size(360, 800))
               .contains(tester.getRect(publish).bottomRight),
@@ -72,7 +72,7 @@ void main() {
         (tester) async {
       final server = signInWith(Server(allowed: ownerAllowed));
       await mount(tester, const DriverPublishTripScreen());
-      await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
       await tester.pumpAndSettle();
       expect(server.sent, isEmpty);
       expect(
@@ -96,7 +96,7 @@ void main() {
           findsNothing);
 
       await tester.enterText(find.byType(TextField).first, 'Bengaluru');
-      await tester.tap(find.byTooltip('Look up place').first);
+      await tester.tap(find.byTooltip('Search for place').first);
       await tester.pumpAndSettle();
       expect(find.byType(GoogleMap), findsOneWidget,
           reason: 'From has a point, To does not yet');
@@ -113,7 +113,7 @@ void main() {
                   const LatLng(13.07, 77.8), '$place, Karnataka')),
           size: const Size(800, 3000));
       await tester.enterText(find.byType(TextField).first, 'Hoskote');
-      await tester.tap(find.byTooltip('Look up place').first);
+      await tester.tap(find.byTooltip('Search for place').first);
       await tester.pumpAndSettle();
       expect(find.byType(GoogleMap), findsOneWidget);
 
@@ -121,7 +121,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(GoogleMap), findsNothing,
           reason: 'reviewer: the Hoskote point stayed under the name Kolar');
-      await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
       await tester.pumpAndSettle();
       expect(server.sent, isEmpty);
       expect(
@@ -143,12 +143,12 @@ void main() {
         await mount(tester, publish(), size: const Size(800, 3000));
         expect(find.byType(NvMap), findsNothing, reason: 'no point yet');
         await tester.enterText(find.byType(TextField).at(0), 'Hoskote');
-        await tester.tap(find.byTooltip('Look up place').at(0));
+        await tester.tap(find.byTooltip('Search for place').at(0));
         await tester.pumpAndSettle();
         expect(find.byType(NvMap), findsNothing,
             reason: 'with one point there is no route to show');
         await tester.enterText(find.byType(TextField).at(1), 'Kolar');
-        await tester.tap(find.byTooltip('Look up place').at(1));
+        await tester.tap(find.byTooltip('Search for place').at(1));
         await tester.pumpAndSettle();
 
         expect(find.byType(NvMap), findsOneWidget,
@@ -169,7 +169,7 @@ void main() {
       Future<void> findBoth(WidgetTester tester) async {
         for (final (index, place) in [(0, 'Hoskote'), (1, 'Kolar')]) {
           await tester.enterText(find.byType(TextField).at(index), place);
-          await tester.tap(find.byTooltip('Look up place').at(index));
+          await tester.tap(find.byTooltip('Search for place').at(index));
           await tester.pumpAndSettle();
         }
       }
@@ -217,7 +217,7 @@ void main() {
             reason: 'review: the view is fitted only when the map is made');
       });
 
-      testWidgets('after a pin drag, Publish trip waits until the pin has its town name',
+      testWidgets('after a pin drag, Add trip waits until the pin has its town name',
           (tester) async {
         final town = Completer<GeocodeOutcome>();
         signInWith(Server(allowed: ownerAllowed));
@@ -238,7 +238,7 @@ void main() {
             .onDragEnd!(const LatLng(13.2, 78.3));
         await tester.pumpAndSettle();
         FilledButton publish() =>
-            tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Publish trip'));
+            tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Add trip'));
         expect(publish().onPressed, isNull,
             reason: 'review: the old town name could be published with the new pin');
         expect(
@@ -272,7 +272,7 @@ void main() {
           size: const Size(800, 3000));
       for (final (index, place) in [(0, 'Hoskote'), (1, 'Kolar')]) {
         await tester.enterText(find.byType(TextField).at(index), place);
-        await tester.tap(find.byTooltip('Look up place').at(index));
+        await tester.tap(find.byTooltip('Search for place').at(index));
         await tester.pumpAndSettle();
       }
       for (final _ in [1, 2]) {
@@ -284,7 +284,7 @@ void main() {
       await tester.tap(find.widgetWithText(ChoiceChip, 'Medium'));
       await tester.enterText(find.byType(TextField).last, '1000');
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(server.sent, hasLength(1));
@@ -327,7 +327,7 @@ void main() {
               findPlace: (place) async => GeocodeOutcome.fail('ZERO_RESULTS')),
           size: const Size(800, 3000));
       await tester.enterText(find.byType(TextField).first, 'Kurudumale');
-      await tester.tap(find.byTooltip('Look up place').first);
+      await tester.tap(find.byTooltip('Search for place').first);
       await tester.pumpAndSettle();
       expect(find.byType(GoogleMap), findsOneWidget,
           reason: 'without the map, a place Google cannot find could never be set');
@@ -362,7 +362,7 @@ void main() {
                 findPlace: (place) async => GeocodeOutcome.fail(status)),
             size: const Size(800, 3000));
         await tester.enterText(find.byType(TextField).first, 'Hoskote');
-        await tester.tap(find.byTooltip('Look up place').first);
+        await tester.tap(find.byTooltip('Search for place').first);
         await tester.pumpAndSettle();
         expect(find.text(sentence), findsOneWidget,
             reason: 'tester: the first Hoskote search said it could not find the place');
@@ -388,10 +388,10 @@ void main() {
           size: const Size(800, 3000));
       final fields = find.byType(TextField);
       await tester.enterText(fields.at(0), 'hoskote');
-      await tester.tap(find.byTooltip('Look up place').at(0));
+      await tester.tap(find.byTooltip('Search for place').at(0));
       await tester.pumpAndSettle();
       await tester.enterText(fields.at(1), 'kolar');
-      await tester.tap(find.byTooltip('Look up place').at(1));
+      await tester.tap(find.byTooltip('Search for place').at(1));
       await tester.pumpAndSettle();
 
       expect(tester.widget<TextField>(fields.at(0)).controller!.text, 'Hoskote');
@@ -414,7 +414,7 @@ void main() {
                   matching: find.byType(TextField))
               .first,
           '500');
-      await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
       await tester.pumpAndSettle();
 
       final published = server.sent.single.data as Map<String, dynamic>;
@@ -435,7 +435,7 @@ void main() {
           size: const Size(800, 3000));
       final from = find.byType(TextField).first;
       await tester.enterText(from, 'Hoskote');
-      await tester.tap(find.byTooltip('Look up place').first);
+      await tester.tap(find.byTooltip('Search for place').first);
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(from).controller!.text, 'Hoskote');
     });
@@ -454,7 +454,7 @@ void main() {
             aboveKeyboard.contains(rect.bottomRight);
       }
 
-      final publish = find.widgetWithText(FilledButton, 'Publish trip');
+      final publish = find.widgetWithText(FilledButton, 'Add trip');
       expect(shown(publish), isTrue,
           reason: 'the bottom bar sits above the keyboard');
 
@@ -494,7 +494,7 @@ void main() {
       expect(
           find.descendant(of: find.byType(NvActionBar), matching: message),
           findsNothing,
-          reason: 'the bottom bar holds only Publish trip');
+          reason: 'the bottom bar holds only Add trip');
       expect(server.sent, isEmpty);
     });
   });

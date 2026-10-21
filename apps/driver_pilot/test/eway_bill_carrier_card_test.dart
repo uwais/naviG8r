@@ -32,7 +32,7 @@ void main() {
             })));
     expect(
         find.textContaining(
-            "This is the shipper's statement. NaviG8r has not checked it."),
+            "This is what the shipper says. NaviG8r has not checked it."),
         findsOneWidget,
         reason: 'the statement is the shipper\'s');
     await mountCard(
@@ -52,11 +52,11 @@ void main() {
         reason: 'number in groups of four');
     expect(
         find.textContaining(RegExp(
-            r'^NaviG8r staff saw on the portal that this bill was cancelled on 14 Oct( 2026)?\. The shipper can see this on their shipment\.$')),
+            r'^NaviG8r saw on the portal that this bill was cancelled on 14 Oct( 2026)?\. The shipper can see this on their shipment\.$')),
         findsOneWidget,
         reason:
             'the carrier is not told to act; copy.md Formats: the year only when it is not this year');
-    expect(find.textContaining('has not checked the truck or the expiry'),
+    expect(find.textContaining('has not checked the truck or the end time'),
         findsOneWidget,
         reason: 'says what is not checked');
     expect(find.byType(OutlinedButton), findsNothing, reason: 'read only');
@@ -86,7 +86,7 @@ void main() {
             'owner decision 18 Oct 2026: the shipper adds the truck; the carrier is told, not asked');
     expect(find.text('Not checked yet.'), findsOneWidget,
         reason: 'the ops check state shows');
-    expect(find.textContaining('has not checked the truck or the expiry'),
+    expect(find.textContaining('has not checked the truck or the end time'),
         findsOneWidget,
         reason: 'no truck yet, so the original caveat stays');
     for (final words in [
@@ -128,7 +128,7 @@ void main() {
         reason: 'the valid-until time the shipper entered');
     expect(
         find.text(
-            'Shown as entered in NaviG8r. NaviG8r has not made or changed this bill, and has not checked it against the portal.'),
+            'Shown as entered in NaviG8r. NaviG8r did not make or change this bill. NaviG8r has not checked it on the portal.'),
         findsOneWidget,
         reason: 'with a truck, the caveat names the portal');
     expect(find.text('Change truck'), findsNothing, reason: 'read only');
@@ -178,7 +178,7 @@ void main() {
         findsOneWidget,
         reason:
             'the valid-until time in India; copy.md Formats: time as 16:40 IST, the year only when it is not this year');
-    expect(find.textContaining('has not checked it against the portal'),
+    expect(find.textContaining('has not checked it on the portal'),
         findsOneWidget,
         reason: 'the caveat for a bill with a truck');
     expect(find.byType(OutlinedButton), findsNothing, reason: 'read only');
@@ -245,7 +245,7 @@ void main() {
     expect(find.text('Truck on the bill: KA01AB1234'), findsOneWidget,
         reason: 'the driver sees the truck');
     expect(
-        find.text('The valid-until time entered has passed. Check the portal.'),
+        find.text('The valid-until time has passed. Check the bill on the portal.'),
         findsOneWidget,
         reason: 'a past valid-until time is reported as typed, not as expired');
     expect(find.text('Change truck'), findsNothing,

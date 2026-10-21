@@ -22,7 +22,7 @@ List<String> ewayBillTruckLines(Map<String, dynamic> bill, {DateTime? now}) {
   final left = validUntilMoment.difference(now ?? DateTime.now());
   if (left <= Duration.zero) {
     // naviG8r cannot see the portal, so it says only that the typed time has passed, not that the bill expired.
-    lines.add('The valid-until time entered has passed. Check the portal.');
+    lines.add('The valid-until time has passed. Check the bill on the portal.');
   } else if (left < const Duration(hours: 12)) {
     final hours = left.inHours;
     lines.add(switch (hours) {
@@ -77,11 +77,11 @@ String? ewayBillTruckMismatchSentence(
   if (portalTruckNumber(onBill) == portalTruckNumber(onTrip)) return null;
   return switch (reader) {
     TruckMismatchReader.carrierOffice =>
-      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Check which one is right; if the e-way bill is wrong, ask the shipper to change it. If you updated the truck on the e-way bill site yourself, change it there and tell the shipper.',
+      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Check which one is right. If the e-way bill is wrong, ask the shipper to change it. If you changed the truck on the e-way bill portal yourself, change it there and tell the shipper.',
     TruckMismatchReader.shipper =>
-      'The e-way bill shows $onBill. Your carrier has assigned $onTrip to this trip. Ask your carrier which truck is right; if the e-way bill is wrong, change it in your billing software or on the e-way bill site, then here. If the site refuses, your carrier may have updated it; ask them to change it.',
+      'The e-way bill shows $onBill. The carrier put $onTrip on this trip. Ask the carrier which truck is right. If the e-way bill is wrong, change it in your billing software or on the e-way bill portal, then here. If the portal refuses, the carrier may have changed it. Ask them to change it.',
     TruckMismatchReader.driver =>
-      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Tell your carrier.',
+      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Tell your office.',
   };
 }
 
@@ -115,14 +115,14 @@ String ewayBillCheckLine(Map<String, dynamic> bill,
       ? ' on ${formatDate(DateTime.fromMillisecondsSinceEpoch(checkedAt.toInt(), isUtc: true))}'
       : '';
   if (check['result'] == 'FOUND') {
-    return 'NaviG8r staff saw this bill on the $ewayBillPortalName$date. It may have changed since.';
+    return 'NaviG8r saw this bill on the $ewayBillPortalName$date. It may have changed since.';
   }
   final problem = switch (check['problemReason']) {
-    'NOT_FOUND' => 'NaviG8r staff could not find this bill on the portal$date.',
-    'CANCELLED' => 'NaviG8r staff saw on the portal that this bill was cancelled$date.',
+    'NOT_FOUND' => 'NaviG8r could not find this bill on the portal$date.',
+    'CANCELLED' => 'NaviG8r saw on the portal that this bill was cancelled$date.',
     'DETAILS_DO_NOT_MATCH' =>
-      'The details here did not match the portal when NaviG8r staff looked$date.',
-    _ => 'NaviG8r staff found a problem with this bill$date.',
+      'The details here did not match the portal when NaviG8r looked$date.',
+    _ => 'NaviG8r found a problem with this bill$date.',
   };
   return forShipper
       ? '$problem Check the details here and on the portal.'

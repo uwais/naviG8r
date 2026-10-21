@@ -62,7 +62,7 @@ Future<bool> acceptBooking(BuildContext context, Map<String, dynamic> shipment,
       context: context,
       builder: (dialogContext) => AlertDialog(
               content: Text(
-                  'This trip already has truck ${portalTruckNumber(keptTruck)}, so the booking was accepted with it. To change the truck, use Truck and driver on the trip screen.',
+                  'This trip already has truck ${portalTruckNumber(keptTruck)}, so we accepted the booking with it. To change the truck, open the trip and use Truck and driver.',
                   style: NvText.body),
               actions: [
                 TextButton(
@@ -154,7 +154,7 @@ class _TruckChoiceSheetState extends State<_TruckChoiceSheet> {
     if (_trucks.isEmpty) {
       return [
         const Text(
-            'No trucks are set up for this carrier yet. You can accept now, but the shipper sees no truck until you name one on the trip screen. To add a truck, invite its driver from Profile.',
+            'You have no trucks yet. You can accept now. The shipper sees no truck until you name one on the trip screen. To add a truck, invite its driver from Profile.',
             style: NvText.body)
       ];
     }

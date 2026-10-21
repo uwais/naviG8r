@@ -128,7 +128,7 @@ void main() {
       await mountCarrierApp(tester, '/driver');
       expect(find.text('No trip today.'), findsOneWidget,
           reason: 'copy.md: the empty Today');
-      expect(find.text('Your office assigns trips. They appear here.'),
+      expect(find.text('Your office gives you trips. They show here.'),
           findsOneWidget);
     });
   });
@@ -141,7 +141,7 @@ void main() {
       await mountCarrierApp(tester, '/driver/trip/trip-today/active');
       expect(find.text('Bengaluru to Chennai'), findsOneWidget,
           reason: 'dr-trip: the route names the screen');
-      expect(find.text('In transit'), findsWidgets,
+      expect(find.text('On the way'), findsWidgets,
           reason: 'dr-trip: the trip, and each stop on the truck, says In transit');
       expect(find.text('KA01AB1234'), findsOneWidget,
           reason: 'dr-trip: the truck beside the status');
@@ -155,8 +155,8 @@ void main() {
       expect(tester.getRect(confirm).bottom,
           lessThanOrEqualTo(tabsTop(tester)),
           reason: 'spec: the primary action is visible without scrolling');
-      expect(find.text('Guindy, Chennai'), findsNWidgets(2),
-          reason: 'the next stop, and its row under All stops');
+      expect(find.text('Guindy, Chennai'), findsOneWidget,
+          reason: 'the next stop keeps the full address the driver goes to');
       expect(find.text('Directions'), findsNothing,
           reason:
               'RECON gap 32: no maps hand-off exists, so no Directions button');
@@ -164,9 +164,13 @@ void main() {
           reason: 'RECON gap 33: no stop order, so no "Drop 1 of 3"');
       await tester.scrollUntilVisible(find.text('All stops'), 200);
       expect(find.text('All stops'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Tambaram, Chennai'), 200);
-      expect(find.text('Tambaram, Chennai'), findsOneWidget,
+      await tester.scrollUntilVisible(find.textContaining('Mehta Hardware'), 200);
+      expect(find.textContaining('Mehta Hardware'), findsOneWidget,
           reason: 'every stop is listed, in the order the server sends them');
+      expect(find.text('Tambaram, Chennai'), findsNothing,
+          reason: 'a row under All stops shows only the town');
+      expect(find.text('Chennai'), findsWidgets,
+          reason: 'a row under All stops shows only the town');
       await tester.scrollUntilVisible(bills, -200);
 
       await tester.tap(bills);
@@ -250,7 +254,7 @@ void main() {
       expect(find.text('SHARMA TEXTILES'), findsOneWidget);
       expect(
           find.text(
-              'This truck is not on this bill. Call your office now so they can add it.'),
+              'This truck is not on this bill. Call your office now. The shipper must add it to the bill.'),
           findsOneWidget,
           reason: 'dr-ewb: a missing truck is shown as a problem');
       expect(
@@ -343,7 +347,7 @@ void main() {
           of: find.text('Sign out'), matching: find.byType(InkWell));
       expect(heightOf(tester, signOut),
           greaterThanOrEqualTo(NvSpace.targetDriver));
-      for (final owners in ['Bank details', 'Earnings & payouts']) {
+      for (final owners in ['Bank details', 'Earnings and payments']) {
         expect(find.text(owners), findsNothing, reason: 'dr-profile: $owners');
       }
 

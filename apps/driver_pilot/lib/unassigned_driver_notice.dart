@@ -13,6 +13,6 @@ class UnassignedDriverNotice extends StatelessWidget {
     if (DriverSession.carrierRole != 'DRIVER') return const SizedBox.shrink();
     return const NvListEmpty(
         title:
-            'Your carrier has not assigned you a trip yet. Ask your carrier to assign one.');
+            'Your office has not given you a trip yet. Ask your office for one.');
   }
 }

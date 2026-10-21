@@ -387,7 +387,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
           find.text(
-              'Could not load the transporter ID. Leave Profile and open it again to retry.'),
+              'Could not load the transporter ID. Go back, then open this page again.'),
           findsOneWidget);
       expect(transporterIdField(), findsNothing);
       expect(find.text('Save transporter ID'), findsNothing);
@@ -440,8 +440,8 @@ void main() {
           isEmpty,
           reason: 'decisions.md guardrail 6: the capacity starts empty');
       for (final (label, value) in [
-        ('Your full name', 'Synthetic Carrier C'),
-        ('Phone (10 digits)', '8000000017'),
+        ('Your name', 'Synthetic Carrier C'),
+        ('Mobile number (10 digits)', '8000000017'),
         ('Company name', 'Synthetic Carrier C'),
         ('Truck registration number', 'KA05MN0001'),
         ('Truck capacity (kg)', '1000'),
@@ -451,7 +451,7 @@ void main() {
       }
       // PR 7: the size is a choice with nothing chosen, no longer a field prefilled with MEDIUM.
       await tester.tap(find.text('Medium'));
-      await tester.tap(find.text('Create carrier & continue'));
+      await tester.tap(find.text('Create company and continue'));
       await tester.pumpAndSettle();
       return sent;
     }
@@ -489,7 +489,7 @@ void main() {
       await tester.enterText(
           find.widgetWithText(TextField, 'Transporter ID (optional)'),
           '27AAAAA0000A1Z5');
-      await tester.tap(find.text('Create carrier & continue'));
+      await tester.tap(find.text('Create company and continue'));
       await tester.pumpAndSettle();
       expect(find.text('Sign-in for 8000000017'), findsOneWidget,
           reason: 'sign-up goes on to the one sign-in with the number');

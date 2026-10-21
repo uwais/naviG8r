@@ -46,7 +46,7 @@ void main() {
       expect(find.text('Truck and driver'), findsOneWidget);
       expect(find.text('Bookings on this trip (1)'), findsOneWidget);
       expect(find.text('Sharma Textiles · 80 kg'), findsOneWidget);
-      await tester.tap(find.text('Assign driver'));
+      await tester.tap(find.text('Choose driver'));
       await tester.pumpAndSettle();
       expect(
           inSheet(find.textContaining('Bengaluru to Chennai, leaves 18 – 19 Oct')),
@@ -68,7 +68,7 @@ void main() {
                   find.widgetWithText(FilledButton, 'Start trip'))
               .onPressed,
           isNull);
-      expect(find.text('Assign a driver first. Then start on loading day.'),
+      expect(find.text('Choose a driver first. Then start on loading day.'),
           findsOneWidget,
           reason: 'copy.md Start (disabled)');
       expect(find.text('Start the trip'), findsOneWidget,
@@ -98,7 +98,7 @@ void main() {
                 "only the phone in the truck sends its position as the truck's");
         expect(
             find.text(
-                'Your location is shared with the shippers while this trip is in transit.'),
+                'Shippers see your location while this trip is on the way.'),
             shares ? findsOneWidget : findsNothing,
             reason: 'whoever shares is told so, and nobody else is');
       });

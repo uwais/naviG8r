@@ -94,8 +94,8 @@ void main() {
     expect(find.text("ERP Smoke Co"), findsAtLeastNWidgets(1));
     expect(find.text("Create key"), findsOneWidget);
     expect(find.text("Save settings"), findsOneWidget);
-    expect(find.text("Send test ping"), findsOneWidget);
-    expect(find.text("Recent webhook deliveries"), findsOneWidget);
+    expect(find.text("Send a test webhook"), findsOneWidget);
+    expect(find.text("Recent webhook calls"), findsOneWidget);
     expect(find.text("abc123"), findsOneWidget);
     expect(find.text("evt_test"), findsOneWidget);
   });

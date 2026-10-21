@@ -42,8 +42,8 @@ class EwayBillCarrierCard extends StatelessWidget {
       Text(ewayBillCheckLine(bill, forShipper: false), style: NvText.body),
       Text(
           truckLines.isEmpty
-              ? 'Shown as the shipper entered it. NaviG8r has not made or changed this bill, and has not checked the truck or the expiry.'
-              : 'Shown as entered in NaviG8r. NaviG8r has not made or changed this bill, and has not checked it against the portal.',
+              ? 'Shown as the shipper entered it. NaviG8r did not make or change this bill. NaviG8r has not checked the truck or the end time.'
+              : 'Shown as entered in NaviG8r. NaviG8r did not make or change this bill. NaviG8r has not checked it on the portal.',
           style: NvText.caption),
     ];
   }
@@ -62,7 +62,7 @@ class EwayBillCarrierCard extends StatelessWidget {
       lines = [
         Text(
             '$_shipper says no e-way bill is needed: ${notNeededReasonWords(bill)}. '
-            "This is the shipper's statement. NaviG8r has not checked it.",
+            "This is what the shipper says. NaviG8r has not checked it.",
             style: NvText.body)
       ];
     } else {

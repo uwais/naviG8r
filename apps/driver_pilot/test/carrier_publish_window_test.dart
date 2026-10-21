@@ -46,7 +46,7 @@ void main() {
       Future<void> fillAllButDays(WidgetTester tester) async {
         for (final (index, place) in [(0, 'Hoskote'), (1, 'Kolar')]) {
           await tester.enterText(find.byType(TextField).at(index), place);
-          await tester.tap(find.byTooltip('Look up place').at(index));
+          await tester.tap(find.byTooltip('Search for place').at(index));
           await tester.pumpAndSettle();
         }
         await tester.tap(find.widgetWithText(ChoiceChip, 'Medium'));
@@ -108,13 +108,13 @@ void main() {
         final server = signInWith(Server(allowed: ownerAllowed));
         await mount(tester, publish(), size: const Size(800, 3000));
         await fillAllButDays(tester);
-        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
         await tester.pumpAndSettle();
         expect(find.text('Choose the first day the truck can leave.'),
             findsOneWidget);
 
         await chooseDay(tester, 'Leaves between', '24');
-        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
         await tester.pumpAndSettle();
         expect(find.text('Choose the last day the truck can leave.'),
             findsOneWidget);
@@ -135,7 +135,7 @@ void main() {
           await fillAllButDays(tester);
           await chooseDay(tester, 'Leaves between', '24');
           await chooseDay(tester, 'and', lastDay);
-          await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+          await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
           await tester.pumpAndSettle();
           final published = server.sent.single.data as Map<String, dynamic>;
           expect(published['windowStart'], '2026-04-24T00:00:00+05:30',
@@ -163,7 +163,7 @@ void main() {
             findsOneWidget);
         expect(find.descendant(of: picker('and'), matching: find.text('26 Apr 2026')),
             findsOneWidget);
-        await tester.tap(find.widgetWithText(FilledButton, 'Publish trip'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
         await tester.pumpAndSettle();
         final published = server.sent.single.data as Map<String, dynamic>;
         expect([published['windowStart'], published['windowEnd']],

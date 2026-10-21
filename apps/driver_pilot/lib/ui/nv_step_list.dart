@@ -88,7 +88,7 @@ class _StepRow extends StatelessWidget {
         "Your step: ${step.title}$whoPart",
       NvStepState.waiting => "In progress: ${step.title}$whoPart",
       NvStepState.later =>
-        "Step $number of $count, later: ${step.title}$whoPart",
+        "Step $number of $count, not yet: ${step.title}$whoPart",
     };
   }
 

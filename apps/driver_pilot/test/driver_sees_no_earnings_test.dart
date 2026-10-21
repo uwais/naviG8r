@@ -123,7 +123,8 @@ void main() {
           reason: 'PR 8: the status word says the delivery is confirmed');
       for (final payout in [
         'Payment on hold',
-        'Ready for Finance review',
+        'NaviG8r checks it, then pays the carrier',
+        'Paid to the carrier',
         'Payment released'
       ]) {
         expect(find.textContaining(payout), findsNothing, reason: payout);
@@ -142,7 +143,7 @@ void main() {
           reason: 'the delivery step is done');
       expect(
           find.text(
-              'NaviG8r operations check the proof of delivery, then release the payment to your bank account.'),
+              'NaviG8r checks the delivery, then sends the payment to your bank account.'),
           findsOneWidget,
           reason:
               'copy.md payment (owner only), without the bank digits the API does not send');
@@ -215,7 +216,7 @@ void main() {
       await mountScreen(tester, const DriverProfileScreen());
       expect(find.text('Your truck'), findsOneWidget,
           reason: 'the screen loaded');
-      expect(find.text('Earnings & payouts'), findsNothing);
+      expect(find.text('Earnings and payments'), findsNothing);
     });
 
     testWidgets(
@@ -229,7 +230,7 @@ void main() {
             profileServer(office: true, alsoAllowed: allowed);
         await mountScreen(
             tester, DriverProfileScreen(key: ValueKey(allowed.length)));
-        expect(find.text('Earnings & payouts'),
+        expect(find.text('Earnings and payments'),
             allowed == owner ? findsOneWidget : findsNothing,
             reason: allowed == owner ? 'owner' : 'dispatcher');
       }
@@ -264,8 +265,8 @@ void main() {
                 key: ValueKey(office), shipmentId: 'shipment-a'));
         final words = screenWords(tester);
         if (office) {
-          expect(words, contains('Awaiting payment release'));
-          expect(words, contains('release the payment to your bank account'));
+          expect(words, contains('Waiting for payment'));
+          expect(words, contains('sends the payment to your bank account'));
         } else {
           expect(words, contains('Delivery confirmed'));
           expect(paymentWords.hasMatch(words), isFalse, reason: words);
@@ -283,10 +284,10 @@ void main() {
         await tester.tap(find.text('Done'));
         await tester.pumpAndSettle();
         final words = screenWords(tester);
-        expect(words, contains('Peenya, Bengaluru to Hosur'),
+        expect(words, contains('Bengaluru to Hosur'),
             reason: 'the delivered booking is under Done');
         if (office) {
-          expect(words, contains('Awaiting payment release'));
+          expect(words, contains('Waiting for payment'));
         } else {
           expect(words, contains('Delivery confirmed'));
           expect(paymentWords.hasMatch(words), isFalse, reason: words);
@@ -310,7 +311,7 @@ void main() {
             DriverActiveTripScreen(key: ValueKey(office), tripId: 'trip-a'));
         final words = screenWords(tester);
         if (office) {
-          expect(words, contains('Awaiting payment release'));
+          expect(words, contains('Waiting for payment'));
         } else {
           expect(words, contains('Delivery confirmed'));
           expect(paymentWords.hasMatch(words), isFalse, reason: words);
@@ -325,17 +326,17 @@ void main() {
         (
           'owner',
           () => signInAsCarrierOwner(),
-          'NaviG8r operations check the proof of delivery, then release the payment to your bank account.'
+          'NaviG8r checks the delivery, then sends the payment to your bank account.'
         ),
         (
           'dispatcher',
           () => signInAsCarrierLogin(office: true),
-          'NaviG8r operations check the proof of delivery. The owner sees the payment.'
+          'NaviG8r checks the delivery. The owner sees the payment.'
         ),
         (
           'driver',
           () => signInAsCarrierLogin(office: false),
-          'Confirming delivery sends your proof of delivery to NaviG8r.'
+          'This tells NaviG8r the goods are handed over.'
         ),
       ]) {
         signIn();
@@ -404,7 +405,7 @@ void main() {
       expect(
           words,
           contains(
-              'Delivery confirmed. Payment will be released after ops review.'),
+              'Delivery confirmed. NaviG8r checks it, then releases the payment.'),
           reason: 'owners only since PR 8; dispatchers are not told about payments');
     });
   });

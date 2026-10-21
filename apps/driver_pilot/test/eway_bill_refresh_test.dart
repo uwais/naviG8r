@@ -87,7 +87,7 @@ Finder entry(String label) => find.descendant(
     of: find.widgetWithText(NvField, label), matching: find.byType(TextField));
 
 Future<void> fillBillForm(WidgetTester tester) async {
-  await tester.tap(find.text('I have made it. Enter the details'));
+  await tester.tap(find.text('Enter the bill details'));
   await tester.pump();
   await tester.enterText(entry('E-way bill number'), '479056147955');
   await tester.enterText(entry('Your GSTIN'), '29ABCDE1234F1Z5');
@@ -140,7 +140,7 @@ void main() {
     (
       403,
       'forbidden',
-      'You do not have permission to do this in this company.'
+      'You are not allowed to do this in this company.'
     ),
     (
       404,
@@ -391,7 +391,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(
         find.text(
-            'Could not load this shipment. Check your connection and try again.'),
+            'Could not load this booking. Check your connection and try again.'),
         findsOneWidget,
         reason: 'a plain sentence instead of a spinner that never stops');
     connectionDrops = false;
@@ -416,7 +416,7 @@ void main() {
             body: DriverShipmentDetailScreen(shipmentId: 'shipment-a'))));
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Could not load this shipment.'), findsOneWidget);
+    expect(find.text('Could not load this booking.'), findsOneWidget);
     expect(find.textContaining('connection'), findsNothing);
   });
 

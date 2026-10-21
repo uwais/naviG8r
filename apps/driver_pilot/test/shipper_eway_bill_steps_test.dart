@@ -61,11 +61,11 @@ void main() {
             'carrierTransporterId': '29ABCDE1234F1Z5',
           }),
           trip: lane());
-      expect(find.text('You · Part 1 of 2'), findsOneWidget,
+      expect(find.text('You · Step 1 of 2'), findsOneWidget,
           reason: 'sh-ewb-portal: whose step, and which part');
       expect(
           find.text(
-              'Make the bill in your billing software or on the e-way bill site. Copy these in:'),
+              'Make the bill in your billing software or on the e-way bill portal. Copy in these details:'),
           findsOneWidget);
       expect(find.text('Portal field: Vehicle No. (Part B)'), findsOneWidget,
           reason: 'testers could not tell where each value goes on the portal');
@@ -76,7 +76,7 @@ void main() {
           reason: 'the truck in the portal form');
       expect(
           find.text(
-              'Make it on loading day, before the goods move: the bill is valid from when the truck is entered.'),
+              "Make it on loading day, before the goods move. The bill's time starts when the truck is added."),
           findsOneWidget);
       await tester.tap(find.bySemanticsLabel('Copy truck number KA01AB1234'));
       await tester.pump();
@@ -103,7 +103,7 @@ void main() {
           reason: 'cp-copy empty state');
       expect(
           find.text(
-              "Leave Transporter ID empty. Only you, the bill's maker, can then change the truck."),
+              "Leave Transporter ID empty. Then only you, who made the bill, can change the truck."),
           findsOneWidget,
           reason: 'copy.md step 1: what to do without one');
       await leave(tester);
@@ -116,7 +116,7 @@ void main() {
           trip: lane());
       expect(find.text(ewayBillFootnote), findsOneWidget,
           reason: 'copy.md: once per screen, small');
-      await tester.tap(find.text('I have made it. Enter the details'));
+      await tester.tap(find.text('Enter the bill details'));
       await tester.pumpAndSettle();
       expect(find.text(ewayBillFootnote), findsOneWidget,
           reason: 'still once with the form open');
@@ -130,7 +130,7 @@ void main() {
       final server = await showShipment(
           tester, booking(extra: {'carrierTransporterId': '29ABCDE1234F1Z5'}),
           trip: lane());
-      await tester.tap(find.text('I have made it. Enter the details'));
+      await tester.tap(find.text('Enter the bill details'));
       await tester.pumpAndSettle();
       await tester.enterText(entry('E-way bill number'), '34120098765');
       await tester.enterText(entry('Your GSTIN'), '33AAACS7781L1ZQ');
@@ -162,7 +162,7 @@ void main() {
             'carrierTransporterId': '29ABCDE1234F1Z5',
           }),
           trip: lane());
-      await tester.tap(find.text('I have made it. Enter the details'));
+      await tester.tap(find.text('Enter the bill details'));
       await tester.pumpAndSettle();
       await tester.enterText(entry('E-way bill number'), '341200987654');
       await tester.enterText(entry('Your GSTIN'), '29abcde1234f1z5');
@@ -181,7 +181,7 @@ void main() {
         'without the transporter ID on screen the GSTIN is not compared',
         (tester) async {
       await showShipment(tester, booking(), trip: lane());
-      await tester.tap(find.text('I have made it. Enter the details'));
+      await tester.tap(find.text('Enter the bill details'));
       await tester.pumpAndSettle();
       await tester.enterText(entry('Your GSTIN'), '29ABCDE1234F1Z5');
       await tester.tap(find.text('Save e-way bill'));
@@ -211,7 +211,7 @@ void main() {
           reason: 'copy.md step 3: where the truck goes');
       expect(
           find.text(
-              "The bill's validity starts when the truck is added: one day per 200 km, ending at midnight India time."),
+              "The bill's time starts when the truck is added. It lasts one day for each 200 km and ends at midnight, India time."),
           findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget,
           reason: 'sh-ewb-truck primary');
@@ -230,7 +230,7 @@ void main() {
       await leave(tester);
     });
 
-    testWidgets('bill and truck saved: NaviG8r staff check it', (tester) async {
+    testWidgets('bill and truck saved: NaviG8r checks it', (tester) async {
       await showShipment(tester, booking(ewayBill: billWithTruck),
           trip: lane());
       expect(
@@ -240,7 +240,7 @@ void main() {
           reason: 'copy.md step 4');
       expect(
           find.text(
-              'NaviG8r staff check the bill on the portal by hand. If they find a problem, this shipment and your Home screen show what to fix.'),
+              'NaviG8r checks the bill on the portal by hand. If NaviG8r finds a problem, this shipment and your Home screen show what to fix.'),
           findsOneWidget,
           reason:
               'copy.md step 4: who checks, and how; no message is sent about a problem, so none is promised');
@@ -264,7 +264,7 @@ void main() {
           trip: lane());
       expect(find.text('E-way bill needs a fix'), findsOneWidget,
           reason: 'sh-ewb-problem status word');
-      expect(find.text('NaviG8r staff found a difference'), findsOneWidget);
+      expect(find.text('NaviG8r found a difference'), findsOneWidget);
       expect(
           find.widgetWithText(FilledButton, 'Fix the details'), findsOneWidget,
           reason: 'sh-ewb-problem primary');

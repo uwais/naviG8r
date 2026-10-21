@@ -48,7 +48,7 @@ void textSizeTests() {
         await leave(tester);
       }
       await showShipment(tester, booking(), trip: lane(), height: 6000);
-      await tester.tap(find.text('I have made it. Enter the details'));
+      await tester.tap(find.text('Enter the bill details'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull,
           reason: 'decisions.md 8: the bill form fits at 200% text');
@@ -143,7 +143,7 @@ void desktopTests() {
       await tester.pumpAndSettle();
       expect(
           find.text(
-              'Waiting for Deccan Movers to accept. Your payment is on hold. It is collected after delivery.'),
+              'Waiting for Deccan Movers to accept. Your payment is on hold. It is paid to the carrier after delivery.'),
           findsOneWidget,
           reason: 'the route link opens the shipment');
       await leave(tester);
@@ -223,8 +223,8 @@ void doubleTextAt800Tests() {
         (tester) async {
       useDoubleTextSize(tester);
       await showShipment(tester, needsBill, trip: lane(), height: 800);
-      await scrollTo(tester, find.text('I have made it. Enter the details'));
-      await tester.tap(find.text('I have made it. Enter the details'));
+      await scrollTo(tester, find.text('Enter the bill details'));
+      await tester.tap(find.text('Enter the bill details'));
       await tester.pumpAndSettle();
       await expectNoOverflowToTheEnd(tester, 'the bill form');
       await leave(tester);

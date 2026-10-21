@@ -35,7 +35,7 @@ void main() {
       expect(find.text('Synthetic Shipper A'), findsOneWidget);
       expect(find.text('Waiting for you'), findsOneWidget,
           reason: 'ca-bookings: status word, never PENDING_CARRIER_ACCEPT');
-      expect(find.text('Peenya, Bengaluru to Hosur'), findsOneWidget,
+      expect(find.text('Bengaluru to Hosur'), findsOneWidget,
           reason: '[pickup] to [drop]');
       expect(find.text('Leaves 18 – 19 Oct · 120 kg'), findsOneWidget,
           reason:
@@ -74,7 +74,7 @@ void main() {
 
       await tester.tap(find.text('Done'));
       await tester.pumpAndSettle();
-      expect(find.text('Awaiting payment release'), findsOneWidget,
+      expect(find.text('Waiting for payment'), findsOneWidget,
           reason: 'the owner reads the payment status');
 
       await tester.tap(find.text('Synthetic Shipper A'));

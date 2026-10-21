@@ -289,7 +289,7 @@ void main() {
             body: Padding(
                 padding: const EdgeInsets.all(16),
                 child: NvButton(
-                    label: 'I have made it. Enter the details',
+                    label: 'Enter the bill details',
                     fullWidth: true,
                     onPressed: () {}))),
       ),
@@ -297,7 +297,7 @@ void main() {
 
     expect(tester.takeException(), isNull,
         reason: 'accessibility.md: works at 200% text, nothing overflows');
-    expect(find.text('I have made it. Enter the details'), findsOneWidget,
+    expect(find.text('Enter the bill details'), findsOneWidget,
         reason: 'the whole label stays on the button');
   });
 }

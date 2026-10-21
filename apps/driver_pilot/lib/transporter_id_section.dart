@@ -94,7 +94,7 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
     if (!_loadedWhenOpened) {
       return const [
         Text(
-            'Could not load the transporter ID. Leave Profile and open it again to retry.',
+            'Could not load the transporter ID. Go back, then open this page again.',
             style: NvText.body)
       ];
     }

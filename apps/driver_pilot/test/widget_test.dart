@@ -40,7 +40,7 @@ void main() {
     await pumpAuthorizationFrames(tester);
     expect(find.text('Sign in with your phone'), findsOneWidget,
         reason: 'PR 3: signed out, the app opens on the phone sign-in');
-    expect(find.text('Manage payout method'), findsNothing);
+    expect(find.text('Change bank account'), findsNothing);
   });
   testWidgets(
       'App-root organization picker switches shipper and internal workspaces',

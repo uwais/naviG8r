@@ -76,7 +76,7 @@ Future<void> searchPlace(
     WidgetTester tester, String title, String words) async {
   await tester.enterText(placeField(title), words);
   final search = find.descendant(
-      of: placeBox(title), matching: find.byTooltip('Look up place'));
+      of: placeBox(title), matching: find.byTooltip('Search for place'));
   await tester.ensureVisible(search);
   await tester.pumpAndSettle();
   await tester.tap(search);

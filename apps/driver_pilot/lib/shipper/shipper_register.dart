@@ -44,7 +44,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Account created — sign in with your phone.")));
+          content: Text("Account created. Now sign in with your mobile number.")));
       context.go("/customer/login");
     } catch (e) {
       if (mounted) {
@@ -59,7 +59,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return CustomerScaffold(
-      title: "Register",
+      title: "Register your company",
       currentPath: "/customer/register",
       bodyBuilder: (_) => ListView(
         padding: const EdgeInsets.all(16),
@@ -74,7 +74,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
               decoration: const InputDecoration(labelText: "Your name")),
           TextField(
               controller: _phone,
-              decoration: const InputDecoration(labelText: "Phone (10 digits)"),
+              decoration: const InputDecoration(labelText: "Mobile number (10 digits)"),
               keyboardType: TextInputType.phone),
           TextField(
               controller: _org,
@@ -139,7 +139,7 @@ class _CustomerRegisterUserScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text(
-                "Account created — ask your admin to invite you, then sign in.")),
+                "Account created. Ask your company admin to invite you. Then sign in.")),
       );
       context.go("/customer/login");
     } catch (e) {
@@ -170,7 +170,7 @@ class _CustomerRegisterUserScreenState
               decoration: const InputDecoration(labelText: "Your name")),
           TextField(
               controller: _phone,
-              decoration: const InputDecoration(labelText: "Phone (10 digits)"),
+              decoration: const InputDecoration(labelText: "Mobile number (10 digits)"),
               keyboardType: TextInputType.phone),
           if (_error != null) ...[
             const SizedBox(height: 8),

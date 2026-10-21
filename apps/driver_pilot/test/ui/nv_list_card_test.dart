@@ -226,7 +226,7 @@ void main() {
       (tester) async {
     tester.platformDispatcher.textScaleFactorTestValue = 2;
     addTearDown(tester.platformDispatcher.clearAllTestValues);
-    const status = 'Awaiting payment release';
+    const status = 'Waiting for payment';
     await mountList(tester, [
       NvListCard(
         title: 'Bengaluru to Chennai',

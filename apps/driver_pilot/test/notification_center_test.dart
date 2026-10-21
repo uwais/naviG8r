@@ -228,7 +228,7 @@ void main() {
       home: const ShipmentConversationScreen(shipmentId: 'shipment-1'),
     ));
     await tester.pumpAndSettle();
-    expect(find.text('The carrier accepted your booking.'), findsOneWidget);
+    expect(find.text('The carrier accepted your shipment.'), findsOneWidget);
     expect(find.text('Load booked'), findsNothing);
   });
 

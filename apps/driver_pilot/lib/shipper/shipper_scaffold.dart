@@ -76,9 +76,15 @@ class CustomerScaffold extends StatelessWidget {
 
         final signedIn = CustomerSession.isSignedIn;
         final body = bodyBuilder(context);
+        // One line, shrunk only if it would wrap: at 200% text a second title line pushed Book's
+        // header past the space left above its action bar.
         final heading = Semantics(
             header: true,
-            child: Text(title, style: desktop ? NvText.display : NvText.title));
+            child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(title,
+                    style: desktop ? NvText.display : NvText.title)));
         final titled = titleFocus == null
             ? heading
             : Focus(focusNode: titleFocus, child: heading);

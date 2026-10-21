@@ -3,6 +3,7 @@
 import 'package:driver_pilot/shipper/shipment_screen.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/ui/format.dart';
+import 'package:driver_pilot/ui/nv_status_label.dart';
 import 'package:driver_pilot/ui/nv_step_list.dart';
 import 'package:driver_pilot/ui/pending_copy.dart';
 import 'package:flutter/material.dart';
@@ -43,7 +44,7 @@ void main() {
           trip: lane());
       expect(
           find.text(
-              'Waiting for Ravi Roadways to accept. Your payment is on hold. It is collected after delivery.'),
+              'Waiting for Ravi Roadways to accept. Your payment is on hold. It is paid to the carrier after delivery.'),
           findsOneWidget,
           reason: 'brief A.3: the shipper is told the money is held');
       expect(find.text('Waiting for carrier'), findsOneWidget,
@@ -81,7 +82,7 @@ void main() {
               'RECON gap 1: no stored "needed" answer, so the step-0 question is not built');
       expect(find.text('Yes, make one'), findsNothing,
           reason: 'RECON gap 2: no endpoint saves a yes');
-      expect(find.text('No e-way bill needed'), findsOneWidget,
+      expect(find.text('Say no e-way bill is needed'), findsOneWidget,
           reason: 'the existing not-needed statement can still be given');
       expect(find.text('Open the e-way bill portal'), findsNothing,
           reason: 'the portal is not the next thing to do before acceptance');
@@ -92,7 +93,7 @@ void main() {
         (tester) async {
       await showShipment(tester, booking(ewayBill: notNeededBill),
           trip: lane(status: 'IN_PROGRESS', started: leftAt));
-      expect(find.text('In transit'), findsOneWidget,
+      expect(find.widgetWithText(NvStatusLabel, 'On the way'), findsOneWidget,
           reason: 'copy.md status word');
       expect(
           find.text(
@@ -136,10 +137,10 @@ void main() {
           reason: 'copy.md status word and the last step');
       expect(
           find.text(
-              'Ravi Roadways confirmed delivery and added proof of delivery. Your payment of ₹2,640 is collected now.'),
+              'Ravi Roadways confirmed delivery. Your payment of ₹2,640 is now paid to the carrier.'),
           findsOneWidget,
           reason: 'copy.md delivered');
-      expect(find.text('Book another shipment'), findsOneWidget,
+      expect(find.text('Book another trip'), findsOneWidget,
           reason: 'copy.md delivered: the way on');
       expect(find.text('View proof of delivery'), findsNothing,
           reason: 'RECON gap 6: there is no proof-of-delivery photo to view');
@@ -162,7 +163,7 @@ void main() {
           reason: 'decisions.md guardrail 7: never the system code');
       expect(
           find.text(
-              'If you paid the ₹2,640 for this booking, all of it is refunded.'),
+              'If you paid the ₹2,640 for this shipment, all of it is refunded.'),
           findsOneWidget,
           reason:
               'a never-paid booking is also marked refunded on cancel, so the refund is told without claiming a payment');
@@ -170,7 +171,7 @@ void main() {
           reason: 'the payment record cannot say whether it was ever paid');
       expect(
           find.text(
-              'Refunds reach your account in the time your bank or payment app takes.'),
+              'How long the refund takes depends on your bank or payment app.'),
           findsOneWidget);
       expect(
           find.text(
@@ -192,7 +193,7 @@ void main() {
       expect(find.text('₹2,640'), findsOneWidget);
       expect(
           find.text(
-              'Refunds reach your account in the time your bank or payment app takes.'),
+              'How long the refund takes depends on your bank or payment app.'),
           findsOneWidget);
       await leave(tester);
     });
@@ -201,7 +202,7 @@ void main() {
         (tester) async {
       await showShipment(tester, booking(status: 'FAILED_CARRIER_REFUNDED'),
           trip: lane(), payment: {'status': 'CREATED', 'amountPaise': 264000});
-      expect(find.text('Nothing was paid for this booking.'), findsOneWidget,
+      expect(find.text('Nothing was paid for this shipment.'), findsOneWidget,
           reason: 'checkout never finished, so no money was taken');
       expect(find.text('You paid'), findsNothing,
           reason: 'no payment was taken, so none is claimed');
@@ -209,7 +210,7 @@ void main() {
           reason: 'nothing to refund');
       expect(
           find.text(
-              'Questions about this booking? Contact ${PendingCopy.changeOrCancelContact}.'),
+              'Questions about this shipment? Contact ${PendingCopy.changeOrCancelContact}.'),
           findsOneWidget,
           reason: 'the contact stays, about the booking, not a refund');
       await leave(tester);
@@ -233,7 +234,7 @@ void main() {
             reason: 'the status word says what is wrong');
         expect(
             find.text(
-                '${opening}This booking is not paid, so Ravi Roadways cannot accept it yet. '
+                '${opening}This shipment is not paid. Ravi Roadways cannot accept it until it is. '
                 'To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.'),
             findsOneWidget,
             reason:
@@ -242,7 +243,7 @@ void main() {
             reason: 'no money is held');
         expect(find.textContaining('Your payment is on hold'), findsNothing,
             reason: 'no money is held');
-        expect(find.text('Ravi Roadways can accept once this booking is paid.'),
+        expect(find.text('Ravi Roadways can accept once this shipment is paid.'),
             findsOneWidget,
             reason: 'the carrier step says why it waits');
         await leave(tester);
@@ -297,13 +298,13 @@ void paymentHoldTests() {
         trip: lane(status: 'COMPLETED', started: leftAt));
     expect(
         find.text(
-            'Payment on hold until ${formatDate(holdEnds)}, ${formatTimeIst(holdEnds)}. Shipper acceptance can end the hold earlier.'),
+            'Payment on hold until ${formatDate(holdEnds)}, ${formatTimeIst(holdEnds)}. If you accept delivery, the hold can end sooner.'),
         findsOneWidget,
         reason: 'copy.md formats: 24-hour IST, never a raw timestamp');
     expect(find.textContaining('.000'), findsNothing);
     expect(
         find.text(
-            'Ravi Roadways confirmed delivery and added proof of delivery.'),
+            'Ravi Roadways confirmed delivery.'),
         findsOneWidget,
         reason:
             'until the payment is released, the hold line says what happens to it');
@@ -335,7 +336,7 @@ void focusTests() {
     testWidgets('a failed bill save moves focus to the error summary',
         (tester) async {
       await showShipment(tester, needsBill, trip: lane());
-      await tester.tap(find.text('I have made it. Enter the details'));
+      await tester.tap(find.text('Enter the bill details'));
       await tester.pumpAndSettle();
       await tester.enterText(entry('E-way bill number'), '34120098765');
       await tester.tap(find.text('Save e-way bill'));

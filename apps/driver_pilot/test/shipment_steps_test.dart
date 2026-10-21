@@ -90,11 +90,11 @@ void main() {
               'owner decision 18 Oct 2026: the shipper adds the truck, the carrier only reads the bill');
     });
 
-    test('accepted, bill and truck, not checked: NaviG8r staff check it', () {
+    test('accepted, bill and truck, not checked: NaviG8r checks it', () {
       final progress = shipmentProgress(shipment('BOOKED', billWithTruck));
       expect(progress.current, ShipmentStepName.billCheck);
       expect(progress.actor, ShipmentActor.staff);
-      expect(progress.next, 'NaviG8r staff check the bill');
+      expect(progress.next, 'NaviG8r checks the bill');
       expect(progress.task, isNull);
       expect(stateOf(progress, ShipmentStepName.ewayBill), NvStepState.done);
       expect(
@@ -150,7 +150,7 @@ void main() {
         expect(progress.current, ShipmentStepName.onTheWay);
         expect(progress.actor, ShipmentActor.carrier);
         expect(progress.next, 'Ravi Roadways confirms delivery');
-        expect(progress.statusWord, 'In transit');
+        expect(progress.statusWord, 'On the way');
         expect(progress.task, isNull);
       }
       expect(shipmentProgress(shipment('BOOKED', notNeeded)).inTransit, isFalse,
@@ -194,7 +194,7 @@ void main() {
             'Booked and paid',
             'Carrier accepts and names the truck',
             'E-way bill',
-            'Bill check',
+            'NaviG8r checks the bill',
             'On the way',
             'Delivered'
           ]);
@@ -202,7 +202,7 @@ void main() {
           shipmentProgress(shipment('BOOKED', notNeeded))
               .steps
               .map((step) => step.title),
-          isNot(contains('Bill check')),
+          isNot(contains('NaviG8r checks the bill')),
           reason: 'only a saved bill is checked');
     });
 
@@ -243,7 +243,7 @@ void main() {
           reason:
               'the step-0 answer has no stored field, so it is not a Home task');
       expect(taskFor({'status': 'BOOKED', 'ewayBill': billWithTruck}), isNull,
-          reason: 'bill and truck saved: NaviG8r staff check it');
+          reason: 'bill and truck saved: NaviG8r checks it');
       expect(taskFor({'status': 'BOOKED', 'ewayBill': notNeeded}), isNull,
           reason: 'not needed: the carrier starts the trip');
       for (final status in [

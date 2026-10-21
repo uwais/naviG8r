@@ -166,7 +166,7 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
     EwayBillStage.awaitingCheck => (
         ShipmentStepName.billCheck,
         ShipmentActor.staff,
-        "NaviG8r staff check the bill"
+        "NaviG8r checks the bill"
       ),
     EwayBillStage.problem => (
         ShipmentStepName.ewayBill,
@@ -197,7 +197,7 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
         "E-way bill needs a fix",
         NvStatusTone.problem
       ),
-    _ when inTransit => ("In transit", NvStatusTone.info),
+    _ when inTransit => ("On the way", NvStatusTone.info),
     "PENDING_CARRIER_ACCEPT" => ("Waiting for carrier", NvStatusTone.attention),
     "BOOKED" => ("Accepted", NvStatusTone.info),
     // A status this app does not know yet still reads as a word, never as its code.
@@ -244,10 +244,10 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
           stage == EwayBillStage.checked)
         ShipmentStep(
             ShipmentStepName.billCheck,
-            "Bill check",
+            "NaviG8r checks the bill",
             stateWhen(stage == EwayBillStage.checked || delivered,
                 inProgress: true),
-            who: "NaviG8r staff"),
+            who: "NaviG8r"),
       ShipmentStep(
           ShipmentStepName.onTheWay,
           "On the way",

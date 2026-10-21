@@ -122,7 +122,7 @@ class _EwayBillTransportDetailsState extends State<EwayBillTransportDetails> {
               state: NvCopyRowState.empty,
               noValueWords: '${name ?? 'The carrier'} has not added one.',
               guidance:
-                  "Leave Transporter ID empty. Only you, the bill's maker, can then change the truck.")
+                  "Leave Transporter ID empty. Then only you, who made the bill, can change the truck.")
         else
           NvCopyRow(
               label: "Carrier's transporter ID",

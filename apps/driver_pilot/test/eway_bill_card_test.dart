@@ -21,7 +21,7 @@ Finder entry(String label) => find.descendant(
     of: find.widgetWithText(NvField, label), matching: find.byType(TextField));
 
 const partOneLead =
-    'Make the bill in your billing software or on the e-way bill site. Copy these in:';
+    'Make the bill in your billing software or on the e-way bill portal. Copy in these details:';
 
 void main() {
   setUp(signInAsShipper);
@@ -34,16 +34,16 @@ void main() {
         reason: 'copy.md step 1: the bill is made on the portal');
     expect(
         find.widgetWithText(
-            OutlinedButton, 'I have made it. Enter the details'),
+            OutlinedButton, 'Enter the bill details'),
         findsOneWidget,
         reason: 'copy.md step 1: the way to part 2');
-    expect(find.widgetWithText(OutlinedButton, 'No e-way bill needed'),
+    expect(find.widgetWithText(OutlinedButton, 'Say no e-way bill is needed'),
         findsOneWidget,
         reason:
             'the existing not-needed statement stays, as an equal choice, not a lesser one');
     expect(find.text(ewayBillFootnote), findsOneWidget,
         reason: 'copy.md footnote: once, small');
-    await tester.tap(find.text('No e-way bill needed'));
+    await tester.tap(find.text('Say no e-way bill is needed'));
     await tester.pump();
     expect(find.text('Why is no e-way bill needed?'), findsOneWidget,
         reason: 'the statement form opens');
@@ -65,7 +65,7 @@ void main() {
       return jsonResponse({'shipment': shipment(bill: savedBill)});
     });
     await mountCard(tester, EwayBillCard(shipment: shipment()));
-    await tester.tap(find.text('I have made it. Enter the details'));
+    await tester.tap(find.text('Enter the bill details'));
     await tester.pump();
     expect(find.text("Enter the bill's details"), findsOneWidget,
         reason: 'copy.md step 2 heading');
@@ -120,7 +120,7 @@ void main() {
       return jsonResponse({'shipment': shipment(bill: savedBill)});
     });
     await mountCard(tester, EwayBillCard(shipment: shipment()));
-    await tester.tap(find.text('I have made it. Enter the details'));
+    await tester.tap(find.text('Enter the bill details'));
     await tester.pump();
     await tester.enterText(entry('E-way bill number'), '123456789012');
     await tester.enterText(entry('Your GSTIN'), '29ABCDE1234F1Z5');
@@ -150,7 +150,7 @@ void main() {
           'field': 'makerGstin'
         }, 400));
     await mountCard(tester, EwayBillCard(shipment: shipment()));
-    await tester.tap(find.text('I have made it. Enter the details'));
+    await tester.tap(find.text('Enter the bill details'));
     await tester.pump();
     await tester.enterText(entry('E-way bill number'), '123456789012');
     await tester.enterText(entry('Your GSTIN'), 'X');
@@ -188,7 +188,7 @@ void main() {
       });
     });
     await mountCard(tester, EwayBillCard(shipment: shipment()));
-    await tester.tap(find.text('No e-way bill needed'));
+    await tester.tap(find.text('Say no e-way bill is needed'));
     await tester.pump();
     await tester.tap(find.text('Save'));
     await tester.pump();
@@ -221,7 +221,7 @@ void main() {
     await mountCard(tester, EwayBillCard(shipment: shipment(bill: found)));
     expect(
         find.textContaining(RegExp(
-            r'^NaviG8r staff saw this bill on the government portal on 14 Oct( 2026)?\. It may have changed since\.$')),
+            r'^NaviG8r saw this bill on the government portal on 14 Oct( 2026)?\. It may have changed since\.$')),
         findsOneWidget,
         reason:
             'a date and a caveat; copy.md Formats: the year only when it is not this year');
@@ -237,17 +237,17 @@ void main() {
     };
     await mountCard(tester,
         EwayBillCard(key: UniqueKey(), shipment: shipment(bill: problem)));
-    expect(find.text('NaviG8r staff found a difference'), findsOneWidget,
+    expect(find.text('NaviG8r found a difference'), findsOneWidget,
         reason: 'copy.md step 4 problem: the heading');
     expect(
         find.textContaining(RegExp(
-            r'^NaviG8r staff could not find this bill on the portal on 14 Oct( 2026)?\. Check the details here and on the portal\.$')),
+            r'^NaviG8r could not find this bill on the portal on 14 Oct( 2026)?\. Check the details here and on the portal\.$')),
         findsOneWidget,
         reason:
             'no stored note or difference (RECON gap 7), so the reason sentence stands in');
     expect(
         find.text(
-            'If the portal is right, fix it here. If the bill itself is wrong, change it in your billing software or on the e-way bill site first.'),
+            'If the portal is right, fix it here. If the bill itself is wrong, change it in your billing software or on the e-way bill portal first.'),
         findsOneWidget,
         reason: 'copy.md step 4 problem: which side to fix');
     await tester.tap(find.widgetWithText(FilledButton, 'Fix the details'));
@@ -261,7 +261,7 @@ void main() {
     final current = ValueNotifier(shipment());
     await mountRefreshingCard(tester, current,
         (value) => EwayBillCard(key: const ValueKey('card'), shipment: value));
-    await tester.tap(find.text('I have made it. Enter the details'));
+    await tester.tap(find.text('Enter the bill details'));
     await tester.pump();
     await tester.enterText(entry('Invoice number'), 'HALF-TYPED');
     current.value = {...shipment(), 'status': 'BOOKED', 'extra': 1};
@@ -279,7 +279,7 @@ void main() {
     };
     await mountCard(tester, EwayBillCard(shipment: shipment()));
     expect(find.text(partOneLead), findsOneWidget, reason: 'still readable');
-    expect(find.text('I have made it. Enter the details'), findsNothing,
+    expect(find.text('Enter the bill details'), findsNothing,
         reason: 'no write button without permission');
     AuthorizationSession.principal = {
       'organizationId': 'shipper-a',
@@ -291,7 +291,7 @@ void main() {
         EwayBillCard(
             key: UniqueKey(),
             shipment: shipment(bill: savedBill, status: 'DELIVERED')));
-    expect(find.text('Edit'), findsNothing, reason: 'locked once delivered');
+    expect(find.text('Edit the bill'), findsNothing, reason: 'locked once delivered');
     expect(find.text('Remove e-way bill'), findsNothing,
         reason: 'locked once delivered');
   });
@@ -333,14 +333,14 @@ void main() {
   testWidgets('a different shipment in the same place starts clean',
       (tester) async {
     await mountCard(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.text('Edit the bill'));
     await tester.pump();
     await tester.enterText(entry('Invoice number'), 'TYPED-FOR-A');
     await mountCard(
         tester, EwayBillCard(shipment: {...shipment(), 'id': 'shipment-b'}));
     expect(find.text(partOneLead), findsOneWidget,
         reason: 'the new shipment\'s own state, form closed');
-    await tester.tap(find.text('I have made it. Enter the details'));
+    await tester.tap(find.text('Enter the bill details'));
     await tester.pump();
     expect(find.text('TYPED-FOR-A'), findsNothing,
         reason: 'nothing typed for the old shipment carries over');

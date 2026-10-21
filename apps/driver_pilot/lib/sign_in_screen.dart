@@ -226,11 +226,11 @@ class _SignInScreenState extends State<SignInScreen> {
         onSend: _sendOtp,
         onPhoneChanged: _phoneChanged,
         newAccountLinks: {
-          "Register business": () => context.go("/customer/register"),
-          "Register as teammate": () => context.go("/customer/register-user"),
-          "Register as new carrier": () =>
+          "Register a shipper company": () => context.go("/customer/register"),
+          "Join a shipper company": () => context.go("/customer/register-user"),
+          "Register a carrier company": () =>
               context.go("/driver/onboarding/register"),
-          "Join a carrier fleet": () => context.go("/driver/onboarding/join"),
+          "Join a carrier company": () => context.go("/driver/onboarding/join"),
         },
         onOpenDeveloperLab:
             kReleaseMode ? null : () => context.go("/pilot-lab"),

@@ -68,7 +68,7 @@ void desktopTests() {
           reason:
               'wb-book: Back to the lanes sits in the page, above the title');
       expect(tester.getRect(back).bottom,
-          lessThanOrEqualTo(tester.getRect(find.text('Book space')).top));
+          lessThanOrEqualTo(tester.getRect(find.text('Book this trip')).top));
       semantics.dispose();
     });
 
