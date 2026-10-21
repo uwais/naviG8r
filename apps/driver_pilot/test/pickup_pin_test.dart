@@ -226,6 +226,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(box.controller!.text.length, 500);
     expect(find.text('500/500'), findsOneWidget, reason: 'the counter shows under the box');
+    await tester.enterText(find.byType(TextField), 'किला गली ' * 80);
+    await tester.pumpAndSettle();
+    expect(find.text('480/500'), findsOneWidget,
+        reason: 'a letter and its vowel sign count as one, as the server counts them');
 
     await _mountPickup(tester, keepsFullAddress: false);
     expect(tester.widget<TextField>(find.byType(TextField)).maxLength, isNull);

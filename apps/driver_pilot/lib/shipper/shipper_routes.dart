@@ -19,6 +19,9 @@ List<RouteBase> customerFlowRoutes() {
       routes: [
         GoRoute(
             path: "login",
+            // An old ?phone= link drops its query, so the number leaves the address bar (see PhoneForSignIn).
+            redirect: (_, state) =>
+                state.uri.hasQuery ? "/customer/login" : null,
             builder: (_, state) => SignInScreen(
                 startingPhone: switch (state.extra) {
               PhoneForSignIn(:final number) => number,

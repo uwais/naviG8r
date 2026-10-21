@@ -22,6 +22,8 @@ class _CommunicationAdapter implements HttpClientAdapter {
   int messageCount = 0;
   String? eventKey;
   Completer<void>? sendGate;
+  // Holds the inbox and messages loads while set.
+  Completer<void>? loadGate;
   bool failGatedSend = false;
 
   @override
@@ -29,6 +31,7 @@ class _CommunicationAdapter implements HttpClientAdapter {
       Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
     calls.add('${options.method} ${options.path}');
     if (options.path == '/v1/notifications/shipments') {
+      if (loadGate != null) await loadGate!.future;
       return _json({
         'shipments': [
           {
@@ -44,6 +47,7 @@ class _CommunicationAdapter implements HttpClientAdapter {
     }
     if (options.path.endsWith('/conversation/timeline') &&
         options.method == 'GET') {
+      if (loadGate != null) await loadGate!.future;
       return _json({
         'conversation': {'id': 'shipment-1'},
         'items': [
@@ -413,6 +417,32 @@ void main() {
       await bringAppBack(tester);
       await tester.pumpAndSettle();
       expect(checks(), before + 1, reason: 'one check when the app is shown again');
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets(
+        '${screen.runtimeType} sends one timed check at a time, even when the app comes back during one',
+        (tester) async {
+      final adapter = _CommunicationAdapter();
+      _configureApi(adapter);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(splashFactory: NoSplash.splashFactory),
+        home: screen,
+      ));
+      await tester.pumpAndSettle();
+      int checks() => adapter.calls.where((call) => call == path).length;
+      final before = checks();
+      final answer = adapter.loadGate = Completer<void>();
+      await tester.pump(const Duration(seconds: 30));
+      expect(checks(), before + 1, reason: 'the timed check is out');
+      await sendAppToBackground(tester);
+      await bringAppBack(tester);
+      await tester.pump(const Duration(seconds: 30));
+      expect(checks(), before + 1,
+          reason: 'review: coming back, and the next turn, each sent another while one was out');
+      adapter.loadGate = null;
+      answer.complete();
+      await tester.pumpAndSettle();
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }

@@ -31,7 +31,7 @@ List<(String, bool)> listenForAnnouncements(WidgetTester tester) {
   return heard;
 }
 
-Future<void> showSignIn(WidgetTester tester, String at,
+Future<GoRouter> showSignIn(WidgetTester tester, String at,
     {bool codeIsWrong = false,
     ResponseBody Function(RequestOptions request)? codeRequestAnswer}) async {
   tester.view.physicalSize = const Size(360, 800);
@@ -57,6 +57,7 @@ Future<void> showSignIn(WidgetTester tester, String at,
   await tester.pumpWidget(
       MaterialApp.router(theme: DriverTheme.theme(), routerConfig: router));
   await tester.pumpAndSettle();
+  return router;
 }
 
 Future<void> sendCode(WidgetTester tester) async {
@@ -118,13 +119,17 @@ void main() {
   // reaches the sign-in in memory (PhoneForSignIn); a link, old or reloaded, opens an empty box.
   for (final link in [
     '/driver/onboarding/otp?phone=9845012345',
+    '/driver/onboarding/phone?phone=9845012345',
     '/customer/login?phone=9845012345'
   ]) {
-    testWidgets('a number in the link $link is not filled in', (tester) async {
-      await showSignIn(tester, link);
+    testWidgets('a number in the link $link is not filled in, and leaves the address bar',
+        (tester) async {
+      final router = await showSignIn(tester, link);
       expect(find.text('Sign in with your phone'), findsOneWidget);
       expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
           isEmpty);
+      expect(router.routerDelegate.currentConfiguration.uri.toString(), '/customer/login',
+          reason: 'review: an old ?phone= link kept the number in the address bar');
     });
   }
 

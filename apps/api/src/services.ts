@@ -1550,8 +1550,20 @@ export function quoteShipment(params: { weightKg: number }): { grossPaise: numbe
   return { grossPaise };
 }
 
-/** The longest pickup or drop address a booking takes. */
+/** The longest pickup or drop address a booking takes, in characters as a person sees them. */
 export const maxAddressLength = 500;
+
+const seenCharacters = new Intl.Segmenter("en", { granularity: "grapheme" });
+
+/** Counted as the app's address box counts (Flutter's characters.length): "कि" is one character, though two
+ * code points. Code points would refuse Devanagari the box takes. The UTF-16 ceiling keeps a stored address
+ * bounded when one character carries many combining marks. */
+function addressTooLong(address: string): boolean {
+  if (address.length > 4 * maxAddressLength) return true;
+  let characters = 0;
+  for (const _ of seenCharacters.segment(address)) if (++characters > maxAddressLength) return true;
+  return false;
+}
 
 export function bookShipment(store: Store, params: {
   anchorTripId: string;
@@ -1582,7 +1594,7 @@ export function bookShipment(store: Store, params: {
     if (target?.kind !== "CUSTOMER" || params.bookedByUserId !== authorizationContext.getStore()?.effectiveActorId) throw new AuthorizationError("invalid_assisted_booking", 400);
   }
   // The addresses are stored and sent to every screen and webhook; a real one is far shorter.
-  if (params.pickupAddress.length > maxAddressLength || params.dropAddress.length > maxAddressLength) throw new Error("address_too_long");
+  if (addressTooLong(params.pickupAddress) || addressTooLong(params.dropAddress)) throw new Error("address_too_long");
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip || !isActiveEntity(trip)) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");

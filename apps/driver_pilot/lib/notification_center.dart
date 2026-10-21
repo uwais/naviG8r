@@ -37,6 +37,8 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
   bool _failed = false;
   String? _nextCursor;
   Timer? _poll;
+  // True while a timed check is out, so coming back to the app just before a tick sends one, not two.
+  bool _checkingQuietly = false;
   late final AppLifecycleListener _lifecycle;
 
   /// A shipper's own shipments and their lanes, to name each row. Other logins see no names.
@@ -150,9 +152,19 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
     _load();
     _loadNames();
     _poll = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (!appIsInBackground) _load();
+      if (!appIsInBackground) _checkQuietly();
     });
-    _lifecycle = AppLifecycleListener(onShow: _load);
+    _lifecycle = AppLifecycleListener(onShow: _checkQuietly);
+  }
+
+  Future<void> _checkQuietly() async {
+    if (_checkingQuietly) return;
+    _checkingQuietly = true;
+    try {
+      await _load();
+    } finally {
+      _checkingQuietly = false;
+    }
   }
 
   @override
