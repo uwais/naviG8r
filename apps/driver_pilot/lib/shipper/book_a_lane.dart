@@ -1,5 +1,5 @@
-// Over 500 lines on purpose: one screen. Its state is most of it because getting a price, paying
-// and booking share it, and the two cards after it are shown only here.
+// Near 800 lines on purpose: one screen. Getting a price, paying and booking share its state, and
+// the three cards after it (lane, price, pins) show only here, so a split would only move them.
 
 import "dart:async";
 
@@ -510,18 +510,12 @@ class _CustomerBookShipmentScreenState
   Widget? _pinsCheck() {
     final (pickup: pickupPin, drop: dropPin, weightKg: _) = _priceInputs;
     if (pickupPin == null || dropPin == null) return null;
-    return _PinsCheck(
-      pickup: (
-          words: _pickupName.text.trim(),
-          pin: pickupPin,
-          pinAddress: _pickupPinAddress,
-          naming: _namingPickupPin),
-      drop: (
-          words: _dropName.text.trim(),
-          pin: dropPin,
-          pinAddress: _dropPinAddress,
-          naming: _namingDropPin),
-    );
+    String pinLine(bool naming, String? address) =>
+        naming ? "Updating address from pin…" : pinAddressLine(address);
+    return _PinsCheck(pickupPin: pickupPin, dropPin: dropPin, places: [
+      ("Pickup: ${_pickupName.text.trim()}", pinLine(_namingPickupPin, _pickupPinAddress)),
+      ("Drop: ${_dropName.text.trim()}", pinLine(_namingDropPin, _dropPinAddress)),
+    ]);
   }
 
   List<Widget> _fields(Map<String, dynamic> lane) {
@@ -730,9 +724,7 @@ class _LaneSummary extends StatelessWidget {
 /// button, it holds everything the confirm sheet used to show before money moved (sh-book-price).
 class _PriceCard extends StatelessWidget {
   const _PriceCard(
-      {required this.pricePaise,
-      required this.carrier,
-      required this.withChangesNote});
+      {required this.pricePaise, required this.carrier, required this.withChangesNote});
   final num pricePaise;
   final String carrier;
   final bool withChangesNote;
@@ -776,9 +768,12 @@ class _PriceCard extends StatelessWidget {
 /// shipper checks by eye before Book and pay: the pin decides the place and the price, the words are
 /// what the driver reads.
 class _PinsCheck extends StatelessWidget {
-  const _PinsCheck({required this.pickup, required this.drop});
-  final _PinToCheck pickup;
-  final _PinToCheck drop;
+  const _PinsCheck({required this.pickupPin, required this.dropPin, required this.places});
+  final LatLng pickupPin;
+  final LatLng dropPin;
+
+  /// Each place's typed words, then its Pin line.
+  final List<(String, String)> places;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -793,24 +788,13 @@ class _PinsCheck extends StatelessWidget {
             const Text("Check the pins before you pay", style: NvText.heading),
             const SizedBox(height: NvSpace.s3),
             // The same pin colours as the place boxes: pickup green, drop red.
-            routePreviewMap(a: pickup.pin, b: drop.pin),
-            for (final (title, place) in [("Pickup", pickup), ("Drop", drop)]) ...[
+            routePreviewMap(a: pickupPin, b: dropPin),
+            for (final (words, pinLine) in places) ...[
               const SizedBox(height: NvSpace.s3),
-              Text("$title: ${place.words}", style: NvText.bodyStrong),
-              Text(
-                  place.naming
-                      ? "Updating address from pin…"
-                      : pinAddressLine(place.pinAddress),
-                  style: NvText.caption),
+              Text(words, style: NvText.bodyStrong),
+              Text(pinLine, style: NvText.caption),
             ],
           ],
         ),
       );
 }
-
-typedef _PinToCheck = ({
-  String words,
-  LatLng pin,
-  String? pinAddress,
-  bool naming
-});
