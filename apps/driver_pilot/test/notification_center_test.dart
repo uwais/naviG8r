@@ -17,6 +17,7 @@ class _CommunicationAdapter implements HttpClientAdapter {
   final List<String> calls = [];
   final List<Map<String, dynamic>> sentMessages = [];
   int messageCount = 0;
+  String? eventKey;
   Completer<void>? sendGate;
   bool failGatedSend = false;
 
@@ -46,6 +47,7 @@ class _CommunicationAdapter implements HttpClientAdapter {
           {
             'type': 'event',
             'id': 'event-1',
+            if (eventKey != null) 'eventKey': eventKey,
             'title': 'Load booked',
             'body': 'The carrier accepted this shipment.'
           },
@@ -213,6 +215,21 @@ void main() {
     expect(find.text('The carrier accepted this shipment.'), findsOneWidget);
     expect(adapter.calls,
         contains('POST /v1/shipments/shipment-1/conversation/read'));
+  });
+
+  testWidgets(
+      'a known event in the conversation is in plain words, not the server\'s "load"',
+      (tester) async {
+    final adapter = _CommunicationAdapter()
+      ..eventKey = 'shipment.carrier_accepted';
+    _configureApi(adapter);
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      home: const ShipmentConversationScreen(shipmentId: 'shipment-1'),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('The carrier accepted your booking.'), findsOneWidget);
+    expect(find.text('Load booked'), findsNothing);
   });
 
   testWidgets(

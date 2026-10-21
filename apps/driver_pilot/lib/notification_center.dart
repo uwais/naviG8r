@@ -35,9 +35,9 @@ Future<void> openShipmentConversation(
       builder: (_) => ShipmentConversationScreen(shipmentId: shipmentId),
     ));
 
-/// The banner's words for the newest notice, by what happened and to whom. The server's own titles
-/// say "load" and "organization", so the app words them itself.
-String noticeWords(String eventKey, {required bool forShipper}) {
+/// Plain words for a notice, by what happened and to whom, or null for an event the app does not
+/// know. The server's own titles say "load" and "organization", so the app words them itself.
+String? noticeWords(String eventKey, {required bool forShipper}) {
   if (forShipper) {
     return switch (eventKey) {
       'shipment.booked' => 'Your booking is made.',
@@ -48,7 +48,7 @@ String noticeWords(String eventKey, {required bool forShipper}) {
       'shipment.pod_accepted' => 'Delivery accepted.',
       'payment.status_changed' => 'Your payment was updated.',
       'conversation.message' => 'New message on a shipment.',
-      _ => 'New update on a shipment.',
+      _ => null,
     };
   }
   return switch (eventKey) {
@@ -60,7 +60,7 @@ String noticeWords(String eventKey, {required bool forShipper}) {
     'shipment.pod_accepted' => 'The shipper accepted the delivery.',
     'payment.status_changed' => 'A payment was updated.',
     'conversation.message' => 'New message on a booking.',
-    _ => 'New update on a booking.',
+    _ => null,
   };
 }
 
@@ -136,9 +136,12 @@ class NotificationWatch {
     final isDriver = AuthorizationSession.principal?['subrole'] == 'DRIVER';
     if (isDriver && eventKey.startsWith('payment.')) return;
     if (_bells.isEmpty || shipmentId.isEmpty) return;
+    final forShipper = AuthorizationSession.hasRole('SHIPPER');
     _bells.last._showBanner(
-        noticeWords(eventKey,
-            forShipper: AuthorizationSession.hasRole('SHIPPER')),
+        noticeWords(eventKey, forShipper: forShipper) ??
+            (forShipper
+                ? 'New update on a shipment.'
+                : 'New update on a booking.'),
         shipmentId);
   }
 }
@@ -748,6 +751,12 @@ class _ShipmentConversationScreenState
                           final message =
                               _messages[_messages.length - 1 - reverseIndex];
                           if (message['type'] == 'event') {
+                            // The server's own words say "load" and "organization"; a known event
+                            // is worded as the banner words it. An unknown one keeps the server's.
+                            final plain = noticeWords(
+                                message['eventKey']?.toString() ?? '',
+                                forShipper:
+                                    AuthorizationSession.hasRole('SHIPPER'));
                             return Padding(
                               padding: const EdgeInsets.symmetric(vertical: 8),
                               child: Card(
@@ -757,12 +766,15 @@ class _ShipmentConversationScreenState
                                       Icons.notifications_active_outlined,
                                       color: _navy),
                                   title: Text(
-                                      message['title']?.toString() ??
+                                      plain ??
+                                          message['title']?.toString() ??
                                           'Shipment update',
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w700)),
-                                  subtitle: Text(message['body']?.toString() ??
-                                      'There is an update for this shipment.'),
+                                  subtitle: plain != null
+                                      ? null
+                                      : Text(message['body']?.toString() ??
+                                          'There is an update for this shipment.'),
                                 ),
                               ),
                             );
