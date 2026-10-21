@@ -1,5 +1,7 @@
 # Redesign recon
 
+Line numbers are as of `4a77afa`. `notification_center.dart` has since split into `notice_words.dart`, `notification_bell.dart`, `shipment_conversation.dart` and the inbox (`46495d8`), so its line numbers below no longer match.
+
 What the app and API do today, measured against the handoff spec. This is PR 0 of `PROMPTS.md`:
 recon only, no code changed.
 

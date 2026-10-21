@@ -1,5 +1,5 @@
-// Over 500 lines on purpose: one screen with one state of about 570 lines, holding the load,
-// refresh, polling and every step's panel; splitting it would pass that state between files.
+// Over 500 lines on purpose: one screen with one state, holding the load, refresh, polling and every
+// step's panel; splitting it would pass that state between files.
 
 import "dart:async";
 

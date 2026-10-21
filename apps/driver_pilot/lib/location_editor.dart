@@ -1,5 +1,6 @@
-// One concern: the maps the screens share, including the place editor, and reading a map point
-// out of server data.
+// Two jobs in one file for now: the read-only maps the screens share, and the place editor. The split
+// into two files is deferred until after go-live (owner, 21 Oct 2026); it changes the imports of five
+// screens and seven test files.
 import "dart:math" as math;
 
 import "package:flutter/foundation.dart" show kDebugMode;
@@ -336,7 +337,8 @@ const pinNotPlacedYet = LatLng(22.5, 79.0);
 /// The longest pickup or drop address the server takes (maxAddressLength in the API's services.ts).
 const maxAddressCharacters = 500;
 
-/// Place search + draggable pin; [labelController] is sent to your API as city/label text.
+/// Place search and a draggable pin. [labelController] holds the words sent with the pin: a city for a
+/// trip's From and To, the full address for a booking's pickup and drop ([keepsFullAddress]).
 class LocationEndpointEditor extends StatefulWidget {
   const LocationEndpointEditor({
     super.key,

@@ -1,3 +1,5 @@
+// Over 500 lines on purpose: one concern, the shipment conversation (its notices, messages, read marks and
+// support access). Both halves share the shipment, actor and conversation checks.
 import { randomUUID } from "node:crypto";
 import { authorizationContext, effectivePermissions, legacyRoles, principalFor, recordAudit, requirePermission, type Principal } from "./rbac.ts";
 import { isActiveEntity } from "./softDelete.ts";
