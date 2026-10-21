@@ -23,6 +23,7 @@ import "../ui/nv_button.dart";
 import "../ui/nv_field.dart";
 import "../ui/nv_list_card.dart";
 import "../ui/nv_message.dart";
+import "../ui/pending_copy.dart";
 import "../ui/tokens.dart";
 import "shipper_scaffold.dart";
 import "shipper_words.dart";
@@ -619,8 +620,12 @@ class _CustomerBookShipmentScreenState
       if (price != null) ...[
         const Text("This is the full price. Nothing is added at payment.",
             style: NvText.bodyStrong),
+        // Owner, 21 Oct 2026: a failed payment is said on screen; the booking stays.
         const Text(
-            "Booking keeps this capacity for you. To cancel, contact NaviG8r.",
+            "If the payment does not go through, the shipment stays booked and unpaid until you contact ${PendingCopy.changeOrCancelContact}.",
+            style: NvText.body),
+        const Text(
+            "Booking keeps this capacity for you. To cancel, contact ${PendingCopy.changeOrCancelContact}.",
             style: NvText.body),
       ],
     ];

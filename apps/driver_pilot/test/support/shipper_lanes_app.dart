@@ -11,6 +11,7 @@ import 'package:driver_pilot/shipper/shipper_home.dart';
 import 'package:driver_pilot/customer_session.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/google_geocoding.dart';
+import 'package:driver_pilot/ui/pending_copy.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/ui/nv_field.dart';
 import 'package:flutter/material.dart';
@@ -199,4 +200,8 @@ Future<FakeServer> showPricedBook(WidgetTester tester,
 }
 
 const contactAbovePay =
-    'Booking keeps this capacity for you. To cancel, contact NaviG8r.';
+    'Booking keeps this capacity for you. To cancel, contact ${PendingCopy.changeOrCancelContact}.';
+
+/// Owner, 21 Oct 2026: a failed payment is said on screen before paying.
+const failedPaymentLine =
+    'If the payment does not go through, the shipment stays booked and unpaid until you contact ${PendingCopy.changeOrCancelContact}.';

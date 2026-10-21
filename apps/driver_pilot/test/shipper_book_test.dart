@@ -733,7 +733,12 @@ void main() {
         'Pay, the full-price line and the contact line are on screen without scrolling at 360 x 800',
         (tester) async {
       await showPricedBook(tester, height: 800);
-      for (final words in ['Book and pay ₹2,640', fullPriceLine, contactAbovePay]) {
+      for (final words in [
+        'Book and pay ₹2,640',
+        fullPriceLine,
+        failedPaymentLine,
+        contactAbovePay
+      ]) {
         final shown = tester.getRect(find.text(words));
         expect(shown.top >= 0 && shown.bottom <= 800, isTrue,
             reason:
@@ -754,6 +759,12 @@ void main() {
       expect(tester.getRect(find.text(fullPriceLine)).bottom,
           lessThanOrEqualTo(cancelLine.top),
           reason: 'the full-price line stays, above the cancel line');
+      final failedPayment = tester.getRect(find.text(failedPaymentLine));
+      expect(failedPayment.top,
+          greaterThanOrEqualTo(tester.getRect(find.text(fullPriceLine)).bottom),
+          reason: 'owner, 21 Oct 2026: what a failed payment means sits by the full-price line');
+      expect(failedPayment.bottom, lessThanOrEqualTo(cancelLine.top),
+          reason: 'the cancel line stays the one directly above the button');
     });
 
     testWidgets('Home, Browse and the Match form fit 360 dp at 200% text',
