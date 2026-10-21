@@ -17,6 +17,24 @@ void main() {
       expect(townOfAddress('Koramangala, Bengaluru 560034'), 'Bengaluru');
     });
 
+    test('Chandigarh and Delhi are the town when no other part names a town', () {
+      expect(townOfAddress('Sector 17, Chandigarh, 160017, India'), 'Chandigarh');
+      expect(townOfAddress('Rohini, Delhi, India'), 'Delhi');
+      expect(townOfAddress('Connaught Place, New Delhi, Delhi 110001, India'),
+          'New Delhi',
+          reason: 'a part before it that names it is the town');
+      expect(townOfAddress('Leh, Ladakh 194101, India'), 'Leh',
+          reason: 'a territory that is not a city is dropped like a state');
+    });
+
+    test('a leading plus code is not part of the town', () {
+      expect(townOfAddress('J8V2+QW Hoskote, Karnataka, India'), 'Hoskote');
+    });
+
+    test('a "near ..." landmark is not the town', () {
+      expect(townOfAddress('Bengaluru, near Silk Board'), 'Bengaluru');
+    });
+
     test('a one-part address comes back as it is', () {
       expect(townOfAddress('Hosur'), 'Hosur');
       expect(townOfAddress('Delhi'), 'Delhi');
