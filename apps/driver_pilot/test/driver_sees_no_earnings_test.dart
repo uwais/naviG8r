@@ -123,8 +123,10 @@ void main() {
           reason: 'PR 8: the status word says the delivery is confirmed');
       for (final payout in [
         'Payment on hold',
-        'NaviG8r checks it, then pays the carrier',
-        'Paid to the carrier',
+        'NaviG8r checks it, then releases your payment',
+        'NaviG8r released your payment',
+        'NaviG8r holds your payment',
+        'NaviG8r can release',
         'Payment released'
       ]) {
         expect(find.textContaining(payout), findsNothing, reason: payout);

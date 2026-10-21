@@ -41,7 +41,7 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
         builder: (context) => AlertDialog(
               title: const Text('Accept delivery?'),
               content: const Text(
-                  'Check that the goods arrived. If you accept, NaviG8r can pay the carrier before the 48-hour hold ends.'),
+                  'Check that the goods arrived. If you accept, NaviG8r can release your payment before the 48-hour hold ends.'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(context, false),
@@ -103,9 +103,9 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
                 if (widget.showPaymentStatus) ...[
                   const SizedBox(height: 8),
                   Text(shipment['status'] == 'DELIVERED'
-                      ? 'Paid to the carrier.'
+                      ? 'NaviG8r released your payment.'
                       : ready
-                          ? 'NaviG8r checks it, then pays the carrier.'
+                          ? 'NaviG8r checks it, then releases your payment.'
                           : 'Payment on hold${until == null ? '' : ' until $until'}. If you accept delivery, the hold can end sooner.'),
                 ],
                 if (_error != null)

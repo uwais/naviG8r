@@ -44,7 +44,7 @@ void main() {
           trip: lane());
       expect(
           find.text(
-              'Waiting for Ravi Roadways to accept. Your payment is on hold. It is paid to the carrier after delivery.'),
+              'Waiting for Ravi Roadways to accept. NaviG8r holds your payment until delivery.'),
           findsOneWidget,
           reason: 'brief A.3: the shipper is told the money is held');
       expect(find.text('Waiting for carrier'), findsOneWidget,
@@ -137,7 +137,7 @@ void main() {
           reason: 'copy.md status word and the last step');
       expect(
           find.text(
-              'Ravi Roadways confirmed delivery. Your payment of ₹2,640 is now paid to the carrier.'),
+              'Ravi Roadways confirmed delivery. NaviG8r released your payment of ₹2,640.'),
           findsOneWidget,
           reason: 'copy.md delivered');
       expect(find.text('Book another trip'), findsOneWidget,

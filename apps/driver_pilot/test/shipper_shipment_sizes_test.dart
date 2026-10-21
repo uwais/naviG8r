@@ -143,7 +143,7 @@ void desktopTests() {
       await tester.pumpAndSettle();
       expect(
           find.text(
-              'Waiting for Deccan Movers to accept. Your payment is on hold. It is paid to the carrier after delivery.'),
+              'Waiting for Deccan Movers to accept. NaviG8r holds your payment until delivery.'),
           findsOneWidget,
           reason: 'the route link opens the shipment');
       await leave(tester);

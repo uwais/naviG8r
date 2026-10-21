@@ -293,7 +293,7 @@ class _CustomerShipmentDetailScreenState
         final String waiting;
         if (_paymentHeld) {
           waiting =
-              "Waiting for $carrier to accept. Your payment is on hold. It is paid to the carrier after delivery.";
+              "Waiting for $carrier to accept. NaviG8r holds your payment until delivery.";
         } else if (paymentNotTaken(_paymentStatus)) {
           waiting = "$carrier can accept once this shipment is paid.";
         } else {
@@ -417,7 +417,7 @@ class _CustomerShipmentDetailScreenState
           Text(
               "${carrierOf(shipment)} confirmed delivery."
               // Until the payment is released the hold line below says what happens to it.
-              "${released && paid != null ? " Your payment of ${formatRupees(paid)} is now paid to the carrier." : ""}",
+              "${released && paid != null ? " NaviG8r released your payment of ${formatRupees(paid)}." : ""}",
               style: NvText.body),
           const SizedBox(height: NvSpace.s3),
           NvButton(

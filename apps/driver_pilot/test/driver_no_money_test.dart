@@ -8,7 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'support/carrier_app.dart';
 
 final moneyWords =
-    RegExp(r'₹|paid|commission|receive|payout|\bnet\b', caseSensitive: false);
+    RegExp(r'₹|paid|commission|receive|payout|\bnet\b|your payment|releases? the payment', caseSensitive: false);
 
 /// Every amount the API knows, on a booking in each [status].
 Map<String, dynamic> bookingWithAmounts(String id, String status,
