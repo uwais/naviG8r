@@ -226,7 +226,7 @@ void main() {
             DriverPublishTripScreen(
                 findPlace: (place) async => GeocodeOutcome.ok(
                     place == 'Hoskote' ? hoskote : kolar, '$place, Karnataka'),
-                findTown: (_) => town.future),
+                namePin: (_) => town.future),
             size: const Size(800, 3000));
         await findBoth(tester);
         tester

@@ -298,7 +298,8 @@ class LocationEndpointEditor extends StatefulWidget {
     this.showApiKeyHint = true,
     this.showMap = true,
     this.findPlace = GoogleGeocodingService.forwardAddress,
-    this.findTown = GoogleGeocodingService.reverseLatLng,
+    this.namePin = GoogleGeocodingService.reverseLatLng,
+    this.keepsFullAddress = false,
   });
 
   final String title;
@@ -324,7 +325,13 @@ class LocationEndpointEditor extends StatefulWidget {
   /// False leaves out the map and its drag caption, so a screen can keep the form short until the place is found.
   final bool showMap;
   final PlaceFinder findPlace;
-  final TownFinder findTown;
+  final PinNamer namePin;
+
+  /// False for a trip's From and To, whose words become a city name ("Hoskote"). True for a
+  /// booking's pickup and drop, which the carrier has to find: a search keeps the words as typed,
+  /// and a dragged pin takes its full address. Pass [GoogleGeocodingService.reverseAddress] as
+  /// [namePin] with it.
+  final bool keepsFullAddress;
 
   @override
   State<LocationEndpointEditor> createState() => _LocationEndpointEditorState();
@@ -416,11 +423,15 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
       return;
     }
     final p = outcome.position!;
-    final name = outcome.placeName ?? widget.labelController.text;
+    // A trip's field becomes its city name, so it holds the short name. A pickup or drop keeps the
+    // words as typed: a house number or landmark Google does not know is what the carrier needs.
+    // Either way the hint shows the full address the pin went to.
+    final name = widget.keepsFullAddress
+        ? widget.labelController.text
+        : outcome.placeName ?? widget.labelController.text;
     _pinFoundFor = name.trim();
     setState(() {
       _pos = p;
-      // The field becomes the trip's city name, so it holds the short name; the hint shows the full address.
       _hintLine = outcome.formattedAddress;
       widget.labelController.text = name;
     });
@@ -442,19 +453,24 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
     final lookup = ++_newestLookup;
     setState(() => _reverseBusy = true);
     widget.onPinNaming?.call(true);
-    final outcome = await widget.findTown(p);
+    final outcome = await widget.namePin(p);
     if (!mounted || lookup != _newestLookup) return;
     setState(() => _reverseBusy = false);
     widget.onPinNaming?.call(false);
     // Without a key nothing can name the pin, so the name typed by hand stays.
     if (outcome.status == "NO_API_KEY") return;
-    final name = outcome.isOk ? outcome.placeName : null;
+    final name = !outcome.isOk
+        ? null
+        : widget.keepsFullAddress
+            ? outcome.formattedAddress
+            : outcome.placeName;
     final noTownAtPin = outcome.failure == PlaceSearchFailure.notFound || (outcome.isOk && name == null);
     setState(() {
       if (name != null) {
         _pinFoundFor = name.trim();
         widget.labelController.text = name;
-        _hintLine = outcome.formattedAddress;
+        // The field already holds the full address for a pickup or drop.
+        _hintLine = widget.keepsFullAddress ? null : outcome.formattedAddress;
       } else if (noTownAtPin) {
         // The name from before the drag would publish the trip under a town the pin has left.
         widget.labelController.text = "";

@@ -105,7 +105,7 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
     {double height = 2000,
     double width = 360,
     PlaceFinder findPlace = findAnyPlace,
-    TownFinder findTown = GoogleGeocodingService.reverseLatLng}) async {
+    PinNamer namePin = GoogleGeocodingService.reverseAddress}) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -143,13 +143,13 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
               builder: (_, state) => CustomerTripsScreen(
                   startWithMatch: state.uri.queryParameters['tab'] == 'match',
                   findPlace: findPlace,
-                  findTown: findTown)),
+                  namePin: namePin)),
           GoRoute(
               path: 'book',
               builder: (_, state) => CustomerBookShipmentScreen.fromQuery(
                   state.uri.queryParameters,
                   findPlace: findPlace,
-                  findTown: findTown)),
+                  namePin: namePin)),
           GoRoute(
               path: 'shipments',
               builder: (_, __) => const Text('Shipments list')),

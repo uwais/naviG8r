@@ -248,7 +248,7 @@ void main() {
         (tester) async {
       final town = Completer<GeocodeOutcome>();
       final server = await showShipperApp(tester, '/customer/trips?tab=match',
-          findTown: (_) => town.future);
+          namePin: (_) => town.future);
       server.answer('/v1/customer/eligible-anchor-trips', {'trips': []});
       await tester.pumpAndSettle();
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
@@ -274,7 +274,7 @@ void main() {
     testWidgets('after a failed match, Try again also waits for a dragged pin to be named',
         (tester) async {
       final server = await showShipperApp(tester, '/customer/trips?tab=match',
-          findTown: (_) => Completer<GeocodeOutcome>().future);
+          namePin: (_) => Completer<GeocodeOutcome>().future);
       server.answer('/v1/customer/eligible-anchor-trips', {'error': 'internal_error'}, 500);
       await tester.pumpAndSettle();
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');

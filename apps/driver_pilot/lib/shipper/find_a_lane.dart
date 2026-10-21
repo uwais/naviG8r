@@ -83,12 +83,12 @@ class CustomerTripsScreen extends StatefulWidget {
   const CustomerTripsScreen(
       {this.startWithMatch = false,
       this.findPlace = GoogleGeocodingService.forwardAddress,
-      this.findTown = GoogleGeocodingService.reverseLatLng,
+      this.namePin = GoogleGeocodingService.reverseAddress,
       super.key});
 
   final bool startWithMatch;
   final PlaceFinder findPlace;
-  final TownFinder findTown;
+  final PinNamer namePin;
 
   @override
   State<CustomerTripsScreen> createState() => _CustomerTripsScreenState();
@@ -150,7 +150,7 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> {
                 offstage: _view != _LaneView.match,
                 child: _CustomerMatchTripsTab(
                   findPlace: widget.findPlace,
-                  findTown: widget.findTown,
+                  namePin: widget.namePin,
                   onBrowseAll: () => setState(() => _view = _LaneView.browse),
                 ),
               ),
@@ -250,10 +250,10 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
 class _CustomerMatchTripsTab extends StatefulWidget {
   const _CustomerMatchTripsTab(
       {required this.findPlace,
-      required this.findTown,
+      required this.namePin,
       required this.onBrowseAll});
   final PlaceFinder findPlace;
-  final TownFinder findTown;
+  final PinNamer namePin;
   final VoidCallback onBrowseAll;
 
   @override
@@ -429,7 +429,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             showMap: _pickupPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
-            findTown: widget.findTown,
+            namePin: widget.namePin,
+            keepsFullAddress: true,
           ),
           _pickupError,
         ),
@@ -451,7 +452,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             showMap: _dropPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
-            findTown: widget.findTown,
+            namePin: widget.namePin,
+            keepsFullAddress: true,
           ),
           _dropError,
         ),

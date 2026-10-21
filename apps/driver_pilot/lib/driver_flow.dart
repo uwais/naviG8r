@@ -4534,10 +4534,10 @@ class DriverPublishTripScreen extends StatefulWidget {
   const DriverPublishTripScreen(
       {super.key,
       this.findPlace = GoogleGeocodingService.forwardAddress,
-      this.findTown = GoogleGeocodingService.reverseLatLng});
+      this.namePin = GoogleGeocodingService.reverseLatLng});
 
   final PlaceFinder findPlace;
-  final TownFinder findTown;
+  final PinNamer namePin;
 
   @override
   State<DriverPublishTripScreen> createState() =>
@@ -4784,7 +4784,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 readOnly: _submitting,
                 showMap: _originPos != null,
                 findPlace: widget.findPlace,
-                findTown: widget.findTown,
+                namePin: widget.namePin,
               ),
               gap,
               LocationEndpointEditor(
@@ -4800,7 +4800,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 readOnly: _submitting,
                 showMap: _destPos != null,
                 findPlace: widget.findPlace,
-                findTown: widget.findTown,
+                namePin: widget.namePin,
               ),
               if (_originPos != null && _destPos != null) ...[
                 gap,

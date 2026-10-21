@@ -86,9 +86,10 @@ String? _townName(Map<String, dynamic> result) {
 /// in for the geocoding service.
 typedef PlaceFinder = Future<GeocodeOutcome> Function(String place);
 
-/// Names the town a map point is in. Screens take it as a parameter so tests can stand in for
-/// the geocoding service.
-typedef TownFinder = Future<GeocodeOutcome> Function(LatLng point);
+/// Names a map point: the town it is in for a trip ([GoogleGeocodingService.reverseLatLng]), or
+/// its full address for a pickup or drop ([GoogleGeocodingService.reverseAddress]). Screens take it
+/// as a parameter so tests can stand in for the geocoding service.
+typedef PinNamer = Future<GeocodeOutcome> Function(LatLng point);
 
 /// Forward / reverse geocoding via Google Geocoding API (same key as Maps SDK).
 class GoogleGeocodingService {
@@ -140,7 +141,16 @@ class GoogleGeocodingService {
   /// The town the point is in. Only towns are asked for: a pin's own address starts with a
   /// house number, road or plus code, which is no name for a trip's city. A spot with no town
   /// comes back as ZERO_RESULTS.
-  static Future<GeocodeOutcome> reverseLatLng(LatLng p, {String? apiKey}) async {
+  static Future<GeocodeOutcome> reverseLatLng(LatLng p, {String? apiKey}) =>
+      _reverse(p, townOnly: true, apiKey: apiKey);
+
+  /// The point's full address (street, area, town, pin), for a pickup or drop the carrier has to
+  /// find: Google's closest result, with no result_type filter.
+  static Future<GeocodeOutcome> reverseAddress(LatLng p, {String? apiKey}) =>
+      _reverse(p, townOnly: false, apiKey: apiKey);
+
+  static Future<GeocodeOutcome> _reverse(LatLng p,
+      {required bool townOnly, String? apiKey}) async {
     final key = apiKey ?? kMapsApiKey;
     if (key.isEmpty) return GeocodeOutcome.fail("NO_API_KEY");
 
@@ -149,7 +159,7 @@ class GoogleGeocodingService {
         "https://maps.googleapis.com/maps/api/geocode/json",
         queryParameters: {
           "latlng": "${p.latitude},${p.longitude}",
-          "result_type": "locality",
+          if (townOnly) "result_type": "locality",
           "key": key,
         },
       );

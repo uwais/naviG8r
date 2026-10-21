@@ -318,11 +318,11 @@ void main() {
     });
 
     testWidgets(
-        'after a pin drag, Book and pay waits until the pin has its town name, then books that name',
+        'after a pin drag, Book and pay waits until the pin has its address, then books the full address',
         (tester) async {
       final town = Completer<GeocodeOutcome>();
       final server = await showShipperApp(tester, searchedBook,
-          findTown: (_) => town.future);
+          namePin: (_) => town.future);
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
       server.answers['/shipments/quote'] = priceByWeight;
       server.answer('/shipments/book', {
@@ -344,15 +344,47 @@ void main() {
           reason: 'a disabled button says why');
 
       town.complete(GeocodeOutcome.ok(
-          const LatLng(13.05, 80.25), 'Adyar, Chennai', 'Adyar'));
+          const LatLng(13.05, 80.25),
+          '14, Lattice Bridge Rd, Adyar, Chennai, Tamil Nadu 600020, India',
+          'Chennai'));
       await tester.pumpAndSettle();
       expect(bookButton(tester).onPressed, isNotNull);
       await tester.tap(find.text('Book and pay ₹2,640'));
       await tester.pumpAndSettle();
       final booked = server.sentTo('/shipments/book').single;
-      expect(booked['dropAddress'], 'Adyar',
-          reason: 'the name found for the new pin');
+      expect(booked['dropAddress'],
+          '14, Lattice Bridge Rd, Adyar, Chennai, Tamil Nadu 600020, India',
+          reason:
+              'Rishabh, 20 Oct 2026: the carrier needs the street, area, town and pin, not the town');
       expect((booked['drop'] as Map)['lat'], 13.05);
+    });
+
+    testWidgets(
+        'a searched pickup keeps the address as typed, not the town Google names',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/book?anchorTripId=lane-1',
+          findPlace: (place) async => GeocodeOutcome.ok(const LatLng(12.8, 77.7),
+              'Bommasandra, Bengaluru, Karnataka 560099, India', 'Bengaluru'));
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
+      });
+      await tester.pumpAndSettle();
+      await tester.enterText(field('Weight'), '80');
+      await searchPlace(tester, 'Pickup', 'Plot 12, 4th Cross, Bommasandra');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
+          'Plot 12, 4th Cross, Bommasandra');
+      expect(find.text('Bommasandra, Bengaluru, Karnataka 560099, India'),
+          findsWidgets,
+          reason: 'the hint still shows where the pin went');
+      await tester.tap(find.text('Book and pay ₹2,640'));
+      await tester.pumpAndSettle();
+      final booked = server.sentTo('/shipments/book').single;
+      expect(booked['pickupAddress'], 'Plot 12, 4th Cross, Bommasandra',
+          reason: 'the plot number is what the carrier needs to collect');
     });
 
     testWidgets('a late price answer for older inputs is ignored',

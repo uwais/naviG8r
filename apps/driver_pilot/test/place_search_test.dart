@@ -162,7 +162,7 @@ void main() {
   group('the place editor', () {
     Future<TextEditingController> mountEditor(WidgetTester tester,
         {PlaceFinder? findPlace,
-        required TownFinder findTown,
+        required PinNamer namePin,
         VoidCallback? onPinStale}) async {
       final field = TextEditingController();
       await tester.pumpWidget(MaterialApp(
@@ -178,7 +178,7 @@ void main() {
         onPositionChanged: (_) {},
         onPinStale: onPinStale,
         findPlace: findPlace ?? (place) async => GeocodeOutcome.fail('ZERO_RESULTS'),
-        findTown: findTown,
+        namePin: namePin,
       )))));
       return field;
     }
@@ -192,7 +192,7 @@ void main() {
     testWidgets('a pin dragged to a spot with no town drops the old name and asks for one',
         (tester) async {
       final field = await mountEditor(tester,
-          findTown: (point) async => GeocodeOutcome.fail('ZERO_RESULTS'));
+          namePin: (point) async => GeocodeOutcome.fail('ZERO_RESULTS'));
       field.text = 'Hoskote';
       await dragPin(tester);
       expect(field.text, isEmpty,
@@ -207,7 +207,7 @@ void main() {
     testWidgets('a pin dragged to a town takes its name, with the address below',
         (tester) async {
       final field = await mountEditor(tester,
-          findTown: (point) async =>
+          namePin: (point) async =>
               GeocodeOutcome.ok(point, 'Kolar, Karnataka, India', 'Kolar'));
       field.text = 'Hoskote';
       await dragPin(tester);
@@ -218,7 +218,7 @@ void main() {
     testWidgets('a pin dragged where the town lookup fails keeps the name and asks to check it',
         (tester) async {
       final field = await mountEditor(tester,
-          findTown: (point) async => GeocodeOutcome.fail('NETWORK'));
+          namePin: (point) async => GeocodeOutcome.fail('NETWORK'));
       field.text = 'Hoskote';
       await dragPin(tester);
       expect(field.text, 'Hoskote',
@@ -230,7 +230,7 @@ void main() {
 
     testWidgets('a slow town lookup does not overwrite a newer drag', (tester) async {
       final answers = <Completer<GeocodeOutcome>>[];
-      final field = await mountEditor(tester, findTown: (point) {
+      final field = await mountEditor(tester, namePin: (point) {
         answers.add(Completer<GeocodeOutcome>());
         return answers.last.future;
       });
@@ -251,7 +251,7 @@ void main() {
       final field = await mountEditor(tester,
           findPlace: (place) async =>
               GeocodeOutcome.ok(const LatLng(13.0, 77.8), 'Hoskote, Karnataka, India', 'Hoskote'),
-          findTown: (point) => answer.future);
+          namePin: (point) => answer.future);
       final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
       map.markers.single.onDragEnd!(const LatLng(13.2, 78.1));
       await tester.pump();
@@ -268,7 +268,7 @@ void main() {
       final searched = Completer<GeocodeOutcome>();
       final field = await mountEditor(tester,
           findPlace: (place) => searched.future,
-          findTown: (point) async =>
+          namePin: (point) async =>
               GeocodeOutcome.ok(point, 'Kolar, Karnataka, India', 'Kolar'));
       await tester.enterText(find.byType(TextField), 'Hoskote');
       await tester.tap(find.byTooltip('Look up place'));
@@ -293,7 +293,7 @@ void main() {
       final field = await mountEditor(tester,
           findPlace: (place) async => GeocodeOutcome.ok(
               const LatLng(13.0, 77.8), 'Hoskote, Karnataka, India', 'Hoskote'),
-          findTown: (point) async => GeocodeOutcome.fail('NO_API_KEY'),
+          namePin: (point) async => GeocodeOutcome.fail('NO_API_KEY'),
           onPinStale: () => stale++);
       await tester.enterText(find.byType(TextField), 'hoskote');
       await tester.tap(find.byTooltip('Look up place'));
@@ -316,7 +316,7 @@ void main() {
         (tester) async {
       var stale = 0;
       final field = await mountEditor(tester,
-          findTown: (point) async => GeocodeOutcome.fail('ZERO_RESULTS'),
+          namePin: (point) async => GeocodeOutcome.fail('ZERO_RESULTS'),
           onPinStale: () => stale++);
       await dragPin(tester);
       expect(field.text, isEmpty);
@@ -329,7 +329,7 @@ void main() {
     testWidgets('without a maps key a dragged pin keeps the name typed by hand',
         (tester) async {
       final field = await mountEditor(tester,
-          findTown: (point) async => GeocodeOutcome.fail('NO_API_KEY'));
+          namePin: (point) async => GeocodeOutcome.fail('NO_API_KEY'));
       field.text = 'Hoskote';
       await dragPin(tester);
       expect(field.text, 'Hoskote');
@@ -339,7 +339,7 @@ void main() {
       final handle = tester.ensureSemantics();
       await mountEditor(tester,
           findPlace: (place) async => GeocodeOutcome.fail('NETWORK'),
-          findTown: (point) async => GeocodeOutcome.fail('NO_API_KEY'));
+          namePin: (point) async => GeocodeOutcome.fail('NO_API_KEY'));
       await tester.enterText(find.byType(TextField), 'Hoskote');
       await tester.tap(find.byTooltip('Look up place'));
       await tester.pumpAndSettle();

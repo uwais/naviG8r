@@ -48,14 +48,14 @@ class CustomerBookShipmentScreen extends StatefulWidget {
     this.searchedPickup,
     this.searchedDrop,
     this.findPlace = GoogleGeocodingService.forwardAddress,
-    this.findTown = GoogleGeocodingService.reverseLatLng,
+    this.namePin = GoogleGeocodingService.reverseAddress,
     super.key,
   });
 
   /// From the Book link a lane card builds: the lane, and the match search's weight and places.
   factory CustomerBookShipmentScreen.fromQuery(Map<String, String> query,
       {PlaceFinder findPlace = GoogleGeocodingService.forwardAddress,
-      TownFinder findTown = GoogleGeocodingService.reverseLatLng}) {
+      PinNamer namePin = GoogleGeocodingService.reverseAddress}) {
     ({String words, LatLng? point})? place(String name) {
       final words = query[name] ?? "";
       if (words.isEmpty) return null;
@@ -78,7 +78,7 @@ class CustomerBookShipmentScreen extends StatefulWidget {
       searchedPickup: place("pickup"),
       searchedDrop: place("drop"),
       findPlace: findPlace,
-      findTown: findTown,
+      namePin: namePin,
     );
   }
 
@@ -87,7 +87,7 @@ class CustomerBookShipmentScreen extends StatefulWidget {
   final ({String words, LatLng? point})? searchedPickup;
   final ({String words, LatLng? point})? searchedDrop;
   final PlaceFinder findPlace;
-  final TownFinder findTown;
+  final PinNamer namePin;
 
   @override
   State<CustomerBookShipmentScreen> createState() =>
@@ -523,7 +523,8 @@ class _CustomerBookShipmentScreenState
         showMap: _pickupPin != null,
         showApiKeyHint: false,
         findPlace: widget.findPlace,
-        findTown: widget.findTown,
+        namePin: widget.namePin,
+        keepsFullAddress: true,
       ),
       const SizedBox(height: NvSpace.s4),
       LocationEndpointEditor(
@@ -546,7 +547,8 @@ class _CustomerBookShipmentScreenState
         showMap: _dropPin != null,
         showApiKeyHint: false,
         findPlace: widget.findPlace,
-        findTown: widget.findTown,
+        namePin: widget.namePin,
+        keepsFullAddress: true,
       ),
       // Last in the list: a row added above the place boxes would rebuild them and lose their search state.
       if (_tooHeavy) ...[
