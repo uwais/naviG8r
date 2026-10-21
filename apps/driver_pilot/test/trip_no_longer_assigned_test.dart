@@ -15,10 +15,10 @@ import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
 const tripNoLongerYours =
-    'This trip is no longer assigned to you. Pull down on Trips to refresh.';
+    'This trip is no longer assigned to you. Go back to Trips and tap Refresh.';
 
 const notOnYourTrip =
-    'This booking is not on a trip assigned to you now. Go back and pull down on Trips to refresh.';
+    'This booking is not on a trip assigned to you now. Go back to Trips and tap Refresh.';
 
 /// Stands in for the phone's location service, which a widget test does not have. Location is allowed, no
 /// one-off position comes back, and each time the trip screen listens for positions it gets a stream of its own.

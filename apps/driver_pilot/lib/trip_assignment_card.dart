@@ -219,7 +219,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
       if (_justSaved) ...[
         const SizedBox(height: NvSpace.s3),
         const NvMessage(
-            'Saved. The driver is not sent a message. The trip shows on their Trips screen when they pull down to refresh.',
+            'Saved. The driver is not sent a message. The trip shows on their Trips screen when they refresh it.',
             tone: NvMessageTone.good),
       ],
       if (_driverBusy) ...[
@@ -325,13 +325,13 @@ class _AssignSheetState extends State<_AssignSheet> {
     final response = e is DioException ? e.response : null;
     final status = response?.statusCode;
     if (status == 403 || status == 404) {
-      return 'This trip, or your trucks and drivers, changed. Pull down to reload this screen.';
+      return 'This trip, or your trucks and drivers, changed. Tap Refresh to load this screen again.';
     }
     final body = response?.data;
     if (status == 400 &&
         body is Map &&
         body['error'] == 'invalid_trip_assignment') {
-      return '${ewayBillErrorSentence(e)} Pull down to reload your trucks and drivers.';
+      return '${ewayBillErrorSentence(e)} Tap Refresh to load your trucks and drivers again.';
     }
     return ewayBillErrorSentence(e);
   }

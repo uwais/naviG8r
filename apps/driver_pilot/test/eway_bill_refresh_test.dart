@@ -100,7 +100,7 @@ Future<void> fillBillForm(WidgetTester tester) async {
 
 /// The wall clock is not faked, so the time is matched by shape, not value.
 final refreshFailedLine = RegExp(
-    r'^Could not refresh, so this may be out of date\. Pull down to try again\. Last updated \d\d:\d\d IST$');
+    r'^Could not refresh, so this may be out of date\. Tap Refresh to try again\. Last updated \d\d:\d\d IST$');
 
 Future<void> waitForNextRefresh(WidgetTester tester) async {
   await tester.pump(const Duration(seconds: 15));
@@ -205,7 +205,7 @@ void main() {
         reason: 'no raw exception text on screen');
     expect(
         find.text(
-            'Could not load this shipment. Check your connection and pull down to try again.'),
+            'Could not load this shipment. Check your connection, then tap Refresh.'),
         findsOneWidget,
         reason: 'a plain sentence with what to do');
     await leaveScreen(tester);

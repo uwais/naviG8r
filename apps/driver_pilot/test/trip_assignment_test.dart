@@ -19,18 +19,18 @@ import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
 const savedSentence =
-    'Saved. The driver is not sent a message. The trip shows on their Trips screen when they pull down to refresh.';
+    'Saved. The driver is not sent a message. The trip shows on their Trips screen when they refresh it.';
 const busySentence =
     'This driver is already on another trip that is in progress.';
 const replacedSentence = 'A driver who is replaced stops seeing this trip.';
 const changedSentence =
-    'This trip, or your trucks and drivers, changed. Pull down to reload this screen.';
+    'This trip, or your trucks and drivers, changed. Tap Refresh to load this screen again.';
 const unassignedSentence =
     'Your carrier has not assigned you a trip yet. Ask your carrier to assign one.';
 const completedSentence =
     'This trip is complete, so its truck and driver can no longer change.';
 const staleChoiceSentence =
-    'Choose a truck from your own fleet. Pull down to reload your trucks and drivers.';
+    'Choose a truck from your own fleet. Tap Refresh to load your trucks and drivers again.';
 const onTheRoadSentence =
     'This trip is already on the road with no driver assigned. If a driver started it, they stop seeing it once you choose someone else.';
 const sheetTitle = 'Who drives this trip?';

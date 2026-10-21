@@ -1668,7 +1668,7 @@ class _DriverShipmentDetailScreenState
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text(
               _shipmentMissingFromList && _forDriver
-                  ? "This booking is not on a trip assigned to you now. Go back and pull down on Trips to refresh."
+                  ? "This booking is not on a trip assigned to you now. Go back to Trips and tap Refresh."
                   : _loadNeverAnswered
                       ? "Could not load this shipment. Check your connection and try again."
                       : "Could not load this shipment.",
@@ -2918,7 +2918,7 @@ class _TruckSheetState extends State<_TruckSheet> {
 
 /// What a driver reads when the office has given their trip to someone else since they opened it.
 const _tripNoLongerAssignedSentence =
-    "This trip is no longer assigned to you. Pull down on Trips to refresh.";
+    "This trip is no longer assigned to you. Go back to Trips and tap Refresh.";
 
 /// While a trip is in transit the driver's phone sends its position, and shippers see it.
 const _locationSharedSentence =

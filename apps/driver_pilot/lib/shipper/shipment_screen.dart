@@ -80,12 +80,12 @@ class _CustomerShipmentDetailScreenState
     _trip = null;
     _liveLocation = null;
     _error = plainErrorSentence(e,
-        "Could not load this shipment. Check your connection and pull down to try again.");
+        "Could not load this shipment. Check your connection, then tap Refresh.");
   }
 
   String get _refreshFailedLine {
     const sentence =
-        "Could not refresh, so this may be out of date. Pull down to try again.";
+        "Could not refresh, so this may be out of date. Tap Refresh to try again.";
     final at = _lastLoadedAt;
     if (at == null) return sentence;
     return "$sentence Last updated ${formatTimeIst(at)}";
@@ -173,7 +173,7 @@ class _CustomerShipmentDetailScreenState
     } catch (e) {
       if (!mounted || identity != _signedInIdentity()) return;
       setState(() => _trackingError = plainErrorSentence(e,
-          "Could not load the trip. Check your connection and pull down to try again."));
+          "Could not load the trip. Check your connection, then tap Refresh."));
     }
   }
 
