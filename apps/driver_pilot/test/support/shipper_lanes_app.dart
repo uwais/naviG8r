@@ -13,6 +13,8 @@ import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/ui/pending_copy.dart';
 import 'package:driver_pilot/pilot_api.dart';
+import 'package:driver_pilot/ui/nv_action_bar.dart';
+import 'package:driver_pilot/ui/nv_button.dart';
 import 'package:driver_pilot/ui/nv_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -211,3 +213,11 @@ const contactAbovePay =
 /// Owner, 21 Oct 2026: a failed payment is said on screen before paying.
 const failedPaymentLine =
     'If you close the payment screen or the payment does not go through, the shipment stays booked and unpaid. To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.';
+
+/// The one bottom button on Book.
+NvButton bookButton(WidgetTester tester) => tester.widget<NvButton>(find
+    .descendant(
+        of: find.byType(NvActionBar), matching: find.byType(NvButton))
+    .last);
+
+const fullPriceLine = 'This is the full price. Nothing is added at payment.';

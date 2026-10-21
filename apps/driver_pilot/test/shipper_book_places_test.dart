@@ -1,0 +1,239 @@
+// PR 4 of the redesign: Book's pickup and drop, where the pin decides the place and the price, and
+// the typed words go to the driver (sh-book-*). Names, places and amounts are the mockups' synthetic
+// ones.
+import 'dart:async';
+
+import 'package:driver_pilot/shipper/book_a_lane.dart';
+import 'package:driver_pilot/google_geocoding.dart';
+import 'package:driver_pilot/ui/nv_action_bar.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+import 'support/shipper_lanes_app.dart';
+
+void main() {
+  group('Book', () {
+    testWidgets(
+        'Book has the search-and-pin place box, with the pins the match search found',
+        (tester) async {
+      await showPricedBook(tester);
+      expect(placeBox('Pickup'), findsOneWidget,
+          reason: 'Rishabh: Book gets the place box Publish uses');
+      expect(placeBox('Drop'), findsOneWidget);
+      expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7),
+          reason: 'the pickup pin is where the match search put it');
+      expect(pinIn(tester, 'Drop').position, const LatLng(13.0, 80.2),
+          reason: 'the drop pin is where the match search put it');
+      expect(pinIn(tester, 'Drop').draggable, isTrue);
+    });
+
+    testWidgets('moving a pin gets a new price, and the pin is what is booked',
+        (tester) async {
+      final server = await showPricedBook(tester);
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
+      });
+      pinIn(tester, 'Drop').onDragEnd!(const LatLng(13.05, 80.25));
+      await tester.pumpAndSettle();
+      expect(server.countOf('/shipments/quote'), 2,
+          reason: 'a moved pin is a new place to price');
+      expect((server.sentTo('/shipments/quote').last['drop'] as Map)['lat'],
+          13.05);
+      await tester.tap(find.text('Book and pay ₹2,640'));
+      await tester.pumpAndSettle();
+      final booked = server.sentTo('/shipments/book').single;
+      expect((booked['drop'] as Map)['lat'], 13.05,
+          reason: 'Rishabh: the point sent is the pin\'s point');
+      expect((booked['drop'] as Map)['lng'], 80.25);
+    });
+
+    testWidgets(
+        'new words in a place box after a search keep its pin and price, and the new words are booked',
+        (tester) async {
+      final server = await showPricedBook(tester);
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
+      });
+      await tester.enterText(placeField('Pickup'), 'Gate 2, Plot 12, Hosur Road');
+      await tester.pumpAndSettle();
+      expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7),
+          reason: 'owner, 21 Oct 2026: typing never moves or drops the pin');
+      expect(bookButton(tester).label, 'Book and pay ₹2,640',
+          reason: 'the pin decides the price, so the price stays');
+      expect(bookButton(tester).onPressed, isNotNull);
+      await tester.tap(find.text('Book and pay ₹2,640'));
+      await tester.pumpAndSettle();
+      final booked = server.sentTo('/shipments/book').single;
+      expect(booked['pickupAddress'], 'Gate 2, Plot 12, Hosur Road',
+          reason: 'the typed words are the address for the driver');
+      expect((booked['pickup'] as Map)['lat'], 12.8);
+    });
+
+    testWidgets(
+        'Book shows both pins on one map, each with its Pin line, to check before paying',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/book?anchorTripId=lane-1',
+          findPlace: (place) async => place.contains('Chennai')
+              ? GeocodeOutcome.ok(const LatLng(13.0, 80.2),
+                  'Guindy, Chennai, Tamil Nadu 600032, India', 'Chennai')
+              : GeocodeOutcome.ok(const LatLng(12.8, 77.7),
+                  'Bommasandra, Bengaluru, Karnataka 560099, India', 'Bengaluru'));
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
+      await tester.pumpAndSettle();
+      await tester.enterText(field('Weight'), '80');
+      await searchPlace(tester, 'Pickup', 'Plot 12, Bommasandra');
+      await searchPlace(tester, 'Drop', 'Gate 4, Guindy, Chennai');
+      // Last in the list, under the price, so the shipper meets it just above Book and pay.
+      await tester.scrollUntilVisible(
+          find.text('Check the pins before you pay'), 300,
+          scrollable: find
+              .descendant(
+                  of: find.byType(ListView), matching: find.byType(Scrollable))
+              .first);
+      final bothPins = tester
+          .widgetList<GoogleMap>(find.byType(GoogleMap))
+          .where((map) => map.markers.length == 2)
+          .single
+          .markers
+          .map((pin) => pin.position);
+      expect(bothPins, containsAll(const [LatLng(12.8, 77.7), LatLng(13.0, 80.2)]),
+          reason: 'owner, 21 Oct 2026: Book shows both pins on a map to check');
+      for (final address in [
+        'Pin: Bommasandra, Bengaluru, Karnataka 560099, India',
+        'Pin: Guindy, Chennai, Tamil Nadu 600032, India',
+      ]) {
+        expect(find.text(address), findsNWidgets(2),
+            reason: 'under its place box, and again in the check by the map');
+      }
+      expect(find.text('Plot 12, Bommasandra'), findsWidgets,
+          reason: 'the check shows the typed words beside the pin they go with');
+    });
+
+    testWidgets('after a pin drag, typing its name keeps the dragged pin',
+        (tester) async {
+      final server = await showPricedBook(tester);
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
+      });
+      pinIn(tester, 'Drop').onDragEnd!(const LatLng(13.05, 80.25));
+      await tester.pumpAndSettle();
+      await tester.enterText(placeField('Drop'), 'Adyar, Chennai');
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).label, 'Book and pay ₹2,640',
+          reason: 'the dragged pin is the place; the name is the shipper\'s');
+      await tester.tap(find.text('Book and pay ₹2,640'));
+      await tester.pumpAndSettle();
+      final booked = server.sentTo('/shipments/book').single;
+      expect((booked['drop'] as Map)['lat'], 13.05);
+      expect(booked['dropAddress'], 'Adyar, Chennai');
+    });
+
+    testWidgets(
+        'after a pin drag, Book and pay waits until the pin is named, then books the typed words at the pin',
+        (tester) async {
+      final town = Completer<GeocodeOutcome>();
+      final server = await showShipperApp(tester, searchedBook,
+          namePin: (_) => town.future, initialExtra: searchedPlaces);
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
+      });
+      await tester.pumpAndSettle();
+      pinIn(tester, 'Drop').onDragEnd!(const LatLng(13.05, 80.25));
+      await tester.pumpAndSettle();
+      expect(server.countOf('/shipments/quote'), 2,
+          reason: 'the moved pin is priced at once');
+      expect(bookButton(tester).onPressed, isNull,
+          reason: 'review: the old town name could be booked with the new pin');
+      expect(
+          find.descendant(
+              of: find.byType(NvActionBar),
+              matching: find.text('Updating address from pin…')),
+          findsOneWidget,
+          reason: 'a disabled button says why');
+
+      town.complete(GeocodeOutcome.ok(
+          const LatLng(13.05, 80.25),
+          '14, Lattice Bridge Rd, Adyar, Chennai, Tamil Nadu 600020, India',
+          'Chennai'));
+      await tester.pumpAndSettle();
+      expect(bookButton(tester).onPressed, isNotNull);
+      expect(
+          find.descendant(
+              of: placeBox('Drop'),
+              matching: find.text(
+                  'Pin: 14, Lattice Bridge Rd, Adyar, Chennai, Tamil Nadu 600020, India')),
+          findsOneWidget,
+          reason: 'the pin\'s own address shows under the box to check');
+      await tester.tap(find.text('Book and pay ₹2,640'));
+      await tester.pumpAndSettle();
+      final booked = server.sentTo('/shipments/book').single;
+      expect(booked['dropAddress'], 'Guindy, Chennai',
+          reason:
+              'Rishabh, 21 Oct 2026: keep the typed address; the drag moves only the point');
+      expect((booked['drop'] as Map)['lat'], 13.05);
+    });
+
+    testWidgets(
+        'a searched pickup keeps the address as typed, not the town Google names',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/book?anchorTripId=lane-1',
+          findPlace: (place) async => GeocodeOutcome.ok(const LatLng(12.8, 77.7),
+              'Bommasandra, Bengaluru, Karnataka 560099, India', 'Bengaluru'));
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
+      });
+      await tester.pumpAndSettle();
+      await tester.enterText(field('Weight'), '80');
+      await searchPlace(tester, 'Pickup', 'Plot 12, 4th Cross, Bommasandra');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
+          'Plot 12, 4th Cross, Bommasandra');
+      expect(find.text('Pin: Bommasandra, Bengaluru, Karnataka 560099, India'),
+          findsWidgets,
+          reason: 'the Pin line still shows where the pin went');
+      await tester.tap(find.text('Book and pay ₹2,640'));
+      await tester.pumpAndSettle();
+      final booked = server.sentTo('/shipments/book').single;
+      expect(booked['pickupAddress'], 'Plot 12, 4th Cross, Bommasandra',
+          reason: 'the plot number is what the carrier needs to collect');
+    });
+
+    testWidgets(
+        'a searched place with no point is never priced; the place waits for a search',
+        (tester) async {
+      final server = await showShipperApp(tester, searchedBook,
+          initialExtra: SearchedPlaces(
+              pickup: (
+                  words: 'Bommasandra, Bengaluru', point: null, pinAddress: null),
+              drop: searchedPlaces.drop));
+      server.answer('/anchor-trips/lane-1', {'trip': lane()});
+      server.answers['/shipments/quote'] = priceByWeight;
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
+          'Bommasandra, Bengaluru',
+          reason: 'the searched words stay');
+      expect(server.countOf('/shipments/quote'), 0,
+          reason: 'a place with no point is never sent');
+      expect(find.text('To see the price, search for the pickup.'),
+          findsOneWidget);
+      await tester.tap(find.descendant(
+          of: placeBox('Pickup'), matching: find.byTooltip('Search for place')));
+      await tester.pumpAndSettle();
+      expect((server.sentTo('/shipments/quote').single['pickup'] as Map)['lat'],
+          12.8,
+          reason: 'the searched place is priced');
+    });
+
+  });
+}

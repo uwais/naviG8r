@@ -1,5 +1,6 @@
 // The carrier's transporter ID in the app (owner decision, 16 Oct 2026): optional at sign-up, and on Profile the
 // owner edits it, a dispatcher reads it and a driver does not see it.
+// Just over 500 lines on purpose: one field's two places, Profile and sign-up, sharing its rule sentence.
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_session.dart';
