@@ -173,7 +173,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining("Only org admins"), findsOneWidget);
+    expect(find.textContaining("Only company admins"), findsOneWidget);
     expect(find.text("Create key"), findsNothing);
   });
 }

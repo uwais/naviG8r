@@ -1,4 +1,4 @@
-// The shipper app on a fake server, as the Find a lane and Book tests open it: a lane, its price,
+// The shipper app on a fake server, as the Book a trip and Book tests open it: a lane, its price,
 // and the place boxes. Names, places and amounts are the mockups' synthetic ones.
 import 'dart:async';
 
@@ -191,4 +191,4 @@ Future<FakeServer> showPricedBook(WidgetTester tester,
 }
 
 const contactAbovePay =
-    'Booking holds the room on this lane. To cancel, contact NaviG8r.';
+    'Booking keeps this capacity for you. To cancel, contact NaviG8r.';

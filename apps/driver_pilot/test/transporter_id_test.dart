@@ -434,7 +434,7 @@ void main() {
       expect(
           tester
               .widget<TextField>(
-                  find.widgetWithText(TextField, 'Vehicle capacity (kg)'))
+                  find.widgetWithText(TextField, 'Truck capacity (kg)'))
               .controller
               ?.text,
           isEmpty,
@@ -442,9 +442,9 @@ void main() {
       for (final (label, value) in [
         ('Your full name', 'Synthetic Carrier C'),
         ('Phone (10 digits)', '8000000017'),
-        ('Carrier / org display name', 'Synthetic Carrier C'),
-        ('Your vehicle registration', 'KA05MN0001'),
-        ('Vehicle capacity (kg)', '1000'),
+        ('Company name', 'Synthetic Carrier C'),
+        ('Truck registration number', 'KA05MN0001'),
+        ('Truck capacity (kg)', '1000'),
         ('Transporter ID (optional)', transporterId),
       ]) {
         await tester.enterText(find.widgetWithText(TextField, label), value);

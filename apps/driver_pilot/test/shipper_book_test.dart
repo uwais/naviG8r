@@ -33,7 +33,7 @@ const fullPriceLine = 'This is the full price. Nothing is added at payment.';
 
 void main() {
   group('Book', () {
-    testWidgets('a Book link with no lane goes to Find a lane', (tester) async {
+    testWidgets('a Book link with no lane goes to Book a trip', (tester) async {
       final router = GoRouter(
           initialLocation: '/customer/book', routes: customerFlowRoutes());
       addTearDown(router.dispose);
@@ -66,11 +66,11 @@ void main() {
       expect(find.text('Book space'), findsOneWidget, reason: 'copy.md: title');
       expect(find.text('Check the price, then pay.'), findsOneWidget,
           reason: 'copy.md: sub');
-      expect(find.text('Room left: 105 kg'), findsOneWidget,
+      expect(find.text('Capacity remaining: 105 kg'), findsOneWidget,
           reason: 'room left from capacity 1000 and booked 895');
       expect(find.text('Ravi Roadways · Leaves 18 – 19 Oct'), findsOneWidget,
           reason: 'the dates are when the truck leaves, never an arrival');
-      expect(find.text('Up to 105 kg on this lane.'), findsOneWidget,
+      expect(find.text('Up to 105 kg on this trip.'), findsOneWidget,
           reason: 'copy.md: weight help');
       expect(tester.widget<TextField>(field('Weight')).controller!.text, '',
           reason: 'screens.md: with no search, Weight starts empty');
@@ -107,6 +107,33 @@ void main() {
     });
 
     testWidgets(
+        'capacity remaining takes off the weight as it is typed, and the limit under Weight stays fixed',
+        (tester) async {
+      final server =
+          await showShipperApp(tester, '/customer/book?anchorTripId=lane-1');
+      server.answer('/anchor-trips/lane-1',
+          {'trip': lane(capacityKg: 1000, reservedKg: 500)});
+      server.answers['/shipments/quote'] = priceByWeight;
+      await tester.pumpAndSettle();
+      expect(find.text('Capacity remaining: 500 kg'), findsOneWidget,
+          reason: 'an empty weight shows the full capacity');
+      await tester.enterText(field('Weight'), '200');
+      await tester.pump();
+      expect(find.text('Capacity remaining: 300 kg'), findsOneWidget,
+          reason: 'Rishabh: the amount left changes as the weight is typed');
+      expect(find.text('Up to 500 kg on this trip.'), findsOneWidget,
+          reason: 'the help under Weight is the fixed limit');
+      await tester.enterText(field('Weight'), '600');
+      await tester.pump();
+      expect(find.text('Capacity remaining: None'), findsOneWidget,
+          reason: 'never below 0');
+      await tester.enterText(field('Weight'), '');
+      await tester.pump();
+      expect(find.text('Capacity remaining: 500 kg'), findsOneWidget,
+          reason: 'clearing the weight shows the full capacity again');
+    });
+
+    testWidgets(
         'Book has the search-and-pin place box, with the pins the match search found',
         (tester) async {
       await showPricedBook(tester);
@@ -137,7 +164,7 @@ void main() {
           reason: 'moved from the confirm sheet onto the screen');
       expect(
           find.text(
-              "Book and pay opens the payment provider's screen, where you choose how to pay."),
+              "Book and pay opens a payment screen. There you choose how to pay."),
           findsOneWidget,
           reason: 'moved from the confirm sheet: what Pay does next');
       expect(find.text('Changing weight, pickup or drop gets a new price.'),
@@ -416,12 +443,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(
           find.text(
-              'This lane does not have room for that weight. Enter a lower weight, or choose another lane.'),
+              'This trip does not have enough capacity for that weight. Enter less weight, or choose another trip.'),
           findsOneWidget,
           reason: 'copy.md: too heavy, replaces "HTTP 400"');
       expect(find.textContaining('HTTP'), findsNothing,
           reason: 'decisions.md 7: no raw codes');
-      expect(find.text('Choose another lane'), findsOneWidget,
+      expect(find.text('Choose another trip'), findsOneWidget,
           reason: 'copy.md: the way to another lane');
     });
 
@@ -548,7 +575,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
           find.text(
-              'This lane does not have room for that weight. Enter a lower weight, or choose another lane.'),
+              'This trip does not have enough capacity for that weight. Enter less weight, or choose another trip.'),
           findsOneWidget,
           reason: 'sh-book-error: the too-heavy sentence under Weight');
       expect(server.sentTo('/shipments/quote').map((sent) => sent['weightKg']),
@@ -556,7 +583,7 @@ void main() {
           reason: 'no price for a weight the lane cannot take');
       expect(bookButton(tester).onPressed, isNull,
           reason: 'no Pay without a price');
-      expect(find.text('Enter a lower weight to see the price.'),
+      expect(find.text('Enter less weight to see the price.'),
           findsOneWidget);
     });
 
@@ -588,7 +615,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
           find.text(
-              'This lane is no longer taking bookings. Choose another lane.'),
+              'This trip is no longer taking bookings. Choose another trip.'),
           findsOneWidget,
           reason: 'a full lane cannot be booked');
       expect(find.textContaining('Book and pay'), findsNothing,
@@ -643,11 +670,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull,
           reason: 'decisions.md 8: Home fits at 200% text');
-      await tester.tap(find.text('Find a lane').last);
+      await tester.tap(find.text('Book a trip').last);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull,
           reason: 'decisions.md 8: Browse fits at 200% text');
-      await tester.tap(find.text('Match my route'));
+      await tester.tap(find.text('Search by route'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull,
           reason: 'decisions.md 8: the Match form fits at 200% text');

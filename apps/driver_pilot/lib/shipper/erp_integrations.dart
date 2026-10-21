@@ -53,7 +53,7 @@ class _CustomerIntegrationsScreenState
       return;
     }
     if (!CustomerSession.canManageIntegrations) {
-      setState(() => _error = "Only org admins can manage ERP integrations.");
+      setState(() => _error = "Only company admins can manage ERP integrations.");
       return;
     }
     await _load();
@@ -276,7 +276,7 @@ class _CustomerIntegrationsScreenState
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            CustomerSession.customerOrgName ?? "Your organization",
+            CustomerSession.customerOrgName ?? "Your company",
             style: const TextStyle(
                 fontWeight: FontWeight.w700,
                 color: DriverTheme.navy,
@@ -295,7 +295,7 @@ class _CustomerIntegrationsScreenState
           ),
           if (!CustomerSession.canManageIntegrations) ...[
             const SizedBox(height: 12),
-            Text(_error ?? "Admin access required.",
+            Text(_error ?? "Only company admins can use this page.",
                 style: const TextStyle(color: Colors.red)),
           ] else ...[
             if (_error != null) ...[

@@ -230,7 +230,7 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
       return [
         const NvListEmpty(
             title:
-                "Sign in and select your organization to see its shipments."),
+                "Sign in and choose your company to see its shipments."),
         const SizedBox(height: NvSpace.s3),
         NvButton(
             label: "Sign in",
@@ -257,10 +257,10 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
       return [
         const NvListEmpty(
             title: "No shipments yet.",
-            help: "Browse carrier lanes and book your first shipment."),
+            help: "Book a trip to send your first shipment."),
         const SizedBox(height: NvSpace.s3),
         NvButton(
-            label: "Find a lane",
+            label: "Book a trip",
             fullWidth: true,
             onPressed: () => context.go("/customer/trips")),
       ];

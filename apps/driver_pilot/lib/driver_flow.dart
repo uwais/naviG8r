@@ -311,7 +311,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       final cap = int.tryParse(_cap.text.trim()) ?? 0;
       if (cap <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Enter a positive vehicle capacity.")));
+            content: Text("Enter a truck capacity greater than 0 kg.")));
         return;
       }
       final vc = _truckSize;
@@ -361,7 +361,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            "Create your carrier organization and owner profile. You'll verify your phone next, then publish lanes and accept bookings.",
+            "Set up your carrier company and owner profile. Next, verify your phone. Then you can publish trips and accept bookings.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
@@ -376,11 +376,11 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
           TextField(
               controller: _org,
               decoration: const InputDecoration(
-                  labelText: "Carrier / org display name")),
+                  labelText: "Company name")),
           TextField(
               controller: _reg,
               decoration: const InputDecoration(
-                  labelText: "Your vehicle registration")),
+                  labelText: "Truck registration number")),
           const SizedBox(height: NvSpace.s3),
           NvChoiceChips<String>(
             label: "Truck size",
@@ -392,7 +392,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
               controller: _cap,
               keyboardType: TextInputType.number,
               decoration:
-                  const InputDecoration(labelText: "Vehicle capacity (kg)")),
+                  const InputDecoration(labelText: "Truck capacity (kg)")),
           TextField(
               controller: _transporterId,
               textCapitalization: TextCapitalization.characters,
@@ -471,7 +471,7 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            "Create a personal account so your carrier admin can invite you to their org. You do not get a carrier org from this step.",
+            "Create your own account so your carrier admin can invite you to their company. This does not create a carrier company for you.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
@@ -561,7 +561,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
       return;
     }
     if (role == "DRIVER" && cap <= 0) {
-      setState(() => _error = "Enter a positive vehicle capacity.");
+      setState(() => _error = "Enter a truck capacity greater than 0 kg.");
       return;
     }
     setState(() {
@@ -587,7 +587,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
       _reg.clear();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Driver invited to your carrier org.")));
+          const SnackBar(content: Text("Driver invited to your company.")));
     } catch (e) {
       if (mounted) setState(() => _error = plainErrorSentence(e));
     } finally {
@@ -612,12 +612,12 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
         ),
         const SizedBox(height: 8),
         const Text(
-          "Invite a driver who already registered their phone (or used Join a fleet). Solo orgs become fleet when you add drivers.",
+          "Invite a driver who has already registered their phone, or used Join a fleet. Adding drivers makes your company a fleet.",
           style: TextStyle(color: DriverTheme.muted, height: 1.4),
         ),
         if (!DriverSession.canInviteDrivers) ...[
           const SizedBox(height: 12),
-          Text(_error ?? "Not authorized.",
+          Text(_error ?? "You cannot invite drivers.",
               style: const TextStyle(color: Colors.red)),
         ] else ...[
           const SizedBox(height: 16),
@@ -639,7 +639,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
           if (_role == "DISPATCHER") ...[
             const SizedBox(height: 8),
             const Text(
-              "Dispatchers are linked to your carrier org's primary vehicle — no separate truck registration needed.",
+              "A dispatcher is linked to your company's main truck. You do not need to add another truck.",
               style: TextStyle(
                   fontSize: 12, color: DriverTheme.muted, height: 1.35),
             ),
@@ -647,7 +647,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
             TextField(
                 controller: _reg,
                 decoration:
-                    const InputDecoration(labelText: "Vehicle registration")),
+                    const InputDecoration(labelText: "Truck registration number")),
             const SizedBox(height: NvSpace.s3),
             NvChoiceChips<String>(
               label: "Truck size",
@@ -659,12 +659,12 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
                 controller: _cap,
                 keyboardType: TextInputType.number,
                 decoration:
-                    const InputDecoration(labelText: "Vehicle capacity (kg)")),
+                    const InputDecoration(labelText: "Truck capacity (kg)")),
           ],
           const SizedBox(height: 8),
           OutlinedButton(
               onPressed: () => context.push("/driver/onboarding/join"),
-              child: const Text("New driver? Register account first")),
+              child: const Text("New driver? Create an account first")),
           const SizedBox(height: 12),
           FilledButton(
             onPressed: _inviting ? null : _invite,
@@ -1919,7 +1919,7 @@ class _DriverShipmentDetailScreenState
                 ? "On your trip $route."
                 : "Your $route trip leaves $dates.",
             if (roomLeft != null && roomLeft >= 0)
-              "After this, ${formatKg(roomLeft)} of room is left.",
+              "Capacity remaining after this: ${formatKg(roomLeft)}.",
           ].join(" ");
     final String? cannotAcceptReason;
     if (!DriverSession.complianceApproved) {
@@ -2292,7 +2292,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
       facts: [
         if (dates != null) NvFact("Leaves", dates),
         if (room != null)
-          NvFact("Room left", room == 0 ? "None" : formatKg(room)),
+          NvFact("Capacity remaining", room == 0 ? "None" : formatKg(room)),
         if (counts != null) NvFact("Bookings", "${counts[trip["id"]] ?? 0}"),
       ],
       footnote: _truckAndDriverWords(trip),
@@ -2554,7 +2554,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         if (rows.isEmpty && !fleetFailed) ...[
           const Text("You have no trucks yet.", style: NvText.body),
           if (DriverSession.canInviteDrivers)
-            const Text("A truck is added with its driver: use Add driver.",
+            const Text("To add a truck, add its driver with Add driver.",
                 style: NvText.caption),
         ],
         for (final (index, row) in rows.indexed) ...[
@@ -3401,7 +3401,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               if (status == "COMPLETED") ...[
                 gap,
                 const NvMessage(
-                    "All deliveries confirmed. GPS sharing has stopped.",
+                    "All deliveries confirmed. Location sharing has stopped.",
                     tone: NvMessageTone.good),
               ],
               if (canComplete) ...[
@@ -3520,7 +3520,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
             Text.rich(
               TextSpan(children: [
                 TextSpan(
-                    text: "Room left: ${formatKg(room)}",
+                    text: "Capacity remaining: ${formatKg(room)}",
                     style: NvText.bodyStrong),
                 TextSpan(text: " of ${formatKg(capacity)}"),
               ]),
@@ -3612,7 +3612,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               ],
               if (status == "COMPLETED")
                 const NvMessage(
-                    "All deliveries confirmed. GPS sharing has stopped.",
+                    "All deliveries confirmed. Location sharing has stopped.",
                     tone: NvMessageTone.good),
               // An owner driving the trip shares this phone's location, and is told so as a driver is.
               if (status == "IN_PROGRESS" && _phoneIsInTheTruck)
@@ -4577,7 +4577,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     }
     if (_truckSize == null) return _chooseTruckSizeSentence;
     final room = int.tryParse(_room.text.trim()) ?? 0;
-    if (room <= 0) return "Enter the room for shippers in kg.";
+    if (room <= 0) return "Enter the capacity in kg.";
     return null;
   }
 
@@ -4753,7 +4753,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
               ),
               gap,
               NvField(
-                label: "Room for shippers",
+                label: "Capacity",
                 controller: _room,
                 unit: "kg",
                 keyboardType: TextInputType.number,

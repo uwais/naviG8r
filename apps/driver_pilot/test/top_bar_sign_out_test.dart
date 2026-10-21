@@ -55,7 +55,7 @@ void main() {
       (tester) async {
     await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: OrganizationToolbar())));
-    expect(find.byTooltip('Sign out of all organizations'), findsOneWidget,
+    expect(find.byTooltip('Sign out of all companies'), findsOneWidget,
         reason: 'with no company chosen there is no header, so the gate signs out');
     expect(find.byTooltip('Refresh access'), findsOneWidget,
         reason: 'the gate still reloads access');

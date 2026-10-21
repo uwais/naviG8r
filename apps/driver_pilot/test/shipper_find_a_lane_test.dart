@@ -1,4 +1,4 @@
-// PR 4 of the redesign: the shipper Home and Find a lane (sh-home, sh-lanes-*). Names, places and
+// PR 4 of the redesign: the shipper Home and Book a trip (sh-home, sh-lanes-*). Names, places and
 // amounts are the mockups' synthetic ones.
 import 'dart:async';
 
@@ -48,9 +48,9 @@ void main() {
           reason: 'copy.md: the card says which shipment and who did what');
       expect(find.widgetWithText(FilledButton, 'Open shipment'), findsOneWidget,
           reason: 'screens.md: the first needs-you task is the primary action');
-      expect(find.widgetWithText(OutlinedButton, 'Find a lane for new goods'),
+      expect(find.widgetWithText(OutlinedButton, 'Book a trip for new goods'),
           findsOneWidget,
-          reason: 'with a task waiting, Find a lane steps back');
+          reason: 'with a task waiting, Book a trip steps back');
       expect(find.text('Waiting for carrier'), findsOneWidget,
           reason: 'sh-home: Your shipments counts by status word');
 
@@ -60,20 +60,20 @@ void main() {
           reason: 'Open shipment opens the shipment the task is on');
     });
 
-    testWidgets('with nothing to do, Find a lane is the primary action',
+    testWidgets('with nothing to do, Book a trip is the primary action',
         (tester) async {
       final server = await showShipperApp(tester, '/customer');
       server.answer('/shipments', {'shipments': []});
       await tester.pumpAndSettle();
       expect(find.text('NEEDS YOU'), findsNothing,
           reason: 'copy.md: nothing needs you, the card is hidden');
-      expect(find.widgetWithText(FilledButton, 'Find a lane for new goods'),
+      expect(find.widgetWithText(FilledButton, 'Book a trip for new goods'),
           findsOneWidget,
-          reason: 'copy.md: Find a lane becomes primary');
-      await tester.tap(find.text('Find a lane for new goods'));
+          reason: 'copy.md: Book a trip becomes primary');
+      await tester.tap(find.text('Book a trip for new goods'));
       await tester.pumpAndSettle();
-      expect(find.text('Find a lane'), findsWidgets,
-          reason: 'the button opens Find a lane');
+      expect(find.text('Book a trip'), findsWidgets,
+          reason: 'the button opens Book a trip');
     });
 
     testWidgets(
@@ -106,7 +106,7 @@ void main() {
     });
   });
 
-  group('Find a lane', () {
+  group('Book a trip', () {
     testWidgets(
         'Browse shows lane cards with route, carrier, size and room left, unsorted',
         (tester) async {
@@ -124,11 +124,11 @@ void main() {
       });
       await tester.pumpAndSettle();
 
-      expect(find.text('Pick a lane going your way.'), findsOneWidget,
+      expect(find.text('Pick a truck going your way.'), findsOneWidget,
           reason: 'copy.md: lanes sub');
       expect(
           find.text(
-              'Every lane, whatever its status, not sorted by distance. To see the closest to your route first, use Match my route.'),
+              'All trips, open or not. Not sorted by distance. To see the closest to your route first, use Search by route.'),
           findsOneWidget,
           reason:
               'copy.md: Browse is not ranked and says so; it lists full and finished lanes too (RECON gap 19), so it never says "open"');
@@ -184,12 +184,12 @@ void main() {
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(field('Weight'), '80');
-      await tester.tap(find.text('Find matching lanes'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
 
       expect(
           find.text(
-              '2 lanes with room for 80 kg, closest to your route first.'),
+              '2 trips with capacity for 80 kg, closest to your route first.'),
           findsOneWidget,
           reason: 'copy.md: match result line');
       final first = tester.getTopLeft(find.text('Bengaluru to Chennai')).dy;
@@ -232,7 +232,7 @@ void main() {
       await tester.pumpAndSettle();
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(field('Weight'), '80');
-      await tester.tap(find.text('Find matching lanes'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
       final searched = server.requests
           .lastWhere((request) =>
@@ -243,7 +243,7 @@ void main() {
           reason: 'the point sent is where the pin is');
     });
 
-    testWidgets('after a pin drag, Find matching lanes waits until the pin has its town name',
+    testWidgets('after a pin drag, Find trips waits until the pin has its town name',
         (tester) async {
       final town = Completer<GeocodeOutcome>();
       final server = await showShipperApp(tester, '/customer/trips?tab=match',
@@ -256,7 +256,7 @@ void main() {
       pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.85, 77.65));
       await tester.pumpAndSettle();
       FilledButton findLanes() => tester.widget<FilledButton>(
-          find.widgetWithText(FilledButton, 'Find matching lanes'));
+          find.widgetWithText(FilledButton, 'Find trips'));
       expect(findLanes().onPressed, isNull,
           reason: 'review: a lane card would carry the old town name to Book with the new pin');
       expect(find.text('Updating address from pin…'), findsNWidgets(2),
@@ -265,7 +265,7 @@ void main() {
       town.complete(GeocodeOutcome.ok(
           const LatLng(12.85, 77.65), 'Electronic City, Bengaluru', 'Electronic City'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Find matching lanes'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
       expect(server.countOf('/v1/customer/eligible-anchor-trips'), 1);
     });
@@ -279,9 +279,9 @@ void main() {
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(field('Weight'), '80');
-      await tester.tap(find.text('Find matching lanes'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
-      expect(find.text('Could not load lanes.'), findsOneWidget);
+      expect(find.text('Could not load trips.'), findsOneWidget);
       pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.85, 77.65));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Try again'));
@@ -297,7 +297,7 @@ void main() {
       await tester.enterText(placeField('Pickup'), 'Bommasandra');
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(field('Weight'), '80');
-      await tester.tap(find.text('Find matching lanes'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
       expect(find.text('Search for the pickup place.'), findsOneWidget,
           reason: 'words with no pin have no point to match');
@@ -312,7 +312,7 @@ void main() {
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(placeField('Pickup'), 'Hosur');
       await tester.enterText(field('Weight'), '80');
-      await tester.tap(find.text('Find matching lanes'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
       expect(find.text('Search for the pickup place.'), findsOneWidget,
           reason:
@@ -331,7 +331,7 @@ void main() {
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(field('Weight'), '80');
-      await tester.tap(find.text('Find matching lanes'));
+      await tester.tap(find.text('Find trips'));
       await pumpWhileWaiting(tester);
       await tester.enterText(placeField('Pickup'), 'Hosur');
       answer.complete(jsonResponse({
@@ -364,22 +364,22 @@ void main() {
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(field('Weight'), '500');
-      await tester.tap(find.text('Find matching lanes'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
 
-      expect(find.text('No lanes pass near this route with room for 500 kg.'),
+      expect(find.text('No trips pass near this route with capacity for 500 kg.'),
           findsOneWidget,
           reason: 'copy.md: empty match');
       expect(
-          find.text('Try a lower weight, or browse all lanes.'), findsOneWidget,
+          find.text('Try less weight, or see all trips.'), findsOneWidget,
           reason: 'copy.md: empty match help');
       expect(find.widgetWithText(FilledButton, 'Change weight'), findsOneWidget,
           reason: 'sh-lanes-empty: Change weight is primary');
 
-      await tester.tap(find.text('Browse all lanes'));
+      await tester.tap(find.text('See all trips'));
       await tester.pumpAndSettle();
       expect(find.text('Bengaluru to Chennai'), findsOneWidget,
-          reason: 'Browse all lanes switches to Browse');
+          reason: 'See all trips switches to Browse');
     });
   });
 
@@ -395,7 +395,7 @@ void announcementTests() {
       'trips': [lane(), lane(id: 'lane-2', to: 'Hyderabad')]
     });
     await tester.pumpAndSettle();
-    expect(announced, containsAllInOrder(['Loading lanes.', '2 lanes']),
+    expect(announced, containsAllInOrder(['Loading trips.', '2 trips']),
         reason:
             'accessibility.md: "Loading lanes." once, then the count when loaded');
   });

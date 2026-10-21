@@ -152,7 +152,7 @@ class _TruckChoiceSheetState extends State<_TruckChoiceSheet> {
     if (_trucks.isEmpty) {
       return [
         const Text(
-            'No trucks are set up for this carrier yet. You can accept now, but the shipper sees no truck until one is named on the trip screen. Trucks are added by inviting their drivers from Profile.',
+            'No trucks are set up for this carrier yet. You can accept now, but the shipper sees no truck until you name one on the trip screen. To add a truck, invite its driver from Profile.',
             style: NvText.body)
       ];
     }

@@ -40,7 +40,7 @@ void main() {
       expect(find.text('Open'), findsOneWidget);
       expect(find.text('Leaves 18 – 19 Oct · Medium truck'), findsOneWidget,
           reason: 'the dates are when the truck leaves, not an arrival');
-      expect(find.text('Room left: 25 kg of 1,000 kg'), findsOneWidget,
+      expect(find.text('Capacity remaining: 25 kg of 1,000 kg'), findsOneWidget,
           reason:
               'copy.md: Room left: [n] kg of [capacity] kg; mockup ca-trip groups thousands, "1,000 kg"');
       expect(find.text('Truck and driver'), findsOneWidget);

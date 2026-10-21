@@ -68,7 +68,7 @@ void main() {
       expect(
           tester
               .widget<TextField>(
-                  find.widgetWithText(TextField, 'Vehicle capacity (kg)'))
+                  find.widgetWithText(TextField, 'Truck capacity (kg)'))
               .controller
               ?.text,
           isEmpty,
@@ -79,7 +79,7 @@ void main() {
       await tester.tap(find.text('Medium'));
       await tester.tap(find.text('Invite driver'));
       await tester.pumpAndSettle();
-      expect(find.text('Enter a positive vehicle capacity.'), findsOneWidget,
+      expect(find.text('Enter a truck capacity greater than 0 kg.'), findsOneWidget,
           reason: 'an empty capacity is asked for, not sent as 0');
       expect(server.sent, isEmpty);
     });

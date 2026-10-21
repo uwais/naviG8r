@@ -47,7 +47,7 @@ void main() {
       expect(find.widgetWithText(ChoiceChip, 'Medium'), findsOneWidget,
           reason: 'truck size is a chip choice');
       final room = find.descendant(
-          of: find.widgetWithText(Column, 'Room for shippers'),
+          of: find.widgetWithText(Column, 'Capacity'),
           matching: find.byType(TextField));
       expect(tester.widget<TextField>(room.first).controller!.text, isEmpty);
       expect(find.text('The weight you can carry for shippers on this trip.'),
@@ -92,7 +92,7 @@ void main() {
       expect(find.byType(GoogleMap), findsNothing,
           reason: 'tester: the maps left no room while typing');
       expect(
-          find.text('Drag the pin to fine-tune. Use search to jump to a place.'),
+          find.text('Drag the pin to the exact spot, or search for a place.'),
           findsNothing);
 
       await tester.enterText(find.byType(TextField).first, 'Bengaluru');
@@ -410,7 +410,7 @@ void main() {
       await tester.tap(find.text('Medium'));
       await tester.enterText(
           find.descendant(
-              of: find.widgetWithText(Column, 'Room for shippers'),
+              of: find.widgetWithText(Column, 'Capacity'),
                   matching: find.byType(TextField))
               .first,
           '500');
@@ -464,7 +464,7 @@ void main() {
           scrollable: form);
       await tester.pumpAndSettle();
       final room = find.descendant(
-          of: find.widgetWithText(Column, 'Room for shippers'),
+          of: find.widgetWithText(Column, 'Capacity'),
           matching: find.byType(TextField));
       expect(shown(room.first), isTrue,
           reason: 'the last field can be reached with the keyboard open');

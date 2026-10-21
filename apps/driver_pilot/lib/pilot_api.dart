@@ -209,16 +209,16 @@ String formatApiError(Object e) {
     }
     const messages = {
       "carrier_compliance_required":
-          "Carrier compliance must be approved before accepting shipments or starting trips.",
+          "NaviG8r must approve your company before you can accept shipments or start trips.",
       "payment_hold_active":
           "Payment is on hold until the shipper accepts delivery or the 48-hour hold expires.",
-      "active_organization_required": "Choose an organization to continue.",
+      "active_organization_required": "Choose a company to continue.",
       "membership_inactive":
-          "Your access to this organization is no longer active. Choose another organization.",
+          "You no longer have access to this company. Choose another company.",
       "forbidden":
-          "You do not have permission for this action in the selected organization.",
-      "not_found": "This record is unavailable in the selected organization.",
-      "unauthorized": "Your session has expired. Please sign in again.",
+          "You do not have permission to do this in this company.",
+      "not_found": "This is not available in the company you chose.",
+      "unauthorized": "You were signed out. Please sign in again.",
       "otp_expired": "This code has expired. Send a new code.",
       "otp_incorrect":
           "That code is not right. Check the SMS and type it again, or send a new code.",
@@ -229,9 +229,9 @@ String formatApiError(Object e) {
       "otp_challenge_mismatch":
           "This code request is no longer valid. Request a new code.",
       "insufficient_capacity":
-          "This lane does not have room for that weight. Enter a lower weight, or choose another lane.",
+          "This trip does not have enough capacity for that weight. Enter less weight, or choose another trip.",
       "anchor_trip_not_open":
-          "This lane is no longer taking bookings. Choose another lane.",
+          "This trip is no longer taking bookings. Choose another trip.",
       "checkout_not_completed_for_accept":
           "The shipper has not finished paying for this booking yet. You can accept it once they do.",
       // A driver can meet this one, so it says nothing about payment.

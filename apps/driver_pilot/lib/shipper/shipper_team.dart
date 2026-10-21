@@ -43,7 +43,7 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
       return;
     }
     if (!CustomerSession.isOrgAdmin) {
-      setState(() => _error = "Only org admins can manage team members.");
+      setState(() => _error = "Only company admins can manage the team.");
       return;
     }
     await _loadMembers();
@@ -113,7 +113,7 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            CustomerSession.customerOrgName ?? "Your organization",
+            CustomerSession.customerOrgName ?? "Your company",
             style: const TextStyle(
                 fontWeight: FontWeight.w700,
                 color: DriverTheme.navy,
@@ -121,12 +121,12 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
           ),
           const SizedBox(height: 8),
           const Text(
-            "Invite colleagues who have already registered their phone. They will see all org shipments after joining.",
+            "Invite teammates who have already registered their phone. Once they join, they see all your company's shipments.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           if (!CustomerSession.isOrgAdmin) ...[
             const SizedBox(height: 12),
-            Text(_error ?? "Admin access required.",
+            Text(_error ?? "Only company admins can use this page.",
                 style: const TextStyle(color: Colors.red)),
           ] else ...[
             const SizedBox(height: 16),
@@ -144,7 +144,7 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
                       width: 22,
                       height: 22,
                       child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text("Invite to org"),
+                  : const Text("Invite to company"),
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),

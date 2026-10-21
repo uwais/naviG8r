@@ -45,7 +45,7 @@ String? rejectionReasonInWords(String? code) => switch (code) {
         null
       ),
     "DUPLICATE_ACCOUNT" => (
-        "If you belong to that account, choose it in the organization menu at the top of the screen. If not, ask whoever runs it to invite your phone number.",
+        "If you are part of that account, choose it in the company menu at the top of the screen. If not, ask the person who runs it to invite your phone number.",
         null
       ),
     // The bank reason, or none the app knows: new bank details are the one step that can help.

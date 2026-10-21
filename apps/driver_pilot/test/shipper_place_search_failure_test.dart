@@ -54,7 +54,7 @@ void placeSearchFailureTests() {
     await searchPlace(tester, 'Pickup', pickup);
     await searchPlace(tester, 'Drop', drop);
     await tester.enterText(field('Weight'), '80');
-    await tester.tap(find.text('Find matching lanes'));
+    await tester.tap(find.text('Find trips'));
     await tester.pumpAndSettle();
     return server;
   }
@@ -120,7 +120,7 @@ void placeSearchFailureTests() {
       await tester.pumpAndSettle();
       await tester.enterText(placeField('Pickup'), '  ');
       await tester.enterText(field('Weight'), '80');
-      await tester.tap(find.text('Find matching lanes'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
       expect(find.text('Enter the pickup place.'), findsOneWidget);
       expect(find.text('Enter the drop place.'), findsOneWidget);

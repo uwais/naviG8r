@@ -219,7 +219,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               const SizedBox(height: NvSpace.s4),
             ],
             NvButton(
-              label: "Find a lane for new goods",
+              label: "Book a trip for new goods",
               kind: taskShipment == null
                   ? NvButtonKind.primary
                   : NvButtonKind.secondary,
@@ -230,7 +230,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               const SizedBox(height: NvSpace.s6),
               _HomeRows(children: [
                 _HomeRow(
-                  title: CustomerSession.customerOrgName ?? "Your org",
+                  title: CustomerSession.customerOrgName ?? "Your company",
                   caption: "Manage who can book and view shipments",
                   onTap: () => context.go("/customer/team"),
                 ),
@@ -265,8 +265,8 @@ class _NeedsYouCard extends StatelessWidget {
       final date = formatDate(DateTime.fromMillisecondsSinceEpoch(
           deliveredAt.toInt(),
           isUtc: true));
-      return "$carrier confirmed delivery on $date. Check the goods. Accepting lets payment go before the hold ends; "
-          "if you do nothing it can go when the hold ends.";
+      return "$carrier confirmed delivery on $date. Check the goods. If you accept, payment can go before the hold ends. "
+          "If you do nothing, it can go when the hold ends.";
     }
     if (task == "Fix the e-way bill") return "NaviG8r staff found a difference.";
     if (bill is Map && bill["billNumber"] is String) {

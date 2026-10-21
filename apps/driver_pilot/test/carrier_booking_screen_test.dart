@@ -110,7 +110,7 @@ void main() {
           reason: "ca-booking-new shows the shipper's e-way bill answer");
       expect(
           find.text(
-              'Your Bengaluru to Chennai trip leaves 18 – 19 Oct. After this, 25 kg of room is left.'),
+              'Your Bengaluru to Chennai trip leaves 18 – 19 Oct. Capacity remaining after this: 25 kg.'),
           findsOneWidget,
           reason: 'copy.md accept panel, from the trip the booking is on');
       final accept = find.widgetWithText(FilledButton, 'Accept');

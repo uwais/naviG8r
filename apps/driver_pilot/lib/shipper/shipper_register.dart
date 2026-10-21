@@ -65,7 +65,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           const Text(
-            "Create your business org. You become the admin and can invite teammates later.",
+            "Create your company account. You become its admin and can invite teammates later.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
@@ -79,7 +79,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
           TextField(
               controller: _org,
               decoration:
-                  const InputDecoration(labelText: "Business / org name")),
+                  const InputDecoration(labelText: "Company name")),
           if (_error != null) ...[
             const SizedBox(height: 8),
             Text(_error!, style: const TextStyle(color: Colors.red)),
@@ -161,7 +161,7 @@ class _CustomerRegisterUserScreenState
         padding: const EdgeInsets.all(16),
         children: [
           const Text(
-            "Create your personal account. Your business admin will invite your phone to the org so you can book and track shared shipments.",
+            "Create your own account. Your company admin then invites your phone number, so you can book and track your company's shipments.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),

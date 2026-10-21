@@ -129,7 +129,7 @@ void main() {
     });
 
     for (final (organization, subrole, tabs) in [
-      (sharma, 'CUSTOMER_ADMIN', ['Home', 'Find a lane', 'Shipments']),
+      (sharma, 'CUSTOMER_ADMIN', ['Home', 'Book a trip', 'Shipments']),
       (ravi, 'OWNER', ['Home', 'Bookings', 'Trips', 'Publish', 'Profile']),
     ]) {
       testWidgets('the one sign-in lands a $subrole on their own Home',
@@ -277,19 +277,19 @@ void main() {
           reason: 'the menu switches company with the existing switch');
       expect(inHeader(find.text('Priya Raman · Shipper')), findsOneWidget,
           reason: 'the role follows the chosen company');
-      expect(tabLabels(tester), ['Home', 'Find a lane', 'Shipments'],
+      expect(tabLabels(tester), ['Home', 'Book a trip', 'Shipments'],
           reason: 'the tabs follow the chosen company');
     });
   });
 
   group('Tabs by role', () {
-    testWidgets('a shipper has exactly Home, Find a lane, Shipments',
+    testWidgets('a shipper has exactly Home, Book a trip, Shipments',
         (tester) async {
       await launchSignedIn(tester,
           person: 'Priya Raman',
           startAt: 'org-sharma',
           subroleAt: {'org-sharma': 'CUSTOMER_MEMBER'});
-      expect(tabLabels(tester), ['Home', 'Find a lane', 'Shipments'],
+      expect(tabLabels(tester), ['Home', 'Book a trip', 'Shipments'],
           reason: 'screens.md: Book is reached from a lane card, not a tab');
     });
 
@@ -318,7 +318,7 @@ void main() {
           reason: 'screens.md: drivers do not publish or manage bookings');
     });
 
-    testWidgets('Book opens from a lane link, under Find a lane, with Back to it',
+    testWidgets('Book opens from a lane link, under Book a trip, with Back to it',
         (tester) async {
       await launchSignedIn(tester,
           person: 'Priya Raman',
@@ -331,7 +331,7 @@ void main() {
           reason: 'PR 4: the Book route keeps working without a tab');
       expect(find.byType(NavigationBar), findsNothing,
           reason: 'PR 4: on Book the action bar takes the tabs\' place');
-      expect(inHeader(find.text('Find a lane')), findsOneWidget,
+      expect(inHeader(find.text('Book a trip')), findsOneWidget,
           reason:
               'screens.md: detail screens add Back, named for where it goes');
     });

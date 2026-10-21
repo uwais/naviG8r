@@ -41,17 +41,17 @@ class OrganizationAccess extends StatelessWidget {
                           Text(
                               internal
                                   ? 'Internal workspace'
-                                  : 'Organization access',
+                                  : 'Company access',
                               style: Theme.of(context).textTheme.titleLarge),
                           const SizedBox(height: 12),
                           Text(AuthorizationSession.error ??
                               (internal
-                                  ? 'Use the operations portal for Finance, Operations, and Admin work. Select a shipper or carrier organization above to use its mobile workspace.'
+                                  ? 'Use the operations portal for Finance, Operations, and Admin work. Choose a shipper or carrier company above to use it in the app.'
                                   : AuthorizationSession.organizations.isEmpty
-                                      ? 'You have no active organization membership. Contact your organization administrator.'
+                                      ? 'You are not a member of any company yet. Contact your company admin.'
                                       : AuthorizationSession.principal == null
-                                          ? 'Choose an organization above to continue.'
-                                          : 'You have no mobile permissions in this organization. Contact your organization administrator.')),
+                                          ? 'Choose a company above to continue.'
+                                          : 'You cannot use the app for this company. Contact your company admin.')),
                           if (internal) ...[
                             const SizedBox(height: 12),
                             SelectableText(
@@ -178,7 +178,7 @@ class OrganizationToolbar extends StatelessWidget {
                       child: DropdownButton<String>(
                         isExpanded: true,
                         value: AuthorizationSession.organizationId,
-                        hint: const Text('Choose organization'),
+                        hint: const Text('Choose company'),
                         underline: const SizedBox.shrink(),
                         items: AuthorizationSession.organizations
                             .map((o) => DropdownMenuItem(
@@ -201,7 +201,7 @@ class OrganizationToolbar extends StatelessWidget {
                         onPressed: AuthorizationSession.refresh,
                         icon: Icon(Icons.refresh)),
                     const IconButton(
-                        tooltip: 'Sign out of all organizations',
+                        tooltip: 'Sign out of all companies',
                         onPressed: AuthorizationSession.signOut,
                         icon: Icon(Icons.logout)),
                   ]),

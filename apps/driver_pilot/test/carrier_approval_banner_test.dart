@@ -167,7 +167,7 @@ void main() {
   });
 
   testWidgets(
-      'documents and not-a-carrier say the app cannot help, and a duplicate points to the organization menu',
+      'documents and not-a-carrier say the app cannot help, and a duplicate points to the company menu',
       (tester) async {
     for (final code in ['DOCUMENTS_MISSING', 'NOT_A_CARRIER']) {
       signInCarrier(kycStatus: 'REJECTED', owner: true, rejectionReasonCode: code);
@@ -181,7 +181,7 @@ void main() {
         kycStatus: 'REJECTED', owner: true, rejectionReasonCode: 'DUPLICATE_ACCOUNT');
     await showBanner(tester);
     expect(bannerMessage(tester),
-        contains('choose it in the organization menu at the top of the screen'));
+        contains('choose it in the company menu at the top of the screen'));
     expect(bannerMessage(tester), isNot(contains("You can't send documents")));
   });
 

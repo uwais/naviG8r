@@ -158,7 +158,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Shipment alerts'),
         content: const Text(
-            'Allow this device to show private alerts when there is new activity on your shipments. Message text and shipment details are not shown in the alert.'),
+            'Get alerts on this device when something new happens on your shipments. Alerts do not show message text or shipment details.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -177,7 +177,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(enabled
           ? 'Shipment alerts are enabled on this device.'
-          : 'Alerts were not enabled. Check Android notification permission and Firebase setup.'),
+          : 'Alerts were not enabled. Check that notifications are allowed for this app in Android settings.'),
     ));
   }
 
@@ -574,7 +574,7 @@ class _ShipmentConversationScreenState
         body: Column(children: [
           if (!_canSend && !_loading)
             const MaterialBanner(
-                content: Text('This conversation is read-only.'),
+                content: Text('You can read this conversation, but not reply.'),
                 actions: [SizedBox.shrink()]),
           if (_error != null)
             Padding(

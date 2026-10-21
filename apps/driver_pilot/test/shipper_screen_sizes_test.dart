@@ -1,4 +1,4 @@
-// Home, Find a lane and Book at the screen sizes the redesign names: the desktop width (PR 9) and
+// Home, Book a trip and Book at the screen sizes the redesign names: the desktop width (PR 9) and
 // 200% text on a 360 x 800 phone (PR 10).
 import 'dart:async';
 
@@ -51,7 +51,7 @@ void desktopTests() {
           reason: 'PR 9: the top bar replaces the bottom tabs');
 
       final topBar = find.byType(CustomerTopNavigation);
-      for (final words in ['NaviG8r', 'Home', 'Find a lane', 'Shipments']) {
+      for (final words in ['NaviG8r', 'Home', 'Book a trip', 'Shipments']) {
         expect(find.descendant(of: topBar, matching: find.text(words)),
             findsOneWidget,
             reason: 'PR 9: the top bar shows "$words"');
@@ -63,7 +63,7 @@ void desktopTests() {
           reason: 'PR 9: the account button is in the top bar');
       final back = find.descendant(
           of: find.byType(CustomerPageFrame),
-          matching: find.text('Find a lane'));
+          matching: find.text('Book a trip'));
       expect(back, findsOneWidget,
           reason:
               'wb-book: Back to the lanes sits in the page, above the title');
@@ -80,7 +80,7 @@ void desktopTests() {
       server.answer('/shipments', {'shipments': []});
       await tester.pumpAndSettle();
       final content = tester.getRect(
-          find.widgetWithText(FilledButton, 'Find a lane for new goods'));
+          find.widgetWithText(FilledButton, 'Book a trip for new goods'));
       expect(content.width, lessThanOrEqualTo(1200),
           reason: 'PR 9: content max width 1200');
       expect(content.center.dx, closeTo(800, 1),
@@ -88,10 +88,10 @@ void desktopTests() {
 
       await tester.tap(find.descendant(
           of: find.byType(CustomerTopNavigation),
-          matching: find.text('Find a lane')));
+          matching: find.text('Book a trip')));
       await tester.pumpAndSettle();
-      expect(find.text('Pick a lane going your way.'), findsOneWidget,
-          reason: 'the top bar link opens Find a lane');
+      expect(find.text('Pick a truck going your way.'), findsOneWidget,
+          reason: 'the top bar link opens Book a trip');
     });
 
     testWidgets(
@@ -124,7 +124,7 @@ void desktopTests() {
           },
         ]
       });
-      await tester.tap(find.text('Match my route'));
+      await tester.tap(find.text('Search by route'));
       await tester.pumpAndSettle();
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
       // The pickup map pushes the rest of the search column below 900.
@@ -132,11 +132,11 @@ void desktopTests() {
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await scrollTo(tester, field('Weight'));
       await tester.enterText(field('Weight'), '80');
-      await scrollTo(tester, find.text('Find matching lanes'));
-      await tester.tap(find.text('Find matching lanes'));
+      await scrollTo(tester, find.text('Find trips'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
       final result = tester.getRect(find
-          .text('1 lane with room for 80 kg, closest to your route first.'));
+          .text('1 trip with capacity for 80 kg, closest to your route first.'));
       expect(
           result.left, greaterThan(tester.getRect(find.text('Change')).right),
           reason: 'wb-lanes: the search sits beside its results');
@@ -160,7 +160,7 @@ void desktopTests() {
           reason: 'phone: the price card is in the one column');
       expect(
           find.descendant(
-              of: find.byType(NvHeader), matching: find.text('Find a lane')),
+              of: find.byType(NvHeader), matching: find.text('Book a trip')),
           findsOneWidget,
           reason: 'phone: Back is in the header');
 
@@ -204,11 +204,11 @@ void doubleTextTests() {
       await tester.pumpAndSettle();
       await expectNoOverflowToTheEnd(tester, 'Home');
 
-      await tester.tap(find.text('Find a lane').last);
+      await tester.tap(find.text('Book a trip').last);
       await tester.pumpAndSettle();
       await expectNoOverflowToTheEnd(tester, 'Browse');
 
-      await tester.tap(find.text('Match my route'));
+      await tester.tap(find.text('Search by route'));
       await tester.pumpAndSettle();
       await expectNoOverflowToTheEnd(tester, 'the Match form');
 
@@ -227,8 +227,8 @@ void doubleTextTests() {
       await expectNoOverflowToTheEnd(tester, 'the Match form with both maps');
       await scrollTo(tester, field('Weight'));
       await tester.enterText(field('Weight'), '80');
-      await scrollTo(tester, find.text('Find matching lanes'));
-      await tester.tap(find.text('Find matching lanes'));
+      await scrollTo(tester, find.text('Find trips'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
       await expectNoOverflowToTheEnd(tester, 'Match results');
 
@@ -236,8 +236,8 @@ void doubleTextTests() {
       await scrollTo(tester, find.text('Change'));
       await tester.tap(find.text('Change'));
       await tester.pumpAndSettle();
-      await scrollTo(tester, find.text('Find matching lanes'));
-      await tester.tap(find.text('Find matching lanes'));
+      await scrollTo(tester, find.text('Find trips'));
+      await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
       await scrollTo(tester, find.text('Change weight'));
       await expectNoOverflowToTheEnd(tester, 'an empty match');
@@ -278,7 +278,7 @@ void doubleTextTests() {
       await scrollTo(tester, field('Weight'));
       await tester.enterText(field('Weight'), '150');
       await tester.pumpAndSettle();
-      await scrollTo(tester, find.text('Choose another lane'));
+      await scrollTo(tester, find.text('Choose another trip'));
       await expectNoOverflowToTheEnd(tester, 'Book too heavy');
     });
   });

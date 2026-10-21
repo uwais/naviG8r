@@ -70,16 +70,16 @@ void main() {
     await tester.pumpWidget(const DriverPilotApp());
     await pumpAuthorizationFrames(tester);
     expect(
-        find.text('Choose an organization above to continue.'), findsOneWidget);
+        find.text('Choose a company above to continue.'), findsOneWidget);
     selectOrganizationForWidget(
         'shipper-a', 'SHIPPER', ['load.read', 'load.create']);
     await pumpAuthorizationFrames(tester);
-    expect(find.text('Find a lane for new goods'), findsOneWidget,
+    expect(find.text('Book a trip for new goods'), findsOneWidget,
         reason: 'PR 4: the shipper Home, which no longer says Book freight');
     selectOrganizationForWidget('platform', 'FINANCE', ['payment.capture']);
     await pumpAuthorizationFrames(tester);
     expect(find.text('Internal workspace'), findsOneWidget);
-    expect(find.text('Find a lane for new goods'), findsNothing);
+    expect(find.text('Book a trip for new goods'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

@@ -140,12 +140,12 @@ void main() {
     (
       403,
       'forbidden',
-      'You do not have permission for this action in the selected organization.'
+      'You do not have permission to do this in this company.'
     ),
     (
       404,
       'not_found',
-      'This record is unavailable in the selected organization.'
+      'This is not available in the company you chose.'
     ),
   ]) {
     testWidgets(

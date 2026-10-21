@@ -144,6 +144,8 @@ class _CustomerBookShipmentScreenState
     for (final input in [_weightKg, _pickupName, _dropName]) {
       input.addListener(_priceInputsChanged);
     }
+    // Capacity remaining follows every keystroke, even one that leaves the price inputs the same.
+    _weightKg.addListener(() => setState(() {}));
     scheduleMicrotask(_loadLane);
   }
 
@@ -186,7 +188,7 @@ class _CustomerBookShipmentScreenState
 
   void _showTooHeavy() {
     const sentence =
-        "This lane does not have room for that weight. Enter a lower weight, or choose another lane.";
+        "This trip does not have enough capacity for that weight. Enter less weight, or choose another trip.";
     setState(() {
       _quote = null;
       _weightError = sentence;
@@ -463,15 +465,16 @@ class _CustomerBookShipmentScreenState
             const NvListLoadingCard()
           else if (_laneFailed && lane == null)
             NvListError(
-                title: "Could not load this lane.",
+                title: "Could not load this trip.",
                 help: "Check your connection, then try again.",
                 onRetry: _loadLane)
           else if (lane != null) ...[
-            _LaneSummary(lane: lane),
+            _LaneSummary(
+                lane: lane, typedWeightKg: int.tryParse(_weightKg.text.trim())),
             const SizedBox(height: NvSpace.s4),
             if (!laneOpen)
               const NvMessage(
-                  "This lane is no longer taking bookings. Choose another lane.",
+                  "This trip is no longer taking bookings. Choose another trip.",
                   tone: NvMessageTone.attention)
             else ...[
               ..._fields(lane),
@@ -494,7 +497,7 @@ class _CustomerBookShipmentScreenState
         controller: _weightKg,
         unit: "kg",
         keyboardType: TextInputType.number,
-        help: room == null ? null : "Up to ${formatKg(room)} on this lane.",
+        help: room == null ? null : "Up to ${formatKg(room)} on this trip.",
         errorText: _weightError,
         readOnly: _booking,
       ),
@@ -549,7 +552,7 @@ class _CustomerBookShipmentScreenState
       if (_tooHeavy) ...[
         const SizedBox(height: NvSpace.s4),
         NvButton(
-            label: "Choose another lane",
+            label: "Choose another trip",
             kind: NvButtonKind.secondary,
             fullWidth: true,
             onPressed: () => context.go("/customer/trips")),
@@ -560,7 +563,7 @@ class _CustomerBookShipmentScreenState
   Widget _actionBar(bool laneOpen) {
     if (!laneOpen) {
       return NvButton(
-          label: "Choose another lane",
+          label: "Choose another trip",
           fullWidth: true,
           onPressed: () => context.go("/customer/trips"));
     }
@@ -589,7 +592,7 @@ class _CustomerBookShipmentScreenState
           label: "Book and pay",
           fullWidth: true,
           onPressed: null,
-          disabledReason: missing ?? "Enter a lower weight to see the price.");
+          disabledReason: missing ?? "Enter less weight to see the price.");
     }
     final words = [
       if (_actionError != null)
@@ -600,7 +603,7 @@ class _CustomerBookShipmentScreenState
         const Text("This is the full price. Nothing is added at payment.",
             style: NvText.bodyStrong),
         const Text(
-            "Booking holds the room on this lane. To cancel, contact NaviG8r.",
+            "Booking keeps this capacity for you. To cancel, contact NaviG8r.",
             style: NvText.body),
       ],
     ];
@@ -636,14 +639,20 @@ class _CustomerBookShipmentScreenState
   }
 }
 
-/// The lane being booked: route, carrier, dates and the room left.
+/// The lane being booked: route, carrier, dates and the capacity remaining once the weight typed so
+/// far is taken off. An empty or unreadable weight takes nothing off; it never shows below 0.
 class _LaneSummary extends StatelessWidget {
-  const _LaneSummary({required this.lane});
+  const _LaneSummary({required this.lane, required this.typedWeightKg});
   final Map<String, dynamic> lane;
+  final int? typedWeightKg;
 
   @override
   Widget build(BuildContext context) {
     final room = roomLeftKg(lane);
+    final typed = typedWeightKg;
+    final remaining = room == null || typed == null || typed <= 0
+        ? room
+        : (room - typed < 0 ? 0 : room - typed);
     final dates = laneDates(lane);
     final carrier = lane["carrierDisplayName"]?.toString() ?? "Carrier";
     return Container(
@@ -661,8 +670,8 @@ class _LaneSummary extends StatelessWidget {
           Wrap(spacing: NvSpace.s1, children: [
             Text(dates == null ? carrier : "$carrier · Leaves $dates",
                 style: NvText.caption),
-            if (room != null)
-              Text("Room left: ${roomLeftWords(room)}",
+            if (remaining != null)
+              Text("Capacity remaining: ${roomLeftWords(remaining)}",
                   style: NvText.caption.copyWith(
                       fontWeight: FontWeight.w700, color: NvColors.ink)),
           ]),
@@ -703,7 +712,7 @@ class _PriceCard extends StatelessWidget {
                 style: NvText.body),
             const SizedBox(height: NvSpace.s2),
             const Text(
-                "Book and pay opens the payment provider's screen, where you choose how to pay.",
+                "Book and pay opens a payment screen. There you choose how to pay.",
                 style: NvText.body),
             const SizedBox(height: NvSpace.s2),
             const Text("Changing weight, pickup or drop gets a new price.",

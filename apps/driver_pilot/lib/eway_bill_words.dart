@@ -115,14 +115,14 @@ String ewayBillCheckLine(Map<String, dynamic> bill,
       ? ' on ${formatDate(DateTime.fromMillisecondsSinceEpoch(checkedAt.toInt(), isUtc: true))}'
       : '';
   if (check['result'] == 'FOUND') {
-    return 'Ops saw this bill on the $ewayBillPortalName$date. It may have changed since.';
+    return 'NaviG8r staff saw this bill on the $ewayBillPortalName$date. It may have changed since.';
   }
   final problem = switch (check['problemReason']) {
-    'NOT_FOUND' => 'Ops could not find this bill on the portal$date.',
-    'CANCELLED' => 'Ops saw on the portal that this bill was cancelled$date.',
+    'NOT_FOUND' => 'NaviG8r staff could not find this bill on the portal$date.',
+    'CANCELLED' => 'NaviG8r staff saw on the portal that this bill was cancelled$date.',
     'DETAILS_DO_NOT_MATCH' =>
-      'The details here did not match the portal when ops looked$date.',
-    _ => 'Ops found a problem with this bill$date.',
+      'The details here did not match the portal when NaviG8r staff looked$date.',
+    _ => 'NaviG8r staff found a problem with this bill$date.',
   };
   return forShipper
       ? '$problem Check the details here and on the portal.'

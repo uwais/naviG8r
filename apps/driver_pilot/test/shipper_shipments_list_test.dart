@@ -65,7 +65,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
           find.text(
-              'Waiting for Deccan Movers to accept. Your payment is on hold; it is collected after delivery.'),
+              'Waiting for Deccan Movers to accept. Your payment is on hold. It is collected after delivery.'),
           findsOneWidget,
           reason: 'the whole card opens the shipment');
       await leave(tester);
@@ -125,7 +125,7 @@ void main() {
       expect(
           find.text(
               'Bengaluru to Mysuru, ${formatDate(laneStart)}. Ravi Roadways confirmed delivery on ${formatDate(deliveredAt)}. '
-              'Check the goods. Accepting lets payment go before the hold ends; if you do nothing it can go when the hold ends.'),
+              'Check the goods. If you accept, payment can go before the hold ends. If you do nothing, it can go when the hold ends.'),
           findsOneWidget,
           reason: 'review: accepting is optional, and the card says what happens either way');
       await tester.tap(find.text('Open shipment'));

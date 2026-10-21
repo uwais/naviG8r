@@ -46,7 +46,7 @@ Widget _laneCard(Map<String, dynamic> lane, {required VoidCallback onOpen}) {
           "$carrier · ${vehicleClassLabel(lane["vehicleClass"]?.toString())}",
       facts: [
         if (dates != null) NvFact("Leaves", dates),
-        if (room != null) NvFact("Room left", roomLeftWords(room)),
+        if (room != null) NvFact("Capacity remaining", roomLeftWords(room)),
       ],
       onOpen: onOpen,
     ),
@@ -75,7 +75,7 @@ List<Widget> _laneCards(BuildContext context, List<Map<String, dynamic>> lanes,
   ];
 }
 
-String _laneCount(int count) => count == 1 ? "1 lane" : "$count lanes";
+String _laneCount(int count) => count == 1 ? "1 trip" : "$count trips";
 
 enum _LaneView { browse, match }
 
@@ -102,8 +102,8 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> {
   Widget build(BuildContext context) {
     final viewSwitch = SegmentedButton<_LaneView>(
       segments: const [
-        ButtonSegment(value: _LaneView.browse, label: Text("Browse all")),
-        ButtonSegment(value: _LaneView.match, label: Text("Match my route")),
+        ButtonSegment(value: _LaneView.browse, label: Text("All trips")),
+        ButtonSegment(value: _LaneView.match, label: Text("Search by route")),
       ],
       selected: {_view},
       showSelectedIcon: false,
@@ -124,8 +124,8 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> {
       ),
     );
     return CustomerScaffold(
-      title: "Find a lane",
-      subtitle: "Pick a lane going your way.",
+      title: "Book a trip",
+      subtitle: "Pick a truck going your way.",
       currentPath: "/customer/trips",
       bodyBuilder: (_) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -180,7 +180,7 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
       _loading = true;
       _failed = false;
     });
-    announce(context, "Loading lanes.");
+    announce(context, "Loading trips.");
     try {
       final r = await api.get<Map<String, dynamic>>("/anchor-trips");
       final raw = r.data?["trips"];
@@ -192,7 +192,7 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
       announce(
           context,
           lanes.isEmpty
-              ? "No lanes are open right now."
+              ? "No trips are open right now."
               : _laneCount(lanes.length));
     } catch (_) {
       if (mounted) setState(() => _failed = true);
@@ -216,7 +216,7 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
         padding: const EdgeInsets.symmetric(vertical: NvSpace.s3),
         children: [
           const Text(
-              "Every lane, whatever its status, not sorted by distance. To see the closest to your route first, use Match my route.",
+              "All trips, open or not. Not sorted by distance. To see the closest to your route first, use Search by route.",
               style: NvText.caption),
           if (_loading) ...[
             const SizedBox(height: NvSpace.s3),
@@ -226,14 +226,14 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
           ] else if (_failed) ...[
             const SizedBox(height: NvSpace.s3),
             NvListError(
-                title: "Could not load lanes.",
+                title: "Could not load trips.",
                 help: "Check your connection, then try again.",
                 onRetry: _load),
           ] else if (_lanes.isEmpty) ...[
             const SizedBox(height: NvSpace.s3),
             const NvListEmpty(
-                title: "No lanes are open right now.",
-                help: "New lanes appear here when carriers publish them."),
+                title: "No trips are open right now.",
+                help: "New trips show here when carriers publish them."),
           ] else
             ..._laneCards(context, _lanes,
                 onOpen: (lane) => context.go(Uri(
@@ -355,10 +355,10 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   }
 
   String _resultLine(int count) =>
-      "$count ${count == 1 ? "lane" : "lanes"} with room for ${formatKg(_searchedWeightKg!)}, closest to your route first.";
+      "$count ${count == 1 ? "trip" : "trips"} with capacity for ${formatKg(_searchedWeightKg!)}, closest to your route first.";
 
   String _emptyTitle(int weightKg) =>
-      "No lanes pass near this route with room for ${formatKg(weightKg)}.";
+      "No trips pass near this route with capacity for ${formatKg(weightKg)}.";
 
   String _bookPath(Map<String, dynamic> lane) =>
       Uri(path: "/customer/book", queryParameters: {
@@ -464,7 +464,7 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             errorText: _weightError),
         const SizedBox(height: NvSpace.s4),
         NvButton(
-            label: "Find matching lanes",
+            label: "Find trips",
             fullWidth: true,
             loading: _searching,
             onPressed: _namingPickupPin || _namingDropPin ? null : _search,
@@ -474,7 +474,7 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
         if (_failed) ...[
           const SizedBox(height: NvSpace.s3),
           NvListError(
-              title: "Could not load lanes.",
+              title: "Could not load trips.",
               help: "Check your connection, then try again.",
               onRetry: _search),
         ],
@@ -542,7 +542,7 @@ class _NoMatchBox extends StatelessWidget {
                 child: Text(title,
                     style: NvText.bodyStrong.copyWith(color: NvColors.navyInk))),
             const SizedBox(height: NvSpace.s2),
-            const Text("Try a lower weight, or browse all lanes.",
+            const Text("Try less weight, or see all trips.",
                 style: NvText.body),
             const SizedBox(height: NvSpace.s4),
             NvButton(
@@ -551,7 +551,7 @@ class _NoMatchBox extends StatelessWidget {
                 onPressed: onChangeWeight),
             const SizedBox(height: NvSpace.s2),
             NvButton(
-                label: "Browse all lanes",
+                label: "See all trips",
                 kind: NvButtonKind.secondary,
                 fullWidth: true,
                 onPressed: onBrowseAll),

@@ -58,7 +58,7 @@ const List<NavigationDestination> kCustomerNavDestinations = [
   NavigationDestination(
       icon: Icon(Icons.travel_explore_outlined),
       selectedIcon: Icon(Icons.travel_explore),
-      label: "Find a lane"),
+      label: "Book a trip"),
   NavigationDestination(
       icon: Icon(Icons.receipt_long_outlined),
       selectedIcon: Icon(Icons.receipt_long),

@@ -52,7 +52,7 @@ void main() {
         reason: 'number in groups of four');
     expect(
         find.textContaining(RegExp(
-            r'^Ops saw on the portal that this bill was cancelled on 14 Oct( 2026)?\. The shipper can see this on their shipment\.$')),
+            r'^NaviG8r staff saw on the portal that this bill was cancelled on 14 Oct( 2026)?\. The shipper can see this on their shipment\.$')),
         findsOneWidget,
         reason:
             'the carrier is not told to act; copy.md Formats: the year only when it is not this year');

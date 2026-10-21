@@ -221,7 +221,7 @@ void main() {
     await mountCard(tester, EwayBillCard(shipment: shipment(bill: found)));
     expect(
         find.textContaining(RegExp(
-            r'^Ops saw this bill on the government portal on 14 Oct( 2026)?\. It may have changed since\.$')),
+            r'^NaviG8r staff saw this bill on the government portal on 14 Oct( 2026)?\. It may have changed since\.$')),
         findsOneWidget,
         reason:
             'a date and a caveat; copy.md Formats: the year only when it is not this year');
@@ -241,7 +241,7 @@ void main() {
         reason: 'copy.md step 4 problem: the heading');
     expect(
         find.textContaining(RegExp(
-            r'^Ops could not find this bill on the portal on 14 Oct( 2026)?\. Check the details here and on the portal\.$')),
+            r'^NaviG8r staff could not find this bill on the portal on 14 Oct( 2026)?\. Check the details here and on the portal\.$')),
         findsOneWidget,
         reason:
             'no stored note or difference (RECON gap 7), so the reason sentence stands in');

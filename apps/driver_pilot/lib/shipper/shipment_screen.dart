@@ -292,7 +292,7 @@ class _CustomerShipmentDetailScreenState
         final String waiting;
         if (_paymentHeld) {
           waiting =
-              "Waiting for $carrier to accept. Your payment is on hold; it is collected after delivery.";
+              "Waiting for $carrier to accept. Your payment is on hold. It is collected after delivery.";
         } else if (paymentNotTaken(_paymentStatus)) {
           waiting = "$carrier can accept once this booking is paid.";
         } else {
@@ -393,7 +393,7 @@ class _CustomerShipmentDetailScreenState
           if (open) ...[
             const SizedBox(height: NvSpace.s3),
             const Text(
-                "Booked shipments cannot be cancelled in the app; to change one, contact ${PendingCopy.changeOrCancelContact}.",
+                "You cannot cancel a booked shipment in the app. To change it, contact ${PendingCopy.changeOrCancelContact}.",
                 style: NvText.caption),
           ],
         ],
@@ -505,7 +505,7 @@ class _CustomerShipmentDetailScreenState
         ),
         const SizedBox(height: NvSpace.s4),
         NvButton(
-            label: "Find a lane",
+            label: "Book a trip",
             fullWidth: true,
             onPressed: () => context.go("/customer/trips")),
       ],
@@ -554,7 +554,7 @@ class _CustomerShipmentDetailScreenState
           if (_isLive)
             const Padding(
               padding: EdgeInsets.only(top: NvSpace.s1),
-              child: Text("Live tracking — updates every ~30 seconds.",
+              child: Text("Live tracking. Updates about every 30 seconds.",
                   style: NvText.caption),
             ),
         ],

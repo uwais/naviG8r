@@ -12,7 +12,7 @@ import 'support/shipper_screen_checks.dart';
 import 'support/shipper_shipment_app.dart';
 
 const noCancelLine =
-    'Booked shipments cannot be cancelled in the app; to change one, contact ${PendingCopy.changeOrCancelContact}.';
+    'You cannot cancel a booked shipment in the app. To change it, contact ${PendingCopy.changeOrCancelContact}.';
 
 void main() {
   textSizeTests();
@@ -143,7 +143,7 @@ void desktopTests() {
       await tester.pumpAndSettle();
       expect(
           find.text(
-              'Waiting for Deccan Movers to accept. Your payment is on hold; it is collected after delivery.'),
+              'Waiting for Deccan Movers to accept. Your payment is on hold. It is collected after delivery.'),
           findsOneWidget,
           reason: 'the route link opens the shipment');
       await leave(tester);

@@ -43,14 +43,14 @@ void main() {
           trip: lane());
       expect(
           find.text(
-              'Waiting for Ravi Roadways to accept. Your payment is on hold; it is collected after delivery.'),
+              'Waiting for Ravi Roadways to accept. Your payment is on hold. It is collected after delivery.'),
           findsOneWidget,
           reason: 'brief A.3: the shipper is told the money is held');
       expect(find.text('Waiting for carrier'), findsOneWidget,
           reason: 'copy.md status word');
       expect(
           find.text(
-              'Booked shipments cannot be cancelled in the app; to change one, contact ${PendingCopy.changeOrCancelContact}.'),
+              'You cannot cancel a booked shipment in the app. To change it, contact ${PendingCopy.changeOrCancelContact}.'),
           findsOneWidget,
           reason:
               'owner decision: shippers cannot cancel; the contact is shown');
@@ -177,7 +177,7 @@ void main() {
               'Questions about this refund? Contact ${PendingCopy.changeOrCancelContact}.'),
           findsOneWidget,
           reason: 'copy.md cancelled: the contact placeholder');
-      expect(find.widgetWithText(FilledButton, 'Find a lane'), findsOneWidget,
+      expect(find.widgetWithText(FilledButton, 'Book a trip'), findsOneWidget,
           reason: 'screens.md: the primary action on a cancelled shipment');
       expect(find.text('Steps for this shipment'), findsNothing);
       await leave(tester);

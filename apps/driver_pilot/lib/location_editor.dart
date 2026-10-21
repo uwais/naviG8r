@@ -216,7 +216,7 @@ Widget activeTripMap({
           padding: const EdgeInsets.all(16),
           child: Text(
             emptyMessage ??
-                "No map coordinates yet. Republish the trip with map pins, or wait for GPS.",
+                "No map location yet. Publish the trip again with map pins, or wait for GPS.",
             textAlign: TextAlign.center,
             style: const TextStyle(color: Color(0xFF757575), fontSize: 13),
           ),
@@ -499,7 +499,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor> {
           ),
           const SizedBox(height: 4),
           Text(
-            "Drag the pin to fine-tune. Use search to jump to a place.",
+            "Drag the pin to the exact spot, or search for a place.",
             style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ],

@@ -86,7 +86,7 @@ void main() {
       expect(find.text('Trucks (0)'), findsOneWidget);
       expect(find.text('You have no trucks yet.'), findsOneWidget,
           reason: 'ca-profile: the empty fleet, said plainly');
-      expect(find.text('A truck is added with its driver: use Add driver.'),
+      expect(find.text('To add a truck, add its driver with Add driver.'),
           findsOneWidget,
           reason: 'copy.md: how a truck gets added');
       expect(find.text('No drivers yet.'), findsOneWidget,
