@@ -15,6 +15,7 @@ import 'package:driver_pilot/ui/nv_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/app_lifecycle.dart';
 import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
@@ -270,11 +271,10 @@ void main() {
       (tester) async {
     await mountDetailScreen(tester);
     await fillBillForm(tester);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    // Every step, as a phone reports it: the screens' lifecycle listeners assert on a skipped one.
+    await sendAppToBackground(tester);
     await tester.pump(const Duration(minutes: 5));
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await bringAppBack(tester);
     await waitForNextRefresh(tester);
     expect(find.text('SYN/E2E/101'), findsOneWidget,
         reason: 'the typed invoice number is still there');

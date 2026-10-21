@@ -81,8 +81,7 @@ void main() {
         'Home has an Updates row and the header bell, and no Book or Sign out of its own',
         (tester) async {
       final server = await showShipperApp(tester, '/customer');
-      server.answer(
-          '/v1/notifications/shipments', {'shipments': [], 'unreadCount': 2});
+      server.answer('/v1/notifications', {'notifications': [], 'unreadCount': 2});
       await tester.pumpAndSettle();
       expect(find.text('Home'), findsWidgets, reason: 'sh-home: titled Home');
       expect(find.byType(NotificationBell), findsOneWidget,

@@ -149,15 +149,18 @@ String? mobileAccessRedirect(String path) {
                         ? 'payment.read'
                         : 'load.read';
     if (!AuthorizationSession.can(permission)) return '/driver';
-    // Payment amounts are the owner's, as on Profile and the booking screen: a dispatcher holds
-    // payment.read too, and only the owner may add the bank account.
-    if (permission == 'payment.read' &&
-        !AuthorizationSession.can('bank_account.create_token')) {
+    if (permission == 'payment.read' && !carrierSeesPaymentAmounts()) {
       return '/driver';
     }
   }
   return null;
 }
+
+/// A carrier's payment amounts are the owner's, as on Profile and the booking screen: a dispatcher
+/// holds payment.read too, and only the owner may add the bank account.
+bool carrierSeesPaymentAmounts() =>
+    AuthorizationSession.can('payment.read') &&
+    AuthorizationSession.can('bank_account.create_token');
 
 /// Only on the access gate (no company chosen yet, or access could not load), where no app
 /// screen and so no header shows; app screens switch company and sign out from its menu.

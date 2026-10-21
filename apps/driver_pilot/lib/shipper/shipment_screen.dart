@@ -7,6 +7,7 @@ import "package:flutter/material.dart";
 import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
+import "../app_in_background.dart";
 import "../authorization_session.dart";
 import "../shipment_payment_status.dart";
 import "../eway_bill_card.dart";
@@ -65,6 +66,7 @@ class _CustomerShipmentDetailScreenState
   DateTime? _lastLoadedAt;
   num _savedAtUtcMs = 0;
   Timer? _poll;
+  late final AppLifecycleListener _lifecycle;
   final _titleFocus = FocusNode();
 
   // Only a refresh the server never answered keeps what was loaded, so a half-typed e-way bill form
@@ -211,7 +213,7 @@ class _CustomerShipmentDetailScreenState
     final st = _shipment?["status"]?.toString() ?? "";
     if (st == "DELIVERED" || st == "FAILED_CARRIER_REFUNDED") return;
     _poll = Timer.periodic(const Duration(seconds: 15), (_) async {
-      await _refreshAll();
+      if (!appIsInBackground) await _refreshAll();
     });
   }
 
@@ -229,6 +231,9 @@ class _CustomerShipmentDetailScreenState
     _load().then((_) {
       if (mounted) _schedulePoll();
     });
+    _lifecycle = AppLifecycleListener(onShow: () {
+      if (_poll?.isActive ?? false) _refreshAll();
+    });
     // After Pay and book, a screen reader starts on the new shipment's title (accessibility.md).
     if (widget.shipmentId == lastBookedShipmentId) {
       lastBookedShipmentId = null;
@@ -241,6 +246,7 @@ class _CustomerShipmentDetailScreenState
   @override
   void dispose() {
     _poll?.cancel();
+    _lifecycle.dispose();
     _titleFocus.dispose();
     super.dispose();
   }

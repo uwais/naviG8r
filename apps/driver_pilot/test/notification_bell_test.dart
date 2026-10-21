@@ -1,6 +1,9 @@
 // Rishabh, 20 Oct 2026: "from any screen a notification is visible when an action is taken by any
-// party". The bell sits in the header of every signed-in screen, one 15 s check serves the whole
+// party". The bell sits in the header of every signed-in screen, one 30 s check serves the whole
 // app, and a new notice shows a short banner.
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/main.dart';
 import 'package:driver_pilot/notification_bell.dart';
@@ -11,6 +14,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'support/app_lifecycle.dart';
 import 'support/mock_api.dart';
 import 'support/shipper_shipment_app.dart';
 
@@ -124,7 +128,7 @@ void main() {
     await leave(tester);
   });
 
-  testWidgets('two bells on screen share one check every 15 s', (tester) async {
+  testWidgets('two bells on screen share one check every 30 s', (tester) async {
     final server = await showShipperApp(tester, '/customer/shipments/shp_9f2c41');
     server.answers['/shipments/shp_9f2c41'] = {'shipment': booking()};
     await tester.pumpAndSettle();
@@ -132,7 +136,10 @@ void main() {
         home: Scaffold(body: Column(children: [NotificationBell(), NotificationBell()]))));
     await tester.pumpAndSettle();
     final before = _countOf(server, '/v1/notifications');
-    await tester.pump(NotificationWatch.interval);
+    await tester.pump(const Duration(seconds: 15));
+    expect(_countOf(server, '/v1/notifications'), before,
+        reason: 'every 30 s, not 15');
+    await tester.pump(const Duration(seconds: 15));
     await tester.pumpAndSettle();
     expect(_countOf(server, '/v1/notifications'), before + 1,
         reason: 'one timer for the app, not one per bell');
@@ -154,6 +161,161 @@ void main() {
     await tester.pump(NotificationWatch.interval);
     await tester.pumpAndSettle();
     expect(find.byType(MaterialBanner), findsNothing);
+    await leave(tester);
+  });
+
+  testWidgets(
+      'View still opens the shipment after the screen that showed the banner has gone',
+      (tester) async {
+    final server = await showShipperApp(tester, '/customer/shipments/shp_9f2c41');
+    server.answers['/shipments/shp_9f2c41'] = {'shipment': booking()};
+    server.answers['/shipments/shp_other'] = {
+      'shipment': booking(id: 'shp_other')
+    };
+    server.answers['/v1/notifications'] = _notices(0);
+    await tester.pumpAndSettle();
+    server.answers['/v1/notifications'] =
+        _notices(1, 'trip.started', 'shp_other');
+    await _pumpUntilShown(tester, find.text('Your goods are on the way.'));
+    await tester.pumpAndSettle();
+
+    GoRouter.of(tester.element(find.byType(NvHeader).first))
+        .go('/customer/shipments');
+    await tester.pumpAndSettle();
+    expect(find.text('Your goods are on the way.'), findsOneWidget,
+        reason: 'the banner outlives the screen that showed it');
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(_countOf(server, '/shipments/shp_other'), greaterThan(0),
+        reason: 'View opens that shipment from the screen now showing');
+    await leave(tester);
+  });
+
+  testWidgets('when the last bell goes, so do its banner and the count',
+      (tester) async {
+    final server = await showShipperApp(tester, '/customer/shipments/shp_9f2c41');
+    server.answers['/shipments/shp_9f2c41'] = {'shipment': booking()};
+    server.answers['/v1/notifications'] = _notices(0);
+    await tester.pumpAndSettle();
+    final bellShown = ValueNotifier(true);
+    addTearDown(bellShown.dispose);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            appBar: AppBar(actions: [
+              ValueListenableBuilder<bool>(
+                  valueListenable: bellShown,
+                  builder: (_, shown, __) => shown
+                      ? const NotificationBell()
+                      : const SizedBox.shrink())
+            ]),
+            body: const SizedBox.shrink())));
+    await tester.pumpAndSettle();
+    server.answers['/v1/notifications'] =
+        _notices(1, 'trip.started', 'shp_9f2c41');
+    await _pumpUntilShown(tester, find.text('Your goods are on the way.'));
+    await tester.pumpAndSettle();
+    expect(NotificationWatch.unread.value, 1);
+
+    bellShown.value = false;
+    await tester.pumpAndSettle();
+    expect(find.byType(MaterialBanner), findsNothing,
+        reason: 'signed out, the last notice must not stay on screen');
+    expect(NotificationWatch.unread.value, 0);
+    await leave(tester);
+  });
+
+  testWidgets('an answer older than the newest check is dropped',
+      (tester) async {
+    await showShipperApp(tester, '/customer/shipments/shp_9f2c41');
+    await tester.pumpAndSettle();
+    await leave(tester);
+    final waiting = <Completer<ResponseBody>>[];
+    api.dio.httpClientAdapter = MockApiAdapter((_) {
+      final answer = Completer<ResponseBody>();
+      waiting.add(answer);
+      return answer.future;
+    });
+    NotificationWatch.check();
+    await tester.pump(const Duration(milliseconds: 100));
+    NotificationWatch.check();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(waiting, hasLength(2));
+
+    waiting[1].complete(jsonResponse(_notices(5)));
+    await tester.pump(const Duration(milliseconds: 100));
+    waiting[0].complete(jsonResponse(_notices(1)));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(NotificationWatch.unread.value, 5,
+        reason: 'the first check answered last, and is older');
+  });
+
+  for (final (who, subrole, owner) in [
+    ('a dispatcher', 'DISPATCHER', false),
+    ('an owner', 'OWNER', true),
+  ]) {
+    testWidgets(
+        '$who ${owner ? 'is' : 'is not'} shown a payment notice, as on Earnings',
+        (tester) async {
+      final server =
+          await showShipperApp(tester, '/customer/shipments/shp_9f2c41');
+      server.answers['/shipments/shp_9f2c41'] = {'shipment': booking()};
+      server.answers['/v1/notifications'] = _notices(0);
+      final permissions = [
+        for (final permission
+            in AuthorizationSession.principal!['permissions'] as List)
+          if (permission != 'bank_account.create_token') permission,
+        'payment.read',
+        if (owner) 'bank_account.create_token',
+      ];
+      AuthorizationSession.principal = {
+        ...AuthorizationSession.principal!,
+        'roles': ['CARRIER'],
+        'subrole': subrole,
+        'permissions': permissions,
+      };
+      await tester.pumpAndSettle();
+      server.answers['/v1/notifications'] =
+          _notices(1, 'payment.status_changed', 'shp_9f2c41');
+      await _pumpUntilShown(tester, find.text('A payment was updated.'));
+      expect(find.text('A payment was updated.'),
+          owner ? findsOneWidget : findsNothing);
+      await leave(tester);
+    });
+  }
+
+  testWidgets(
+      'the bell does not check while the app is in the background, and checks once on return',
+      (tester) async {
+    final server = await showShipperApp(tester, '/customer/shipments/shp_9f2c41');
+    server.answers['/shipments/shp_9f2c41'] = {'shipment': booking()};
+    await tester.pumpAndSettle();
+    final before = _countOf(server, '/v1/notifications');
+
+    await sendAppToBackground(tester);
+    await tester.pump(NotificationWatch.interval * 3);
+    expect(_countOf(server, '/v1/notifications'), before,
+        reason: 'a phone in a pocket makes no checks');
+
+    await bringAppBack(tester);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(_countOf(server, '/v1/notifications'), before + 1,
+        reason: 'one check on return, not one per missed turn');
+    await leave(tester);
+  });
+
+  testWidgets("Home's Updates row shows the bell's count, with no check of its own",
+      (tester) async {
+    final server = await showShipperApp(tester, '/customer');
+    server.answers['/v1/notifications'] = _notices(3);
+    server.answers['/v1/notifications/shipments'] = {
+      'shipments': [],
+      'unreadCount': 2
+    };
+    await tester.pumpAndSettle();
+    expect(find.text('3 new'), findsOneWidget);
+    expect(_countOf(server, '/v1/notifications/shipments'), 0,
+        reason: 'one check for the bell and the row');
     await leave(tester);
   });
 }

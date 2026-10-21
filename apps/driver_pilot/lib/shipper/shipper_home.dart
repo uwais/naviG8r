@@ -6,6 +6,7 @@ import "package:go_router/go_router.dart";
 import "../authorization_session.dart";
 import "../customer_session.dart";
 import "../pilot_api.dart";
+import "../notification_bell.dart";
 import "../notification_center.dart";
 import "../shipment_steps.dart";
 import "../sign_in_screen.dart";
@@ -28,7 +29,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   List<Map<String, dynamic>> _shipments = [];
   Map<String, Map<String, dynamic>> _lanesById = {};
   bool _shipmentsFailed = false;
-  int _unreadUpdates = 0;
   String? _loadedForAccount;
 
   @override
@@ -59,7 +59,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       _shipments = [];
       _lanesById = {};
       _shipmentsFailed = false;
-      _unreadUpdates = 0;
     });
     _loadedForAccount = null;
     if (account != null && !AuthorizationSession.switching) _load();
@@ -68,7 +67,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   Future<void> _load() async {
     if (!CustomerSession.isSignedIn || !CustomerSession.hasCustomerOrg) return;
     _loadedForAccount = AuthorizationSession.scopeKey;
-    await Future.wait([_loadShipments(), _loadUnreadUpdates(), _loadLanes()]);
+    await Future.wait([_loadShipments(), _loadLanes()]);
   }
 
   /// A request sent for one account can come back after another signed in; its answer, or its
@@ -97,21 +96,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     final account = AuthorizationSession.scopeKey;
     final lanesById = await loadLanesById();
     if (_stillShowing(account)) setState(() => _lanesById = lanesById);
-  }
-
-  Future<void> _loadUnreadUpdates() async {
-    if (!AuthorizationSession.can("notification.read")) return;
-    final account = AuthorizationSession.scopeKey;
-    try {
-      final r =
-          await api.get<Map<String, dynamic>>("/v1/notifications/shipments");
-      if (_stillShowing(account)) {
-        setState(() =>
-            _unreadUpdates = (r.data?["unreadCount"] as num?)?.toInt() ?? 0);
-      }
-    } catch (_) {
-      // The Updates row still opens the inbox, which shows its own error.
-    }
   }
 
   // Listens to the session: the router keeps this page when only the session changes.
@@ -204,16 +188,20 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     onTap: () => context.go("/customer/shipments"),
                   ),
                 if (showsUpdates)
-                  _HomeRow(
-                    leading: const ExcludeSemantics(
-                        child: Icon(Icons.notifications_outlined,
-                            color: NvColors.slate)),
-                    title: "Updates",
-                    caption: _unreadUpdates > 0 ? "$_unreadUpdates new" : null,
-                    onTap: () async {
-                      await openNotificationInbox(context);
-                      if (mounted) unawaited(_loadUnreadUpdates());
-                    },
+                  // The header bell's count: the same unread notices, from its one app-wide check.
+                  ValueListenableBuilder<int>(
+                    valueListenable: NotificationWatch.unread,
+                    builder: (context, unread, _) => _HomeRow(
+                      leading: const ExcludeSemantics(
+                          child: Icon(Icons.notifications_outlined,
+                              color: NvColors.slate)),
+                      title: "Updates",
+                      caption: unread > 0 ? "$unread new" : null,
+                      onTap: () async {
+                        await openNotificationInbox(context);
+                        unawaited(NotificationWatch.check());
+                      },
+                    ),
                   ),
               ]),
               const SizedBox(height: NvSpace.s4),

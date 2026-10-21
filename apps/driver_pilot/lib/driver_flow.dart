@@ -9,6 +9,7 @@ import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "accept_booking.dart";
+import "app_in_background.dart";
 import "access_refresh.dart";
 import "address_town.dart";
 import "authorization_session.dart";
@@ -1550,6 +1551,7 @@ class _DriverShipmentDetailScreenState
   bool _shipmentMissingFromList = false;
   bool _loading = false;
   Timer? _poll;
+  late final AppLifecycleListener _lifecycle;
 
   bool get _forDriver => DriverSession.carrierRole == "DRIVER";
 
@@ -1560,18 +1562,26 @@ class _DriverShipmentDetailScreenState
     // The shipper's changes (paying, the e-way bill, accepting delivery) show without a pull, every
     // 15 s as on the shipper's screen. A failed check keeps what is shown and says nothing.
     _poll = Timer.periodic(const Duration(seconds: 15), (_) {
-      final status = _shipment?["status"]?.toString() ?? "";
-      if (status == "DELIVERED" || status == "FAILED_CARRIER_REFUNDED") {
-        _poll?.cancel();
-        return;
-      }
-      if (!_loading && !_accepting) _load();
+      if (!appIsInBackground) _checkAgain();
     });
+    _lifecycle = AppLifecycleListener(onShow: () {
+      if (_poll?.isActive ?? false) _checkAgain();
+    });
+  }
+
+  void _checkAgain() {
+    final status = _shipment?["status"]?.toString() ?? "";
+    if (status == "DELIVERED" || status == "FAILED_CARRIER_REFUNDED") {
+      _poll?.cancel();
+      return;
+    }
+    if (!_loading && !_accepting) _load();
   }
 
   @override
   void dispose() {
     _poll?.cancel();
+    _lifecycle.dispose();
     super.dispose();
   }
 
@@ -2961,6 +2971,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   // The stop the driver has just confirmed, shown at the top until the screen loads again (dr-done).
   Map<String, dynamic>? _justDelivered;
   Timer? _poll;
+  late final AppLifecycleListener _lifecycle;
 
   @override
   void initState() {
@@ -2968,12 +2979,19 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     // The load starts location sharing when it finds the trip in progress.
     _load();
     _poll = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (_trip?["status"]?.toString() == "COMPLETED") {
-        _poll?.cancel();
-        return;
-      }
-      _checkBookingsQuietly();
+      if (!appIsInBackground) _checkAgain();
     });
+    _lifecycle = AppLifecycleListener(onShow: () {
+      if (_poll?.isActive ?? false) _checkAgain();
+    });
+  }
+
+  void _checkAgain() {
+    if (_trip?["status"]?.toString() == "COMPLETED") {
+      _poll?.cancel();
+      return;
+    }
+    _checkBookingsQuietly();
   }
 
   void _stopLocationSharing() {
@@ -3292,6 +3310,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   @override
   void dispose() {
     _poll?.cancel();
+    _lifecycle.dispose();
     _stopLocationSharing();
     super.dispose();
   }
