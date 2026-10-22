@@ -102,7 +102,7 @@ void main() {
     expect(find.byType(DriverShell), findsOneWidget);
   });
 
-  testWidgets("a driver who signs in at the start screen is headed Today, as the tab says",
+  testWidgets("a driver who signs in at the start screen is headed Home, as the tab says",
       (tester) async {
     signInToCarrierApp(CarrierServer(allowed: driverAllowed, subrole: 'DRIVER'));
     final driver = AuthorizationSession.user;
@@ -117,9 +117,9 @@ void main() {
     AuthorizationSession.revision.value++;
     await tester.pumpAndSettle();
 
-    expect(find.text('Home'), findsNothing,
-        reason: 'owner run: the heading said Home while the tab said Today (dr-today)');
-    expect(find.text('Today'), findsNWidgets(2),
-        reason: 'the heading and the tab');
+    expect(find.text('Today'), findsNothing,
+        reason: 'one concept, one word: the office says Home, so a driver does too');
+    expect(find.text('Home'), findsNWidgets(2),
+        reason: 'owner run: the heading and the tab once said different words; both say Home');
   });
 }

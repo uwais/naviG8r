@@ -309,12 +309,12 @@ void main() {
       });
     }
 
-    testWidgets('a driver has exactly Today, Trips, Profile', (tester) async {
+    testWidgets('a driver has exactly Home, Trips, Profile', (tester) async {
       await launchSignedIn(tester,
           person: 'Prakash Naidu',
           startAt: 'org-ravi',
           subroleAt: {'org-ravi': 'DRIVER'});
-      expect(tabLabels(tester), ['Today', 'Trips', 'Profile'],
+      expect(tabLabels(tester), ['Home', 'Trips', 'Profile'],
           reason: 'screens.md: drivers do not publish or manage bookings');
     });
 

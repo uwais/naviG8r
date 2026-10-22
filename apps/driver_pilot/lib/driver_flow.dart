@@ -51,9 +51,9 @@ import "unassigned_driver_notice.dart";
 final GlobalKey<NavigatorState> driverShellNavigatorKey =
     GlobalKey<NavigatorState>();
 
-/// Screen title from the current driver route. A driver's home is "Today", the office's "Home".
+/// Screen title from the current driver route. The home screen is "Home" for a driver and the office alike.
 String driverShellTitle(String path, {bool forDriver = false}) {
-  if (path == "/driver") return forDriver ? "Today" : "Home";
+  if (path == "/driver") return "Home";
   if (path.startsWith("/driver/shipments")) return "Bookings";
   if (path.startsWith("/driver/loads")) return "Trips";
   if (path.startsWith("/driver/publish")) return "Add a trip";
@@ -128,7 +128,7 @@ class DriverShell extends StatelessWidget {
     NavigationDestination(
         icon: Icon(Icons.home_outlined),
         selectedIcon: Icon(Icons.home),
-        label: "Today"),
+        label: "Home"),
     NavigationDestination(
         icon: Icon(Icons.local_shipping_outlined),
         selectedIcon: Icon(Icons.local_shipping),

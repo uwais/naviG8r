@@ -84,8 +84,8 @@ void main() {
         'Saturday',
         'Sunday'
       ];
-      expect(find.text('Today'), findsWidgets,
-          reason: 'copy.md: the screen title and the tab');
+      expect(find.text('Home'), findsWidgets,
+          reason: 'the screen title and the tab, the same word as the office');
       expect(
           find.text('${weekdays[india.weekday - 1]} ${formatDate(DateTime.now())}'),
           findsOneWidget,

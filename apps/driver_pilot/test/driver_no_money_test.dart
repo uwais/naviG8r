@@ -84,9 +84,9 @@ void main() {
     }
 
     // Each route with a word that shows it loaded, so a blank or failed screen cannot pass for a clean one.
-    // The owner-only routes send a driver back to Today.
+    // The owner-only routes send a driver back to Home.
     const routes = {
-      '/driver': 'Today',
+      '/driver': 'Home',
       '/driver/loads': 'Trips',
       '/driver/trip/trip-moving/active': 'NEXT STOP',
       '/driver/trip/trip-open/active': 'Start trip',
@@ -100,10 +100,10 @@ void main() {
       '/driver/profile': 'Sign out',
       '/driver/publish': 'Add trip',
       '/driver/track': 'Trip',
-      '/driver/fleet': 'Today',
-      '/driver/earnings': 'Today',
-      '/driver/payout-setup': 'Today',
-      '/driver/payout-history': 'Today',
+      '/driver/fleet': 'Home',
+      '/driver/earnings': 'Home',
+      '/driver/payout-setup': 'Home',
+      '/driver/payout-history': 'Home',
     };
     final router = await mountCarrierApp(tester, '/driver',
         size: const Size(800, 3000));
