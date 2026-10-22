@@ -173,6 +173,27 @@ void main() {
           reason: 'review: on the way, a booking does not say whether it was picked up');
     });
 
+    testWidgets(
+        "today's card takes the trip due today; one whose day passed is under Other trips as Was due",
+        (tester) async {
+      final overdue = carrierTrip('trip-overdue', from: 'Salem', to: 'Erode', startsInDays: -2);
+      signInToCarrierApp(CarrierServer(
+        allowed: driverAllowed,
+        subrole: 'DRIVER',
+        trips: [overdue, carrierTrip('trip-today', from: 'Hoskote', to: 'Kolar')],
+      ));
+      await mountCarrierApp(tester, '/driver');
+      final card = find.ancestor(
+          of: find.text("Open today's trip"), matching: find.byType(Container));
+      expect(find.descendant(of: card.first, matching: find.text('Hoskote to Kolar')),
+          findsOneWidget,
+          reason: 'review: an overdue trip took the card from the one due today');
+      expect(
+          find.text('Was due ${formatDate(DateTime.parse(overdue['windowStart'] as String))} · KA01AB1234'),
+          findsOneWidget,
+          reason: 'its day has passed, so it does not "leave"');
+    });
+
     testWidgets('a second trip due today is listed under Other trips, earliest first',
         (tester) async {
       signInToCarrierApp(CarrierServer(

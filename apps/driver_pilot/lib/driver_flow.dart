@@ -1429,20 +1429,29 @@ class _DriverTodayState extends State<_DriverToday> {
     if (mounted && !_loading) _load();
   }
 
-  /// A trip on the road; otherwise the earliest one not started whose first day has come.
+  /// A trip on the road; otherwise the earliest one not started that is due today, and only when none is,
+  /// the earliest whose day has passed. A trip due today is the one to work on, not one left from before.
   static Map<String, dynamic>? _todaysTrip(List<Map<String, dynamic>> trips) {
     for (final trip in trips) {
       if (trip["status"] == "IN_PROGRESS") return trip;
     }
     final today = _todayInIndia();
-    final due = trips.where((trip) {
-      final start = _tripStart(trip);
-      return _notStarted(trip) &&
-          start != null &&
-          !_dayInIndia(start).isAfter(today);
-    }).toList()
+    final notStarted = trips
+        .where((trip) => _notStarted(trip) && _tripStart(trip) != null)
+        .toList()
       ..sort(_byStart);
-    return due.isEmpty ? null : due.first;
+    bool startsToday(Map<String, dynamic> trip) =>
+        _dayInIndia(_tripStart(trip)!) == today;
+    return notStarted.where(startsToday).firstOrNull ??
+        notStarted.where(_wasDue).firstOrNull;
+  }
+
+  /// Not started, and its first day has passed.
+  static bool _wasDue(Map<String, dynamic> trip) {
+    final start = _tripStart(trip);
+    return _notStarted(trip) &&
+        start != null &&
+        _dayInIndia(start).isBefore(_todayInIndia());
   }
 
   /// Every trip not started but the one on today's card, earliest first. Only later days were listed
@@ -1551,8 +1560,12 @@ class _DriverTodayState extends State<_DriverToday> {
 
   Widget _otherTripCard(Map<String, dynamic> trip) {
     final truck = _nonEmpty(trip["assignedTruckNumber"]);
+    // A trip whose day has passed is not one that "leaves"; it says when it was due.
+    final when = _wasDue(trip)
+        ? "Was due ${formatDate(_tripStart(trip)!)}"
+        : _tripLeaves(trip);
     final details = [
-      if (_tripLeaves(trip) != null) _tripLeaves(trip)!,
+      if (when != null) when,
       if (truck != null) portalTruckNumber(truck),
     ];
     return NvListCard(
