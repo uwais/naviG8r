@@ -101,7 +101,10 @@ class GoogleGeocodingService {
     receiveTimeout: const Duration(seconds: 12),
   ));
 
-  static Future<GeocodeOutcome> forwardAddress(String address, {String? apiKey}) async {
+  /// Searches India only: left to itself Google picks its own best match, and found Kolar in Himachal
+  /// Pradesh for a Karnataka trip. [near] prefers places inside that area; Google treats it as a
+  /// preference, not a limit, so a screen that needs the place near must still check it.
+  static Future<GeocodeOutcome> forwardAddress(String address, {String? apiKey, LatLngBounds? near}) async {
     final key = apiKey ?? kMapsApiKey;
     if (key.isEmpty) return GeocodeOutcome.fail("NO_API_KEY", "Set MAPS_API_KEY (--dart-define) for look up.");
     final q = address.trim();
@@ -110,7 +113,15 @@ class GoogleGeocodingService {
     try {
       final r = await dio.get<Map<String, dynamic>>(
         "https://maps.googleapis.com/maps/api/geocode/json",
-        queryParameters: {"address": q, "key": key},
+        queryParameters: {
+          "address": q,
+          "components": "country:IN",
+          "region": "in",
+          if (near != null)
+            "bounds": "${near.southwest.latitude},${near.southwest.longitude}"
+                "|${near.northeast.latitude},${near.northeast.longitude}",
+          "key": key,
+        },
       );
       final data = r.data;
       if (data == null) return GeocodeOutcome.fail("NO_BODY");

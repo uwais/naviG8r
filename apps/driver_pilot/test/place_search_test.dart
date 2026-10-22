@@ -88,6 +88,37 @@ void main() {
     });
   });
 
+  group('forwardAddress searches India', () {
+    Future<Map<String, dynamic>> askedFor({LatLngBounds? near}) async {
+      RequestOptions? asked;
+      answerWith((request) {
+        asked = request;
+        return jsonResponse({'status': 'ZERO_RESULTS', 'results': []});
+      });
+      await GoogleGeocodingService.forwardAddress('Kolar Bus Stand',
+          apiKey: 'test-key', near: near);
+      return asked!.queryParameters;
+    }
+
+    test('every search is limited to India and prefers Indian places', () async {
+      final asked = await askedFor();
+      expect(asked['components'], 'country:IN',
+          reason: 'a Karnataka trip found Kolar in Himachal Pradesh; without this, any country');
+      expect(asked['region'], 'in');
+      expect(asked.containsKey('bounds'), isFalse,
+          reason: 'with no area given, only the country');
+    });
+
+    test('an area given is sent as bounds, south-west then north-east', () async {
+      final asked = await askedFor(
+          near: LatLngBounds(
+              southwest: const LatLng(12.5, 77.25),
+              northeast: const LatLng(13.75, 78.5)));
+      expect(asked['bounds'], '12.5,77.25|13.75,78.5');
+      expect(asked['components'], 'country:IN');
+    });
+  });
+
   group('place names', () {
     test('the first part of the address', () {
       expect(placeNameFromAddress('Hoskote, Karnataka 562114, India'), 'Hoskote');
