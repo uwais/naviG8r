@@ -255,13 +255,15 @@ void main() {
       await showPricedBook(tester, height: 4000);
       Finder inBar(Finder finder) =>
           find.descendant(of: find.byType(NvActionBar), matching: finder);
-      const pickupLine = 'Pickup pin: Bommasandra, Bengaluru, Karnataka 560099, India';
-      const dropLine = 'Drop pin: Guindy, Chennai, Tamil Nadu 600032, India';
+      const pickupLine =
+          'Pickup pin in Bengaluru: Bommasandra, Bengaluru, Karnataka 560099, India';
+      const dropLine = 'Drop pin in Chennai: Guindy, Chennai, Tamil Nadu 600032, India';
       for (final line in [pickupLine, dropLine]) {
         expect(inBar(find.text(line)), findsOneWidget,
             reason: 'owner, 21 Oct 2026: "Pin lines just above Book and pay"');
         final shown = tester.widget<Text>(inBar(find.text(line)));
-        expect(shown.maxLines, 1, reason: 'kept short: one line each');
+        expect(shown.maxLines, 1,
+            reason: 'kept short: one line each, the town first so the cut never hides it');
         expect(shown.overflow, TextOverflow.ellipsis);
         expect(find.bySemanticsLabel(line), findsOneWidget,
             reason: 'the full address is read out');

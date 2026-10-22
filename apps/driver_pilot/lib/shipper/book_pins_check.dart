@@ -3,6 +3,7 @@
 import "package:flutter/material.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
+import "../address_town.dart";
 import "../location_editor.dart";
 import "../ui/tokens.dart";
 
@@ -46,7 +47,8 @@ class BookPinsCheck extends StatelessWidget {
 }
 
 /// One short line per pin directly above Book and pay (owner, 21 Oct 2026: "Pin lines just above Book
-/// and pay"). Each is cut to one line on screen; a screen reader hears it whole.
+/// and pay"). Each is cut to one line on screen, so the town comes first and a long address cannot hide it;
+/// a screen reader hears it whole.
 class BookPinLines extends StatelessWidget {
   const BookPinLines({required this.pickup, required this.drop, super.key});
   final BookPlace pickup;
@@ -57,9 +59,20 @@ class BookPinLines extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final (title, place) in [("Pickup", pickup), ("Drop", drop)])
-            _oneLine("$title pin: ${place.pinAddress?.address ?? "not known"}"),
+            _oneLine(_pinLine(title, place)),
         ],
       );
+
+  /// While a dragged pin is named, and when there is no address, the same words as the pins check.
+  static String _pinLine(String title, BookPlace place) {
+    final address = place.pinAddress?.address;
+    if (place.naming) return "$title pin: Updating address from pin…";
+    if (address == null) {
+      return "$title ${pinAddressLine(place.pinAddress).replaceFirst("Pin: ", "pin: ")}";
+    }
+    final town = townOfAddress(address);
+    return town == address ? "$title pin: $address" : "$title pin in $town: $address";
+  }
 
   static Widget _oneLine(String words) => Semantics(
         label: words,

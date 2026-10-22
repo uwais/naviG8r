@@ -257,24 +257,21 @@ void main() {
     });
 
     testWidgets(
-        'Book and pay names the total, with the room and cancel line directly above it',
+        'Book and pay names the total, with the cancel line first in the words above it',
         (tester) async {
       await showPricedBook(tester);
       expect(bookButton(tester).label, 'Book and pay ₹2,640',
           reason: 'Rishabh: one tap books and opens payment, and the label says both');
       final button = tester.getRect(find.text('Book and pay ₹2,640'));
       final cancelLine = tester.getRect(find.text(contactAbovePay));
-      expect(cancelLine.bottom, lessThanOrEqualTo(button.top),
-          reason: 'Rishabh: the line sits directly above the button');
-      expect(tester.getRect(find.text(fullPriceLine)).bottom,
-          lessThanOrEqualTo(cancelLine.top),
-          reason: 'the full-price line stays, above the cancel line');
+      final fullPrice = tester.getRect(find.text(fullPriceLine));
+      expect(cancelLine.bottom, lessThanOrEqualTo(fullPrice.top),
+          reason: 'first in the words, so it shows even when they scroll at large text');
       final failedPayment = tester.getRect(find.text(failedPaymentLine));
-      expect(failedPayment.top,
-          greaterThanOrEqualTo(tester.getRect(find.text(fullPriceLine)).bottom),
+      expect(failedPayment.top, greaterThanOrEqualTo(fullPrice.bottom),
           reason: 'owner, 21 Oct 2026: what a failed payment means sits by the full-price line');
-      expect(failedPayment.bottom, lessThanOrEqualTo(cancelLine.top),
-          reason: 'the cancel line stays the one directly above the button');
+      expect(failedPayment.bottom, lessThanOrEqualTo(button.top),
+          reason: 'all the words sit above the button');
     });
 
   });

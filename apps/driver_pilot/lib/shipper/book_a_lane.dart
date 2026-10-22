@@ -41,7 +41,10 @@ const _couldNotPrice =
     "Could not get a price. Check your connection, then try again.";
 
 const _priceChangesNote =
-    "If you change the weight or move a pin, the price changes.";
+    "If you change the weight or move a pin, the price may change.";
+
+const _paymentPartnerNote =
+    "Book and pay opens our payment partner's screen. There you choose how to pay.";
 
 /// What the price depends on. A place without a name counts as not found, so nothing is booked
 /// under an empty name.
@@ -451,8 +454,8 @@ class _CustomerBookShipmentScreenState
         ? _PriceCard(
             pricePaise: _pricePaise!,
             carrier: lane["carrierDisplayName"]?.toString() ?? "The carrier",
-            // On a desktop the note sits under the fields it is about, so Pay stays on a 900-high screen.
-            withChangesNote: !desktop)
+            // On a desktop these two notes sit under the fields, so Pay stays on a 900-high screen.
+            withNotes: !desktop)
         : null;
     return CustomerScaffold(
       title: "Book this trip",
@@ -501,6 +504,8 @@ class _CustomerBookShipmentScreenState
               ],
               if (desktop && priceCard != null) ...[
                 const SizedBox(height: NvSpace.s3),
+                const Text(_paymentPartnerNote, style: NvText.body),
+                const SizedBox(height: NvSpace.s2),
                 const Text(_priceChangesNote, style: NvText.caption),
               ],
               if (_placesToCheck case final places?) ...[
@@ -641,18 +646,18 @@ class _CustomerBookShipmentScreenState
     final words = [
       if (_actionError != null)
         NvMessage(_actionError!, tone: NvMessageTone.problem),
-      // The full price and the way out sit as close to the button as the button itself
-      // (decisions.md 6); one tap books, so the cancel line is the one directly above it.
+      // The way out and the full price sit beside the button (decisions.md 6). One tap books, so the
+      // cancel line is first: at very large text the top of this scroll is the part that shows.
       if (price != null) ...[
+        const Text(
+            "Booking keeps this capacity for you. To cancel, contact ${PendingCopy.changeOrCancelContact}.",
+            style: NvText.body),
         const Text("This is the full price. Nothing is added at payment.",
             style: NvText.bodyStrong),
         // Owner, 21 Oct 2026: a failed payment is said on screen; the booking stays.
         const Text(
             "If you close the payment screen or the payment does not go through, the shipment stays booked and unpaid. To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.",
             style: NvText.caption),
-        const Text(
-            "Booking keeps this capacity for you. To cancel, contact ${PendingCopy.changeOrCancelContact}.",
-            style: NvText.body),
       ],
     ];
     // At very large text the words above the button scroll inside the bar, so the bar never
@@ -744,10 +749,10 @@ class _LaneSummary extends StatelessWidget {
 /// button, it holds everything the confirm sheet used to show before money moved (sh-book-price).
 class _PriceCard extends StatelessWidget {
   const _PriceCard(
-      {required this.pricePaise, required this.carrier, required this.withChangesNote});
+      {required this.pricePaise, required this.carrier, required this.withNotes});
   final num pricePaise;
   final String carrier;
-  final bool withChangesNote;
+  final bool withNotes;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -769,13 +774,14 @@ class _PriceCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: NvSpace.s2),
-            Text("After you pay, $carrier accepts and names the truck.",
+            Text("After you pay, $carrier is asked to accept and name the truck.",
                 style: NvText.body),
             const SizedBox(height: NvSpace.s2),
-            const Text(
-                "Book and pay opens our payment partner's screen. There you choose how to pay.",
+            const Text("NaviG8r holds your payment and releases it after delivery.",
                 style: NvText.body),
-            if (withChangesNote) ...[
+            if (withNotes) ...[
+              const SizedBox(height: NvSpace.s2),
+              const Text(_paymentPartnerNote, style: NvText.body),
               const SizedBox(height: NvSpace.s2),
               const Text(_priceChangesNote, style: NvText.caption),
             ],

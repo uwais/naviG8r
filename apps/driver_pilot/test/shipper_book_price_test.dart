@@ -134,15 +134,20 @@ void main() {
       expect(find.text(fullPriceLine), findsOneWidget,
           reason: 'decisions.md 6: full price on the same screen as Pay');
       expect(
-          find.text('After you pay, Ravi Roadways accepts and names the truck.'),
+          find.text(
+              'After you pay, Ravi Roadways is asked to accept and name the truck.'),
           findsOneWidget,
-          reason: 'moved from the confirm sheet onto the screen');
+          reason: 'the carrier has not accepted yet, so the words do not promise it');
+      expect(
+          find.text('NaviG8r holds your payment and releases it after delivery.'),
+          findsOneWidget,
+          reason: 'the price card says where the money goes before Pay');
       expect(
           find.text(
               "Book and pay opens our payment partner's screen. There you choose how to pay."),
           findsOneWidget,
           reason: 'moved from the confirm sheet: what Pay does next');
-      expect(find.text('If you change the weight or move a pin, the price changes.'),
+      expect(find.text('If you change the weight or move a pin, the price may change.'),
           findsOneWidget,
           reason: 'review: typing the address never changes the price; the pin does');
       expect(find.text(contactAbovePay), findsOneWidget,
@@ -275,13 +280,18 @@ void main() {
       expect(find.textContaining('Book and pay ₹'), findsOneWidget,
           reason: 'Book and pay stays in the action bar at 200% text');
       final button = tester.getRect(find.textContaining('Book and pay ₹'));
-      for (final pin in ['Pickup pin: ', 'Drop pin: ']) {
+      for (final pin in ['Pickup pin in Bengaluru: ', 'Drop pin in Chennai: ']) {
         final line = tester.getRect(find.textContaining(pin));
         expect(line.height, lessThan(button.height),
-            reason: 'one line each at 200% text, cut short');
+            reason: 'one line each at 200% text, cut short after the town');
         expect(line.bottom, lessThanOrEqualTo(button.top));
         expect(line.top, greaterThanOrEqualTo(0), reason: '$pin on screen');
       }
+      final cancelLine = tester.getRect(find.text(contactAbovePay));
+      expect(cancelLine.top, greaterThanOrEqualTo(0));
+      expect(cancelLine.bottom,
+          lessThanOrEqualTo(tester.getRect(find.text(fullPriceLine)).top),
+          reason: 'first in the words over the button, so it is what shows when they scroll');
     });
   });
 }
