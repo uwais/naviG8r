@@ -104,7 +104,10 @@ class GoogleGeocodingService {
   /// Searches India only: left to itself Google picks its own best match, and found Kolar in Himachal
   /// Pradesh for a Karnataka trip. [near] prefers places inside that area; Google treats it as a
   /// preference, not a limit, so a screen that needs the place near must still check it.
-  static Future<GeocodeOutcome> forwardAddress(String address, {String? apiKey, LatLngBounds? near}) async {
+  /// [countryOrStateNotFound] treats an answer that is only all of India or a whole state as not found,
+  /// for a pickup or drop, which must be a spot.
+  static Future<GeocodeOutcome> forwardAddress(String address,
+      {String? apiKey, LatLngBounds? near, bool countryOrStateNotFound = false}) async {
     final key = apiKey ?? kMapsApiKey;
     if (key.isEmpty) return GeocodeOutcome.fail("NO_API_KEY", "Set MAPS_API_KEY (--dart-define) for look up.");
     final q = address.trim();
@@ -131,7 +134,7 @@ class GoogleGeocodingService {
 
       final results = data["results"];
       if (results is! List<dynamic> || results.isEmpty) {
-        return GeocodeOutcome.fail("ZERO_RESULTS", "No matches — try adding state or landmark.");
+        return GeocodeOutcome.fail("ZERO_RESULTS", "Could not find that place. Add the area or a landmark.");
       }
       final first = results.first;
       if (first is! Map<String, dynamic>) return GeocodeOutcome.fail("BAD_RESPONSE");
@@ -139,10 +142,11 @@ class GoogleGeocodingService {
       // whose pin is in the middle of it: no place to pick up from. A city that is also a state or
       // territory (Delhi, Chandigarh) carries "locality" too, and is found.
       final types = first["types"];
-      if (types is List<dynamic> &&
+      if (countryOrStateNotFound &&
+          types is List<dynamic> &&
           (types.contains("country") || types.contains("administrative_area_level_1")) &&
           !types.contains("locality")) {
-        return GeocodeOutcome.fail("ZERO_RESULTS", "No matches — try adding state or landmark.");
+        return GeocodeOutcome.fail("ZERO_RESULTS", "Could not find that place. Add the area or a landmark.");
       }
       final loc = first["geometry"]?["location"];
       if (loc is! Map<String, dynamic>) return GeocodeOutcome.fail("BAD_RESPONSE");

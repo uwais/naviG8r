@@ -118,11 +118,7 @@ void main() {
       expect(asked['components'], 'country:IN');
     });
 
-    for (final (what, types, address, lat, lng) in [
-      ('all of India', ['country', 'political'], 'India', 20.59, 78.96),
-      ('a whole state', ['administrative_area_level_1', 'political'], 'Karnataka, India', 15.32, 75.71),
-    ]) {
-      test('an answer that is only $what is not found, so no pin lands in its middle', () async {
+    void answerOne(List<String> types, String address, double lat, double lng) =>
         answerWith((_) => jsonResponse({
               'status': 'OK',
               'results': [
@@ -135,49 +131,46 @@ void main() {
                 }
               ],
             }));
-        final outcome = await GoogleGeocodingService.forwardAddress('qwzx plot 9',
-            apiKey: 'test-key');
+
+    Future<GeocodeOutcome> searchForASpot(String words) => GoogleGeocodingService.forwardAddress(
+        words,
+        apiKey: 'test-key',
+        countryOrStateNotFound: true);
+
+    for (final (what, types, address, lat, lng) in [
+      ('all of India', ['country', 'political'], 'India', 20.59, 78.96),
+      ('a whole state', ['administrative_area_level_1', 'political'], 'Karnataka, India', 15.32, 75.71),
+    ]) {
+      test('a search for a spot that answers only $what is not found, so no pin lands in its middle',
+          () async {
+        answerOne(types, address, lat, lng);
+        final outcome = await searchForASpot('qwzx plot 9');
         expect(outcome.isOk, isFalse);
         expect(outcome.failure, PlaceSearchFailure.notFound);
         expect(outcome.position, isNull);
       });
     }
 
-    test('a town answer is still found', () async {
-      answerWith((_) => jsonResponse({
-            'status': 'OK',
-            'results': [
-              {
-                'formatted_address': 'Kolar, Karnataka 563101, India',
-                'types': ['locality', 'political'],
-                'geometry': {
-                  'location': {'lat': 13.14, 'lng': 78.13}
-                },
-              }
-            ],
-          }));
-      expect((await GoogleGeocodingService.forwardAddress('Kolar', apiKey: 'test-key')).isOk,
-          isTrue);
+    test('a search for a spot still finds a town', () async {
+      answerOne(['locality', 'political'], 'Kolar, Karnataka 563101, India', 13.14, 78.13);
+      expect((await searchForASpot('Kolar')).isOk, isTrue);
     });
 
-    test('a city that is also a state or territory is found', () async {
-      answerWith((_) => jsonResponse({
-            'status': 'OK',
-            'results': [
-              {
-                'formatted_address': 'Chandigarh, India',
-                'types': ['administrative_area_level_1', 'locality', 'political'],
-                'geometry': {
-                  'location': {'lat': 30.73, 'lng': 76.78}
-                },
-              }
-            ],
-          }));
-      final outcome =
-          await GoogleGeocodingService.forwardAddress('Chandigarh', apiKey: 'test-key');
+    test('a search for a spot finds a city that is also a state or territory', () async {
+      answerOne(['administrative_area_level_1', 'locality', 'political'], 'Chandigarh, India',
+          30.73, 76.78);
+      final outcome = await searchForASpot('Chandigarh');
       expect(outcome.isOk, isTrue,
           reason: 'review: Delhi and Chandigarh carry locality as well as the state type');
       expect(outcome.position, const LatLng(30.73, 76.78));
+    });
+
+    test('other searches take a whole state as found, as before', () async {
+      answerOne(['administrative_area_level_1', 'political'], 'Karnataka, India', 15.32, 75.71);
+      final outcome =
+          await GoogleGeocodingService.forwardAddress('Karnataka', apiKey: 'test-key');
+      expect(outcome.isOk, isTrue,
+          reason: 'only Book asks for a spot; trip publish, the match search and the driver map do not');
     });
   });
 
