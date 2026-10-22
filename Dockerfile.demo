@@ -29,8 +29,10 @@ WORKDIR /src/apps/driver_pilot
 COPY apps/driver_pilot ./
 
 # Relative addresses: the app, its API (under /api) and the practice portal share one origin.
+# --pwa-strategy=none: no offline copy, so testers always get the latest build. Flutter still writes an empty
+# flutter_service_worker.js and its loader still registers it; the final stage replaces that file.
 RUN flutter pub get \
-    && flutter build web --release --no-web-resources-cdn \
+    && flutter build web --release --no-web-resources-cdn --pwa-strategy=none \
        --dart-define=API_BASE_URL=/api \
        --dart-define=EWAY_PORTAL=/demo/eway-portal
 
@@ -53,6 +55,8 @@ COPY apps/api/package.json ./apps/api/package.json
 COPY apps/api/src ./apps/api/src
 COPY scripts/rbac-manual.mjs ./scripts/rbac-manual.mjs
 COPY --from=web /src/apps/driver_pilot/build/web ./web
+# Removes the offline worker and copy that earlier demo builds left in testers' browsers.
+COPY docker/demo/flutter_service_worker.js ./web/flutter_service_worker.js
 
 USER node
 EXPOSE 10000
