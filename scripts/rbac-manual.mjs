@@ -102,6 +102,10 @@ const seededShipments = [
   ["load-b-pending", "shipper-b", "carrier-b", "PENDING_CARRIER_ACCEPT", null, 10, "Hebbal, Bengaluru", "Tumakuru", "trip-carrier-b"],
 ];
 
+// Only the Hoskote to Kolar trip has real towns, so only it gets town pins; the Book screen's 15 km rule needs them.
+const townPinsByTripId = {
+  "trip-carrier-a-2": { origin: { lat: 13.0707, lng: 77.7982 }, destination: { lat: 13.1362, lng: 78.1292 } },
+};
 // Each trip's reserved weight is the weight of the shipments seeded on it, so its remaining capacity adds up.
 // Carrier A's two trips each name a driver, so each driver login sees only its own trip.
 for (const [id, carrierId, originCity, destCity, assignedVehicleId, assignedDriverUserId] of [
@@ -116,6 +120,7 @@ for (const [id, carrierId, originCity, destCity, assignedVehicleId, assignedDriv
     vehicleClass: "MEDIUM", capacityKg: 1000, reservedKg,
     status: "OPEN", createdAtUtcMs: now,
     ...(assignedVehicleId ? { assignedVehicleId, assignedDriverUserId } : {}),
+    ...townPinsByTripId[id],
   });
 }
 
