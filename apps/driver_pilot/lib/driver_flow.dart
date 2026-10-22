@@ -1413,8 +1413,16 @@ class _DriverTodayState extends State<_DriverToday> {
             booking["anchorTripId"] == trip["id"] &&
             _acceptedOrDelivered(booking))
         .length;
-    String places(int count, Object? city) =>
-        _nonEmpty(city) == null ? "$count" : "$count, in $city";
+    // A tester read "Pickups 5, in X" as a puzzle; this says "5 pickups, all in X" or "1 pickup in X".
+    String places(int count, String stop, Object? city) {
+      final counted = count == 1 ? "1 $stop" : "$count ${stop}s";
+      if (_nonEmpty(city) == null) return counted;
+      return count == 1 ? "$counted in $city" : "$counted, all in $city";
+    }
+
+    Widget placesRow(String words) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: NvSpace.s2),
+        child: Text(words, style: NvText.bodyStrong));
     final NvStatusLabel? status;
     if (trip["status"] == "IN_PROGRESS") {
       status = const NvStatusLabel("On the way", tone: NvStatusTone.info);
@@ -1451,8 +1459,8 @@ class _DriverTodayState extends State<_DriverToday> {
             if (truck != null)
               _factRow("Truck", portalTruckNumber(truck), identifier: true),
             if (accepted != null && accepted > 0) ...[
-              _factRow("Pickups", places(accepted, trip["originCity"])),
-              _factRow("Drops", places(accepted, trip["destCity"])),
+              placesRow(places(accepted, "pickup", trip["originCity"])),
+              placesRow(places(accepted, "drop", trip["destCity"])),
             ],
           ]),
           const SizedBox(height: NvSpace.s4),

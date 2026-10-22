@@ -96,10 +96,10 @@ void main() {
           reason: 'dr-today: a trip with accepted bookings, not started yet');
       expect(find.text('KA01AB1234'), findsOneWidget,
           reason: 'dr-today: the truck, in the mono face');
-      expect(find.text('3, in Bengaluru'), findsOneWidget,
-          reason: 'dr-today: Pickups, counted from the accepted bookings');
-      expect(find.text('3, in Chennai'), findsOneWidget,
-          reason: 'dr-today: Drops');
+      expect(find.text('3 pickups, all in Bengaluru'), findsOneWidget,
+          reason: 'dr-today: pickups, counted from the accepted bookings');
+      expect(find.text('3 drops, all in Chennai'), findsOneWidget,
+          reason: 'dr-today: drops');
       final open = find.widgetWithText(FilledButton, "Open today's trip");
       expect(heightOf(tester, open), NvSpace.targetDriver,
           reason: 'spec: 56 dp driver primaries');
