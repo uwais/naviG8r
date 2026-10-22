@@ -83,4 +83,9 @@ test("a trip given to a second driver tells the second; the first no longer sees
   assert.equal((await tripNotices(tokens.owner)).length, 0, "the owner who chose hears nothing");
   assert.equal((await assign(driverB, tokens.owner)).status, 200, "saving the same driver again");
   assert.equal((await tripNotices(tokens.driverB)).length, 1, "is not a new trip");
+
+  assert.equal((await assign(driverA, tokens.owner)).status, 200, "given back to driver A");
+  const backToA = await tripNotices(tokens.driverA);
+  assert.deepEqual(backToA.map((notice) => notice.id), [first.id], "driver A sees the first notice again, not a second");
+  assert.equal([...f.store.notifications.values()].filter((n) => n.eventKey === "trip.assigned" && n.recipientUserId === driverA.user.id).length, 1);
 });

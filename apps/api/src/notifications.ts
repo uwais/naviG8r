@@ -215,6 +215,9 @@ function dayInIndiaWords(utcMs: number): string {
 function createTripAssignedNotice(store: Store, trip: AnchorTrip, actorUserId?: string): void {
   const driverUserId = trip.assignedDriverUserId;
   if (!driverUserId || driverUserId === actorUserId || !eligibleActor(store, driverUserId, trip.carrierId, "CARRIER")) return;
+  // Given back after a time with another driver (A, B, then A): the first notice shows again, so no second one.
+  const alreadyTold = [...store.notifications.values()].some((n) => n.eventKey === TRIP_ASSIGNED_EVENT && n.tripId === trip.id && n.recipientUserId === driverUserId);
+  if (alreadyTold) return;
   const leavesUtcMs = Date.parse(trip.windowStart);
   const body = `You have a new trip: ${trip.originCity} to ${trip.destCity}${Number.isNaN(leavesUtcMs) ? "" : `, leaves ${dayInIndiaWords(leavesUtcMs)}`}.`;
   const now = Date.now();
