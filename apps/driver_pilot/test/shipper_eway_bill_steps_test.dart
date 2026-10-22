@@ -1,5 +1,5 @@
 // The e-way bill steps on the shipper's shipment screen (sh-ewb-*, PR 5b of the redesign): the portal
-// copy rows, the bill form and its errors, adding the truck, and the staff check.
+// copy rows, the bill form and its errors, adding the truck, the saved summary, and a bill ops flagged.
 import 'package:driver_pilot/eway_bill_card.dart';
 import 'package:driver_pilot/ui/format.dart';
 import 'package:flutter/material.dart';
@@ -230,20 +230,33 @@ void main() {
       await leave(tester);
     });
 
-    testWidgets('bill and truck saved: NaviG8r checks it', (tester) async {
-      await showShipment(tester, booking(ewayBill: billWithTruck),
+    testWidgets('bill and truck saved: a short summary, changes behind one button',
+        (tester) async {
+      // A passed valid-until time keeps the changes open, so this bill is still valid.
+      final validUntil = DateTime.now().toUtc().add(const Duration(days: 2));
+      await showShipment(
+          tester,
+          booking(ewayBill: {
+            ...billWithTruck,
+            'validUntilUtcMs': validUntil.millisecondsSinceEpoch
+          }),
           trip: lane());
       expect(
           find.text(
               'E-way bill saved. Nothing more for you to do until delivery.'),
           findsOneWidget,
           reason: 'copy.md step 4');
-      expect(
-          find.text(
-              'NaviG8r checks the bill on the portal by hand. If NaviG8r finds a problem, this shipment and your Home screen show what to fix.'),
-          findsOneWidget,
-          reason:
-              'copy.md step 4: who checks, and how; no message is sent about a problem, so none is promised');
+      expect(find.textContaining('NaviG8r checks'), findsNothing,
+          reason: 'owner, 22 Oct 2026: no one checks a bill by hand before the trip');
+      expect(find.text('Edit the bill'), findsNothing,
+          reason: 'Uwais, 22 Oct 2026: a saved bill shows only its summary');
+      expect(find.text(ewayBillFootnote), findsNothing);
+      await tester.ensureVisible(find.text('Change or remove the e-way bill'));
+      await tester.tap(find.text('Change or remove the e-way bill'));
+      await tester.pumpAndSettle();
+      expect(find.text('Edit the bill'), findsOneWidget);
+      expect(find.text('Remove e-way bill'), findsOneWidget);
+      expect(find.text(ewayBillFootnote), findsOneWidget);
       expect(find.text('3412 0098 7654'), findsOneWidget,
           reason: 'the bill number in groups of four');
       expect(

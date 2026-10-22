@@ -124,7 +124,7 @@ void main() {
         reason: 'date button, nothing chosen');
     expect(find.text('Time in India: choose the time'), findsOneWidget,
         reason: 'time button, nothing chosen');
-    expect(find.text('If you change these, the bill goes back to "Not checked yet".'), findsNothing,
+    expect(find.text("If you change these, NaviG8r's portal check is removed."), findsNothing,
         reason: 'no check to clear');
     expect(find.widgetWithText(FilledButton, 'Save truck'), findsOneWidget,
         reason: 'save is the filled button');
@@ -156,7 +156,7 @@ void main() {
     });
     await mountTruckForm(tester, clearsCheck: true);
     expect(
-        find.text('If you change these, the bill goes back to "Not checked yet".'), findsOneWidget,
+        find.text("If you change these, NaviG8r's portal check is removed."), findsOneWidget,
         reason: 'the bill had a check');
     await tester.enterText(truckField(), 'ka 01 ab 1234');
     await tester.tap(find.text('Valid until, date in India: choose the date'));
@@ -322,7 +322,7 @@ void main() {
       expect(find.widgetWithText(TextField, 'Truck number'), findsOneWidget,
           reason: 'the truck form opens');
       expect(
-          find.text('If you change these, the bill goes back to "Not checked yet".'), findsNothing,
+          find.text("If you change these, NaviG8r's portal check is removed."), findsNothing,
           reason: 'the bill has no check to clear');
       expect(find.text('Open the e-way bill portal'), findsOneWidget,
           reason: 'the portal is one tap from the form');
@@ -347,7 +347,8 @@ void main() {
           findsOneWidget,
           reason: 'and its valid-until time in India');
       expect(find.widgetWithText(TextButton, 'Change truck'), findsOneWidget,
-          reason: 'a saved truck can be changed');
+          reason:
+              'a saved truck can be changed; a passed valid-until time keeps the changes open');
       expect(find.text('Save truck'), findsNothing, reason: 'the form closed');
     });
 
@@ -371,7 +372,7 @@ void main() {
       expect(find.text('KA01AB1234'), findsOneWidget,
           reason: 'the saved truck is filled in');
       expect(
-          find.text('If you change these, the bill goes back to "Not checked yet".'), findsOneWidget,
+          find.text("If you change these, NaviG8r's portal check is removed."), findsOneWidget,
           reason: 'the bill was checked, and a change clears it');
       await tester.tap(find.text('Save truck'));
       await tester.pumpAndSettle();
@@ -395,6 +396,26 @@ void main() {
           reason: 'no eway_bill.add_truck, no button');
       expect(find.text('Edit the bill'), findsOneWidget,
           reason: 'the bill itself can still be edited');
+    });
+
+    testWidgets('opening the changes on a saved truck still hides Change truck without the permission',
+        (tester) async {
+      signInAsShipper();
+      final validTomorrow = DateTime.now()
+          .add(const Duration(days: 1))
+          .millisecondsSinceEpoch;
+      await mountCard(
+          tester,
+          EwayBillCard(
+              shipment: shipment(bill: {
+            ...withTruck(savedBill),
+            'validUntilUtcMs': validTomorrow
+          })));
+      await tester.tap(find.widgetWithText(TextButton, 'Change or remove the e-way bill'));
+      await tester.pump();
+      expect(find.text('Edit the bill'), findsOneWidget);
+      expect(find.text('Change truck'), findsNothing,
+          reason: 'no eway_bill.add_truck, no button, behind the summary too');
     });
 
     testWidgets('the 15 second refresh never wipes a half typed truck',

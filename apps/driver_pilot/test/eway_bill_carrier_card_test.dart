@@ -84,8 +84,8 @@ void main() {
         findsOneWidget,
         reason:
             'owner decision 18 Oct 2026: the shipper adds the truck; the carrier is told, not asked');
-    expect(find.text('Not checked yet.'), findsOneWidget,
-        reason: 'the ops check state shows');
+    expect(find.textContaining('Not checked yet'), findsNothing,
+        reason: 'owner, 22 Oct 2026: no check is promised, so none is "not done yet"');
     expect(find.textContaining('has not checked the truck or the end time'),
         findsOneWidget,
         reason: 'no truck yet, so the original caveat stays');

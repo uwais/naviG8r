@@ -74,6 +74,10 @@ class _EwayBillCardState extends State<EwayBillCard> {
   String? _gstinError;
   num _savedAtUtcMs = 0;
 
+  /// A saved bill with its truck shows only its summary until the shipper asks to change it
+  /// (Uwais, 22 Oct 2026: the done step read as too busy).
+  bool _changesShown = false;
+
   static Map<String, dynamic>? _billFrom(Map<String, dynamic> shipment) {
     final raw = shipment['ewayBill'];
     return raw is Map<String, dynamic> ? raw : null;
@@ -111,6 +115,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       _mode = _Mode.viewing;
       _bill = _billFrom(widget.shipment);
       _savedAtUtcMs = 0;
+      _changesShown = false;
       _clearErrors();
       _busy = false;
       _billDate = null;
@@ -311,6 +316,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       final savedTime = shipment?['updatedAtUtcMs'];
       if (savedTime is num) _savedAtUtcMs = savedTime;
       _mode = _Mode.viewing;
+      _changesShown = false;
     });
     final bill = _bill;
     if (bill != null && bill['kind'] == 'BILL') {
@@ -519,7 +525,10 @@ class _EwayBillCardState extends State<EwayBillCard> {
     final mismatch = ewayBillTruckMismatchSentence(widget.shipment, bill,
         reader: TruckMismatchReader.shipper);
     return [
-      if (!checked && !ewayBillIsClosed(widget.shipment)) ...[
+      // "Nothing more to do" would contradict a wrong truck or a passed valid-until time shown below it.
+      if (!checked &&
+          !_truckNeedsAttention(bill) &&
+          !ewayBillIsClosed(widget.shipment)) ...[
         const NvMessage(
             'E-way bill saved. Nothing more for you to do until delivery.',
             tone: NvMessageTone.good),
@@ -544,10 +553,49 @@ class _EwayBillCardState extends State<EwayBillCard> {
     ];
   }
 
+  /// The truck on the bill differs from the trip's, or the valid-until time has passed.
+  bool _truckNeedsAttention(Map<String, dynamic> bill) {
+    final validUntilMs = bill['validUntilUtcMs'];
+    return ewayBillTruckMismatchSentence(widget.shipment, bill,
+                reader: TruckMismatchReader.shipper) !=
+            null ||
+        (validUntilMs is num &&
+            validUntilMs <= DateTime.now().millisecondsSinceEpoch);
+  }
+
+  // Read from this card's own bill, which a save updates before the screen's shipment does. Only a
+  // shipper who can change the bill gets the summary; anything wrong with it keeps the changes open.
+  bool get _summaryOnly {
+    final bill = _bill;
+    if (!_canEdit ||
+        _changesShown ||
+        _mode != _Mode.viewing ||
+        bill?['kind'] != 'BILL') {
+      return false;
+    }
+    final truck = bill!['truckNumber'];
+    final check = bill['check'];
+    return truck is String &&
+        truck.isNotEmpty &&
+        !(check is Map && check['result'] == 'PROBLEM') &&
+        !_truckNeedsAttention(bill);
+  }
+
   List<Widget> _billActions(Map<String, dynamic> bill) {
     if (!_canEdit) return const [];
     final truck = bill['truckNumber'];
     final hasTruck = truck is String && truck.isNotEmpty;
+    if (_summaryOnly) {
+      return [
+        const SizedBox(height: NvSpace.s2),
+        Align(
+            alignment: Alignment.centerLeft,
+            child: NvButton(
+                label: 'Change or remove the e-way bill',
+                kind: NvButtonKind.quiet,
+                onPressed: () => setState(() => _changesShown = true))),
+      ];
+    }
     return [
       const SizedBox(height: NvSpace.s2),
       Wrap(spacing: NvSpace.s2, children: [
@@ -628,7 +676,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       NvField(label: 'Invoice number', controller: _invoice, identifier: true),
       if (checked) ...[
         const SizedBox(height: NvSpace.s2),
-        const Text('If you change these, the bill goes back to "Not checked yet".',
+        const Text("If you change these, NaviG8r's portal check is removed.",
             style: NvText.caption),
       ],
       EwayBillErrorText(_error),
@@ -639,9 +687,6 @@ class _EwayBillCardState extends State<EwayBillCard> {
           loading: _busy,
           fullWidth: true,
           onPressed: _saveBill),
-      const SizedBox(height: NvSpace.s1),
-      const Text('NaviG8r then checks it on the portal.',
-          style: NvText.caption),
       const SizedBox(height: NvSpace.s2),
       NvButton(
           label: 'Cancel',
@@ -711,7 +756,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ...body,
-        if (!aboutNotNeeded) ...[
+        if (!aboutNotNeeded && !_summaryOnly) ...[
           const SizedBox(height: NvSpace.s3),
           const Text(ewayBillFootnote, style: NvText.caption),
         ],

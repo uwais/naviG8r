@@ -116,27 +116,27 @@ void main() {
         tester,
         const NvStepList(listName: 'Steps', steps: [
           NvStep(
-            title: 'Bill check',
-            who: 'NaviG8r staff',
+            title: 'Carrier accepts',
+            who: 'Ravi Roadways',
             state: NvStepState.waiting,
-            panel: Text('NaviG8r checks the bill on the portal by hand.'),
+            panel: Text('The carrier names the truck.'),
           ),
         ]));
 
     expect(find.byIcon(Icons.schedule), findsOneWidget,
         reason: 'waiting steps differ by a clock marker');
-    expect(find.text('NaviG8r checks the bill on the portal by hand.'),
+    expect(find.text('The carrier names the truck.'),
         findsOneWidget,
         reason: 'a waiting step says who is acting');
     expect(find.byType(ButtonStyleButton), findsNothing,
         reason: 'a waiting step has no button');
     expect(
         panelDecorationAround(
-                tester, 'NaviG8r checks the bill on the portal by hand.')
+                tester, 'The carrier names the truck.')
             .color,
         NvColors.sunken,
         reason: 'the waiting panel is grey');
-    expect(find.bySemanticsLabel('In progress: Bill check, NaviG8r staff'),
+    expect(find.bySemanticsLabel('In progress: Carrier accepts, Ravi Roadways'),
         findsOneWidget,
         reason: 'spec/components.md: waiting steps are read as "In progress:"');
     semantics.dispose();

@@ -90,17 +90,6 @@ void main() {
               'owner decision 18 Oct 2026: the shipper adds the truck, the carrier only reads the bill');
     });
 
-    test('accepted, bill and truck, not checked: NaviG8r checks it', () {
-      final progress = shipmentProgress(shipment('BOOKED', billWithTruck));
-      expect(progress.current, ShipmentStepName.billCheck);
-      expect(progress.actor, ShipmentActor.staff);
-      expect(progress.next, 'NaviG8r checks the bill');
-      expect(progress.task, isNull);
-      expect(stateOf(progress, ShipmentStepName.ewayBill), NvStepState.done);
-      expect(
-          stateOf(progress, ShipmentStepName.billCheck), NvStepState.waiting);
-    });
-
     test('accepted, staff found a problem: the shipper fixes the bill', () {
       final progress = shipmentProgress(shipment('BOOKED', {
         ...billWithTruck,
@@ -125,9 +114,12 @@ void main() {
               'screens.md does not say (RECON gap 4); the fix may change the bill the truck goes on');
     });
 
-    test('accepted, checked or not needed: the carrier starts the trip', () {
+    // Owner, 22 Oct 2026: no one checks a bill by hand before the trip, so a saved bill with its
+    // truck moves straight on, checked or not.
+    test('accepted, bill with truck or not needed: the carrier starts the trip', () {
       for (final answer in [
         notNeeded,
+        billWithTruck,
         {
           ...billWithTruck,
           'check': {'result': 'FOUND'}
@@ -194,16 +186,9 @@ void main() {
             'Booked and paid',
             'Carrier accepts and names the truck',
             'E-way bill',
-            'NaviG8r checks the bill',
             'On the way',
             'Delivered'
           ]);
-      expect(
-          shipmentProgress(shipment('BOOKED', notNeeded))
-              .steps
-              .map((step) => step.title),
-          isNot(contains('NaviG8r checks the bill')),
-          reason: 'only a saved bill is checked');
     });
 
     test('with no carrier name the line still reads', () {
@@ -243,7 +228,7 @@ void main() {
           reason:
               'the step-0 answer has no stored field, so it is not a Home task');
       expect(taskFor({'status': 'BOOKED', 'ewayBill': billWithTruck}), isNull,
-          reason: 'bill and truck saved: NaviG8r checks it');
+          reason: 'bill and truck saved: the carrier starts the trip');
       expect(taskFor({'status': 'BOOKED', 'ewayBill': notNeeded}), isNull,
           reason: 'not needed: the carrier starts the trip');
       for (final status in [

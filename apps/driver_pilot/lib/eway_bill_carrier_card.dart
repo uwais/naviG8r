@@ -39,7 +39,9 @@ class EwayBillCarrierCard extends StatelessWidget {
       else
         for (final line in truckLines) Text(line, style: NvText.body),
       if (mismatch != null) Text(mismatch, style: NvText.body),
-      Text(ewayBillCheckLine(bill, forShipper: false), style: NvText.body),
+      // An unlooked-up bill is covered by the caption below; only what ops saw adds anything.
+      if (bill['check'] is Map)
+        Text(ewayBillCheckLine(bill, forShipper: false), style: NvText.body),
       Text(
           truckLines.isEmpty
               ? 'Shown as the shipper entered it. NaviG8r did not make or change this bill. NaviG8r has not checked the truck or the end time.'

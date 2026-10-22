@@ -8,27 +8,14 @@ import "ui/nv_step_list.dart" show NvStepState;
 // "Needs you" card all read this.
 
 /// Who acts on the current step.
-enum ShipmentActor { shipper, carrier, staff, nobody }
+enum ShipmentActor { shipper, carrier, nobody }
 
 /// Where the shipper's e-way bill stands. There is no stored "yes, it needs one" answer, so
-/// no bill at all is [none] (RECON gap 1).
-enum EwayBillStage {
-  none,
-  notNeeded,
-  billWithoutTruck,
-  awaitingCheck,
-  problem,
-  checked
-}
+/// no bill at all is [none] (RECON gap 1). NaviG8r does not check a bill before the trip
+/// (owner, 22 Oct 2026); [problem] is only for a bill ops happened to look up and flag.
+enum EwayBillStage { none, notNeeded, billWithoutTruck, billWithTruck, problem }
 
-enum ShipmentStepName {
-  booked,
-  carrierAccepts,
-  ewayBill,
-  billCheck,
-  onTheWay,
-  delivered
-}
+enum ShipmentStepName { booked, carrierAccepts, ewayBill, onTheWay, delivered }
 
 class ShipmentStep {
   const ShipmentStep(this.name, this.title, this.state, {this.who});
@@ -36,7 +23,7 @@ class ShipmentStep {
   final String title;
   final NvStepState state;
 
-  /// Who does the step: "You", the carrier's name, "NaviG8r staff".
+  /// Who does the step: "You" or the carrier's name.
   final String? who;
 }
 
@@ -87,8 +74,7 @@ EwayBillStage ewayBillStageOf(Map<String, dynamic> shipment) {
   if (truck is! String || truck.trim().isEmpty) {
     return EwayBillStage.billWithoutTruck;
   }
-  if (check is Map && check["result"] == "FOUND") return EwayBillStage.checked;
-  return EwayBillStage.awaitingCheck;
+  return EwayBillStage.billWithTruck;
 }
 
 /// A booking is made before checkout, so a closed or failed checkout leaves it booked and unpaid.
@@ -163,17 +149,12 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
         ShipmentActor.shipper,
         "You add the truck to the e-way bill"
       ),
-    EwayBillStage.awaitingCheck => (
-        ShipmentStepName.billCheck,
-        ShipmentActor.staff,
-        "NaviG8r checks the bill"
-      ),
     EwayBillStage.problem => (
         ShipmentStepName.ewayBill,
         ShipmentActor.shipper,
         "You fix the e-way bill"
       ),
-    EwayBillStage.checked || EwayBillStage.notNeeded => (
+    EwayBillStage.billWithTruck || EwayBillStage.notNeeded => (
         ShipmentStepName.onTheWay,
         ShipmentActor.carrier,
         "$carrier starts the trip"
@@ -210,10 +191,7 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
 
   final ewayBillState = switch (stage) {
     _ when delivered => NvStepState.done,
-    EwayBillStage.notNeeded ||
-    EwayBillStage.awaitingCheck ||
-    EwayBillStage.checked =>
-      NvStepState.done,
+    EwayBillStage.notNeeded || EwayBillStage.billWithTruck => NvStepState.done,
     EwayBillStage.problem => NvStepState.problem,
     EwayBillStage.none ||
     EwayBillStage.billWithoutTruck =>
@@ -239,15 +217,6 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
               : "E-way bill",
           ewayBillState,
           who: "You"),
-      // Only a saved bill is checked; a flagged one is fixed on the e-way bill step first.
-      if (stage == EwayBillStage.awaitingCheck ||
-          stage == EwayBillStage.checked)
-        ShipmentStep(
-            ShipmentStepName.billCheck,
-            "NaviG8r checks the bill",
-            stateWhen(stage == EwayBillStage.checked || delivered,
-                inProgress: true),
-            who: "NaviG8r"),
       ShipmentStep(
           ShipmentStepName.onTheWay,
           "On the way",

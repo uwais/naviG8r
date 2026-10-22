@@ -350,14 +350,6 @@ class _CustomerShipmentDetailScreenState
                 shipment: shipment,
                 portalButtonInPanel: customerIsDesktop(context),
                 onSaved: _takeSavedShipment));
-      case ShipmentStepName.billCheck:
-        return NvStep(
-            title: step.title,
-            state: step.state,
-            who: step.who,
-            panel: const Text(
-                "NaviG8r checks the bill on the portal by hand. If NaviG8r finds a problem, this shipment and your Home screen show what to fix.",
-                style: NvText.body));
       case ShipmentStepName.onTheWay:
         final started = _momentFromUtcMs(_trip?["startedAtUtcMs"]);
         final laneDays = _trip == null ? null : laneDates(_trip!);

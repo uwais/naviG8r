@@ -103,13 +103,13 @@ String notNeededReasonWords(Map<String, dynamic> bill) {
   }
 }
 
-/// What ops saw. [forShipper] decides who is told what to do next and how the unchecked state reads.
+/// What ops saw, if ops looked the bill up. [forShipper] decides who is told what to do next. An
+/// unlooked-up bill promises no check: NaviG8r does not check bills before the trip (owner, 22 Oct 2026).
+/// Only the carrier office's step line reads an unlooked-up bill; the shipper's card never asks.
 String ewayBillCheckLine(Map<String, dynamic> bill,
     {required bool forShipper}) {
   final check = bill['check'];
-  if (check is! Map) {
-    return forShipper ? 'Entered by you. Not checked yet.' : 'Not checked yet.';
-  }
+  if (check is! Map) return 'Entered by the shipper.';
   final checkedAt = check['checkedAtUtcMs'];
   final date = checkedAt is num
       ? ' on ${formatDate(DateTime.fromMillisecondsSinceEpoch(checkedAt.toInt(), isUtc: true))}'

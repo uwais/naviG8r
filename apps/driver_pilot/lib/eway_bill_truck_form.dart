@@ -174,7 +174,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
               : 'Time in India: ${ewayBillClockTime(time.hour, time.minute)}')),
       const SizedBox(height: 8),
       if (widget.clearsCheck)
-        const Text('If you change these, the bill goes back to "Not checked yet".'),
+        const Text("If you change these, NaviG8r's portal check is removed."),
       EwayBillErrorText(_error),
       const SizedBox(height: 8),
       Wrap(spacing: 8, runSpacing: 8, children: [
