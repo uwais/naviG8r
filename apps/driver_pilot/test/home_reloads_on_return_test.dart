@@ -81,7 +81,7 @@ void main() {
       final answer = server.answer(request);
       if (held != null) {
         if (request.path == '/v1/pilot/carrier/shipments') heldBookingsAsked = true;
-        await held!.future;
+        await held.future;
       }
       return answer;
     });
@@ -99,7 +99,7 @@ void main() {
     await tester.pump();
     await tester.tap(tab('Home'));
     await tester.pump();
-    final release = held!;
+    final release = held;
     held = null;
     release.complete();
     await tester.pumpAndSettle();
