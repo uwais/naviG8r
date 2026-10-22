@@ -454,6 +454,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             findPlace: widget.findPlace,
             namePin: widget.namePin,
             keepsFullAddress: true,
+            // A drag naming or a search still out when the box scrolls off screen would be lost.
+            staysAliveOffScreen: true,
           ),
           _pickupError,
         ),
@@ -483,6 +485,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             findPlace: widget.findPlace,
             namePin: widget.namePin,
             keepsFullAddress: true,
+            // A drag naming or a search still out when the box scrolls off screen would be lost.
+            staysAliveOffScreen: true,
           ),
           _dropError,
         ),

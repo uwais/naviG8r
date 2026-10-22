@@ -298,6 +298,8 @@ void main() {
         keepsFullAddress: true,
       );
     })))));
+    expect(searching, [false], reason: 'a new box first tells the screen nothing is out');
+    searching.clear();
     await tester.tap(find.byTooltip('Search for place'));
     await tester.pump();
     expect(searching, [true], reason: 'the screen hears a search is out');

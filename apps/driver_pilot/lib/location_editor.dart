@@ -471,6 +471,13 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor>
     _pinFoundFor = words.isEmpty ? null : words;
     _atStreetLevel = widget.keepsFullAddress && widget.showMap;
     widget.labelController.addListener(_wordsChanged);
+    // A box built again (scrolled off and back) starts with nothing out, but the one it replaces may
+    // have left the screen told "searching" or "naming". Its dispose cannot tell the screen, so this does.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onSearching?.call(false);
+      widget.onPinNaming?.call(false);
+    });
   }
 
   @override
