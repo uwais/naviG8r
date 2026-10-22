@@ -1344,7 +1344,7 @@ bool _acceptedOrDelivered(Map<String, dynamic> booking) =>
     const {"BOOKED", "PENDING_RELEASE", "DELIVERED"}
         .contains(booking["status"]);
 
-/// dr-today: the trip to work on today with its one button, then the driver's later trips. No money anywhere.
+/// dr-today: the trip to work on today with its one button, then the driver's other trips. No money anywhere.
 class _DriverToday extends StatefulWidget {
   const _DriverToday();
 
@@ -1445,16 +1445,16 @@ class _DriverTodayState extends State<_DriverToday> {
     return due.isEmpty ? null : due.first;
   }
 
-  /// Trips not started whose first day is still to come, earliest first.
-  static List<Map<String, dynamic>> _laterTrips(
-      List<Map<String, dynamic>> trips) {
-    final today = _todayInIndia();
-    return trips.where((trip) {
-      final start = _tripStart(trip);
-      return _notStarted(trip) &&
-          start != null &&
-          _dayInIndia(start).isAfter(today);
-    }).toList()
+  /// Every trip not started but the one on today's card, earliest first. Only later days were listed
+  /// once, so a second trip due today showed nowhere.
+  static List<Map<String, dynamic>> _otherTrips(
+      List<Map<String, dynamic>> trips, Map<String, dynamic>? todays) {
+    return trips
+        .where((trip) =>
+            _notStarted(trip) &&
+            _tripStart(trip) != null &&
+            trip["id"] != todays?["id"])
+        .toList()
       ..sort(_byStart);
   }
 
@@ -1532,7 +1532,7 @@ class _DriverTodayState extends State<_DriverToday> {
     );
   }
 
-  Widget _laterTripCard(Map<String, dynamic> trip) {
+  Widget _otherTripCard(Map<String, dynamic> trip) {
     final truck = _nonEmpty(trip["assignedTruckNumber"]);
     final details = [
       if (_tripLeaves(trip) != null) _tripLeaves(trip)!,
@@ -1564,7 +1564,7 @@ class _DriverTodayState extends State<_DriverToday> {
       ];
     } else {
       final todays = _todaysTrip(trips);
-      final later = _laterTrips(trips);
+      final others = _otherTrips(trips, todays);
       content = [
         if (todays != null)
           _todayCard(todays)
@@ -1572,13 +1572,14 @@ class _DriverTodayState extends State<_DriverToday> {
           const NvListEmpty(
               title: "No trip today.",
               help: "Your office gives you trips. They show here."),
-        if (later.isNotEmpty) ...[
+        if (others.isNotEmpty) ...[
           const SizedBox(height: NvSpace.s6),
           Semantics(
-              header: true, child: const Text("Next", style: NvText.heading)),
+              header: true,
+              child: const Text("Other trips", style: NvText.heading)),
           const SizedBox(height: NvSpace.s3),
-          for (final trip in later) ...[
-            _laterTripCard(trip),
+          for (final trip in others) ...[
+            _otherTripCard(trip),
             const SizedBox(height: NvSpace.s3),
           ],
         ],

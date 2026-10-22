@@ -105,8 +105,8 @@ void main() {
           reason: 'spec: 56 dp driver primaries');
       expect(tester.getRect(open).bottom, lessThanOrEqualTo(tabsTop(tester)),
           reason: 'spec: the primary action is visible without scrolling');
-      expect(find.text('Next'), findsOneWidget,
-          reason: 'dr-today: later trips follow under Next');
+      expect(find.text('Other trips'), findsOneWidget,
+          reason: 'the other trips follow, in plain words');
       expect(find.text('Chennai to Bengaluru'), findsOneWidget);
       final later = carrierTrip('trip-later', startsInDays: 2);
       expect(
@@ -130,6 +130,33 @@ void main() {
           reason: 'copy.md: the empty Today');
       expect(find.text('Your office gives you trips. They show here.'),
           findsOneWidget);
+    });
+
+    testWidgets('a second trip due today is listed under Other trips, earliest first',
+        (tester) async {
+      signInToCarrierApp(CarrierServer(
+        allowed: driverAllowed,
+        subrole: 'DRIVER',
+        trips: [
+          carrierTrip('trip-later', from: 'Salem', to: 'Madurai', startsInDays: 3),
+          carrierTrip('trip-today', from: 'Hoskote', to: 'Kolar'),
+          carrierTrip('trip-also-today', from: 'Hosur', to: 'Vellore'),
+        ],
+      ));
+      await mountCarrierApp(tester, '/driver');
+      final otherTrips = find.text('Other trips');
+      expect(otherTrips, findsOneWidget);
+      final onCard = find.text('Hoskote to Kolar').evaluate().isNotEmpty;
+      final [card, second] = onCard
+          ? ['Hoskote to Kolar', 'Hosur to Vellore']
+          : ['Hosur to Vellore', 'Hoskote to Kolar'];
+      expect(find.text(card), findsOneWidget, reason: "one trip due today is on today's card");
+      expect(find.text(second), findsOneWidget,
+          reason: 'owner run: the other trip due today showed nowhere');
+      final secondTop = tester.getTopLeft(find.text(second)).dy;
+      expect(secondTop, greaterThan(tester.getTopLeft(otherTrips).dy));
+      expect(secondTop, lessThan(tester.getTopLeft(find.text('Salem to Madurai')).dy),
+          reason: 'earliest first');
     });
   });
 
