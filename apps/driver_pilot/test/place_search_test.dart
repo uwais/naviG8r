@@ -159,6 +159,26 @@ void main() {
       expect((await GoogleGeocodingService.forwardAddress('Kolar', apiKey: 'test-key')).isOk,
           isTrue);
     });
+
+    test('a city that is also a state or territory is found', () async {
+      answerWith((_) => jsonResponse({
+            'status': 'OK',
+            'results': [
+              {
+                'formatted_address': 'Chandigarh, India',
+                'types': ['administrative_area_level_1', 'locality', 'political'],
+                'geometry': {
+                  'location': {'lat': 30.73, 'lng': 76.78}
+                },
+              }
+            ],
+          }));
+      final outcome =
+          await GoogleGeocodingService.forwardAddress('Chandigarh', apiKey: 'test-key');
+      expect(outcome.isOk, isTrue,
+          reason: 'review: Delhi and Chandigarh carry locality as well as the state type');
+      expect(outcome.position, const LatLng(30.73, 76.78));
+    });
   });
 
   group('place names', () {
