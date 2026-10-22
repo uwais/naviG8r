@@ -15,6 +15,7 @@ import "driver_flow.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
+import "notification_center.dart";
 import "pilot_api.dart";
 import "shipment_conversation.dart";
 import "push_notifications.dart";
@@ -217,7 +218,9 @@ Future<void> _openPushNotification(String notificationId) async {
     if (!identityIsCurrent()) return;
     final organizationId = route['organizationId']?.toString();
     final shipmentId = route['shipmentId']?.toString();
-    if (organizationId == null || shipmentId == null) return;
+    // A driver's new-trip notice opens the trip instead of a shipment.
+    final tripId = route['tripId']?.toString();
+    if (organizationId == null || (shipmentId == null && tripId == null)) return;
     if (!AuthorizationSession.organizations
         .any((org) => org['id'] == organizationId)) {
       await AuthorizationSession.refresh();
@@ -229,11 +232,16 @@ Future<void> _openPushNotification(String notificationId) async {
       await AuthorizationSession.selectOrganization(organizationId);
     }
     if (!identityIsCurrent()) return;
-    if (!AuthorizationSession.can('conversation.read')) return;
     final context = _rootNavigatorKey.currentContext;
     if (context == null || !context.mounted) return;
+    if (tripId != null) {
+      await openTripNotice(context,
+          notificationId: notificationId, tripId: tripId);
+      return;
+    }
+    if (!AuthorizationSession.can('conversation.read')) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => ShipmentConversationScreen(shipmentId: shipmentId),
+      builder: (_) => ShipmentConversationScreen(shipmentId: shipmentId!),
     ));
   } catch (_) {
     // Push payloads are hints; the authenticated resolver decides whether to open.

@@ -19,7 +19,7 @@ import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
 const savedSentence =
-    'Saved. The driver is not sent a message. The trip shows on their Trips screen when they refresh it.';
+    'Saved. A new driver gets a notice in the app. The trip shows on their Trips screen when they refresh it.';
 const busySentence =
     'This driver is already on another trip that is on the way.';
 const replacedSentence = 'If you change the driver, the old driver stops seeing this trip.';

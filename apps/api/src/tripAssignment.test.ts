@@ -169,9 +169,13 @@ test("a driver sees only the trips naming them and their shipments, on every rou
 
   const inbox = await get("/v1/notifications", first.token);
   assert.ok((inbox.body.notifications as Array<{ shipmentId: string }>).length > 0, "the driver hears about their own shipment");
-  assert.deepEqual([...new Set((inbox.body.notifications as Array<{ shipmentId: string }>).map((item) => item.shipmentId))], [mine]);
+  // Owner, 21 Oct 2026: the driver also hears that the trip is theirs, a notice with no shipment.
+  const notices = inbox.body.notifications as Array<{ shipmentId: string; tripId?: string }>;
+  assert.deepEqual(notices.filter((item) => item.tripId).map((item) => item.tripId), [f.trip.id]);
+  assert.deepEqual([...new Set(notices.filter((item) => !item.tripId).map((item) => item.shipmentId))], [mine]);
   const grouped = await get("/v1/notifications/shipments", first.token);
-  assert.deepEqual((grouped.body.shipments as Array<{ shipmentId: string }>).map((group) => group.shipmentId), [mine]);
+  const rows = grouped.body.shipments as Array<{ shipmentId: string; tripId?: string }>;
+  assert.deepEqual(rows.filter((group) => !group.tripId).map((group) => group.shipmentId), [mine]);
 
   assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/start`, "POST", {}, first.token)).status, 200, "a driver starts their own trip");
   assert.equal((await f.request(`/shipments/${mine}/driver-pod`, "POST", {}, first.token)).status, 200, "and confirms delivery on it");

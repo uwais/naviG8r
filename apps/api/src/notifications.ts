@@ -1,12 +1,12 @@
 // Over 500 lines on purpose: one concern, the shipment conversation (its notices, messages, read marks and
-// support access). Both halves share the shipment, actor and conversation checks.
+// support access), and the one notice with no shipment, a driver's new trip, which shares the inbox and its checks.
 import { randomUUID } from "node:crypto";
 import { authorizationContext, effectivePermissions, legacyRoles, principalFor, recordAudit, requirePermission, type Principal } from "./rbac.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import { assignedDriverMaySee } from "./tripAssignmentRules.ts";
 import type { Store } from "./store.ts";
 import { enqueuePushIntentForNotification } from "./features/push/push.ts";
-import type { Conversation, ConversationEscalationGrant, ConversationMessage, Notification, Shipment } from "./types.ts";
+import type { AnchorTrip, Conversation, ConversationEscalationGrant, ConversationMessage, Notification, Shipment } from "./types.ts";
 
 const MAX_MESSAGE_LENGTH = 4000;
 const DEFAULT_REPLY_WINDOW_DAYS = 14;
@@ -21,14 +21,14 @@ export class CommunicationError extends Error {
 
 type WorkflowSnapshot = {
   shipments: Map<string, { status: string; podAt?: number | null; podAcceptedAt?: number; customerOrgId?: string; carrierId: string }>;
-  trips: Map<string, { status: string; startedAt?: number; completedAt?: number; carrierId: string }>;
+  trips: Map<string, { status: string; startedAt?: number; completedAt?: number; carrierId: string; assignedDriverUserId?: string }>;
   payments: Map<string, { status: string; shipmentId: string; updatedAt: number }>;
 };
 
 export function workflowSnapshot(store: Store): WorkflowSnapshot {
   return {
     shipments: new Map([...store.shipments].map(([id, s]) => [id, { status: s.status, podAt: s.podAtUtcMs, podAcceptedAt: s.podAcceptedAtUtcMs, customerOrgId: s.customerOrgId, carrierId: s.carrierId }])),
-    trips: new Map([...store.anchorTrips].map(([id, t]) => [id, { status: t.status, startedAt: t.startedAtUtcMs, completedAt: t.completedAtUtcMs, carrierId: t.carrierId }])),
+    trips: new Map([...store.anchorTrips].map(([id, t]) => [id, { status: t.status, startedAt: t.startedAtUtcMs, completedAt: t.completedAtUtcMs, carrierId: t.carrierId, assignedDriverUserId: t.assignedDriverUserId }])),
     payments: new Map([...store.payments].map(([id, p]) => [id, { status: p.status, shipmentId: p.shipmentId, updatedAt: p.updatedAtUtcMs }])),
   };
 }
@@ -51,6 +51,7 @@ export function captureWorkflowNotifications(store: Store, previous: WorkflowSna
   }
   for (const [id, trip] of store.anchorTrips) {
     const old = previous.trips.get(id);
+    if (trip.assignedDriverUserId && trip.assignedDriverUserId !== old?.assignedDriverUserId) createTripAssignedNotice(store, trip, actorUserId);
     if (!old) continue;
     if (!old.startedAt && trip.startedAtUtcMs) {
       for (const shipment of store.shipments.values()) if (shipment.anchorTripId === id) emit(shipment, "trip.started", trip.startedAtUtcMs);
@@ -199,12 +200,49 @@ export function mustNotHearPaymentEvent(memberRole: string, eventKey: string): b
   return (memberRole === "DRIVER" || memberRole === "DISPATCHER") && eventKey.startsWith(PAYMENT_EVENT_PREFIX);
 }
 
+export const TRIP_ASSIGNED_EVENT = "trip.assigned";
+
+// "22 Oct" in India time, as the app writes a short date.
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function dayInIndiaWords(utcMs: number): string {
+  const india = new Date(utcMs + 5.5 * 60 * 60 * 1000);
+  return `${india.getUTCDate()} ${SHORT_MONTHS[india.getUTCMonth()]}`;
+}
+
+// Owner, 21 Oct 2026: a driver hears that a trip is theirs, booked on or not, so this is the one notice with no
+// shipment (its shipmentId is "": the database column cannot be empty). Only the driver named hears it: never
+// the shipper, never the rest of the carrier. Its words name the route and the day, never an amount.
+function createTripAssignedNotice(store: Store, trip: AnchorTrip, actorUserId?: string): void {
+  const driverUserId = trip.assignedDriverUserId;
+  if (!driverUserId || driverUserId === actorUserId || !eligibleActor(store, driverUserId, trip.carrierId, "CARRIER")) return;
+  const leavesUtcMs = Date.parse(trip.windowStart);
+  const body = `You have a new trip: ${trip.originCity} to ${trip.destCity}${Number.isNaN(leavesUtcMs) ? "" : `, leaves ${dayInIndiaWords(leavesUtcMs)}`}.`;
+  const now = Date.now();
+  const notification: Notification = {
+    id: randomUUID(), recipientSequence: ++store.notificationSequence,
+    eventId: `${TRIP_ASSIGNED_EVENT}:${trip.id}:${driverUserId}:${now}`, eventKey: TRIP_ASSIGNED_EVENT,
+    recipientUserId: driverUserId, recipientOrgId: trip.carrierId, shipmentId: "", tripId: trip.id, createdAtUtcMs: now,
+    data: { tripId: trip.id, audience: "CARRIER", title: "New trip", body },
+  };
+  store.notifications.set(notification.id, notification);
+  enqueuePushIntentForNotification(store, notification);
+}
+
+/** A trip notice is shown, opened or pushed only while its trip is still the recipient's to drive. */
+export function tripNoticeStillTheirs(store: Store, notification: Notification): boolean {
+  const trip = notification.tripId ? store.anchorTrips.get(notification.tripId) : undefined;
+  return trip != null && isActiveEntity(trip) && trip.carrierId === notification.recipientOrgId
+    && trip.assignedDriverUserId === notification.recipientUserId
+    && eligibleActor(store, notification.recipientUserId, notification.recipientOrgId, "CARRIER");
+}
+
 export function listNotifications(store: Store, limit = 30, before?: string) {
   const principal = principalFor(store);
   requirePermission(store, "notification.read");
   const pageSize = Math.max(1, Math.min(100, Number.isFinite(limit) ? Math.trunc(limit) : 30));
   const all = [...store.notifications.values()].filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && !mustNotHearPaymentEvent(principal.subrole, n.eventKey))
     .filter(n => {
+      if (n.tripId) return tripNoticeStillTheirs(store, n);
       const shipment = store.shipments.get(n.shipmentId);
       if (!shipment || !isActiveEntity(shipment)) return false;
       try { requireShipmentActor(store, shipment, "conversation.read"); return true; } catch { return false; }
@@ -219,9 +257,13 @@ export function resolveNotificationOpenRoute(store: Store, notificationId: strin
   organizationId: string;
   shipmentId: string;
   conversationId: string;
-} {
+} | { organizationId: string; tripId: string } {
   const notification = store.notifications.get(notificationId);
   if (!notification || notification.recipientUserId !== userId) throw new CommunicationError("notification_not_found", 404);
+  if (notification.tripId) {
+    if (!tripNoticeStillTheirs(store, notification)) throw new CommunicationError("notification_not_found", 404);
+    return { organizationId: notification.recipientOrgId, tripId: notification.tripId };
+  }
   const shipment = store.shipments.get(notification.shipmentId);
   if (!shipment || !isActiveEntity(shipment)) throw new CommunicationError("notification_not_found", 404);
   const role = notification.recipientOrgId === shipment.customerOrgId ? "SHIPPER"
@@ -375,34 +417,50 @@ export async function listGroupedNotifications(store: Store, limit = 30, before?
       ? encodeOpaque({ ...cursorScope, notificationSequence: page.notificationSequence, latestAt: last.latestAtUtcMs, shipmentId: last.shipmentId })
       : null;
     // The database reader ignores trip assignments: drop a driver's other groups after the cursor, so paging advances.
+    // It groups by shipment, so trip notices (shipmentId "") are left out here; this inbox does not list them yet.
     const shown = shipments.filter((group) => {
+      if (group.shipmentId === "") return false;
       const shipment = store.shipments.get(group.shipmentId);
       return !shipment || assignedDriverMaySee(store, principal, shipment);
     });
     return { shipments: shown, nextBefore, unreadCount: page.unreadCount, notificationSequence: page.notificationSequence };
   }
-  const groups = new Map<string, { shipmentId: string; latestAtUtcMs: number; unreadCount: number }>();
+  // A row per shipment, and a row per trip notice, which has no shipment to group under. The cursor's
+  // shipmentId holds the row's key: the shipment id, or "notice:<id>" for a trip notice.
+  type InboxRow = { key: string; shipmentId: string; latestAtUtcMs: number; unreadCount: number; tripId?: string; notificationId?: string };
+  const groups = new Map<string, InboxRow>();
   for (const n of store.notifications.values()) {
     if (n.recipientUserId !== principal.userId || n.recipientOrgId !== principal.organizationId || n.recipientSequence > notificationSequence || mustNotHearPaymentEvent(principal.subrole, n.eventKey)) continue;
+    if (n.tripId) {
+      if (!tripNoticeStillTheirs(store, n)) continue;
+      const key = `notice:${n.id}`;
+      groups.set(key, { key, shipmentId: "", latestAtUtcMs: n.createdAtUtcMs, unreadCount: n.readAtUtcMs == null ? 1 : 0, tripId: n.tripId, notificationId: n.id });
+      continue;
+    }
     const shipment = store.shipments.get(n.shipmentId);
     if (!shipment || !isActiveEntity(shipment)) continue;
     const belongs = (principal.roles.includes("SHIPPER") && shipment.customerOrgId === principal.organizationId) || (principal.roles.includes("CARRIER") && shipment.carrierId === principal.organizationId);
     if (!belongs || !assignedDriverMaySee(store, principal, shipment)) continue;
-    const group = groups.get(n.shipmentId) ?? { shipmentId: n.shipmentId, latestAtUtcMs: n.createdAtUtcMs, unreadCount: 0 };
+    const group = groups.get(n.shipmentId) ?? { key: n.shipmentId, shipmentId: n.shipmentId, latestAtUtcMs: n.createdAtUtcMs, unreadCount: 0 };
     group.latestAtUtcMs = Math.max(group.latestAtUtcMs, n.createdAtUtcMs);
     if (n.readAtUtcMs == null) group.unreadCount++;
     groups.set(n.shipmentId, group);
   }
-  const ordered = [...groups.values()].sort((a, b) => b.latestAtUtcMs - a.latestAtUtcMs || compareIdBytes(b.shipmentId, a.shipmentId));
-  const afterCursor = cursor ? ordered.filter(g => g.latestAtUtcMs < cursor!.latestAt || (g.latestAtUtcMs === cursor!.latestAt && compareIdBytes(g.shipmentId, cursor!.shipmentId) < 0)) : ordered;
+  const ordered = [...groups.values()].sort((a, b) => b.latestAtUtcMs - a.latestAtUtcMs || compareIdBytes(b.key, a.key));
+  const afterCursor = cursor ? ordered.filter(g => g.latestAtUtcMs < cursor!.latestAt || (g.latestAtUtcMs === cursor!.latestAt && compareIdBytes(g.key, cursor!.shipmentId) < 0)) : ordered;
   const selected = afterCursor.slice(0, pageSize + 1);
   const hasMore = selected.length > pageSize;
-  const shipments = selected.slice(0, pageSize).map(group => {
+  const page = selected.slice(0, pageSize);
+  const shipments = page.map(({ key: _key, ...group }) => {
+    if (group.tripId) {
+      const trip = store.anchorTrips.get(group.tripId)!;
+      return { ...group, tripRoute: `${trip.originCity} to ${trip.destCity}` };
+    }
     const shipment = store.shipments.get(group.shipmentId)!;
     return { ...group, shipmentReference: shipment.externalLoadId ?? group.shipmentId.slice(0, 8).toUpperCase() };
   });
-  const last = shipments.at(-1);
-  const nextBefore = hasMore && last ? encodeOpaque({ ...cursorScope, notificationSequence, latestAt: last.latestAtUtcMs, shipmentId: last.shipmentId }) : null;
+  const last = page.at(-1);
+  const nextBefore = hasMore && last ? encodeOpaque({ ...cursorScope, notificationSequence, latestAt: last.latestAtUtcMs, shipmentId: last.key }) : null;
   return { shipments, nextBefore, unreadCount: ordered.reduce((n, g) => n + g.unreadCount, 0), notificationSequence };
 }
 
@@ -430,9 +488,13 @@ export function markNotificationRead(store: Store, notificationId: string): Noti
   if (!notification || notification.recipientUserId !== principal.userId || notification.recipientOrgId !== principal.organizationId) throw new CommunicationError("not_found", 404);
   // The list never shows this member a payment notice, so marking one read is a notice that does not exist.
   if (mustNotHearPaymentEvent(principal.subrole, notification.eventKey)) throw new CommunicationError("not_found", 404);
-  const shipment = store.shipments.get(notification.shipmentId);
-  if (!shipment || !isActiveEntity(shipment)) throw new CommunicationError("not_found", 404);
-  requireShipmentActor(store, shipment, "conversation.read");
+  if (notification.tripId) {
+    if (!tripNoticeStillTheirs(store, notification)) throw new CommunicationError("not_found", 404);
+  } else {
+    const shipment = store.shipments.get(notification.shipmentId);
+    if (!shipment || !isActiveEntity(shipment)) throw new CommunicationError("not_found", 404);
+    requireShipmentActor(store, shipment, "conversation.read");
+  }
   const updated = { ...notification, readAtUtcMs: notification.readAtUtcMs ?? Date.now() };
   store.notifications.set(updated.id, updated);
   return updated;

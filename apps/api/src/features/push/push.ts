@@ -3,7 +3,7 @@ import type { Store } from "../../store.ts";
 import { effectivePermissions, legacyRoles } from "../../rbac.ts";
 import { isActiveEntity } from "../../softDelete.ts";
 import { assignedDriverMaySee } from "../../tripAssignmentRules.ts";
-import { mustNotHearPaymentEvent } from "../../notifications.ts";
+import { mustNotHearPaymentEvent, tripNoticeStillTheirs } from "../../notifications.ts";
 import type { Notification, PushDevice, PushDelivery, PushIntent } from "../../types.ts";
 import type { FcmDeliveryMessage, FcmSendResult } from "./fcmSender.ts";
 
@@ -162,7 +162,7 @@ export function revokePushDevice(store: Store, input: {
 }
 
 function presentationKey(notification: Notification): string {
-  const value = `${notification.recipientUserId}\n${notification.recipientOrgId}\n${notification.shipmentId}`;
+  const value = `${notification.recipientUserId}\n${notification.recipientOrgId}\n${notification.tripId ? `trip:${notification.tripId}` : notification.shipmentId}`;
   return createHash("sha256").update(value).digest("hex").slice(0, 32);
 }
 
@@ -263,6 +263,8 @@ export function claimPushDeliveries(store: Store, options: { nowUtcMs?: number; 
 function eligibleCurrentRecipient(store: Store, notification: Notification, device: PushDevice, generation: number): boolean {
   if (device.revokedAtUtcMs != null || device.ownershipGeneration !== generation || device.userId !== notification.recipientUserId ||
       device.environment !== pushEnvironment() || !device.permissionGrantedHint || !device.channelEnabledHint || !device.consentedAtUtcMs) return false;
+  // A new-trip notice has no shipment; it goes only while the trip is still this driver's.
+  if (notification.tripId) return tripNoticeStillTheirs(store, notification);
   const shipment = store.shipments.get(notification.shipmentId);
   const membership = store.memberships.get(`${notification.recipientUserId}:${notification.recipientOrgId}`);
   const organization = store.organizations.get(notification.recipientOrgId);

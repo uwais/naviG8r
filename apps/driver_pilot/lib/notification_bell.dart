@@ -113,13 +113,24 @@ class NotificationWatch {
       return;
     }
     final bell = _newestMountedBell();
-    if (bell == null || shipmentId.isEmpty) return;
-    bell._showBanner(
-        noticeWords(eventKey, forShipper: forShipper) ??
-            (forShipper
-                ? 'New update on a shipment.'
-                : 'New update on a booking.'),
-        shipmentId);
+    final tripId = notice['tripId']?.toString() ?? '';
+    final words = noticeWords(eventKey, forShipper: forShipper) ??
+        (forShipper ? 'New update on a shipment.' : 'New update on a booking.');
+    if (bell == null) return;
+    // A new-trip notice has no shipment: View opens the trip and marks the notice read.
+    if (tripId.isNotEmpty) {
+      final notificationId = notice['id']?.toString() ?? '';
+      bell._showBanner(words, () {
+        final shown = _newestMountedBell();
+        if (shown != null) {
+          openTripNotice(shown.context,
+              notificationId: notificationId, tripId: tripId);
+        }
+      });
+      return;
+    }
+    if (shipmentId.isEmpty) return;
+    bell._showBanner(words, () => _openShipment(shipmentId));
   }
 
   static _NotificationBellState? _newestMountedBell() {
@@ -168,7 +179,7 @@ class _NotificationBellState extends State<NotificationBell> {
 
   /// A live region, so a screen reader reads it once as it appears. It stays until closed when a
   /// screen reader is on, so there is time to reach View.
-  void _showBanner(String words, String shipmentId) {
+  void _showBanner(String words, VoidCallback onView) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) return;
     void hide() {
@@ -186,7 +197,7 @@ class _NotificationBellState extends State<NotificationBell> {
         TextButton(
             onPressed: () {
               hide();
-              NotificationWatch._openShipment(shipmentId);
+              onView();
             },
             child: const Text('View')),
       ],

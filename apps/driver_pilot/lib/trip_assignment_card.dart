@@ -219,7 +219,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
       if (_justSaved) ...[
         const SizedBox(height: NvSpace.s3),
         const NvMessage(
-            'Saved. The driver is not sent a message. The trip shows on their Trips screen when they refresh it.',
+            'Saved. A new driver gets a notice in the app. The trip shows on their Trips screen when they refresh it.',
             tone: NvMessageTone.good),
       ],
       if (_driverBusy) ...[

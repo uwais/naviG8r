@@ -1,7 +1,8 @@
-// The Updates inbox: one row per shipment with new activity.
+// The Updates inbox: one row per shipment with new activity, and one per new trip for a driver.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import 'app_in_background.dart';
 import 'authorization_session.dart';
@@ -19,6 +20,21 @@ Future<void> openNotificationInbox(BuildContext context) =>
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const NotificationInboxScreen()),
     );
+
+/// A driver's new-trip notice has no shipment to open: it is marked read, and its trip opens.
+Future<void> openTripNotice(BuildContext context,
+    {required String notificationId, required String tripId}) async {
+  final router = GoRouter.maybeOf(context);
+  if (notificationId.isNotEmpty) {
+    try {
+      await api.patch(
+          '/v1/notifications/${Uri.encodeComponent(notificationId)}/read');
+    } catch (_) {
+      // The trip still opens; the notice stays new until the next try.
+    }
+  }
+  router?.go('/driver/trip/${Uri.encodeComponent(tripId)}/active');
+}
 
 /// "Updates" (sh-notifications): one row per shipment with new activity, named by its route and
 /// date. A row from the server holds no event words, so each says how many updates are new.
@@ -175,8 +191,13 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
   }
 
   Future<void> _open(Map<String, dynamic> item) async {
+    final tripId = item['tripId']?.toString() ?? '';
     final shipmentId = item['shipmentId']?.toString() ?? '';
-    if (shipmentId.isNotEmpty) {
+    if (tripId.isNotEmpty) {
+      await openTripNotice(context,
+          notificationId: item['notificationId']?.toString() ?? '',
+          tripId: tripId);
+    } else if (shipmentId.isNotEmpty) {
       await openShipmentConversation(context, shipmentId);
     }
     if (mounted) _load();
@@ -187,10 +208,14 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
 
   Widget _row(Map<String, dynamic> item) {
     final shipment = _shipmentsById[item['shipmentId']?.toString()];
-    final name = shipment == null
-        ? null
-        : shipmentRouteName(shipment,
-            lane: laneOfShipment(shipment, _lanesById));
+    // A driver's new-trip row is named by the trip's route, which the server sends with it.
+    final isTrip = (item['tripId']?.toString() ?? '').isNotEmpty;
+    final name = isTrip
+        ? item['tripRoute']?.toString()
+        : shipment == null
+            ? null
+            : shipmentRouteName(shipment,
+                lane: laneOfShipment(shipment, _lanesById));
     final unread = _unreadOf(item);
     final latest = item['latestAtUtcMs'];
     final when = latest is num
@@ -221,12 +246,13 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name ?? 'Shipment update',
+                    Text(name ?? (isTrip ? 'New trip' : 'Shipment update'),
                         style: NvText.bodyStrong
                             .copyWith(color: NvColors.navyInk)),
                     Text(
                         switch (unread) {
                           0 => 'No unread updates',
+                          _ when isTrip => 'You have a new trip.',
                           1 => 'New update',
                           _ => '$unread new updates',
                         },

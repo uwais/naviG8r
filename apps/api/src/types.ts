@@ -53,7 +53,10 @@ export type Notification = {
   eventKey: string;
   recipientUserId: string;
   recipientOrgId: string;
+  /** "" for a trip notice, which has tripId instead (the database column cannot be empty). */
   shipmentId: string;
+  /** Set only on a driver's new-trip notice (trip.assigned). */
+  tripId?: string;
   conversationId?: string;
   messageId?: string;
   createdAtUtcMs: number;

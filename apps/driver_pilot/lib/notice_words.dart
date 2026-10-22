@@ -23,6 +23,7 @@ String? noticeWords(String eventKey, {required bool forShipper}) {
     'shipment.pod_accepted' => 'The shipper accepted the delivery.',
     'payment.status_changed' => 'A payment was updated.',
     'conversation.message' => 'New message on a booking.',
+    'trip.assigned' => 'You have a new trip.',
     _ => null,
   };
 }
