@@ -20,7 +20,7 @@ ${workflowOnly ? "" : `<header class="dashboard-header"><div><strong>NaviG8r</st
 <section id="login"><label>Phone<input id="phone" autocomplete="tel"></label><button id="start">Send code</button><label>Verification code<input id="code" autocomplete="one-time-code"></label><button id="verify">Sign in</button></section>
 <section id="workspace" hidden><label>Acting organization<select id="organization"><option value="">Select an organization</option></select></label><button id="signout">Sign out</button><p id="roles"></p><p id="access"></p><div id="shipments"></div>
 <section id="roleManagement" hidden><h2>Membership roles</h2><label>User ID<input id="memberUser"></label><label>Organization ID<input id="memberOrg"></label><label>Roles (comma separated)<input id="memberRoles" placeholder="OPS,FINANCE"></label><button id="saveRoles">Save roles</button></section>
-<section id="compliance" hidden><h2>Carrier compliance review</h2><p id="notice" role="status"></p><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="reason"></label><p>If you reject with DOCUMENTS_MISSING, BANK_DETAILS_MISMATCH, DUPLICATE_ACCOUNT or NOT_A_CARRIER, only the carrier's owner sees that reason in their app, in plain words; BANK_DETAILS_MISMATCH only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details.</p><h3>Not yet approved</h3><p id="kycEmpty" hidden>Every carrier is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Carrier organization ID<input id="carrierOrg"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
+<section id="compliance" hidden><h2>Company compliance review</h2><p id="notice" role="status"></p><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="reason"></label><p>If you reject with DOCUMENTS_MISSING, BANK_DETAILS_MISMATCH, DUPLICATE_ACCOUNT or NOT_A_CARRIER, only the carrier's owner sees that reason in their app, in plain words; BANK_DETAILS_MISMATCH only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details.</p><h3>Not yet approved</h3><p id="kycEmpty" hidden>Every company is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Company organization ID<input id="carrierOrg"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
 ${workflowOnly ? "" : "</main>"}<script>
 const workflowOnly = ${workflowOnly};
 let challenge = '', principal, token = sessionStorage.getItem('navig8r_access') || '', org = sessionStorage.getItem('navig8r_org') || '', otpCooldownUntil = 0, otpCooldownTimer, otpPhoneRevision = 0;
@@ -83,7 +83,7 @@ async function loadKycQueue(){
 }
 async function recordReview(orgId,status){
  const reason=$('reason').value.trim(), buttons=$('compliance').querySelectorAll('button');
- if(!orgId) throw Error('Enter the carrier organization ID.');
+ if(!orgId) throw Error('Enter the company organization ID.');
  if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(reason)) throw Error('Reason code must be 3 to 64 capitals, numbers or underscores, starting with a letter, for example DOCUMENTS_REVIEWED.');
  buttons.forEach(b=>b.disabled=true);
  try{

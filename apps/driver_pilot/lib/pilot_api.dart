@@ -179,11 +179,20 @@ class Api {
 
 late Api api;
 
+/// What a shipper whose company NaviG8r has not approved sees in place of quoting and booking.
+const shipperAwaitingApprovalSentence =
+    "NaviG8r has to approve your company before you can see prices or book. Contact NaviG8r.";
+
 String formatApiError(Object e) {
   if (e is DioException) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
     final code = body is Map ? body["error"] : null;
+    // Quote and book are the shipper's routes; a carrier is only ever refused prices.
+    if (code == "company_not_approved" &&
+        e.requestOptions.path.startsWith("/shipments/")) {
+      return shipperAwaitingApprovalSentence;
+    }
     if (code == "otp_rate_limited") {
       final retry = body["retryAfterMs"];
       final seconds = retry is num ? (retry / 1000).ceil() : 30;
@@ -204,6 +213,10 @@ String formatApiError(Object e) {
     const messages = {
       "carrier_compliance_required":
           "Carrier compliance must be approved before accepting shipments or starting trips.",
+      "company_not_approved":
+          "NaviG8r has to approve your company before you can see prices. Contact NaviG8r.",
+      "rate_limited": "Too many requests. Please wait a while and try again.",
+      "quote_requires_shipper": "Only a shipper company can see prices here.",
       "payment_hold_active":
           "Payment is on hold until the shipper accepts delivery or the 48-hour hold expires.",
       "active_organization_required": "Choose an organization to continue.",

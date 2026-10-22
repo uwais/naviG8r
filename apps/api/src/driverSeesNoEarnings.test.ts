@@ -1,5 +1,5 @@
 // Owner decision, 15 Oct 2026: a driver never sees carrier earnings, nor when they are paid. Owners, owner-drivers
-// and dispatchers keep them, as do shippers, finance and ops where they had them before.
+// and dispatchers keep them, as do finance and ops. Shippers keep only their own payment hold.
 import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
@@ -87,7 +87,7 @@ test("a driver gets 403 on earnings, ledger and payout batches, and no carrier m
   assert.equal(typeof summary.pendingAccruedPaise, "number");
 });
 
-test("a driver gets no payout dates or payment hold, even once delivered; the office, the shipper, finance and ops keep them", async t => {
+test("a driver gets no payout dates or payment hold, even once delivered; the office, finance and ops keep them, and the shipper keeps only its payment hold", async t => {
   const { f, tokens } = await carrierWithStaff(t);
   const id = (await f.book()).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, tokens.driver)).status, 200);
@@ -119,7 +119,9 @@ test("a driver gets no payout dates or payment hold, even once delivered; the of
   for (const [who, path, token] of keepers) {
     const shipment = await shipmentFor(path, token);
     for (const field of ["firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs", "paymentHoldUntilUtcMs"]) {
-      assert.equal(typeof shipment[field], "number", `${who} keeps ${field}`);
+      // Each side sees only its own amount: the shipper keeps its payment hold, not the carrier's payout dates.
+      const kept = who !== "shipper" || field === "paymentHoldUntilUtcMs";
+      assert.equal(typeof shipment[field], kept ? "number" : "undefined", `${who} ${kept ? "keeps" : "does not get"} ${field}`);
     }
     assert.equal(shipment.paymentReady, true, `${who} keeps paymentReady`);
   }

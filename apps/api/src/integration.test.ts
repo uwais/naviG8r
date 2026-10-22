@@ -70,6 +70,10 @@ test("integration load create is idempotent by externalLoadId", async () => {
     metadata: { poNumber: "PO-9912" },
   };
 
+  await assert.rejects(createIntegrationLoad(store, ctx, params), { message: "company_not_approved" });
+  assert.equal(store.shipments.size, 0);
+  store.organizations.set(admin.org.id, { ...admin.org, kycStatus: "APPROVED" });
+
   const first = await createIntegrationLoad(store, ctx, params);
   assert.equal(first.created, true);
   assert.equal(first.shipment.externalLoadId, "ERP-LOAD-001");

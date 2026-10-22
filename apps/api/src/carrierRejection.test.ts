@@ -200,7 +200,7 @@ test("the reject captions on /ops, /ops/v1 and /ops/beta say exactly who sees ea
     "/ops": [typedCodesCaption],
     "/ops/v1": [typedCodesCaption],
     "/ops/beta": [
-      "<p class=\"caption\">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history. If you reject with Documents missing, Duplicate account, Not a carrier business or the bank reason, only the owner sees it in their app, in plain words; the bank reason only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details. If you take back an approval, everyone at the carrier reads that it was taken back.</p>",
+      "<p class=\"caption\">For companies not in the list, such as taking back an approval. The change and your reason are kept in the company's history. If you reject a carrier with Documents missing, Duplicate account, Not a carrier business or the bank reason, only the owner sees it in their app, in plain words; the bank reason only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details. If you take back an approval, everyone at the carrier reads that it was taken back.</p>",
       // Matched with the code that builds it, so the note must stay in the reject picker.
       "!approving && element('span', { id: cardId + '-reason-note', class: 'caption', text: \"Only the owner sees the reason you pick, in their app, in plain words; the bank reason only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details.\" })",
     ],

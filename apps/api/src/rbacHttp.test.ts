@@ -80,7 +80,7 @@ test("HTTP multiple memberships require explicit organization and prevent Financ
   assert.equal((await f.request("/payout-batches", "GET", undefined, f.tokens.shipperA, { "x-organization-id": f.shipperB.org.id })).status, 403);
 });
 
-test("HTTP ops review queue lists unapproved carriers only, to ops only", async t => {
+test("HTTP ops review queue lists unapproved companies, to ops only", async t => {
   const f = await httpFixture(t); const queue = "/ops/compliance/pending";
   const ids = async () => (await f.request(queue, "GET", undefined, f.tokens.ops)).body.organizations.map((o: { id: string }) => o.id);
   f.store.organizations.get(f.carrierA.org.id)!.kycStatus = "NOT_STARTED";

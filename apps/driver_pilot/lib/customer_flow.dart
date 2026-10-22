@@ -2007,28 +2007,35 @@ class _CustomerBookShipmentScreenState
                   onPositionChanged: (p) => setState(() => _dropPos = p),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                          onPressed: _quoting ? null : _fetchQuote,
-                          child: const Text("Get quote")),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _booking ? null : _book,
-                        child: _booking
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2))
-                            : const Text("Book & pay"),
+                if (!CustomerSession.hasCustomerOrg)
+                  const Text("Sign in as a shipper to see prices and book.",
+                      style: TextStyle(color: DriverTheme.navy))
+                else if (CustomerSession.companyAwaitingApproval)
+                  const Text(shipperAwaitingApprovalSentence,
+                      style: TextStyle(color: DriverTheme.navy))
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                            onPressed: _quoting ? null : _fetchQuote,
+                            child: const Text("Get quote")),
                       ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: _booking ? null : _book,
+                          child: _booking
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
+                              : const Text("Book & pay"),
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ),
             secondary: Column(

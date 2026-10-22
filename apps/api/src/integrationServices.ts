@@ -245,6 +245,9 @@ export async function createIntegrationLoad(
     return { shipment: dup, response: integrationLoadResponse(store, dup, conn), created: false };
   }
 
+  // Owner decision, 21 Oct 2026: a company needs NaviG8r's approval to book, from the app or its ERP.
+  if (org.kycStatus !== "APPROVED") throw new Error("company_not_approved");
+
   let anchorTripId = params.anchorTripId?.trim();
   if (params.lanePreference !== "explicit" || !anchorTripId) {
     const ranked = customerEligibleAnchorTripsPhaseA(store, {
@@ -311,6 +314,14 @@ export function listIntegrationLoads(
   return rows.slice(0, limit);
 }
 
+type CarrierPayFields = Pick<Shipment, "netToCarrierPaise" | "commissionPaise" | "firstPayoutEligibleAtUtcMs" | "payoutBatchCutoffUtcMs">;
+
+/** Each side sees only its own amount: a shipper's ERP gets only the shipper's side of a shipment. */
+function withoutCarrierPay<T extends CarrierPayFields>(shipment: T): Omit<T, keyof CarrierPayFields> {
+  const { netToCarrierPaise: _net, commissionPaise: _commission, firstPayoutEligibleAtUtcMs: _eligible, payoutBatchCutoffUtcMs: _cutoff, ...rest } = shipment;
+  return rest;
+}
+
 export function getIntegrationShipmentTracking(store: Store, orgId: string, shipmentId: string) {
   const shipment = store.shipments.get(shipmentId);
   if (!shipment || shipment.customerOrgId !== orgId) throw new Error("shipment_not_found");
@@ -322,7 +333,7 @@ export function getIntegrationShipmentTracking(store: Store, orgId: string, ship
   const fresh = loc != null && now - loc.recordedAtUtcMs <= staleMs;
   const isLive = fresh && shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
   return {
-    shipment: withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment))),
+    shipment: withoutCarrierPay(withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment)))),
     trip: withoutTripAssignment(tripWithCarrierDisplay(store, trip)),
     liveLocation: loc,
     isLive,
@@ -343,7 +354,7 @@ export function getIntegrationShipmentSnapshot(store: Store, orgId: string, ship
   const trip = store.anchorTrips.get(shipment.anchorTripId);
   return {
     ...integrationLoadResponse(store, shipment, conn),
-    shipment: withoutTripAssignment(withoutEwayBill(enriched)),
+    shipment: withoutCarrierPay(withoutTripAssignment(withoutEwayBill(enriched))),
     payment,
     trip: trip ? withoutTripAssignment(trip) : null,
   };

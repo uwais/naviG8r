@@ -47,7 +47,7 @@ test("OPS: Approve or Reject first, then a reason from that action's list, recor
   await signIn(page, phones.ops);
   const card = page.getByRole("article", { name: "Synthetic Carrier B (carrier-b)" });
   await expect(card.getByText("Bank details submitted")).toBeVisible();
-  await expect(page.locator("#countCarriers")).toHaveText("1");
+  await expect(page.locator("#countCarriers")).toHaveText("2");
 
   await card.getByRole("button", { name: "Reject" }).click();
   await expect(card.getByLabel("Reason for rejecting Synthetic Carrier B (carrier-b)", { exact: true }).locator("option")).toHaveText(
@@ -67,7 +67,7 @@ test("OPS: Approve or Reject first, then a reason from that action's list, recor
   await card.getByRole("button", { name: "Confirm approval" }).click();
   await expect(card.getByRole("status")).toContainText(/Approved by you at \d\d:\d\d IST: Documents reviewed\. Synthetic Carrier B can now accept shipments/);
   await expect(card.locator(".tag")).toHaveText("Approved");
-  await expect(page.locator("#countCarriers")).toHaveText("0");
+  await expect(page.locator("#countCarriers")).toHaveText("1");
 
   const payments = page.locator("#payments");
   await expect(payments.getByText("Only FINANCE can release payments. You hold OPS.").first()).toBeVisible();
@@ -83,7 +83,7 @@ test("review by ID: nothing chosen, and the reason list follows the decision", a
   await expect(form.getByRole("radio", { name: "Approve" })).not.toBeChecked();
   await expect(form.getByRole("radio", { name: "Reject" })).not.toBeChecked();
   await expect(reason).toBeDisabled();
-  await form.getByLabel("Carrier ID").fill("carrier-b");
+  await form.getByLabel("Company ID").fill("carrier-b");
   await form.getByRole("button", { name: "Record review" }).click();
   await expect(form.getByRole("alert")).toHaveText("Not recorded yet. Pick Approve or Reject.");
 
@@ -106,10 +106,10 @@ test("review by ID: nothing chosen, and the reason list follows the decision", a
 
 test("FINANCE: carrier review is off; release shows the ledger credit, Cancel and Esc close it, Release records it in the row", async ({ page }) => {
   await signIn(page, phones.finance);
-  await expect(page.locator("#carriers").getByText("Only OPS can review carriers. You hold FINANCE.")).toBeVisible();
-  await expect(page.locator("#byIdForm").getByText("Only OPS can review carriers. You hold FINANCE.")).toBeVisible();
+  await expect(page.locator("#carriers").getByText("Only OPS can review companies. You hold FINANCE.")).toBeVisible();
+  await expect(page.locator("#byIdForm").getByText("Only OPS can review companies. You hold FINANCE.")).toBeVisible();
   await expect(page.locator("#byIdForm").getByRole("button", { name: "Record review" })).toBeDisabled();
-  await expect(page.locator("#byIdForm").getByLabel("Carrier ID")).toBeDisabled();
+  await expect(page.locator("#byIdForm").getByLabel("Company ID")).toBeDisabled();
 
   await expect(page.getByRole("columnheader", { name: "Ledger credit" })).toBeVisible();
   const held = page.getByRole("row", { name: /load-a-hold/ });

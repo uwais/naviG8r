@@ -18,7 +18,7 @@ This document defines the **first concrete API resources** for the Flutter pilot
 - **`CONVERSATION_SENDS_PER_MINUTE`**: optional per-user, per-conversation send limit (default **20**, maximum **120**).
 - **`ALLOW_X_USER_ID=1`**: allows the old header-based auth (not for real pilots).
 - **`ENABLE_LEGACY_DEMO_SURFACE=1`**: enables legacy unauthenticated admin/demo write routes in production. Leave unset for hosted pilots.
-- **`FREIGHT_PAISE_PER_KM_SMALL`**, **`FREIGHT_PAISE_PER_KM_MEDIUM`**, **`FREIGHT_PAISE_PER_KM_LARGE`**: paise per km defaults (see `apps/api/src/config.ts`).
+- **`FREIGHT_PAISE_PER_KM_SMALL`**, **`FREIGHT_PAISE_PER_KM_MEDIUM`**, **`FREIGHT_PAISE_PER_KM_LARGE`**: paise per km by vehicle class.
 - **`FREIGHT_MIN_GROSS_PAISE`**: optional minimum gross paise when distance is priced.
 - **`PERSISTENCE`**: omit or **`FILE`** (default) — JSON snapshot via **`DATA_FILE`** (path). Set **`DB`** for Postgres (**`DATABASE_URL`** required); run `cd apps/api && npx prisma db push` once. Full-store snapshot load/save, not row-level repos yet.
 - **`PUSH_ALLOW_FILE_PRODUCTION=1`**: explicit opt-in for the FCM sender with `NODE_ENV=production` and FILE persistence. Leave unset by default; use only for an approved single-process pilot with durable storage. PostgreSQL remains required before horizontal scaling or broader rollout.
@@ -188,7 +188,9 @@ A trip may name one truck and one driver: `assignedVehicleId` and `assignedDrive
 
 **Trips from before this change.** A trip that names no driver stays with the `DRIVER` who started it (`startedByUserId`) on every route above, in any status, so a driver mid-route at deploy keeps sending location, confirming delivery and completing, and still sees the trip and its shipments once it is complete. It leaves their list only if the office assigns it to someone else, which is possible until it is complete; a completed one cannot be assigned, so it stays with its driver. A trip that was never started has no starter, so one that is `OPEN` or `FULL` and names no driver is visible to no driver. Trips started before assignments existed name nobody; the driver who started one keeps it. Before go-live the carrier office should assign every open trip; in-progress trips started by a driver keep working until assigned.
 
-**A driver never sees carrier earnings (owner decision, 15 Oct 2026).** A `DRIVER` membership does not hold `payment.read`, so `GET /v1/pilot/carrier/earnings`, `/ledger` and `/payout-batches` answer `403` for a driver; owners, owner-drivers and dispatchers keep them. No response to a `DRIVER` carries what the carrier earns or when it is paid: `netToCarrierPaise`, `totalNetToCarrierPaise`, `pendingAccruedPaise`, `paidPaise`, the payout dates `firstPayoutEligibleAtUtcMs`, `payoutBatchCutoffUtcMs`, `paidAtUtcMs` and `cutoffUtcMs`, and the payment hold `paymentReady` and `paymentHoldUntilUtcMs`, whatever the route. Owners, owner-drivers, dispatchers, shippers, finance and ops keep the ones they had. A driver is never notified of a payment status change (`payment.status_changed`).
+**A driver never sees carrier earnings (owner decision, 15 Oct 2026).** A `DRIVER` membership does not hold `payment.read`, so `GET /v1/pilot/carrier/earnings`, `/ledger` and `/payout-batches` answer `403` for a driver; owners, owner-drivers and dispatchers keep them. No response to a `DRIVER` carries what the carrier earns or when it is paid: `netToCarrierPaise`, `totalNetToCarrierPaise`, `pendingAccruedPaise`, `paidPaise`, the payout dates `firstPayoutEligibleAtUtcMs`, `payoutBatchCutoffUtcMs`, `paidAtUtcMs` and `cutoffUtcMs`, and the payment hold `paymentReady` and `paymentHoldUntilUtcMs`, whatever the route. Owners, owner-drivers, dispatchers, finance and ops keep the ones they had. A driver is never notified of a payment status change (`payment.status_changed`).
+
+**Each side sees only its own amount (owner hard rule, 21 Oct 2026).** Responses to a carrier login never carry `grossPaise`, `commissionPaise` or `amountPaise`. Responses to a shipper login, and the shipment in the ERP endpoints `GET /v1/integrations/shipments/:id`, `/tracking` and `GET /v1/integrations/loads`, never carry `netToCarrierPaise`, `commissionPaise`, earnings fields or the payout dates `firstPayoutEligibleAtUtcMs` and `payoutBatchCutoffUtcMs`. A shipper keeps `grossPaise`, its payment's `amountPaise`, `paymentReady` and `paymentHoldUntilUtcMs`. Only finance sees both amounts on a shipment. A carrier login also never gets a quote's `breakdown` or its parts. Every ERP and integration settings response leaves out the carrier's amount, the commission and payout dates. A response to a caller with no sign-in carries no amount and no payout date.
 
 **`POST /v1/pilot/anchor-trips/:tripId/assignment`** (permission **`trip.assign`**: carrier `OWNER_DRIVER`, `OWNER`, `DISPATCHER`, never `DRIVER`). Body `{ "vehicleId": "...", "driverUserId": "..." }`. Both must belong to the trip's carrier: the vehicle's `orgId` is the trip's `carrierId`, and the driver is an active member with role `DRIVER`, `OWNER_DRIVER` or `OWNER`. Replaces any earlier assignment. Response `200 { "trip": {...}, "driverBusy": false }`; `driverBusy` is `true` when that driver is already named on another trip that is `IN_PROGRESS` (a warning, the assignment is saved). Refusals: `400 { "error": "invalid_trip_assignment", "detail": "a sentence", "field": "vehicleId" | "driverUserId" }`, `409 trip_completed`, `403` for a driver, `404` for another carrier's trip. Audit row `TRIP_ASSIGNED` on the trip, states `UNASSIGNED` or `ASSIGNED` only.
 
@@ -246,7 +248,9 @@ For **`DISPATCHER`**, vehicle fields are optional in the request body — the se
 New carriers: **Register as new carrier** → `POST /v1/pilot/driver/register` → OTP verify → signed-in driver shell. Sign-in alone is for existing users only.
 
 #### `POST /v1/pilot/rates/estimate`
-Pilot-only (Bearer token; user must belong to a **carrier** org). Advisory lane pricing samples for publishing — does **not** persist a trip rate.
+Pilot-only (Bearer token; user must belong to a **carrier** org). Advisory samples of what the carrier would receive on the lane, for publishing — does **not** persist a trip rate. A `DRIVER` gets the weights only.
+
+The carrier's company must be approved by NaviG8r (`kycStatus` `APPROVED`); otherwise `403 { "error": "company_not_approved" }`. Each login gets at most 120 estimates an hour; past that, `429 { "error": "rate_limited" }` with a `retry-after` header.
 
 Headers:
 - `Authorization: Bearer <accessToken>`
@@ -269,15 +273,10 @@ Response (subset):
   "laneKm": 236.71,
   "modelVersion": "freight-v1",
   "samples": [
-    { "weightKg": 100, "grossPaise": 523420, "breakdown": { "pricingMode": "distance_weight", "..." : "..." } }
+    { "weightKg": 100, "netToCarrierPaise": 0 }
   ]
 }
 ```
-
-**Freight tuning (server env):**
-- `FREIGHT_PAISE_PER_KM_SMALL` / `_MEDIUM` / `_LARGE` — paise per km when distance is used (defaults: 1500 / 2000 / 2500).
-- `FREIGHT_MIN_GROSS_PAISE` — optional floor when `pricingMode` is `distance_weight`.
-- Distance + weight: `distanceKmForPrice × paisePerKm(vehicleClass) + weightKg × PRICE_PAISE_PER_KG` (defaults in `apps/api/src/config.ts`). Customer quotes prefer **shipment** pickup→drop km when pickup+drop are sent, else **lane** km from the anchor trip origin→destination.
 
 #### `POST /v1/pilot/customer/register` (not used by Driver app; defines customer org early)
 Creates a **new business org** and makes the registrant `CUSTOMER_ADMIN`.
@@ -352,8 +351,8 @@ Ops. `{ "result": "FOUND", "billNumber": "123456789012" }` or `{ "result": "PROB
 
 ### Existing marketplace endpoints (still available)
 - `GET /anchor-trips` (list + `GET /anchor-trips/:id`) lists trips for the customer pilot; **enabled in production** as part of the public marketplace.
-- `POST /shipments/quote` quotes a shipment. Body **`weightKg`** (required); optional **`pickup`** / **`drop`** (`GeoPoint` each — send **both** or **neither**); optional **`anchorTripId`**. Response includes **`grossPaise`** plus **`breakdown`** (`pricingMode`, `laneKm`, `shipmentKm`, `distanceKmForPrice`, `modelVersion`, component paise). Booking uses the same formula when coords allow distance pricing.
-- `POST /shipments/book` books against an `anchorTripId`. With `Authorization: Bearer` from OTP for a user in a **CUSTOMER** org, the shipment is tagged with `customerOrgId` and `customerOrgName` from that org (otherwise anonymous booking uses only the body `customerOrgName`). Optional **`customerPhone`** or **`bookedByPhone`** (India mobile, same normalization as registration) stores `bookedByPhone` on the shipment so the same person can list it after OTP **without** relying on org name matching.
+- `POST /shipments/quote` quotes a shipment for a signed-in shipper (`load.create`: shipper logins and ops). Body **`weightKg`** (required); optional **`pickup`** / **`drop`** (`GeoPoint` each — send **both** or **neither**); optional **`anchorTripId`**. Response includes **`grossPaise`** plus **`breakdown`** (`pricingMode`, `laneKm`, `shipmentKm`, `distanceKmForPrice`, `modelVersion`, component paise). Booking uses the same formula when coords allow distance pricing.
+- `POST /shipments/book` books against an `anchorTripId`. It needs `Authorization: Bearer` from OTP for a signed-in shipper whose company NaviG8r has approved, or for ops booking for an approved company (`customerOrgId`). The shipment is tagged with that company's `customerOrgId` and `customerOrgName`. Optional **`customerPhone`** or **`bookedByPhone`** (India mobile, same normalization as registration) stores `bookedByPhone` on the shipment so the same person can list it after OTP **without** relying on org name matching.
   - **`PAYMENT_PROVIDER=MOCK` (default):** response **`201`** `{ shipment, payment }` where `payment.status` is **`CAPTURED`** immediately.
   - **`PAYMENT_PROVIDER=RAZORPAY`:** after booking, server creates an order with **`payment_capture: false`**. Response **`201`** **`{ shipment, payment, razorpayKeyId? }`** — `payment.status` starts **`CREATED`** with **`razorpayOrderId`**. Flutter (or Web) opens Razorpay Standard Checkout with **`key`=`razorpayKeyId`**, **`order_id`=`razorpayOrderId`**, and amount from `payment.amountPaise`. After customer pays, **authorization** is applied when Razorpay calls **`POST /v1/payments/razorpay/webhook`** (`payment.authorized` / `payment.failed`). **Capture** happens on **`POST /shipments/:id/pod`** (server captures before ledger). Booking may be rolled back if order creation fails.
 - `GET /shipments`, `GET /shipments/:id`, and **`GET /shipments/:id/tracking`** require `Authorization: Bearer`. Responses include shipments for your **CUSTOMER** org (`customerOrgId` match, or legacy match on `customerOrgName` vs org `displayName`) **or** shipments whose **`bookedByPhone`** equals your user’s phone.
@@ -467,6 +466,10 @@ MVP eligibility rules (simple + explainable):
 ### Customer: quote + book (en-route)
 
 #### `POST /shipments/quote`
+Requires `Authorization: Bearer` for a shipper login, or ops (permission `load.create`). No sign-in answers `401 { "error": "unauthorized" }`; any other login, carriers included, answers `403 { "error": "quote_requires_shipper" }`.
+
+The shipper's company must be approved by NaviG8r (`kycStatus` `APPROVED`, set by ops through `POST /v1/organizations/{orgId}/kyc`); otherwise `403 { "error": "company_not_approved" }`. Ops logins need no approval. Each login gets at most 30 quotes an hour; past that, `429 { "error": "rate_limited" }` with a `retry-after` header. Booking does not need a quote first.
+
 Body (minimum):
 ```json
 { "weightKg": 200 }
@@ -486,17 +489,17 @@ Response shape:
 ```json
 {
   "quote": {
-    "grossPaise": 523420,
+    "grossPaise": 0,
     "breakdown": {
       "pricingMode": "distance_weight",
       "modelVersion": "freight-v1",
       "vehicleClass": "MEDIUM",
-      "laneKm": 236.7,
-      "shipmentKm": 245.2,
-      "distanceKmForPrice": 245.2,
-      "paisePerKm": 2000,
-      "distanceComponentPaise": 490400,
-      "weightComponentPaise": 100000
+      "laneKm": "<km>",
+      "shipmentKm": "<km>",
+      "distanceKmForPrice": "<km>",
+      "paisePerKm": 0,
+      "distanceComponentPaise": 0,
+      "weightComponentPaise": 0
     }
   }
 }
@@ -517,7 +520,9 @@ Body:
 }
 ```
 
-`customerPhone` is optional; when present it must be a valid India mobile (same rules as customer registration). Use the **same** number when you sign in with OTP to see the shipment on `GET /shipments` even if the booking was anonymous (no `customerOrgId`).
+The company booked for must be approved by NaviG8r (`kycStatus` `APPROVED`): the shipper's own company, or the `customerOrgId` company when ops books for a shipper. Otherwise `403 { "error": "company_not_approved" }` and no shipment is created. Ops logins need no approval of their own.
+
+`customerPhone` is optional; when present it must be a valid India mobile (same rules as customer registration).
 
 **Response (`201`):** `{ shipment, payment }`. When **`PAYMENT_PROVIDER=RAZORPAY`** and checkout is configured, **`razorpayKeyId`** is also present (omit if unset). Example (Razorpay path, truncated):
 
@@ -526,7 +531,7 @@ Body:
   "shipment": { "id": "shp_...", "paymentId": "pay_..." },
   "payment": {
     "id": "pay_...",
-    "amountPaise": 523420,
+    "amountPaise": 0,
     "status": "CREATED",
     "provider": "RAZORPAY",
     "razorpayOrderId": "order_..."

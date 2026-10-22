@@ -131,7 +131,7 @@ async function seedCarrierTrip(baseUrl: string): Promise<{ tripId: string }> {
 
 test("POST /v1/integrations/loads creates and idempotently returns shipment", async (t) => {
   testEnv(t);
-  await withApp(t, async (baseUrl) => {
+  await withApp(t, async (baseUrl, app) => {
     await seedCarrierTrip(baseUrl);
     const { token, orgId } = await customerBearer(baseUrl);
 
@@ -158,16 +158,25 @@ test("POST /v1/integrations/loads creates and idempotently returns shipment", as
       dropAddress: "Jaipur plant",
       pickup: GURGAON,
       drop: JAIPUR,
-      metadata: { poNumber: "PO-HTTP-1" },
+      metadata: { poNumber: "PO-HTTP-1", commissionPaise: "kept", netToCarrierPaise: "kept" },
     };
+
+    const refused = await postJson(baseUrl, "/v1/integrations/loads", loadBody, {
+      authorization: `Bearer ${keyBody.token}`,
+    });
+    assert.equal(refused.status, 403);
+    assert.deepEqual(await refused.json(), { error: "company_not_approved" });
+    assert.equal(app.store.shipments.size, 0);
+    app.store.organizations.set(orgId, { ...app.store.organizations.get(orgId)!, kycStatus: "APPROVED" });
 
     const create = await postJson(baseUrl, "/v1/integrations/loads", loadBody, {
       authorization: `Bearer ${keyBody.token}`,
     });
     assert.equal(create.status, 201);
-    const created = (await create.json()) as { created: boolean; shipmentId: string; externalLoadId: string };
+    const created = (await create.json()) as { created: boolean; shipmentId: string; externalLoadId: string; metadata: Record<string, string> };
     assert.equal(created.created, true);
     assert.equal(created.externalLoadId, "ERP-HTTP-001");
+    assert.deepEqual(created.metadata, loadBody.metadata, "the shipper's own metadata comes back exactly as sent");
 
     const dup = await postJson(baseUrl, "/v1/integrations/loads", loadBody, {
       authorization: `Bearer ${keyBody.token}`,

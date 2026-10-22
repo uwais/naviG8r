@@ -55,7 +55,7 @@ const markup = `
   <div id="notice" class="card notice" hidden><p id="noticeText"></p><p id="noticeHelp" class="caption"></p></div>
   <div id="tools" class="tools" hidden>
     <span class="caption">Needs someone</span>
-    <a class="jump" href="#carriers" id="jumpCarriers">Carriers waiting <span class="count" id="countCarriers">0</span></a>
+    <a class="jump" href="#carriers" id="jumpCarriers">Companies waiting <span class="count" id="countCarriers">0</span></a>
     <a class="jump" href="#payments">Payments waiting <span class="count" id="countPayments">0</span></a>
     <a class="jump" href="#ewayBills" id="jumpEwayBills">E-way bills to check <span class="count" id="countEwayBills">0</span></a>
     <a class="jump" href="#ewayMissing" id="jumpEwayMissing">Missing e-way bills <span class="count" id="countEwayMissing">0</span></a>
@@ -65,15 +65,15 @@ const markup = `
   </div>
   <main id="sections" hidden>
     <section id="carriers" class="card span2" aria-labelledby="carriersTitle">
-      <div class="head"><h2 id="carriersTitle">Carriers waiting for approval</h2><span id="carriersCount" class="caption"></span><div class="grow"></div><span id="carriersUpdated" class="caption"></span><button id="carriersReload" class="btn btn-quiet btn-sm" type="button">Reload</button></div>
+      <div class="head"><h2 id="carriersTitle">Companies waiting for approval</h2><span id="carriersCount" class="caption"></span><div class="grow"></div><span id="carriersUpdated" class="caption"></span><button id="carriersReload" class="btn btn-quiet btn-sm" type="button">Reload</button></div>
       <div id="carriersBody"></div>
     </section>
     <section id="byId" class="card" aria-labelledby="byIdTitle">
-      <div class="head"><h2 id="byIdTitle">Review any carrier by ID</h2></div>
+      <div class="head"><h2 id="byIdTitle">Review any company by ID</h2></div>
       <form id="byIdForm" class="body" novalidate autocomplete="off">
-        <p class="caption">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history. If you reject with Documents missing, Duplicate account, Not a carrier business or the bank reason, only the owner sees it in their app, in plain words; the bank reason only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details. If you take back an approval, everyone at the carrier reads that it was taken back.</p>
+        <p class="caption">For companies not in the list, such as taking back an approval. The change and your reason are kept in the company's history. If you reject a carrier with Documents missing, Duplicate account, Not a carrier business or the bank reason, only the owner sees it in their app, in plain words; the bank reason only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details. If you take back an approval, everyone at the carrier reads that it was taken back.</p>
         <div id="byIdOff"></div>
-        <label class="stack"><span class="field-label">Carrier ID</span><input id="byIdCarrier" class="field mono" autocomplete="off" spellcheck="false"></label>
+        <label class="stack"><span class="field-label">Company ID</span><input id="byIdCarrier" class="field mono" autocomplete="off" spellcheck="false"></label>
         <fieldset><legend class="field-label">Decision</legend>
           <div><label class="choice"><input type="radio" name="decision" value="APPROVED">Approve</label><label class="choice"><input type="radio" name="decision" value="REJECTED">Reject</label></div>
           <span class="caption">Nothing is chosen for you. Pick one.</span></fieldset>
@@ -115,7 +115,7 @@ const reasons = {
   REJECTED: [['DOCUMENTS_MISSING', 'Documents missing'], ['BANK_DETAILS_MISMATCH', "Bank account name doesn't match the carrier"],
     ['DUPLICATE_ACCOUNT', 'Duplicate account'], ['NOT_A_CARRIER', 'Not a carrier business']],
 };
-// Only Review any carrier by ID reaches approved carriers, so only it offers taking an approval back.
+// Only Review any company by ID reaches approved companies, so only it offers taking an approval back.
 const approvalTakenBack = ['APPROVAL_REVOKED', 'Approval taken back'];
 const reasonWords = Object.fromEntries([...reasons.APPROVED, ...reasons.REJECTED, approvalTakenBack]);
 const pageSize = 20;
@@ -221,7 +221,7 @@ function statusTag([words, kind]) {
 }
 const carrierWords = { SUBMITTED: ['Bank details submitted', 'attention'], NOT_STARTED: ['No bank details yet', 'problem'], REJECTED: ['Not approved', 'problem'], APPROVED: ['Approved', 'good'] };
 const carrierStatus = code => carrierWords[code] || ['Status not recognised', 'problem'];
-const kindWords = { CARRIER_FLEET: 'Fleet', CARRIER_SOLO: 'Owner-operator', CARRIER_LEGACY: 'Carrier' };
+const kindWords = { CARRIER_FLEET: 'Fleet', CARRIER_SOLO: 'Owner-operator', CARRIER_LEGACY: 'Carrier', CUSTOMER: 'Shipper' };
 function paymentStatus(shipment) {
   if (shipment.paymentReady) return ['Ready for payment release', 'attention'];
   if (shipment.podAtUtcMs && shipment.paymentHoldUntilUtcMs) return ['Payment held until the shipper accepts or ' + dateIST(shipment.paymentHoldUntilUtcMs, false), 'info'];
@@ -259,7 +259,7 @@ function pages(total, describe, addNext) {
 let carriers = [], approvedSinceLoad = 0;
 function showWaitingCount() {
   const waiting = carriers.length - approvedSinceLoad;
-  byId('carriersCount').textContent = plural(waiting, 'carrier');
+  byId('carriersCount').textContent = waiting + (waiting === 1 ? ' company' : ' companies');
   byId('countCarriers').textContent = waiting;
 }
 function reasonChoices(select, list) {
@@ -270,7 +270,7 @@ function resetByIdReason() {
   byId('byIdReason').disabled = true;
 }
 async function loadCarriers() {
-  const allowed = can('kyc.verify'), onlyOps = 'Only OPS can review carriers. You hold ' + inWords(principal.roles) + '.';
+  const allowed = can('kyc.verify'), onlyOps = 'Only OPS can review companies. You hold ' + inWords(principal.roles) + '.';
   byId('carriersReload').hidden = byId('jumpCarriers').hidden = !allowed;
   byId('byIdOff').replaceChildren(allowed ? '' : note(onlyOps));
   for (const control of byId('byIdForm').elements) control.disabled = !allowed;
@@ -281,14 +281,14 @@ async function loadCarriers() {
     return;
   }
   byId('countCarriers').textContent = '–';
-  sectionLoading('carriers', 'carriers waiting for approval');
+  sectionLoading('carriers', 'companies waiting for approval');
   try { carriers = (await request('/ops/compliance/pending')).organizations; }
-  catch (error) { byId('carriersCount').textContent = ''; sectionFailed('carriers', 'carriers waiting for approval', error, loadCarriers); return; }
+  catch (error) { byId('carriersCount').textContent = ''; sectionFailed('carriers', 'companies waiting for approval', error, loadCarriers); return; }
   sectionLoaded('carriers');
   approvedSinceLoad = 0;
   showWaitingCount();
   if (!carriers.length) {
-    byId('carriersBody').replaceChildren(element('div', { class: 'body' }, element('p', { text: 'No carriers are waiting for approval.' }), element('p', { class: 'caption', text: 'Carriers appear here after they sign up.' })));
+    byId('carriersBody').replaceChildren(element('div', { class: 'body' }, element('p', { text: 'No companies are waiting for approval.' }), element('p', { class: 'caption', text: 'Companies appear here after they sign up.' })));
     return;
   }
   const list = element('div');
@@ -361,10 +361,11 @@ async function recordReview({ carrier, decision, select, confirm, result, status
     status.replaceChildren(statusTag(carrierStatus(out.org.kycStatus)));
     if (out.org.kycStatus === 'APPROVED') { approvedSinceLoad += 1; showWaitingCount(); }
     const by = ' by you at ' + timeIST(Date.now()) + ': ' + reasonWords[code] + '. ';
-    const change = ' To change this decision, use Review any carrier by ID.';
+    const change = ' To change this decision, use Review any company by ID.';
+    const work = carrier.kind === 'CUSTOMER' ? ['can now get quotes and book', "can't get quotes or book"] : ['can now accept shipments', "can't accept shipments"];
     const done = message('ok', approving
-      ? 'Approved' + by + out.org.displayName + ' can now accept shipments. It leaves this list on the next reload.' + change
-      : 'Not approved' + by + out.org.displayName + " can't accept shipments until it is approved." + change);
+      ? 'Approved' + by + out.org.displayName + ' ' + work[0] + '. It leaves this list on the next reload.' + change
+      : 'Not approved' + by + out.org.displayName + ' ' + work[1] + ' until it is approved.' + change);
     done.tabIndex = -1;
     result.append(done);
     done.focus();
@@ -389,7 +390,7 @@ byId('byIdForm').onsubmit = async event => {
   const carrierId = idInput.value.trim(), code = reasonSelect.value, picked = document.querySelector('input[name=decision]:checked');
   result.replaceChildren();
   reasonSelect.removeAttribute('aria-invalid');
-  const problem = !carrierId ? ['Type the carrier ID.', idInput] : !picked ? ['Pick Approve or Reject.', document.querySelector('input[name=decision]')]
+  const problem = !carrierId ? ['Type the company ID.', idInput] : !picked ? ['Pick Approve or Reject.', document.querySelector('input[name=decision]')]
     : !code ? ['Choose a reason from the list.', reasonSelect] : null;
   if (problem) {
     if (problem[1] === reasonSelect) reasonSelect.setAttribute('aria-invalid', 'true');

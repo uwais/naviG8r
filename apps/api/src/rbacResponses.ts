@@ -4,6 +4,25 @@ import type { EwayBill } from "./types.ts";
 const pick = (v: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter(k => v[k] !== undefined).map(k => [k, v[k]]));
 /** What the carrier earns and when it is paid. A DRIVER never gets these, whatever the route (owner decision, 15 Oct 2026). */
 const carrierPayFields = ["netToCarrierPaise", "totalNetToCarrierPaise", "pendingAccruedPaise", "paidPaise", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs", "paidAtUtcMs", "cutoffUtcMs", "paymentReady", "paymentHoldUntilUtcMs"];
+/** Owner hard rule, 21 Oct 2026: each side sees only its own amount. On a shipment, only finance sees both. */
+const shipperSideFields = ["grossPaise", "commissionPaise", "amountPaise", "breakdown", "distanceComponentPaise", "weightComponentPaise", "paisePerKm"];
+const carrierSideFields = ["netToCarrierPaise", "totalNetToCarrierPaise", "pendingAccruedPaise", "paidPaise", "commissionPaise", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs"];
+/** No sign-in gets any amount or payout date. */
+const amountAndPayoutFields = [...new Set([...carrierPayFields, ...shipperSideFields, ...carrierSideFields])];
+const carrierOnlyFields = new Set([...carrierSideFields, "paidAtUtcMs", "cutoffUtcMs"]);
+/** A stored shipment, or the ERP's load view of one: the only holders of the shipper's own `metadata`. */
+const isShipment = (holder: object) => ("customerOrgName" in holder && "paymentId" in holder) || ("shipmentId" in holder && "trackingUrl" in holder);
+/** A JSON.stringify replacer for one response to a shipper's ERP: drops the carrier's amount, the cut and payout dates at any depth, except inside a shipment's `metadata`, which goes back exactly as sent. */
+export function leaveOutCarrierSide(): (this: unknown, key: string, value: unknown) => unknown {
+  const shipperMetadata = new WeakSet<object>();
+  return function (this: unknown, key: string, value: unknown): unknown {
+    const holder = typeof this === "object" && this !== null ? this : null;
+    const keptAsSent = holder !== null && (shipperMetadata.has(holder) || (key === "metadata" && isShipment(holder)));
+    if (!keptAsSent) return carrierOnlyFields.has(key) ? undefined : value;
+    if (typeof value === "object" && value !== null) shipperMetadata.add(value);
+    return value;
+  };
+}
 /** Domain allowlists prevent new storage fields from silently becoming API fields. */
 export function serializeResponse(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(serializeResponse);
@@ -12,7 +31,8 @@ export function serializeResponse(value: unknown): unknown {
   const p = authorizationContext.getStore()?.principal;
   let out: Record<string, unknown>;
   if ("customerOrgName" in v && "paymentId" in v) {
-    const keys = ["id", "anchorTripId", "carrierId", "carrierDisplayName", "customerOrgId", "customerOrgName", "status", "weightKg", "createdAtUtcMs", "updatedAtUtcMs", "podAtUtcMs", "podAcceptedAtUtcMs", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs", "externalLoadId"];
+    const keys = ["id", "anchorTripId", "carrierId", "carrierDisplayName", "customerOrgId", "customerOrgName", "status", "weightKg", "createdAtUtcMs", "updatedAtUtcMs", "podAtUtcMs", "podAcceptedAtUtcMs", "externalLoadId"];
+    if (p?.roles.some(r => ["CARRIER", "OPS", "FINANCE", "ADMIN"].includes(r))) keys.push("firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs");
     if (p?.roles.some(r => ["SHIPPER", "CARRIER", "OPS"].includes(r))) keys.push("pickupAddress", "dropAddress", "pickup", "drop", "assignedTruckNumber");
     if (p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r))) keys.push("grossPaise");
     if (p?.roles.some(r => ["CARRIER", "FINANCE"].includes(r))) keys.push("netToCarrierPaise");
@@ -35,5 +55,8 @@ export function serializeResponse(value: unknown): unknown {
   }
   // After every branch, since payout batches, their transfers and the earnings summary have no branch of their own.
   if (p?.subrole === "DRIVER") for (const key of carrierPayFields) delete out[key];
+  if (p?.roles.includes("CARRIER")) for (const key of shipperSideFields) delete out[key];
+  if (p?.roles.includes("SHIPPER")) for (const key of carrierSideFields) delete out[key];
+  if (!p) for (const key of amountAndPayoutFields) delete out[key];
   return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, serializeResponse(v)]));
 }

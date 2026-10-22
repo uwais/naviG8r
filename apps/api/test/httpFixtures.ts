@@ -25,7 +25,8 @@ export async function httpFixture(t: TestContext, createAppOptions: Parameters<t
   const shipperB = registerCustomerOrgAdmin(app.store, { fullName: "Synthetic Shipper B", phone: "8000000002", orgDisplayName: "Synthetic Shipper B" });
   const carrierA = registerSoloOwnerOperatorDriver(app.store, { fullName: "Synthetic Carrier A", phone: "8000000003", orgDisplayName: "Synthetic Carrier A", vehicleRegistrationNumber: "TEST-A", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
   const carrierB = registerSoloOwnerOperatorDriver(app.store, { fullName: "Synthetic Carrier B", phone: "8000000004", orgDisplayName: "Synthetic Carrier B", vehicleRegistrationNumber: "TEST-B", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
-  for (const c of [carrierA, carrierB]) app.store.organizations.set(c.org.id, { ...c.org, kycStatus: "APPROVED" });
+  // NaviG8r approves each company before it can quote, book or take loads; tests that need one unapproved set it back.
+  for (const c of [shipperA, shipperB, carrierA, carrierB]) app.store.organizations.set(c.org.id, { ...c.org, kycStatus: "APPROVED" });
   const ops = internalUser(app.store, "OPS"), finance = internalUser(app.store, "FINANCE"), admin = internalUser(app.store, "ADMIN");
   const trip = publishAnchorTrip(app.store, { carrierId: carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2026-09-16", windowEnd: "2026-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
   async function request(path: string, method = "GET", body?: unknown, token?: string, headers: Record<string, string> = {}) {

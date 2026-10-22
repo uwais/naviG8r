@@ -1469,6 +1469,7 @@ export function quoteShipmentMarketplace(store: Store, params: {
   });
 }
 
+/** Each side sees only its own amount: a carrier gets what the carrier would receive, and the serializer drops even that for a driver. */
 export function pilotRatesEstimate(store: Store, userId: string, body: {
   origin: unknown;
   destination: unknown;
@@ -1476,7 +1477,7 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   sampleWeightsKg?: unknown;
 }): {
   laneKm: number;
-  samples: Array<{ weightKg: number; grossPaise: number; breakdown: FreightBreakdown }>;
+  samples: Array<{ weightKg: number; netToCarrierPaise: number }>;
   modelVersion: string;
 } {
   if (!userHasPilotCarrierMembership(store, userId)) {
@@ -1511,13 +1512,13 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   const laneKmRounded = Math.round(laneKmRaw * 100) / 100;
 
   const samples = sampleWeights.map((weightKg) => {
-    const { grossPaise, breakdown } = computeFreightGrossPaise({
+    const { grossPaise } = computeFreightGrossPaise({
       weightKg,
       vehicleClass: vc,
       laneKm: laneKmRaw,
       shipmentKm: null,
     });
-    return { weightKg, grossPaise, breakdown };
+    return { weightKg, netToCarrierPaise: moneySplit(grossPaise).netToCarrierPaise };
   });
 
   return { laneKm: laneKmRounded, samples, modelVersion: FREIGHT_MODEL_VERSION };
@@ -2001,12 +2002,12 @@ export function opsListRecentlyDelivered(store: Store, limit = 20): Shipment[] {
     .slice(0, limit);
 }
 
-/** Carriers ops has not approved yet. Ones that submitted bank details come first, then the oldest. */
-export function opsListUnapprovedCarriers(store: Store): Organization[] {
+/** Carriers and shippers ops has not approved yet. Ones that submitted bank details come first, then the oldest. */
+export function opsListUnapprovedCompanies(store: Store): Organization[] {
   const reviewOrder: Record<string, number> = { SUBMITTED: 0, NOT_STARTED: 1, REJECTED: 2 };
   return [...store.organizations.values()]
     .filter((o) => isActiveEntity(o) && o.kycStatus !== "APPROVED")
-    .filter((o) => o.kind === "CARRIER_SOLO" || o.kind === "CARRIER_FLEET" || o.kind === "CARRIER_LEGACY")
+    .filter((o) => o.kind === "CARRIER_SOLO" || o.kind === "CARRIER_FLEET" || o.kind === "CARRIER_LEGACY" || o.kind === "CUSTOMER")
     .sort((a, b) => reviewOrder[a.kycStatus] - reviewOrder[b.kycStatus] || a.createdAtUtcMs - b.createdAtUtcMs);
 }
 

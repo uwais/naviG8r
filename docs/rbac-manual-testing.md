@@ -179,9 +179,9 @@ await rbacCall('/v1/organizations/carrier-b/kyc', 'POST', { status: 'APPROVED' }
 // 403: carrier cannot verify itself
 ```
 
-Sign in as **Ops**. In **Carrier compliance review**, enter:
+Sign in as **Ops**. In **Company compliance review**, enter:
 
-- Carrier organization ID: `carrier-b`
+- Company organization ID: `carrier-b`
 - Reason code: `DOCUMENTS_REVIEWED`
 - Status: `APPROVED`
 
