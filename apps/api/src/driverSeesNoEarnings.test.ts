@@ -168,3 +168,32 @@ test("a payment notice written to a driver before 15 Oct is never returned to th
   assert.equal(timeline.status, 200);
   assert.equal(JSON.stringify(timeline.body).includes("payment."), false, "nor in the shipment's messages");
 });
+
+test("a stored payment notice cannot be opened or marked read by a driver or dispatcher; the owner's can", async t => {
+  const { f, orgId, driver, tokens } = await carrierWithStaff(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  assert.equal((await f.request(`/v1/pilot/carrier/shipments/${shipmentId}/accept`, "POST", {}, tokens.driver)).status, 200);
+  const memberWith = (role: string) => [...f.store.memberships.values()].find(m => m.orgId === orgId && m.role === role)!.userId;
+  const dispatcherId = memberWith("DISPATCHER");
+  const ownerId = memberWith("OWNER");
+  for (const [id, userId] of [["driver-payment", driver.user.id], ["dispatcher-payment", dispatcherId], ["owner-payment", ownerId]] as const) {
+    f.store.notifications.set(id, {
+      id, recipientSequence: ++f.store.notificationSequence,
+      eventId: `payment:${id}:${shipmentId}`, eventKey: "payment.status_changed",
+      recipientUserId: userId, recipientOrgId: orgId,
+      shipmentId, conversationId: shipmentId, createdAtUtcMs: Date.now(),
+      data: { shipmentId, audience: "CARRIER", title: "Payment status changed", body: "Payment status changed" },
+    });
+  }
+
+  for (const [who, id] of [["driver", "driver-payment"], ["dispatcher", "dispatcher-payment"]] as const) {
+    const opened = await f.request(`/v1/notifications/${id}/open`, "POST", {}, tokens[who]);
+    assert.equal(opened.status, 404, `${who}: an old push for it opens nothing`);
+    const marked = await f.request(`/v1/notifications/${id}/read`, "PATCH", {}, tokens[who]);
+    assert.equal(marked.status, 404, `${who}: it does not exist to mark`);
+    assert.equal(f.store.notifications.get(id)!.readAtUtcMs, undefined, `${who}: the row is untouched`);
+  }
+  assert.equal((await f.request("/v1/notifications/owner-payment/open", "POST", {}, tokens.owner)).status, 200, "the owner opens theirs");
+  const ownerMarked = await f.request("/v1/notifications/owner-payment/read", "PATCH", {}, tokens.owner);
+  assert.equal(ownerMarked.status, 200, "and marks it read");
+});

@@ -34,8 +34,8 @@ test("the cap counts characters as the app's address box does, so a Devanagari a
   const refused = await f.book(f.tokens.shipperA, { dropAddress: over });
   assert.equal(refused.body.error, "address_too_long");
 
-  const markHeavy = "a" + "\u0301".repeat(2000);
+  const markHeavy = "a" + "\u0301".repeat(4000);
   assert.equal(seen(markHeavy), 1);
   const heavy = await f.book(f.tokens.shipperA, { pickupAddress: markHeavy });
-  assert.equal(heavy.body.error, "address_too_long", "one character with 2,000 marks is still too long to store");
+  assert.equal(heavy.body.error, "address_too_long", "one character with 4,000 marks is still too long to store");
 });

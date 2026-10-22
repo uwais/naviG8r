@@ -227,7 +227,10 @@ export function resolveNotificationOpenRoute(store: Store, notificationId: strin
   const role = notification.recipientOrgId === shipment.customerOrgId ? "SHIPPER"
     : notification.recipientOrgId === shipment.carrierId ? "CARRIER" : null;
   if (!role || !eligibleActor(store, userId, notification.recipientOrgId, role)) throw new CommunicationError("notification_not_found", 404);
-  if (!assignedDriverMaySee(store, { internal: false, subrole: store.memberships.get(`${userId}:${notification.recipientOrgId}`)?.role ?? "", userId }, shipment)) throw new CommunicationError("notification_not_found", 404);
+  const memberRole = store.memberships.get(`${userId}:${notification.recipientOrgId}`)?.role ?? "";
+  if (!assignedDriverMaySee(store, { internal: false, subrole: memberRole, userId }, shipment)) throw new CommunicationError("notification_not_found", 404);
+  // As in the list: a payment notice stored before the rule, or tapped in an old push, does not exist here.
+  if (mustNotHearPaymentEvent(memberRole, notification.eventKey)) throw new CommunicationError("notification_not_found", 404);
   return {
     organizationId: notification.recipientOrgId,
     shipmentId: shipment.id,
@@ -425,6 +428,8 @@ export function markNotificationRead(store: Store, notificationId: string): Noti
   requirePermission(store, "notification.read");
   const notification = store.notifications.get(notificationId);
   if (!notification || notification.recipientUserId !== principal.userId || notification.recipientOrgId !== principal.organizationId) throw new CommunicationError("not_found", 404);
+  // The list never shows this member a payment notice, so marking one read is a notice that does not exist.
+  if (mustNotHearPaymentEvent(principal.subrole, notification.eventKey)) throw new CommunicationError("not_found", 404);
   const shipment = store.shipments.get(notification.shipmentId);
   if (!shipment || !isActiveEntity(shipment)) throw new CommunicationError("not_found", 404);
   requireShipmentActor(store, shipment, "conversation.read");

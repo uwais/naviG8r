@@ -1554,15 +1554,16 @@ export function quoteShipment(params: { weightKg: number }): { grossPaise: numbe
 /** The longest pickup or drop address a booking takes, in characters as a person sees them. */
 export const maxAddressLength = 500;
 
-const seenCharacters = new Intl.Segmenter("en", { granularity: "grapheme" });
+const addressCharacterSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 
 /** Counted as the app's address box counts (Flutter's characters.length): "कि" is one character, though two
- * code points. Code points would refuse Devanagari the box takes. The UTF-16 ceiling keeps a stored address
- * bounded when one character carries many combining marks. */
+ * code points. Code points would refuse Devanagari the box takes. The UTF-16 ceiling, 8 units a character,
+ * keeps a stored address bounded when one character carries many combining marks, and leaves room for
+ * characters made of several code points (a conjunct, an emoji). */
 function addressTooLong(address: string): boolean {
-  if (address.length > 4 * maxAddressLength) return true;
+  if (address.length > 8 * maxAddressLength) return true;
   let characters = 0;
-  for (const _ of seenCharacters.segment(address)) if (++characters > maxAddressLength) return true;
+  for (const _ of addressCharacterSegmenter.segment(address)) if (++characters > maxAddressLength) return true;
   return false;
 }
 

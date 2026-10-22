@@ -1353,10 +1353,10 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                         .map((s) {
                       final m = Map<String, dynamic>.from(s);
                       final w = m["weightKg"];
-                      final gp = m["netToCarrierPaise"];
-                      final rupees = (gp is num)
-                          ? (gp / 100).toStringAsFixed(
-                              (gp.remainder(100).abs() < 1e-6) ? 0 : 2)
+                      final netToCarrierPaise = m["netToCarrierPaise"];
+                      final rupees = (netToCarrierPaise is num)
+                          ? (netToCarrierPaise / 100).toStringAsFixed(
+                              (netToCarrierPaise.remainder(100).abs() < 1e-6) ? 0 : 2)
                           : "?";
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 4),
