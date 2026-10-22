@@ -135,6 +135,13 @@ class GoogleGeocodingService {
       }
       final first = results.first;
       if (first is! Map<String, dynamic>) return GeocodeOutcome.fail("BAD_RESPONSE");
+      // Restricted to India, words Google cannot place can come back as all of India or a whole state,
+      // whose pin is in the middle of it: no place to pick up from.
+      final types = first["types"];
+      if (types is List<dynamic> &&
+          (types.contains("country") || types.contains("administrative_area_level_1"))) {
+        return GeocodeOutcome.fail("ZERO_RESULTS", "No matches — try adding state or landmark.");
+      }
       final loc = first["geometry"]?["location"];
       if (loc is! Map<String, dynamic>) return GeocodeOutcome.fail("BAD_RESPONSE");
       final lat = loc["lat"];

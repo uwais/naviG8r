@@ -117,6 +117,48 @@ void main() {
       expect(asked['bounds'], '12.5,77.25|13.75,78.5');
       expect(asked['components'], 'country:IN');
     });
+
+    for (final (what, types, address, lat, lng) in [
+      ('all of India', ['country', 'political'], 'India', 20.59, 78.96),
+      ('a whole state', ['administrative_area_level_1', 'political'], 'Karnataka, India', 15.32, 75.71),
+    ]) {
+      test('an answer that is only $what is not found, so no pin lands in its middle', () async {
+        answerWith((_) => jsonResponse({
+              'status': 'OK',
+              'results': [
+                {
+                  'formatted_address': address,
+                  'types': types,
+                  'geometry': {
+                    'location': {'lat': lat, 'lng': lng}
+                  },
+                }
+              ],
+            }));
+        final outcome = await GoogleGeocodingService.forwardAddress('qwzx plot 9',
+            apiKey: 'test-key');
+        expect(outcome.isOk, isFalse);
+        expect(outcome.failure, PlaceSearchFailure.notFound);
+        expect(outcome.position, isNull);
+      });
+    }
+
+    test('a town answer is still found', () async {
+      answerWith((_) => jsonResponse({
+            'status': 'OK',
+            'results': [
+              {
+                'formatted_address': 'Kolar, Karnataka 563101, India',
+                'types': ['locality', 'political'],
+                'geometry': {
+                  'location': {'lat': 13.14, 'lng': 78.13}
+                },
+              }
+            ],
+          }));
+      expect((await GoogleGeocodingService.forwardAddress('Kolar', apiKey: 'test-key')).isOk,
+          isTrue);
+    });
   });
 
   group('place names', () {
