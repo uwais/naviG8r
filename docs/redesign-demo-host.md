@@ -5,9 +5,9 @@ keys. One free Render web service runs it from `Dockerfile.demo`.
 
 ## What it is
 
-- **A practice server, not the real one.** It runs the API with fake accounts, fake shipments and mock payments.
-  No real money moves. Never type real names, numbers or addresses. Anyone with the link can sign in as any demo
-  account and see everything entered.
+- **A practice server, not the real one.** It runs the API with fake accounts, fake shipments, and mock payments or
+  Razorpay test payments (see "Test payments" below). No real money moves. Never type real names, numbers or
+  addresses. Anyone with the link can sign in as any demo account and see everything entered.
 - **One stuck request can stall the demo for everyone, for a minute or more.** The server handles one request at a
   time, so a slow or broken request from anyone holds up the rest. A fix exists in an open pull request.
 - **Data resets to the seed every time the service wakes.** The seed comes from `scripts/rbac-manual.mjs`, the same
@@ -17,8 +17,9 @@ keys. One free Render web service runs it from `Dockerfile.demo`.
   "Debug OTP" and is already filled in. No text message is sent.
 - **The e-way bill portal button opens the practice portal** on the same site (`/demo/eway-portal`), not the
   government one.
-- **It refuses to start** if `NODE_ENV` is `production` or `beta`, or if `RAZORPAY_KEY_SECRET` or `DATABASE_URL` is
-  set. Payments are always mock.
+- **It refuses to start** if `NODE_ENV` is `production` or `beta`, if `DATABASE_URL` is set, or if
+  `RAZORPAY_KEY_SECRET` is set while `RAZORPAY_KEY_ID` does not start with `rzp_test_`. Live Razorpay keys are
+  refused; only test keys are taken.
 - **It sends no webhooks.** No address a tester saves is ever called. The ERP integration's test ping is refused with
   "The practice server does not send webhooks."; the app does not know that answer yet, so it shows its own
   could-not-send sentence.
@@ -59,12 +60,45 @@ The ops page is at `https://<service-name>.onrender.com/ops/beta`. The current p
 4. **Language / runtime:** Docker.
 5. **Dockerfile path:** `Dockerfile.demo`. Leave the build context as the repository root.
 6. **Instance type:** Free.
-7. **Environment variables:** add only `MAPS_API_KEY` (see below). Do not add `NODE_ENV`, `RAZORPAY_KEY_SECRET` or
-   `DATABASE_URL`. The server refuses to start with any of them. `PORT` is set by Render.
+7. **Environment variables:** add `MAPS_API_KEY` (see below), and the three Razorpay test settings only if you
+   want test payments (see "Test payments"). Do not add `NODE_ENV` or `DATABASE_URL`: the server refuses to start
+   with either. `PORT` is set by Render.
 8. Optional: set the health check path to `/api/health`.
 9. Create the service. When the deploy finishes, open the `onrender.com` link it shows.
 
-What you should see: the sign-in screen at `/`, and `{"ok":true,...,"paymentProvider":"mock"}` at `/api/health`.
+What you should see: the sign-in screen at `/`, and `{"ok":true,...,"paymentProvider":"mock"}` at `/api/health`
+(`"razorpay"` once the test keys are in).
+
+### Test payments (Razorpay test keys)
+
+Rishabh's decision, 21 Oct 2026: the demo may take Razorpay **test** keys, so testers go through the real payment
+screen with Razorpay's test cards and UPI. Test mode moves no money.
+
+**Not working yet: do not add the keys until this is fixed.** `Dockerfile.demo` skips `npm install`, so the
+`razorpay` package the API loads for orders, capture and refunds is not in the image. With the keys set, Book and
+pay fails and the booking is undone. Read from `apps/api/src/razorpayPayments.ts` and `Dockerfile.demo`, not tried
+on Render.
+
+Once the image has the package, copy these three settings from the beta service into the demo service, under
+**Environment**, then deploy:
+
+| Setting | What it does |
+|---|---|
+| `RAZORPAY_KEY_ID` | The public test key ID. Must start with `rzp_test_`. |
+| `RAZORPAY_KEY_SECRET` | Its secret. The server refuses to start if the key ID is not a test one. |
+| `RAZORPAY_WEBHOOK_SECRET` | Checks Razorpay's webhook calls. Razorpay sends them only to the address set in its dashboard, which is beta's, so the demo hears none unless a test-mode webhook for the demo's address is added there. Payments still confirm without it, from the app's own return from the payment screen. |
+
+With both keys the server uses Razorpay; with no keys, or a key ID alone, payments stay mock. Never copy live keys.
+Keep the values in Render only: never in the repository, Slack or a document.
+
+What to know:
+
+- **Anyone with the link can make test payments** on beta's Razorpay test account, and they show in its test
+  dashboard beside beta's.
+- **The seeded shipments keep their mock payments**, so release, refunds and their screens behave as before. Only
+  bookings made after the keys are in go through Razorpay.
+- **A payment that fails on the payment screen stays "not paid"** without the webhook, because only the webhook
+  reports a failure.
 
 ### Putting a new commit on the demo
 

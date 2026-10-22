@@ -196,12 +196,32 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 for (const [unsafeSetting, environment] of [
   ["NODE_ENV is production", { NODE_ENV: "production" }],
   ["NODE_ENV is beta", { NODE_ENV: "beta" }],
-  ["RAZORPAY_KEY_SECRET is set", { RAZORPAY_KEY_SECRET: "fake-secret" }],
+  ["RAZORPAY_KEY_SECRET is set with no key ID", { RAZORPAY_KEY_SECRET: "fake-secret" }],
+  ["RAZORPAY_KEY_SECRET is set with a live key ID", { RAZORPAY_KEY_ID: "rzp_live_fake", RAZORPAY_KEY_SECRET: "fake-secret" }],
   ["DATABASE_URL is set", { DATABASE_URL: "postgres://fake" }],
 ] as const) {
   test(`practice server refuses to start when ${unsafeSetting}`, async () => {
     const { code, stderr } = await exitOfPracticeServer(environment);
     assert.equal(code, 1);
-    assert.match(stderr, new RegExp(`Refusing to start the practice server: ${unsafeSetting}`));
+    const reason = unsafeSetting.startsWith("RAZORPAY")
+      ? "RAZORPAY_KEY_SECRET is set but RAZORPAY_KEY_ID is not a test key \\(rzp_test_\\.\\.\\.\\); live Razorpay keys are refused"
+      : unsafeSetting;
+    assert.match(stderr, new RegExp(`Refusing to start the practice server: ${reason}`));
   });
 }
+
+// Owner, 21 Oct 2026: the demo may take Razorpay test keys, which move no money; anything else stays mock.
+test("practice server takes payments through Razorpay with test keys, and stays mock with a key ID alone", async () => {
+  const withTestKeys = await startPracticeServer({ RAZORPAY_KEY_ID: "rzp_test_fake", RAZORPAY_KEY_SECRET: "fake-secret" });
+  try {
+    assert.equal((await (await fetch(`${withTestKeys.baseUrl}/api/health`)).json()).paymentProvider, "razorpay");
+  } finally {
+    withTestKeys.stop();
+  }
+  const withKeyIdOnly = await startPracticeServer({ RAZORPAY_KEY_ID: "rzp_test_fake" });
+  try {
+    assert.equal((await (await fetch(`${withKeyIdOnly.baseUrl}/api/health`)).json()).paymentProvider, "mock");
+  } finally {
+    withKeyIdOnly.stop();
+  }
+});

@@ -5,14 +5,19 @@ import { tmpdir } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
 
 // Anyone can sign in here with the code shown on screen, so it must never sit next to real money or a real database.
+// Razorpay test keys move no money (owner, 21 Oct 2026), so they are the one payment setting it takes.
+const razorpayKeyId = process.env.RAZORPAY_KEY_ID?.trim() ?? "";
+const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET?.trim() ?? "";
 const unsafeReason = ["production", "beta"].includes(process.env.NODE_ENV) ? `NODE_ENV is ${process.env.NODE_ENV}`
-  : process.env.RAZORPAY_KEY_SECRET ? "RAZORPAY_KEY_SECRET is set"
+  : razorpayKeySecret && !razorpayKeyId.startsWith("rzp_test_")
+    ? "RAZORPAY_KEY_SECRET is set but RAZORPAY_KEY_ID is not a test key (rzp_test_...); live Razorpay keys are refused"
   : process.env.DATABASE_URL ? "DATABASE_URL is set"
   : null;
 if (unsafeReason) {
-  console.error(`Refusing to start the practice server: ${unsafeReason}. It runs only with fake accounts and mock payments.`);
+  console.error(`Refusing to start the practice server: ${unsafeReason}. It runs only with fake accounts, and mock payments or Razorpay test payments.`);
   process.exit(1);
 }
+const razorpayTestPayments = Boolean(razorpayKeyId && razorpayKeySecret);
 
 // Serving the web build, or listening beyond this machine, means anyone with the link can reach it.
 const hosted = Boolean(process.env.RBAC_MANUAL_WEB_DIR)
@@ -26,7 +31,8 @@ Object.assign(process.env, {
   AUTH_SECRET: hosted ? randomBytes(32).toString("hex") : "synthetic-local-rbac-demo-not-for-deployment",
   OUTBOUND_WEBHOOKS_OFF: hosted ? "1" : "0",
   OTP_DEBUG: "1",
-  PAYMENT_PROVIDER: "MOCK",
+  // RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET stay in the environment as they came.
+  PAYMENT_PROVIDER: razorpayTestPayments ? "RAZORPAY" : "MOCK",
   PAYOUTS_MODE: "BOOKKEEPING",
   ALLOW_X_USER_ID: "0",
   ENABLE_LEGACY_DEMO_SURFACE: "0",
@@ -152,6 +158,9 @@ for (const [userId, , orgId] of accounts) resolvePrincipal(restored, userId, org
 console.table(accounts.map(([userId, phone, orgId, role]) => ({ phone, userId, orgId, role })));
 console.log("OTP_DEBUG=1 returns each generated six-digit code from otp/start. Dual user also has FINANCE in platform.");
 console.log(`Synthetic data: ${process.env.DATA_FILE}`);
+console.log(razorpayTestPayments
+  ? "Payments: Razorpay test mode. Anyone who can open this server can make test payments; no money moves."
+  : "Payments: mock. No payment provider is called.");
 
 if (!process.argv.includes("--seed-only")) {
   const app = await createApp();
