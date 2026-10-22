@@ -157,6 +157,22 @@ void main() {
       expect(find.textContaining('all in Chennai'), findsNothing);
     });
 
+    testWidgets(
+        'on the way the card counts only drops, and a town written in two cases is one town',
+        (tester) async {
+      signInAsDriver(todayStatus: 'IN_PROGRESS', bookings: [
+        carrierBooking('trip-today', 'guindy',
+            shipper: 'Sharma Textiles', drop: 'Guindy, Chennai'),
+        carrierBooking('trip-today', 'ambattur',
+            shipper: 'Lakshmi Foods', drop: 'Ambattur, chennai'),
+      ]);
+      await mountCarrierApp(tester, '/driver');
+      expect(find.text('2 drops, all in Chennai'), findsOneWidget,
+          reason: 'the first town as it was written');
+      expect(find.textContaining('pickup'), findsNothing,
+          reason: 'review: on the way, a booking does not say whether it was picked up');
+    });
+
     testWidgets('a second trip due today is listed under Other trips, earliest first',
         (tester) async {
       signInToCarrierApp(CarrierServer(

@@ -1471,8 +1471,9 @@ class _DriverTodayState extends State<_DriverToday> {
             booking["anchorTripId"] == trip["id"] &&
             _acceptedOrDelivered(booking))
         .length;
-    // Only a booking still to pick up (BOOKED) is a pickup and a drop to come; a delivered one is neither.
-    final toPickUp = _bookings
+    // A booking not yet delivered (BOOKED) is a drop to come and, before the trip starts, a pickup too. Once the
+    // trip is on the way its pickups may be done, and a booking says nothing of that, so only drops are counted.
+    final notDelivered = _bookings
         ?.where((booking) =>
             booking["anchorTripId"] == trip["id"] && booking["status"] == "BOOKED")
         .toList();
@@ -1481,12 +1482,16 @@ class _DriverTodayState extends State<_DriverToday> {
     String places(List<Map<String, dynamic>> bookings, String stop, String addressField) {
       final count = bookings.length;
       final counted = count == 1 ? "1 $stop" : "$count ${stop}s";
-      final towns = {
+      final towns = [
         for (final booking in bookings)
           townOfAddress(booking[addressField]?.toString() ?? "")
-      };
-      if (towns.length != 1 || towns.single.isEmpty) return counted;
-      return count == 1 ? "$counted in ${towns.single}" : "$counted, all in ${towns.single}";
+      ];
+      // "Chennai" and "chennai" are one town; the first is shown as it was written.
+      final town = towns.first;
+      final oneTown = town.isNotEmpty &&
+          towns.every((other) => other.toLowerCase() == town.toLowerCase());
+      if (!oneTown) return counted;
+      return count == 1 ? "$counted in $town" : "$counted, all in $town";
     }
 
     Widget placesRow(String words) => Padding(
@@ -1527,9 +1532,10 @@ class _DriverTodayState extends State<_DriverToday> {
           ..._factRows([
             if (truck != null)
               _factRow("Truck", portalTruckNumber(truck), identifier: true),
-            if (toPickUp != null && toPickUp.isNotEmpty) ...[
-              placesRow(places(toPickUp, "pickup", "pickupAddress")),
-              placesRow(places(toPickUp, "drop", "dropAddress")),
+            if (notDelivered != null && notDelivered.isNotEmpty) ...[
+              if (trip["status"] != "IN_PROGRESS")
+                placesRow(places(notDelivered, "pickup", "pickupAddress")),
+              placesRow(places(notDelivered, "drop", "dropAddress")),
             ],
           ]),
           const SizedBox(height: NvSpace.s4),
