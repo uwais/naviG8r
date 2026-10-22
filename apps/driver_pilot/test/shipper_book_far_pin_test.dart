@@ -94,13 +94,30 @@ void main() {
       expect(farPinKm(kolarHimachal, null), isNull);
     });
 
-    test("the server's refusal names its limits, and 15 km when it gives none", () {
+    ({String sentence, String help}) refusal(Map<String, Object> body) =>
+        farPinsRefusal(body, startTown: 'Hoskote', endTown: 'Kolar');
+
+    test("the server's refusal names the pin it refused, how far, and its limit", () {
       expect(
-          farPinsRefusal({'maxPickupKm': 15, 'maxDropKm': 12},
-              startTown: 'Hoskote', endTown: 'Kolar'),
-          'This trip picks up within 15 km of Hoskote and drops within 12 km of Kolar. Move the pins or choose another trip.');
-      expect(farPinsRefusal({'error': 'phase_a_not_eligible'}, startTown: 'Hoskote', endTown: 'Kolar'),
-          'This trip picks up within 15 km of Hoskote and drops within 15 km of Kolar. Move the pins or choose another trip.');
+          refusal({'pickupDistanceKm': 15.3, 'dropDistanceKm': 2, 'maxPickupKm': 15, 'maxDropKm': 15}),
+          (
+            sentence:
+                'This trip picks up within 15 km of Hoskote. Your pickup pin is about 16 km away. Move it or choose another trip.',
+            help: 'Move the pickup pin, or choose another trip.',
+          ));
+      expect(
+          refusal({'pickupDistanceKm': 20.1, 'dropDistanceKm': 30, 'maxPickupKm': 12.5, 'maxDropKm': 15})
+              .sentence,
+          'This trip picks up within 12 km of Hoskote and drops within 15 km of Kolar. Your pickup pin is about 21 km away and your drop pin about 30 km. Move them or choose another trip.',
+          reason: 'distance rounded up, limit rounded down');
+    });
+
+    test("without the server's numbers, both pins and 15 km", () {
+      expect(refusal({'error': 'phase_a_not_eligible'}), (
+        sentence:
+            'This trip picks up within 15 km of Hoskote and drops within 15 km of Kolar. Move the pins or choose another trip.',
+        help: 'Move the pickup and drop pins, or choose another trip.',
+      ));
     });
   });
 
@@ -204,18 +221,78 @@ void main() {
       'maxPickupKm': 15,
       'maxDropKm': 12,
     }, 400);
+    final tripLoads = server.countOf('/anchor-trips/lane-1');
     await tester.tap(find.text('Book and pay ₹2,640'));
     await tester.pumpAndSettle();
     expect(
         find.text(
-            'This trip picks up within 15 km of Hoskote and drops within 12 km of Kolar. Move the pins or choose another trip.'),
+            'This trip drops within 12 km of Kolar. Your drop pin is about 14 km away. Move it or choose another trip.'),
         findsOneWidget,
         reason: 'not "Could not book. Check your connection"');
+    expectNoPrice(tester);
+    expect(bookButton(tester).disabledReason, moveDropHelp);
+    expect(find.text('Choose another trip'), findsOneWidget);
+    expect(server.countOf('/anchor-trips/lane-1'), tripLoads + 1,
+        reason: 'the trip is loaded again, as after a closed-trip refusal');
+    expect(server.countOf('/shipments/quote'), 1, reason: 'no new price until a pin moves');
 
-    server.answer('/shipments/book', {'error': 'phase_a_pickup_drop_required'}, 400);
+    await movePin(tester, 'Drop', eastOf(kolarKarnataka, 5));
+    expect(bookButton(tester).label, 'Book and pay ₹2,640',
+        reason: 'a moved pin is priced again');
+  });
+
+  testWidgets('a pinned trip states its rule under the summary',
+      (tester) async {
+    const rule = 'Picks up within 15 km of Hoskote and drops within 15 km of Kolar.';
+    await openBook(tester, hoskoteToKolar());
+    expect(find.text(rule), findsOneWidget);
+  });
+
+  testWidgets('a trip without town pins states no rule', (tester) async {
+    await openBook(tester, hoskoteToKolar()..remove('origin')..remove('destination'));
+    expect(find.textContaining('Picks up within'), findsNothing);
+  });
+
+  testWidgets('pickup and drop within 15 km book, with both pins, and open the shipment',
+      (tester) async {
+    final server = await fillBook(tester, hoskoteToKolar());
+    await movePin(tester, 'Drop', eastOf(kolarKarnataka, 10));
+    server.answer('/shipments/book', {
+      'shipment': {'id': 'shipment-9'},
+      'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
+    }, 201);
     await tester.tap(find.text('Book and pay ₹2,640'));
     await tester.pumpAndSettle();
-    expect(find.text('Search for the pickup and drop before you book.'), findsOneWidget);
+    final booked = server.sentTo('/shipments/book').single;
+    expect(booked['pickup'], containsPair('lat', hoskote.latitude));
+    expect(booked['pickup'], containsPair('lng', hoskote.longitude));
+    final drop = eastOf(kolarKarnataka, 10);
+    expect(booked['drop'], containsPair('lat', drop.latitude));
+    expect(booked['drop'], containsPair('lng', drop.longitude));
+    expect(find.text('Shipment shipment-9'), findsOneWidget,
+        reason: 'after booking, the shipment opens');
+  });
+
+  testWidgets("Book's own search takes an answer that is only a state as not found",
+      (tester) async {
+    final realAdapter = GoogleGeocodingService.dio.httpClientAdapter;
+    addTearDown(() => GoogleGeocodingService.dio.httpClientAdapter = realAdapter);
+    GoogleGeocodingService.dio.httpClientAdapter = MockApiAdapter((_) => jsonResponse({
+          'status': 'OK',
+          'results': [
+            {
+              'formatted_address': 'Karnataka, India',
+              'types': ['administrative_area_level_1', 'political'],
+              'geometry': {
+                'location': {'lat': 15.32, 'lng': 75.71}
+              },
+            }
+          ],
+        }));
+    await openBook(tester, hoskoteToKolar(), findPlace: null, mapsApiKey: 'test-key');
+    expect(find.text(placeSearchFailureSentence(PlaceSearchFailure.notFound, pinOnMap: true)),
+        findsOneWidget,
+        reason: 'no pickup pin in the middle of the state');
   });
 
   testWidgets("Book's own search sends the country and the area around the trip's towns",

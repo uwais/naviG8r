@@ -50,14 +50,42 @@ String? farPinsHelp({required bool pickupFar, required bool dropFar}) {
   return pins == null ? null : "Move the $pins, or choose another trip.";
 }
 
-/// What Book says when the server refuses a booking for its pins (phase_a_not_eligible), from the limits
-/// in the server's answer [body], or [farPinLimitKm] when it has none.
-String farPinsRefusal(Object? body, {required String startTown, required String endTown}) {
-  // Rounded down: the limit shown is never more than the server allows.
-  String limit(String field) {
-    final km = body is Map ? body[field] : null;
-    return formatKm(km is num && km > 0 ? km.floor() : farPinLimitKm);
+/// The rule as Book states it under the trip, before anything is typed.
+String farPinRule({required String startTown, required String endTown}) =>
+    "Picks up within $farPinLimitKm km of $startTown and drops within $farPinLimitKm km of $endTown.";
+
+/// What Book says when the server refuses a booking for its pins (phase_a_not_eligible): the [sentence]
+/// above Book and pay and the [help] under it. Which pin, how far and the limits come from the server's
+/// answer [body]; without them, both pins and [farPinLimitKm].
+({String sentence, String help}) farPinsRefusal(Object? body,
+    {required String startTown, required String endTown}) {
+  num? number(String field) {
+    final value = body is Map ? body[field] : null;
+    return value is num && value >= 0 ? value : null;
   }
 
-  return "This trip picks up within ${limit("maxPickupKm")} of $startTown and drops within ${limit("maxDropKm")} of $endTown. Move the pins or choose another trip.";
+  final (pickupKm, dropKm) = (number("pickupDistanceKm"), number("dropDistanceKm"));
+  final (maxPickupKm, maxDropKm) = (number("maxPickupKm"), number("maxDropKm"));
+  // Rounded down, the limit shown is never more than the server allows; rounded up, a distance is never
+  // shown as within it.
+  String limit(num? km) => formatKm(km != null && km > 0 ? km.floor() : farPinLimitKm);
+  String away(num km) => formatKm(km.ceil());
+  final pickupFar = pickupKm != null && maxPickupKm != null && pickupKm > maxPickupKm;
+  final dropFar = dropKm != null && maxDropKm != null && dropKm > maxDropKm;
+  final picksUp = "This trip picks up within ${limit(maxPickupKm)} of $startTown";
+  final drops = "drops within ${limit(maxDropKm)} of $endTown";
+  final sentence = switch ((pickupFar, dropFar)) {
+    (true, false) =>
+      "$picksUp. Your pickup pin is about ${away(pickupKm!)} away. Move it or choose another trip.",
+    (false, true) =>
+      "This trip $drops. Your drop pin is about ${away(dropKm!)} away. Move it or choose another trip.",
+    (true, true) =>
+      "$picksUp and $drops. Your pickup pin is about ${away(pickupKm!)} away and your drop pin about ${away(dropKm!)}. Move them or choose another trip.",
+    (false, false) => "$picksUp and $drops. Move the pins or choose another trip.",
+  };
+  final named = pickupFar || dropFar;
+  return (
+    sentence: sentence,
+    help: farPinsHelp(pickupFar: pickupFar || !named, dropFar: dropFar || !named)!,
+  );
 }

@@ -1,6 +1,6 @@
 // Book this trip, one screen: getting a price, paying and booking share its state. The parts that stand
-// alone sit beside it: the pins check (book_pins_check.dart), the far-pin rule (book_far_pin.dart) and
-// the price card (book_price_card.dart).
+// alone sit beside it: the trip summary (book_lane_summary.dart), the pins check (book_pins_check.dart),
+// the far-pin rule (book_far_pin.dart) and the price card (book_price_card.dart).
 
 import "dart:async";
 
@@ -30,6 +30,7 @@ import "shipper_scaffold.dart";
 import "shipper_words.dart";
 import "announce.dart";
 import "book_far_pin.dart";
+import "book_lane_summary.dart";
 import "book_pins_check.dart";
 import "book_price_card.dart";
 import "shipment_screen.dart";
@@ -129,6 +130,8 @@ class _CustomerBookShipmentScreenState
   bool _searchingDrop = false;
   String? _weightError;
   bool _tooHeavy = false;
+  // The help under Book and pay after the server refused the pins, until the shipper changes something.
+  String? _pinsRefusedHelp;
   Map<String, dynamic>? _lane;
   bool _loadingLane = true;
   bool _laneFailed = false;
@@ -158,6 +161,7 @@ class _CustomerBookShipmentScreenState
       widget.findPlace ??
       ((place) => GoogleGeocodingService.forwardAddress(place,
           apiKey: widget.mapsApiKey,
+          countryOrStateNotFound: true,
           near: _tripEnds == null ? null : areaAround(_tripEnds!)));
 
   _PriceInputs get _priceInputs => (
@@ -250,6 +254,7 @@ class _CustomerBookShipmentScreenState
       _pricedWeightKg = null;
       _pricing = false;
       _tooHeavy = false;
+      _pinsRefusedHelp = null;
       _actionError = null;
       _weightError =
           typedWeight.isNotEmpty && (weightKg == null || weightKg <= 0)
@@ -435,18 +440,22 @@ class _CustomerBookShipmentScreenState
       } else if (code == "anchor_trip_not_open") {
         setState(() => _quote = null);
       } else if (code == "phase_a_not_eligible") {
-        setState(() => _actionError = farPinsRefusal(_apiErrorBody(error),
-            startTown: _startTown, endTown: _endTown));
-      } else if (code == "phase_a_pickup_drop_required") {
-        setState(() =>
-            _actionError = "Search for the pickup and drop before you book.");
+        final refusal = farPinsRefusal(_apiErrorBody(error),
+            startTown: _startTown, endTown: _endTown);
+        setState(() {
+          _quote = null;
+          _actionError = refusal.sentence;
+          _pinsRefusedHelp = refusal.help;
+        });
       } else {
         setState(() => _actionError = plainErrorSentence(
             error, "Could not book. Check your connection, then try again."));
       }
-      // The room shown is from when the screen opened; after a room refusal, show what is left now.
-      if (code == "insufficient_capacity" || code == "anchor_trip_not_open") {
-        unawaited(_loadLane(priceAfter: code != "insufficient_capacity"));
+      // The room shown is from when the screen opened; after a room refusal, show what is left now. After a
+      // pins refusal the trip's town pins may have moved, so its rule here follows.
+      if (const ["insufficient_capacity", "anchor_trip_not_open", "phase_a_not_eligible"]
+          .contains(code)) {
+        unawaited(_loadLane(priceAfter: code == "anchor_trip_not_open"));
       }
     } finally {
       if (mounted) setState(() => _booking = false);
@@ -459,7 +468,7 @@ class _CustomerBookShipmentScreenState
     if (_searchingPickup || _searchingDrop) return "Searching for the place…";
     // A dragged pin is priced at once but named later; booking before then sends the old name.
     if (_namingPickupPin || _namingDropPin) return "Updating address from pin…";
-    if (_farPinsHelp case final help?) return help;
+    if (_farPinsHelp ?? _pinsRefusedHelp case final help?) return help;
     final inputs = _priceInputs;
     final weightMissing = inputs.weightKg == null || inputs.weightKg! <= 0;
     final places = switch ((inputs.pickup == null, inputs.drop == null)) {
@@ -521,8 +530,16 @@ class _CustomerBookShipmentScreenState
                 help: "Check your connection, then try again.",
                 onRetry: _loadLane)
           else if (lane != null) ...[
-            _LaneSummary(
-                lane: lane, typedWeightKg: int.tryParse(_weightKg.text.trim())),
+            // One Column, so the rule line coming or going never moves the place boxes in the list.
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              BookLaneSummary(
+                  lane: lane, typedWeightKg: int.tryParse(_weightKg.text.trim())),
+              if (_tripEnds != null) ...[
+                const SizedBox(height: NvSpace.s2),
+                Text(farPinRule(startTown: _startTown, endTown: _endTown),
+                    style: NvText.caption),
+              ],
+            ]),
             const SizedBox(height: NvSpace.s4),
             if (!laneOpen)
               const NvMessage(
@@ -635,7 +652,7 @@ class _CustomerBookShipmentScreenState
         staysAliveOffScreen: true,
       )),
       // Last in the list: a row added above the place boxes would rebuild them and lose their search state.
-      if (_tooHeavy || _farPinsHelp != null) ...[
+      if (_tooHeavy || _farPinsHelp != null || _pinsRefusedHelp != null) ...[
         const SizedBox(height: NvSpace.s4),
         NvButton(
             label: "Choose another trip",
@@ -728,54 +745,6 @@ class _CustomerBookShipmentScreenState
             const SizedBox(height: NvSpace.s2),
           ],
           button,
-        ],
-      ),
-    );
-  }
-}
-
-/// The lane being booked: route, carrier, dates and the capacity remaining once the weight typed so
-/// far is taken off. An empty or unreadable weight takes nothing off; it never shows below 0.
-class _LaneSummary extends StatelessWidget {
-  const _LaneSummary({required this.lane, required this.typedWeightKg});
-  final Map<String, dynamic> lane;
-  final int? typedWeightKg;
-
-  @override
-  Widget build(BuildContext context) {
-    final room = roomLeftKg(lane);
-    final typed = typedWeightKg;
-    final remaining = room == null || typed == null || typed <= 0
-        ? room
-        : (room - typed < 0 ? 0 : room - typed);
-    final tooHeavyByKg =
-        room != null && typed != null && typed > room ? typed - room : null;
-    final dates = laneDates(lane);
-    final carrier = lane["carrierDisplayName"]?.toString() ?? "Carrier";
-    return Container(
-      padding: const EdgeInsets.all(NvSpace.s4),
-      decoration: BoxDecoration(
-          color: NvColors.card,
-          borderRadius: BorderRadius.circular(NvRadius.card),
-          border: Border.all(color: NvColors.line)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(laneRoute(lane),
-              style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
-          const SizedBox(height: NvSpace.s1),
-          Wrap(spacing: NvSpace.s1, children: [
-            Text(dates == null ? carrier : "$carrier · Leaves $dates",
-                style: NvText.caption),
-            if (remaining != null)
-              Text(
-                  tooHeavyByKg != null
-                      ? "${formatKg(tooHeavyByKg)} more than the capacity remaining"
-                      // A weight that fits exactly leaves 0 kg, a number like the rest, not "None".
-                      : "Capacity remaining: ${formatKg(remaining)}",
-                  style: NvText.caption.copyWith(
-                      fontWeight: FontWeight.w700, color: NvColors.ink)),
-          ]),
         ],
       ),
     );
