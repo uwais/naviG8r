@@ -1166,7 +1166,9 @@ class _OfficeHomeState extends State<_OfficeHome> {
   bool _loading = false;
   String? _error;
   GoRouter? _router;
-  bool _wasAtHome = true;
+  bool _wasAtHome = false;
+  // Home was shown again while a load was running, whose answer may be older than the change.
+  bool _reloadWhenDone = false;
 
   @override
   void initState() {
@@ -1183,11 +1185,21 @@ class _OfficeHomeState extends State<_OfficeHome> {
     if (router == _router) return;
     _router?.routerDelegate.removeListener(_routeChanged);
     _router = router?..routerDelegate.addListener(_routeChanged);
+    _wasAtHome = _atHome;
   }
 
+  bool get _atHome =>
+      _router?.routerDelegate.currentConfiguration.uri.path == "/driver";
+
   void _routeChanged() {
-    final atHome = _router?.routerDelegate.currentConfiguration.uri.path == "/driver";
-    if (atHome && !_wasAtHome && !_loading) _load();
+    final atHome = _atHome;
+    if (atHome && !_wasAtHome) {
+      if (_loading) {
+        _reloadWhenDone = true;
+      } else {
+        _load();
+      }
+    }
     _wasAtHome = atHome;
   }
 
@@ -1209,6 +1221,10 @@ class _OfficeHomeState extends State<_OfficeHome> {
       if (mounted) setState(() => _error = _listLoadFailedWords("bookings", e));
     } finally {
       if (mounted) setState(() => _loading = false);
+      if (mounted && _reloadWhenDone) {
+        _reloadWhenDone = false;
+        _load();
+      }
     }
   }
 
@@ -1359,7 +1375,9 @@ class _DriverTodayState extends State<_DriverToday> {
   bool _loading = false;
   String? _error;
   GoRouter? _router;
-  bool _wasAtHome = true;
+  bool _wasAtHome = false;
+  // Home was shown again while a load was running, whose answer may be older than the change.
+  bool _reloadWhenDone = false;
 
   @override
   void initState() {
@@ -1375,11 +1393,21 @@ class _DriverTodayState extends State<_DriverToday> {
     if (router == _router) return;
     _router?.routerDelegate.removeListener(_routeChanged);
     _router = router?..routerDelegate.addListener(_routeChanged);
+    _wasAtHome = _atHome;
   }
 
+  bool get _atHome =>
+      _router?.routerDelegate.currentConfiguration.uri.path == "/driver";
+
   void _routeChanged() {
-    final atHome = _router?.routerDelegate.currentConfiguration.uri.path == "/driver";
-    if (atHome && !_wasAtHome && !_loading) _load();
+    final atHome = _atHome;
+    if (atHome && !_wasAtHome) {
+      if (_loading) {
+        _reloadWhenDone = true;
+      } else {
+        _load();
+      }
+    }
     _wasAtHome = atHome;
   }
 
@@ -1420,6 +1448,10 @@ class _DriverTodayState extends State<_DriverToday> {
       if (mounted) setState(() => _error = _listLoadFailedWords("trips", e));
     } finally {
       if (mounted) setState(() => _loading = false);
+      if (mounted && _reloadWhenDone) {
+        _reloadWhenDone = false;
+        _load();
+      }
     }
   }
 
