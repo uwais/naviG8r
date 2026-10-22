@@ -97,7 +97,7 @@ void main() {
       expect(find.text('KA01AB1234'), findsOneWidget,
           reason: 'dr-today: the truck, in the mono face');
       expect(find.text('3 pickups, all in Bengaluru'), findsOneWidget,
-          reason: 'dr-today: pickups, counted from the accepted bookings');
+          reason: 'the bookings still to pick up, all at the same town');
       expect(find.text('3 drops, all in Chennai'), findsOneWidget,
           reason: 'dr-today: drops');
       final open = find.widgetWithText(FilledButton, "Open today's trip");
@@ -130,6 +130,31 @@ void main() {
           reason: 'copy.md: the empty Today');
       expect(find.text('Your office gives you trips. They show here.'),
           findsOneWidget);
+    });
+
+    testWidgets(
+        'the card counts only bookings still to pick up, and names a town only when every one is there',
+        (tester) async {
+      signInAsDriver(bookings: [
+        carrierBooking('trip-today', 'guindy',
+            shipper: 'Sharma Textiles', drop: 'Guindy, Chennai'),
+        carrierBooking('trip-today', 'vellore',
+            shipper: 'Lakshmi Foods', drop: 'Katpadi, Vellore'),
+        carrierBooking('trip-today', 'done',
+            shipper: 'Mehta Hardware',
+            drop: 'Tambaram, Chennai',
+            status: 'DELIVERED'),
+        carrierBooking('trip-today', 'released',
+            shipper: 'Ravi Stores',
+            drop: 'Adyar, Chennai',
+            status: 'PENDING_RELEASE'),
+      ]);
+      await mountCarrierApp(tester, '/driver');
+      expect(find.text('2 pickups, all in Bengaluru'), findsOneWidget,
+          reason: 'delivered bookings are not pickups to come');
+      expect(find.text('2 drops'), findsOneWidget,
+          reason: 'Chennai and Vellore: no one town, and not the trip\'s To city');
+      expect(find.textContaining('all in Chennai'), findsNothing);
     });
 
     testWidgets('a second trip due today is listed under Other trips, earliest first',

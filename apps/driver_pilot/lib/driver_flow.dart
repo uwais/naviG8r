@@ -1471,11 +1471,22 @@ class _DriverTodayState extends State<_DriverToday> {
             booking["anchorTripId"] == trip["id"] &&
             _acceptedOrDelivered(booking))
         .length;
-    // A tester read "Pickups 5, in X" as a puzzle; this says "5 pickups, all in X" or "1 pickup in X".
-    String places(int count, String stop, Object? city) {
+    // Only a booking still to pick up (BOOKED) is a pickup and a drop to come; a delivered one is neither.
+    final toPickUp = _bookings
+        ?.where((booking) =>
+            booking["anchorTripId"] == trip["id"] && booking["status"] == "BOOKED")
+        .toList();
+    // A tester read "Pickups 5, in X" as a puzzle; this says "5 pickups, all in X" or "1 pickup in X". The
+    // town is the bookings' own, named only when every one is there; the trip's From city may not be.
+    String places(List<Map<String, dynamic>> bookings, String stop, String addressField) {
+      final count = bookings.length;
       final counted = count == 1 ? "1 $stop" : "$count ${stop}s";
-      if (_nonEmpty(city) == null) return counted;
-      return count == 1 ? "$counted in $city" : "$counted, all in $city";
+      final towns = {
+        for (final booking in bookings)
+          townOfAddress(booking[addressField]?.toString() ?? "")
+      };
+      if (towns.length != 1 || towns.single.isEmpty) return counted;
+      return count == 1 ? "$counted in ${towns.single}" : "$counted, all in ${towns.single}";
     }
 
     Widget placesRow(String words) => Padding(
@@ -1516,9 +1527,9 @@ class _DriverTodayState extends State<_DriverToday> {
           ..._factRows([
             if (truck != null)
               _factRow("Truck", portalTruckNumber(truck), identifier: true),
-            if (accepted != null && accepted > 0) ...[
-              placesRow(places(accepted, "pickup", trip["originCity"])),
-              placesRow(places(accepted, "drop", trip["destCity"])),
+            if (toPickUp != null && toPickUp.isNotEmpty) ...[
+              placesRow(places(toPickUp, "pickup", "pickupAddress")),
+              placesRow(places(toPickUp, "drop", "dropAddress")),
             ],
           ]),
           const SizedBox(height: NvSpace.s4),
