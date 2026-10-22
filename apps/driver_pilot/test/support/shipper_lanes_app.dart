@@ -24,6 +24,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'mock_api.dart';
 
+/// A lane with no town pins, so Book's 15 km rule leaves the synthetic places where they are, as the
+/// server does for such a trip. Tests of the rule add the pins (shipper_book_far_pin_test.dart).
 Map<String, dynamic> lane(
         {String id = 'lane-1',
         String from = 'Bengaluru',
@@ -43,8 +45,6 @@ Map<String, dynamic> lane(
       'status': status,
       'windowStart': '2026-10-18T03:30:00.000Z',
       'windowEnd': '2026-10-19T12:00:00.000Z',
-      'origin': {'lat': 12.97, 'lng': 77.59},
-      'destination': {'lat': 13.08, 'lng': 80.27},
     };
 
 /// What the fake server answers, by path; anything else is an empty 200.
@@ -103,13 +103,15 @@ Future<void> pumpWhileWaiting(WidgetTester tester) async {
 
 /// A phone 360 dp wide, or [width] for the desktop layout. [height] is 800 for "visible without
 /// scrolling" checks; taller elsewhere, because the test font draws every letter a full square
-/// wide and lists build only what shows. A null [findPlace] leaves Book its own Google search.
+/// wide and lists build only what shows. A null [findPlace] leaves Book its own Google search, sent
+/// with [mapsApiKey].
 Future<FakeServer> showShipperApp(WidgetTester tester, String start,
     {double height = 2000,
     double width = 360,
     PlaceFinder? findPlace = findAnyPlace,
     PinNamer namePin = GoogleGeocodingService.reverseAddress,
-    Object? initialExtra}) async {
+    Object? initialExtra,
+    String? mapsApiKey}) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -155,7 +157,8 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
                   state.uri.queryParameters,
                   extra: state.extra,
                   findPlace: findPlace,
-                  namePin: namePin)),
+                  namePin: namePin,
+                  mapsApiKey: mapsApiKey)),
           GoRoute(
               path: 'shipments',
               builder: (_, __) => const Text('Shipments list')),

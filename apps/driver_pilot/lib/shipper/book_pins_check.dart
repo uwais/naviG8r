@@ -5,7 +5,6 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 
 import "../address_town.dart";
 import "../location_editor.dart";
-import "../ui/format.dart";
 import "../ui/tokens.dart";
 
 /// A place on Book as the check shows it: the words typed, its pin, Google's address for the pin, and
@@ -81,32 +80,4 @@ class BookPinLines extends StatelessWidget {
         child: Text(words,
             maxLines: 1, overflow: TextOverflow.ellipsis, style: NvText.caption),
       );
-}
-
-/// A Book place box, with a line under it while its pin is too far from the trip's route. Always a
-/// Column, so each box keeps its place in the list, and its search state, as the line comes and goes.
-Widget withFarPinLine(double? kmFar, Widget placeBox) => Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        placeBox,
-        if (kmFar != null) ...[
-          const SizedBox(height: NvSpace.s2),
-          Semantics(
-              liveRegion: true,
-              child: Text(
-                  "This pin is ${formatKm(kmFar)} from this trip's route. Check the town and state, or move the pin.",
-                  style: NvText.caption.copyWith(color: NvColors.problem))),
-        ],
-      ],
-    );
-
-/// The help under Book and pay while a pin is too far from the trip's route, or null when neither is.
-String? farPinsHelp({required bool pickupFar, required bool dropFar}) {
-  final pins = switch ((pickupFar, dropFar)) {
-    (true, true) => "pickup and drop pins",
-    (true, false) => "pickup pin",
-    (false, true) => "drop pin",
-    (false, false) => null,
-  };
-  return pins == null ? null : "Move the $pins closer to this trip's route.";
 }

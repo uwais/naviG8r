@@ -1,6 +1,6 @@
-// Just over 800 lines on purpose: one screen. Getting a price, paying and booking share its state, and
-// the two cards after it (lane, price) show only here, so a split would only move them. The pins
-// check is its own job, in book_pins_check.dart, and the trip's route in trip_route.dart.
+// Book this trip, one screen: getting a price, paying and booking share its state. The parts that stand
+// alone sit beside it: the pins check (book_pins_check.dart), the far-pin rule (book_far_pin.dart) and
+// the price card (book_price_card.dart).
 
 import "dart:async";
 
@@ -29,23 +29,22 @@ import "../ui/tokens.dart";
 import "shipper_scaffold.dart";
 import "shipper_words.dart";
 import "announce.dart";
+import "book_far_pin.dart";
 import "book_pins_check.dart";
+import "book_price_card.dart";
 import "shipment_screen.dart";
 import "trip_route.dart";
 
+Object? _apiErrorBody(Object error) =>
+    error is DioException ? error.response?.data : null;
+
 String _apiErrorCode(Object error) {
-  final body = error is DioException ? error.response?.data : null;
+  final body = _apiErrorBody(error);
   return body is Map ? body["error"]?.toString() ?? "" : "";
 }
 
 const _couldNotPrice =
     "Could not get a price. Check your connection, then try again.";
-
-const _priceChangesNote =
-    "If you change the weight or move a pin, the price may change.";
-
-const _paymentPartnerNote =
-    "Book and pay opens our payment partner's screen. There you choose how to pay.";
 
 /// What the price depends on. A place without a name counts as not found, so nothing is booked
 /// under an empty name.
@@ -71,6 +70,7 @@ class CustomerBookShipmentScreen extends StatefulWidget {
     this.searchedDrop,
     this.findPlace,
     this.namePin = GoogleGeocodingService.reverseAddress,
+    this.mapsApiKey,
     super.key,
   });
 
@@ -79,7 +79,8 @@ class CustomerBookShipmentScreen extends StatefulWidget {
   factory CustomerBookShipmentScreen.fromQuery(Map<String, String> query,
       {Object? extra,
       PlaceFinder? findPlace,
-      PinNamer namePin = GoogleGeocodingService.reverseAddress}) {
+      PinNamer namePin = GoogleGeocodingService.reverseAddress,
+      String? mapsApiKey}) {
     final places = extra is SearchedPlaces ? extra : null;
     final weightKg = int.tryParse(query["weightKg"] ?? "");
     return CustomerBookShipmentScreen(
@@ -89,6 +90,7 @@ class CustomerBookShipmentScreen extends StatefulWidget {
       searchedDrop: places?.drop,
       findPlace: findPlace,
       namePin: namePin,
+      mapsApiKey: mapsApiKey,
     );
   }
 
@@ -100,6 +102,9 @@ class CustomerBookShipmentScreen extends StatefulWidget {
   /// Null searches Google, preferring places around the trip's towns.
   final PlaceFinder? findPlace;
   final PinNamer namePin;
+
+  /// A key for Book's own Google search in place of the build's, for tests. Null uses the build's.
+  final String? mapsApiKey;
 
   @override
   State<CustomerBookShipmentScreen> createState() =>
@@ -141,15 +146,18 @@ class _CustomerBookShipmentScreenState
   num? get _pricePaise => _quote?["grossPaise"] as num?;
 
   TripEnds? get _tripEnds => _lane == null ? null : tripEnds(_lane!);
-  double? get _pickupKmFar => kmFarFromRoute(_pickupPin, _tripEnds);
-  double? get _dropKmFar => kmFarFromRoute(_dropPin, _tripEnds);
-
-  String? get _farPinWords =>
-      farPinsHelp(pickupFar: _pickupKmFar != null, dropFar: _dropKmFar != null);
+  String get _startTown => _lane?["originCity"]?.toString() ?? "the start town";
+  String get _endTown => _lane?["destCity"]?.toString() ?? "the end town";
+  // The pins the price uses, so an emptied address box asks for a search instead.
+  double? get _pickupFarKm => farPinKm(_priceInputs.pickup, _tripEnds?.start);
+  double? get _dropFarKm => farPinKm(_priceInputs.drop, _tripEnds?.end);
+  String? get _farPinsHelp =>
+      farPinsHelp(pickupFar: _pickupFarKm != null, dropFar: _dropFarKm != null);
 
   PlaceFinder get _findPlace =>
       widget.findPlace ??
       ((place) => GoogleGeocodingService.forwardAddress(place,
+          apiKey: widget.mapsApiKey,
           near: _tripEnds == null ? null : areaAround(_tripEnds!)));
 
   _PriceInputs get _priceInputs => (
@@ -258,7 +266,7 @@ class _CustomerBookShipmentScreenState
       return;
     }
     // A pin far from the route is in the wrong place, so there is no price to ask for until it moves.
-    if (_farPinWords != null) return;
+    if (_farPinsHelp != null) return;
     final room = roomLeftKg(lane);
     if (room != null && weightKg > room) {
       _showTooHeavy();
@@ -426,6 +434,12 @@ class _CustomerBookShipmentScreenState
         _showTooHeavy();
       } else if (code == "anchor_trip_not_open") {
         setState(() => _quote = null);
+      } else if (code == "phase_a_not_eligible") {
+        setState(() => _actionError = farPinsRefusal(_apiErrorBody(error),
+            startTown: _startTown, endTown: _endTown));
+      } else if (code == "phase_a_pickup_drop_required") {
+        setState(() =>
+            _actionError = "Search for the pickup and drop before you book.");
       } else {
         setState(() => _actionError = plainErrorSentence(
             error, "Could not book. Check your connection, then try again."));
@@ -445,7 +459,7 @@ class _CustomerBookShipmentScreenState
     if (_searchingPickup || _searchingDrop) return "Searching for the place…";
     // A dragged pin is priced at once but named later; booking before then sends the old name.
     if (_namingPickupPin || _namingDropPin) return "Updating address from pin…";
-    if (_farPinWords case final words?) return words;
+    if (_farPinsHelp case final help?) return help;
     final inputs = _priceInputs;
     final weightMissing = inputs.weightKg == null || inputs.weightKg! <= 0;
     final places = switch ((inputs.pickup == null, inputs.drop == null)) {
@@ -469,7 +483,7 @@ class _CustomerBookShipmentScreenState
     // On a desktop the price and Book and pay sit together in the side column (wb-book).
     final desktop = customerIsDesktop(context);
     final priceCard = laneOpen && _pricePaise != null
-        ? _PriceCard(
+        ? BookPriceCard(
             pricePaise: _pricePaise!,
             carrier: lane["carrierDisplayName"]?.toString() ?? "The carrier",
             // On a desktop these two notes sit under the fields, so Pay stays on a 900-high screen.
@@ -522,9 +536,9 @@ class _CustomerBookShipmentScreenState
               ],
               if (desktop && priceCard != null) ...[
                 const SizedBox(height: NvSpace.s3),
-                const Text(_paymentPartnerNote, style: NvText.body),
+                const Text(paymentPartnerNote, style: NvText.body),
                 const SizedBox(height: NvSpace.s2),
-                const Text(_priceChangesNote, style: NvText.caption),
+                const Text(priceChangesNote, style: NvText.caption),
               ],
               if (_placesToCheck case final places?) ...[
                 const SizedBox(height: NvSpace.s4),
@@ -567,7 +581,7 @@ class _CustomerBookShipmentScreenState
       ),
       const SizedBox(height: NvSpace.s4),
       // Each map shows once its place has a pin; a place from the match search arrives with one.
-      withFarPinLine(_pickupKmFar, LocationEndpointEditor(
+      withFarPinLine(pickup: true, farKm: _pickupFarKm, town: _startTown, LocationEndpointEditor(
         title: "Pickup",
         hint: "Address for the driver",
         example: "House or plot, street, area",
@@ -594,7 +608,7 @@ class _CustomerBookShipmentScreenState
         staysAliveOffScreen: true,
       )),
       const SizedBox(height: NvSpace.s4),
-      withFarPinLine(_dropKmFar, LocationEndpointEditor(
+      withFarPinLine(pickup: false, farKm: _dropFarKm, town: _endTown, LocationEndpointEditor(
         title: "Drop",
         hint: "Address for the driver",
         example: "House or plot, street, area",
@@ -621,7 +635,7 @@ class _CustomerBookShipmentScreenState
         staysAliveOffScreen: true,
       )),
       // Last in the list: a row added above the place boxes would rebuild them and lose their search state.
-      if (_tooHeavy) ...[
+      if (_tooHeavy || _farPinsHelp != null) ...[
         const SizedBox(height: NvSpace.s4),
         NvButton(
             label: "Choose another trip",
@@ -766,49 +780,4 @@ class _LaneSummary extends StatelessWidget {
       ),
     );
   }
-}
-
-/// The price and what happens after Book and pay. With the lane above and the words beside the
-/// button, it holds everything the confirm sheet used to show before money moved (sh-book-price).
-class _PriceCard extends StatelessWidget {
-  const _PriceCard(
-      {required this.pricePaise, required this.carrier, required this.withNotes});
-  final num pricePaise;
-  final String carrier;
-  final bool withNotes;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(NvSpace.s4),
-        decoration: BoxDecoration(
-            color: NvColors.card,
-            borderRadius: BorderRadius.circular(NvRadius.card),
-            border: Border.all(color: NvColors.navy, width: 1.5)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: NvSpace.s3,
-              children: [
-                const Text("Price", style: NvText.heading),
-                Text(formatRupees(pricePaise), style: NvText.title),
-              ],
-            ),
-            const SizedBox(height: NvSpace.s2),
-            Text("After you pay, $carrier is asked to accept and name the truck.",
-                style: NvText.body),
-            const SizedBox(height: NvSpace.s2),
-            const Text("NaviG8r holds your payment and releases it after delivery.",
-                style: NvText.body),
-            if (withNotes) ...[
-              const SizedBox(height: NvSpace.s2),
-              const Text(_paymentPartnerNote, style: NvText.body),
-              const SizedBox(height: NvSpace.s2),
-              const Text(_priceChangesNote, style: NvText.caption),
-            ],
-          ],
-        ),
-      );
 }
