@@ -1,6 +1,6 @@
-// Near 800 lines on purpose: one screen. Getting a price, paying and booking share its state, and
+// Just over 800 lines on purpose: one screen. Getting a price, paying and booking share its state, and
 // the two cards after it (lane, price) show only here, so a split would only move them. The pins
-// check is its own job, in book_pins_check.dart.
+// check is its own job, in book_pins_check.dart, and the trip's route in trip_route.dart.
 
 import "dart:async";
 
@@ -31,6 +31,7 @@ import "shipper_words.dart";
 import "announce.dart";
 import "book_pins_check.dart";
 import "shipment_screen.dart";
+import "trip_route.dart";
 
 String _apiErrorCode(Object error) {
   final body = error is DioException ? error.response?.data : null;
@@ -68,7 +69,7 @@ class CustomerBookShipmentScreen extends StatefulWidget {
     this.searchedWeightKg,
     this.searchedPickup,
     this.searchedDrop,
-    this.findPlace = GoogleGeocodingService.forwardAddress,
+    this.findPlace,
     this.namePin = GoogleGeocodingService.reverseAddress,
     super.key,
   });
@@ -77,7 +78,7 @@ class CustomerBookShipmentScreen extends StatefulWidget {
   /// come as the router's [extra], in memory only; a reload has none and opens the empty boxes.
   factory CustomerBookShipmentScreen.fromQuery(Map<String, String> query,
       {Object? extra,
-      PlaceFinder findPlace = GoogleGeocodingService.forwardAddress,
+      PlaceFinder? findPlace,
       PinNamer namePin = GoogleGeocodingService.reverseAddress}) {
     final places = extra is SearchedPlaces ? extra : null;
     final weightKg = int.tryParse(query["weightKg"] ?? "");
@@ -95,7 +96,9 @@ class CustomerBookShipmentScreen extends StatefulWidget {
   final int? searchedWeightKg;
   final SearchedPlace? searchedPickup;
   final SearchedPlace? searchedDrop;
-  final PlaceFinder findPlace;
+
+  /// Null searches Google, preferring places around the trip's towns.
+  final PlaceFinder? findPlace;
   final PinNamer namePin;
 
   @override
@@ -136,6 +139,18 @@ class _CustomerBookShipmentScreenState
   String? _pendingShipmentIdForCheckout;
 
   num? get _pricePaise => _quote?["grossPaise"] as num?;
+
+  TripEnds? get _tripEnds => _lane == null ? null : tripEnds(_lane!);
+  double? get _pickupKmFar => kmFarFromRoute(_pickupPin, _tripEnds);
+  double? get _dropKmFar => kmFarFromRoute(_dropPin, _tripEnds);
+
+  String? get _farPinWords =>
+      farPinsHelp(pickupFar: _pickupKmFar != null, dropFar: _dropKmFar != null);
+
+  PlaceFinder get _findPlace =>
+      widget.findPlace ??
+      ((place) => GoogleGeocodingService.forwardAddress(place,
+          near: _tripEnds == null ? null : areaAround(_tripEnds!)));
 
   _PriceInputs get _priceInputs => (
         weightKg: int.tryParse(_weightKg.text.trim()),
@@ -242,6 +257,8 @@ class _CustomerBookShipmentScreenState
         inputs.drop == null) {
       return;
     }
+    // A pin far from the route is in the wrong place, so there is no price to ask for until it moves.
+    if (_farPinWords != null) return;
     final room = roomLeftKg(lane);
     if (room != null && weightKg > room) {
       _showTooHeavy();
@@ -428,6 +445,7 @@ class _CustomerBookShipmentScreenState
     if (_searchingPickup || _searchingDrop) return "Searching for the place…";
     // A dragged pin is priced at once but named later; booking before then sends the old name.
     if (_namingPickupPin || _namingDropPin) return "Updating address from pin…";
+    if (_farPinWords case final words?) return words;
     final inputs = _priceInputs;
     final weightMissing = inputs.weightKg == null || inputs.weightKg! <= 0;
     final places = switch ((inputs.pickup == null, inputs.drop == null)) {
@@ -549,7 +567,7 @@ class _CustomerBookShipmentScreenState
       ),
       const SizedBox(height: NvSpace.s4),
       // Each map shows once its place has a pin; a place from the match search arrives with one.
-      LocationEndpointEditor(
+      withFarPinLine(_pickupKmFar, LocationEndpointEditor(
         title: "Pickup",
         hint: "Address for the driver",
         example: "House or plot, street, area",
@@ -569,14 +587,14 @@ class _CustomerBookShipmentScreenState
         readOnly: _booking,
         showMap: _pickupPin != null,
         showApiKeyHint: false,
-        findPlace: widget.findPlace,
+        findPlace: _findPlace,
         namePin: widget.namePin,
         keepsFullAddress: true,
         // A drag naming or a search still out when the box scrolls off screen would be lost.
         staysAliveOffScreen: true,
-      ),
+      )),
       const SizedBox(height: NvSpace.s4),
-      LocationEndpointEditor(
+      withFarPinLine(_dropKmFar, LocationEndpointEditor(
         title: "Drop",
         hint: "Address for the driver",
         example: "House or plot, street, area",
@@ -596,12 +614,12 @@ class _CustomerBookShipmentScreenState
         readOnly: _booking,
         showMap: _dropPin != null,
         showApiKeyHint: false,
-        findPlace: widget.findPlace,
+        findPlace: _findPlace,
         namePin: widget.namePin,
         keepsFullAddress: true,
         // A drag naming or a search still out when the box scrolls off screen would be lost.
         staysAliveOffScreen: true,
-      ),
+      )),
       // Last in the list: a row added above the place boxes would rebuild them and lose their search state.
       if (_tooHeavy) ...[
         const SizedBox(height: NvSpace.s4),

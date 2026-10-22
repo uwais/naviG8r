@@ -103,11 +103,11 @@ Future<void> pumpWhileWaiting(WidgetTester tester) async {
 
 /// A phone 360 dp wide, or [width] for the desktop layout. [height] is 800 for "visible without
 /// scrolling" checks; taller elsewhere, because the test font draws every letter a full square
-/// wide and lists build only what shows.
+/// wide and lists build only what shows. A null [findPlace] leaves Book its own Google search.
 Future<FakeServer> showShipperApp(WidgetTester tester, String start,
     {double height = 2000,
     double width = 360,
-    PlaceFinder findPlace = findAnyPlace,
+    PlaceFinder? findPlace = findAnyPlace,
     PinNamer namePin = GoogleGeocodingService.reverseAddress,
     Object? initialExtra}) async {
   tester.view.physicalSize = Size(width, height);
@@ -147,7 +147,7 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
               path: 'trips',
               builder: (_, state) => CustomerTripsScreen(
                   startWithMatch: state.uri.queryParameters['tab'] == 'match',
-                  findPlace: findPlace,
+                  findPlace: findPlace ?? findAnyPlace,
                   namePin: namePin)),
           GoRoute(
               path: 'book',

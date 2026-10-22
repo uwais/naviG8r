@@ -85,6 +85,9 @@ String _indianGrouping(int number) {
   return groups.join(",");
 }
 
+/// "45 km", "1,834 km": rounded to the whole km, with the same Indian grouping as rupees.
+String formatKm(num kilometres) => "${_indianGrouping(kilometres.round())} km";
+
 /// "80 kg", "2,400 kg", with the same Indian grouping as rupees.
 String formatKg(num kilograms) {
   final whole = kilograms == kilograms.roundToDouble();
