@@ -234,8 +234,9 @@ void main() {
           });
       expect(find.byType(DropdownButton<String>), findsNothing,
           reason: 'screens.md: the header replaces the company drop-down');
-      expect(find.byTooltip('Refresh'), findsNothing,
-          reason: 'screens.md: pull to refresh replaces the refresh icon');
+      expect(inHeader(find.byTooltip('Refresh')), findsNothing,
+          reason:
+              'screens.md: no refresh icon in the header; Home has its own Refresh, as the web cannot pull down');
       expect(find.byIcon(Icons.logout), findsNothing,
           reason: 'screens.md: no sign-out icon in the header');
       expect(find.byType(CircleAvatar), findsNothing,

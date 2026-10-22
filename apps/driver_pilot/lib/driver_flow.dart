@@ -1165,11 +1165,36 @@ class _OfficeHomeState extends State<_OfficeHome> {
   _BookingsAndTrips? _loaded;
   bool _loading = false;
   String? _error;
+  GoRouter? _router;
+  bool _wasAtHome = true;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  // The tabs are child routes of /driver, so this screen stays built under them and a tap on Home only
+  // uncovers it. It loads again then; otherwise a booking accepted under Bookings still showed here.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final router = GoRouter.maybeOf(context);
+    if (router == _router) return;
+    _router?.routerDelegate.removeListener(_routeChanged);
+    _router = router?..routerDelegate.addListener(_routeChanged);
+  }
+
+  void _routeChanged() {
+    final atHome = _router?.routerDelegate.currentConfiguration.uri.path == "/driver";
+    if (atHome && !_wasAtHome && !_loading) _load();
+    _wasAtHome = atHome;
+  }
+
+  @override
+  void dispose() {
+    _router?.routerDelegate.removeListener(_routeChanged);
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -1189,7 +1214,8 @@ class _OfficeHomeState extends State<_OfficeHome> {
 
   Future<void> _open(String path) async {
     await context.push(path);
-    if (mounted) _load();
+    // Coming back to /driver may have started a load already.
+    if (mounted && !_loading) _load();
   }
 
   Widget _firstTask(_OfficeTask task) => Container(
@@ -1290,7 +1316,14 @@ class _OfficeHomeState extends State<_OfficeHome> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(
             NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
-        children: content,
+        children: [
+          // A web browser cannot pull down, so Refresh is a button too, as on a driver's Home.
+          Align(
+              alignment: Alignment.centerRight,
+              child: NvRefreshButton(loading: _loading, onPressed: _load)),
+          const SizedBox(height: NvSpace.s2),
+          ...content,
+        ],
       ),
     );
   }
@@ -1325,11 +1358,35 @@ class _DriverTodayState extends State<_DriverToday> {
   List<Map<String, dynamic>>? _bookings;
   bool _loading = false;
   String? _error;
+  GoRouter? _router;
+  bool _wasAtHome = true;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  // As on the office's Home: the Home tab only uncovers this screen, so it loads again then.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final router = GoRouter.maybeOf(context);
+    if (router == _router) return;
+    _router?.routerDelegate.removeListener(_routeChanged);
+    _router = router?..routerDelegate.addListener(_routeChanged);
+  }
+
+  void _routeChanged() {
+    final atHome = _router?.routerDelegate.currentConfiguration.uri.path == "/driver";
+    if (atHome && !_wasAtHome && !_loading) _load();
+    _wasAtHome = atHome;
+  }
+
+  @override
+  void dispose() {
+    _router?.routerDelegate.removeListener(_routeChanged);
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -1368,7 +1425,8 @@ class _DriverTodayState extends State<_DriverToday> {
 
   Future<void> _open(Map<String, dynamic> trip) async {
     await context.push("/driver/trip/${trip["id"]}/active");
-    if (mounted) _load();
+    // Coming back to /driver may have started a load already.
+    if (mounted && !_loading) _load();
   }
 
   /// A trip on the road; otherwise the earliest one not started whose first day has come.
