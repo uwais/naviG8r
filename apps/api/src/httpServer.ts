@@ -11,7 +11,8 @@ import { assignTrip, carrierFleet } from "./tripAssignment.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import http from "node:http";
 import { URL } from "node:url";
-import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
+import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer, firebasePhoneExchangeVerified } from "./auth.ts";
+import { verifyFirebasePhoneToken } from "./providers/firebasePhoneAuth.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import { FixedWindowRateLimiter } from "./http/rateLimit.ts";
 import {
@@ -172,6 +173,20 @@ function header(req: http.IncomingMessage, name: string): string | null {
   const v = req.headers[name.toLowerCase()];
   if (Array.isArray(v)) return v[0] ?? null;
   return v ?? null;
+}
+
+function clientIp(req: http.IncomingMessage, trustProxy: boolean): string {
+  const forwardedFor = trustProxy ? header(req, "x-forwarded-for")?.split(",")[0]?.trim() : undefined;
+  return forwardedFor || req.socket.remoteAddress || "unknown";
+}
+
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const value = raw === undefined ? fallback : Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0 || (raw !== undefined && raw.trim() === "")) {
+    throw new Error(`${name}_invalid`);
+  }
+  return value;
 }
 
 function bearerToken(req: http.IncomingMessage): string | null {
@@ -417,6 +432,66 @@ export async function createApp(options: {
   }
 
   const pushRateLimiter = new FixedWindowRateLimiter();
+  const firebaseExchangeIpLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IP_LIMIT", 30);
+  const firebaseExchangeIdentityLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IDENTITY_LIMIT", 10);
+  const firebaseExchangeWindowMs = positiveIntegerEnv("FIREBASE_EXCHANGE_WINDOW_MS", 600_000);
+  const firebaseExchangeIpRateLimiter = new FixedWindowRateLimiter();
+  const firebaseExchangeIdentityRateLimiter = new FixedWindowRateLimiter();
+
+  async function handleFirebaseExchange(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    try {
+      const method = req.method ?? "GET";
+      const url = new URL(req.url ?? "/", "http://localhost");
+      applyCors(req, res);
+      guardRequest(req, store, url);
+      if (method !== "POST") return json(res, 404, { error: "not_found" });
+
+      const ipLimit = firebaseExchangeIpRateLimiter.consume(
+        `firebase-exchange:ip:${clientIp(req, otp.trustProxy)}`,
+        firebaseExchangeIpLimit,
+        firebaseExchangeWindowMs,
+      );
+      if (!ipLimit.allowed) {
+        res.setHeader("retry-after", String(ipLimit.retryAfterSeconds));
+        return json(res, 429, { error: "firebase_exchange_rate_limited" });
+      }
+
+      const body = await readJson(req, 16 * 1024);
+      const verified = await verifyFirebasePhoneToken(String(body?.idToken ?? body?.token ?? ""));
+      const claims = verified.claims;
+      const identityLimit = firebaseExchangeIdentityRateLimiter.consume(
+        `firebase-exchange:uid:${claims.uid}`,
+        firebaseExchangeIdentityLimit,
+        firebaseExchangeWindowMs,
+      );
+      if (!identityLimit.allowed) {
+        res.setHeader("retry-after", String(identityLimit.retryAfterSeconds));
+        return json(res, 429, { error: "firebase_exchange_rate_limited" });
+      }
+
+      const exchanged = await runSerialized(async () => {
+        const out = firebasePhoneExchangeVerified(store, claims, verified.exchangeKey);
+        if (out.stateChanged) await persist();
+        return out;
+      });
+      const { stateChanged: _stateChanged, ...out } = exchanged;
+      return json(res, 200, { ...out, isOpsAdmin: isOpsAdmin(store, out.user.id) });
+    } catch (e: any) {
+      if (e instanceof AuthorizationError) return json(res, e.status, { error: e.message });
+      if (e instanceof OtpRateLimitError) {
+        res.setHeader("retry-after", String(Math.max(1, Math.ceil(e.retryAfterMs / 1000))));
+        return json(res, 429, { error: "otp_rate_limited", retryAfterMs: e.retryAfterMs });
+      }
+      if (e instanceof ApiError) {
+        const status = e.httpStatus ?? 400;
+        return json(res, status, { error: e.message });
+      }
+      const msg = String(e?.message ?? "bad_request");
+      if (msg === "account_inactive") return json(res, 403, { error: msg });
+      return json(res, 400, { error: msg });
+    }
+  }
+
   const server = http.createServer((req, res) => {
     // The practice portal takes form bodies from anyone and never touches the store. Served outside the
     // queue, a sender that trickles its body in cannot hold up every other request.
@@ -428,6 +503,11 @@ export async function createApp(options: {
     }
     const method = req.method ?? "GET";
     const urlPath = (req.url ?? "/").split("?", 1)[0];
+    if (method === "POST" && urlPath === "/v1/auth/firebase/exchange") {
+      void authorizationContext.run(requestContext(), () => handleFirebaseExchange(req, res))
+        .catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
+      return;
+    }
     const capturesState = !["GET", "HEAD", "OPTIONS"].includes(method) || /\/conversation\/(?:timeline|messages)$/.test(urlPath);
     void runSerialized(() => authorizationContext.run(requestContext(), async () => {
     try {
@@ -666,9 +746,7 @@ export async function createApp(options: {
 
       // --- v1 auth (pilot OTP + bearer token) ---
       if (method === "POST" && url.pathname === "/v1/auth/otp/start") {
-        const forwardedFor = otp.trustProxy ? header(req, "x-forwarded-for")?.split(",")[0]?.trim() : undefined;
-        const clientIp = forwardedFor || req.socket.remoteAddress || "unknown";
-        otp.consumeIpStart(clientIp);
+        otp.consumeIpStart(clientIp(req, otp.trustProxy));
         const body = await readJson(req);
         const phone = String(body?.phone ?? "");
         const reused = pilotOtpCooldownReuse(store, { phone }, otp);

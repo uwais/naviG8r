@@ -22,6 +22,7 @@ import "pilot_api.dart";
 import "notification_center.dart";
 import "trip_assignment_card.dart";
 import "unassigned_driver_notice.dart";
+import "firebase_phone_auth.dart";
 
 /// Nested navigator for the driver shell (tabs + pushed detail routes).
 final GlobalKey<NavigatorState> driverShellNavigatorKey =
@@ -264,6 +265,7 @@ class DriverPhoneScreen extends StatefulWidget {
 class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
   final _phone = TextEditingController();
   bool _busy = false;
+  bool _useFirebase = firebasePhoneAuthAvailable;
 
   @override
   void dispose() {
@@ -281,6 +283,15 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
       return;
     }
     try {
+      if (_useFirebase) {
+        if (!mounted) return;
+        context.go("/driver/onboarding/otp?phone=$phone&firebase=1");
+        return;
+      }
+      if (!legacyOtpFallbackEnabled) {
+        throw StateError(firebasePhoneAuthDiagnostic ??
+            "Firebase phone sign-in is unavailable.");
+      }
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": phone});
       if (!mounted) return;
@@ -314,6 +325,15 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
                   labelText: "Mobile number", hintText: "+91 …"),
             ),
             const SizedBox(height: 16),
+            if (firebasePhoneAuthAvailable && legacyOtpFallbackEnabled)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text("Use Firebase phone verification"),
+                value: _useFirebase,
+                onChanged: _busy
+                    ? null
+                    : (value) => setState(() => _useFirebase = value),
+              ),
             FilledButton(
               onPressed: _busy ? null : _send,
               child: _busy
@@ -347,6 +367,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   bool _verifying = false;
   String? _debugCode;
   String _phone = "";
+  String? _firebasePhone;
   int? _expiresAtUtcMs;
   bool _receivedChallenge = false;
   Timer? _cooldownTimer;
@@ -366,12 +387,18 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       });
     }
   }
+  PhoneAuthClient? _firebase;
+  bool _useFirebase = false;
+  bool _firebaseCodeSent = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final p = GoRouterState.of(context).uri.queryParameters["phone"] ?? "";
     final extra = GoRouterState.of(context).extra;
+    _useFirebase =
+        GoRouterState.of(context).uri.queryParameters["firebase"] == "1";
+    if (_useFirebase) _firebase ??= FirebasePhoneAuthClient();
     if (extra is Map && !_receivedChallenge && extra["challengeId"] is String) {
       _phone = p;
       _challengeId.text = (extra["challengeId"] as String).trim();
@@ -387,14 +414,38 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       _receivedChallenge = true;
     } else if (p.isNotEmpty && p != _phone) {
       _phone = p;
+      _firebasePhone = null;
+      _firebaseCodeSent = false;
+      _code.clear();
       _resend();
     }
   }
 
   Future<void> _resend() async {
     setState(() => _starting = true);
+    var preserveFirebaseChallenge = false;
     try {
       final previousChallengeId = _challengeId.text.trim();
+      if (_useFirebase) {
+        preserveFirebaseChallenge =
+            _firebaseCodeSent && _firebasePhone == _phone;
+        setState(() {
+          _firebasePhone = _phone;
+          _firebaseCodeSent = false;
+        });
+        await _firebase!.requestCode(
+          firebasePhoneNumber(_phone),
+          onCodeSent: (_) {
+            if (mounted) setState(() => _firebaseCodeSent = true);
+          },
+          onAutoVerified: () {
+            if (mounted) setState(() => _firebaseCodeSent = true);
+          },
+        );
+        _startCooldown(firebaseResendCooldownMs);
+        if (mounted) _code.clear();
+        return;
+      }
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": _phone});
       if (!mounted) return;
@@ -413,11 +464,18 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       }
       _startCooldown(r.data?["retryAfterMs"]);
     } catch (e) {
+      if (_useFirebase && mounted) {
+        setState(() => _firebaseCodeSent = preserveFirebaseChallenge);
+      }
       if (mounted) {
         final retry = otpRetryAfterMs(e);
+        final firebaseRetry = _useFirebase ? firebaseAuthRetryAfterMs(e) : null;
+        if (firebaseRetry != null) _startCooldown(firebaseRetry);
         if (retry != null) _startCooldown(retry);
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+            .showSnackBar(SnackBar(content: Text(_useFirebase
+                ? formatFirebaseAuthError(e)
+                : formatApiError(e))));
       }
     } finally {
       if (mounted) setState(() => _starting = false);
@@ -427,6 +485,18 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   Future<void> _verify() async {
     setState(() => _verifying = true);
     try {
+      if (_useFirebase) {
+        if (!_firebaseCodeSent) throw Exception("Request a code first.");
+        await _firebase!.verifyCode(_code.text.trim());
+        await exchangeFirebaseToken(await _firebase!.idToken());
+        await DriverSession.refresh();
+        if (mounted) context.go(AuthorizationSession.home);
+        return;
+      }
+      if (!legacyOtpFallbackEnabled) {
+        throw StateError(firebasePhoneAuthDiagnostic ??
+            "Firebase phone sign-in is unavailable.");
+      }
       final r = await api.post<Map<String, dynamic>>(
         "/v1/auth/otp/verify",
         data: {
@@ -453,7 +523,9 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(formatApiError(e))));
+            .showSnackBar(SnackBar(content: Text(_useFirebase
+                ? formatFirebaseAuthError(e)
+                : formatApiError(e))));
     } finally {
       if (mounted) setState(() => _verifying = false);
     }
@@ -482,15 +554,32 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
                 style: const TextStyle(color: DriverTheme.muted)),
           const Text("If the code expires or is incorrect, request a new code.",
               style: TextStyle(color: DriverTheme.muted)),
+          if (firebasePhoneAuthAvailable && legacyOtpFallbackEnabled)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text("Use Firebase phone verification"),
+              value: _useFirebase,
+              onChanged: (value) {
+                if (_starting || _verifying) return;
+                setState(() {
+                  _useFirebase = value;
+                  _firebaseCodeSent = false;
+                  _firebasePhone = null;
+                  _challengeId.clear();
+                  _code.clear();
+                });
+              },
+            ),
           if (_debugCode != null) ...[
             const SizedBox(height: 8),
             Text("Debug OTP: $_debugCode",
                 style: const TextStyle(fontSize: 12, color: DriverTheme.muted)),
           ],
           const SizedBox(height: 16),
-          TextField(
-              controller: _challengeId,
-              decoration: const InputDecoration(labelText: "Challenge id")),
+          if (!_useFirebase)
+            TextField(
+                controller: _challengeId,
+                decoration: const InputDecoration(labelText: "Challenge id")),
           TextField(
               controller: _code,
               decoration: const InputDecoration(labelText: "6-digit code")),
@@ -1785,6 +1874,13 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
           leading: const Icon(Icons.logout, color: DriverTheme.navy),
           title: const Text("Sign out"),
           onTap: () async {
+            if (firebasePhoneAuthAvailable) {
+              try {
+                await FirebasePhoneAuthClient().signOut();
+              } catch (_) {
+                // Clear the server session even if Firebase sign-out fails.
+              }
+            }
             await AuthorizationSession.signOut();
             DriverSession.clear();
             if (context.mounted) context.go("/driver");

@@ -123,6 +123,8 @@ export type User = {
   createdAtUtcMs: number;
 } & SoftDeleteFields;
 
+export type FirebaseIdentity = { uid: string; userId: string; createdAtUtcMs: number };
+
 export type Membership = {
   userId: string;
   orgId: string;
@@ -166,6 +168,9 @@ export type AuthSession = {
   createdAtUtcMs: number;
   expiresAtUtcMs: number;
   revokedAtUtcMs: number | null;
+  /** Provider metadata used to keep Firebase exchanges idempotent per token. */
+  authProvider?: "firebase";
+  providerSessionKey?: string;
 };
 
 export type GeoPoint = {

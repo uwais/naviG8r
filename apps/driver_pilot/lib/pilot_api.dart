@@ -5,10 +5,13 @@ import 'package:flutter/foundation.dart';
 import "package:flutter/material.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
 
-/// Production API. Override at run/build time:
+/// API is paired with the bundled Firebase project. Override explicitly at run/build time:
 /// `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000` (Android emulator → host)
 /// `flutter run --dart-define=API_BASE_URL=http://192.168.x.x:3000` (physical device → LAN)
-const String kDefaultBaseUrl = "https://navig8r.onrender.com";
+const bool _releaseBuild = bool.fromEnvironment("dart.vm.product");
+const String kDefaultBaseUrl = _releaseBuild
+    ? "https://navig8r.onrender.com"
+    : "https://navig8r-api-beta.onrender.com";
 
 String normalizeApiBaseUrl(String raw) {
   var value = raw.trim();

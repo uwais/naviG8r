@@ -2,9 +2,25 @@ import crypto from "node:crypto";
 import type { AuthSession, OtpChallenge, User } from "./types.ts";
 import type { Store } from "./store.ts";
 import { isActiveEntity } from "./softDelete.ts";
+import { verifyFirebasePhoneToken, type FirebaseTokenClaims, type VerifiedFirebasePhoneToken } from "./providers/firebasePhoneAuth.ts";
+export { setFirebaseTokenVerifierForTests } from "./providers/firebasePhoneAuth.ts";
+export type { FirebaseTokenClaims, FirebaseTokenVerifier } from "./providers/firebasePhoneAuth.ts";
 
 function nowUtcMs(): number {
   return Date.now();
+}
+
+const DEFAULT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_SESSION_TTL_MS = DEFAULT_SESSION_TTL_MS;
+const MAX_ACTIVE_FIREBASE_SESSIONS_PER_USER = 5;
+
+function sessionTtlMs(): number {
+  const raw = process.env.SESSION_TTL_MS;
+  const value = raw === undefined ? DEFAULT_SESSION_TTL_MS : Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_SESSION_TTL_MS || (raw !== undefined && raw.trim() === "")) {
+    throw new Error("SESSION_TTL_MS_invalid");
+  }
+  return value;
 }
 
 function id(prefix: string): string {
@@ -84,6 +100,88 @@ function normalizeInPhone(phone: string): string {
 function findUserByPhone(store: Store, phone: string): User | null {
   const p = normalizeInPhone(phone);
   return [...store.users.values()].find((u) => u.phone === p) ?? null;
+}
+
+export type FirebasePhoneExchange = {
+  user: User; accessToken: string; session: AuthSession;
+};
+
+type FirebasePhoneExchangeState = FirebasePhoneExchange & { stateChanged: boolean };
+
+/**
+ * Exchanges claims that have already been verified by Firebase. Keep this synchronous so the
+ * HTTP layer can perform the network verification before entering the serialized store queue.
+ */
+export function firebasePhoneExchangeVerified(
+  store: Store,
+  claims: FirebaseTokenClaims,
+  exchangeKey: string,
+): FirebasePhoneExchangeState {
+  if (!claims.uid || !claims.phone_number || claims.firebase?.sign_in_provider !== "phone") {
+    throw new Error("firebase_phone_provider_required");
+  }
+  const phone = normalizeInPhone(claims.phone_number);
+  const mapped = store.firebaseIdentities.get(claims.uid);
+  const user = mapped ? store.users.get(mapped.userId) : findUserByPhone(store, phone);
+  if (!user) throw new Error("user_not_found");
+  if (!isActiveEntity(user)) throw new Error("account_inactive");
+  if (user.phone !== phone) throw new Error("firebase_identity_conflict");
+  const existingPhoneOwner = findUserByPhone(store, phone);
+  if (existingPhoneOwner && existingPhoneOwner.id !== user.id) throw new Error("firebase_identity_conflict");
+  let stateChanged = false;
+  if (!mapped) {
+    store.firebaseIdentities.set(claims.uid, { uid: claims.uid, userId: user.id, createdAtUtcMs: Date.now() });
+    stateChanged = true;
+  }
+  const now = nowUtcMs();
+  if (!exchangeKey) throw new Error("firebase_exchange_key_required");
+  for (const [sessionId, candidate] of store.authSessions) {
+    if (candidate.userId === user.id &&
+        candidate.authProvider === "firebase" &&
+        (candidate.revokedAtUtcMs != null || candidate.expiresAtUtcMs <= now)) {
+      store.authSessions.delete(sessionId);
+      stateChanged = true;
+    }
+  }
+  let session = [...store.authSessions.values()]
+    .find((candidate) => candidate.userId === user.id &&
+      candidate.authProvider === "firebase" &&
+      candidate.providerSessionKey === exchangeKey &&
+      candidate.revokedAtUtcMs == null &&
+      candidate.expiresAtUtcMs > now);
+  if (!session) {
+    const activeFirebaseSessions = [...store.authSessions.values()]
+      .filter((candidate) => candidate.userId === user.id &&
+        candidate.authProvider === "firebase" &&
+        candidate.revokedAtUtcMs == null &&
+        candidate.expiresAtUtcMs > now)
+      .sort((a, b) => a.createdAtUtcMs - b.createdAtUtcMs);
+    while (activeFirebaseSessions.length >= MAX_ACTIVE_FIREBASE_SESSIONS_PER_USER) {
+      const oldest = activeFirebaseSessions.shift();
+      if (!oldest) break;
+      store.authSessions.delete(oldest.id);
+      stateChanged = true;
+    }
+    const created: AuthSession = {
+      id: id("ses"),
+      userId: user.id,
+      createdAtUtcMs: now,
+      expiresAtUtcMs: now + sessionTtlMs(),
+      revokedAtUtcMs: null,
+      authProvider: "firebase",
+      providerSessionKey: exchangeKey,
+    };
+    store.authSessions.set(created.id, created);
+    stateChanged = true;
+    session = created;
+  }
+  return { user, session, accessToken: signPayload({ v: 1, sid: session.id, uid: user.id, exp: session.expiresAtUtcMs }), stateChanged };
+}
+
+export async function firebasePhoneExchange(store: Store, token: string): Promise<FirebasePhoneExchange> {
+  const verified: VerifiedFirebasePhoneToken = await verifyFirebasePhoneToken(token);
+  const { stateChanged: _stateChanged, ...out } = firebasePhoneExchangeVerified(store, verified.claims, verified.exchangeKey);
+  return out;
 }
 
 function randomOtp6(): string {
@@ -316,14 +414,12 @@ export function pilotOtpVerify(
   }
   if (String(params.code ?? "") !== ch.code) throw new Error("otp_incorrect");
 
-  const sessionTtlMs = Number(
-    process.env.SESSION_TTL_MS ?? `${30 * 24 * 60 * 60 * 1000}`,
-  );
+  const sessionTtl = sessionTtlMs();
   const session: AuthSession = {
     id: id("ses"),
     userId: user.id,
     createdAtUtcMs: now,
-    expiresAtUtcMs: now + sessionTtlMs,
+    expiresAtUtcMs: now + sessionTtl,
     revokedAtUtcMs: null,
   };
   const token = signPayload({
