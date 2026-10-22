@@ -28,7 +28,7 @@ import type {
   User,
   Vehicle,
 } from "./types.ts";
-import type { GroupedInboxPageReader, TimelinePageReader } from "./notifications.ts";
+import { TRIP_ASSIGNED_EVENT, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
 
 const prisma = new PrismaClient();
 
@@ -368,7 +368,10 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     store.conversationReadStates.set(`${value.conversationId}:${value.userId}:${value.orgId}`, value);
   }
   for (const row of notifications) {
+    // A new-trip notice has no shipment; its trip is kept in data, as the table has no column for it.
+    const tripId = row.shipmentId === "" ? (row.data as Notification["data"])?.tripId : undefined;
     const value: Notification = {
+      ...(typeof tripId === "string" && tripId !== "" ? { tripId } : {}),
       id: row.id, recipientSequence: Number(row.recipientSequence), eventId: row.eventId, eventKey: row.eventKey, recipientUserId: row.recipientUserId,
       recipientOrgId: row.recipientOrgId, shipmentId: row.shipmentId, conversationId: row.conversationId ?? undefined,
       messageId: row.messageId ?? undefined, createdAtUtcMs: Number(row.createdAtUtcMs),
@@ -470,48 +473,59 @@ export const readGroupedInboxPageFromDatabase: GroupedInboxPageReader = async re
   const notificationSequence = request.notificationSequence ?? Number((await prisma.notificationRow.aggregate({ _max: { recipientSequence: true } }))._max.recipientSequence ?? 0n);
   // mustNotHearPaymentEvent in SQL, so a group of only payment notices, and their unread count, never appear.
   const paymentNotices = request.hidePaymentNotices ? Prisma.sql`AND n."eventKey" NOT LIKE 'payment.%'` : Prisma.empty;
+  // One row per shipment, and one per new-trip notice (shipmentId "", the trip in data) while its trip is still
+  // the recipient's to drive. "key" orders the rows and is the cursor: the shipment id, or "notice:<id>".
+  const rows = Prisma.sql`
+    SELECT n."shipmentId" AS "key", n."shipmentId", NULL::text AS "tripId", NULL::text AS "notificationId",
+      MAX(n."createdAtUtcMs") AS "latestAtUtcMs",
+      COUNT(*) FILTER (WHERE n."readAtUtcMs" IS NULL) AS "unreadCount",
+      COALESCE(MAX(s."externalLoadId"), LEFT(UPPER(n."shipmentId"), 8)) AS "shipmentReference"
+    FROM "NotificationRow" n
+    INNER JOIN "ShipmentRow" s ON s."id" = n."shipmentId"
+    WHERE n."recipientUserId" = ${request.userId}
+      AND n."recipientOrgId" = ${request.orgId}
+      AND n."recipientSequence" <= ${BigInt(notificationSequence)}
+      AND s."inactiveAtUtcMs" IS NULL
+      ${paymentNotices}
+      AND ((${request.isShipper} = TRUE AND s."customerOrgId" = ${request.orgId})
+        OR (${request.isCarrier} = TRUE AND s."carrierId" = ${request.orgId}))
+    GROUP BY n."shipmentId"
+    UNION ALL
+    SELECT 'notice:' || n."id", n."shipmentId", t."id", n."id",
+      n."createdAtUtcMs",
+      CASE WHEN n."readAtUtcMs" IS NULL THEN 1::bigint ELSE 0::bigint END,
+      NULL::text
+    FROM "NotificationRow" n
+    INNER JOIN "AnchorTripRow" t ON t."id" = n."data"->>'tripId'
+    WHERE n."shipmentId" = '' AND n."eventKey" = ${TRIP_ASSIGNED_EVENT}
+      AND n."recipientUserId" = ${request.userId}
+      AND n."recipientOrgId" = ${request.orgId}
+      AND n."recipientSequence" <= ${BigInt(notificationSequence)}
+      AND ${request.isCarrier} = TRUE
+      AND t."inactiveAtUtcMs" IS NULL AND t."carrierId" = ${request.orgId} AND t."assignedDriverUserId" = ${request.userId}
+  `;
   const [groupRows, unreadRow] = await Promise.all([
-    prisma.$queryRaw<Array<{ shipmentId: string; latestAtUtcMs: bigint; unreadCount: bigint; shipmentReference: string | null }>>(Prisma.sql`
-      SELECT n."shipmentId",
-        MAX(n."createdAtUtcMs") AS "latestAtUtcMs",
-        COUNT(*) FILTER (WHERE n."readAtUtcMs" IS NULL) AS "unreadCount",
-        COALESCE(MAX(s."externalLoadId"), LEFT(UPPER(n."shipmentId"), 8)) AS "shipmentReference"
-      FROM "NotificationRow" n
-      INNER JOIN "ShipmentRow" s ON s."id" = n."shipmentId"
-      WHERE n."recipientUserId" = ${request.userId}
-        AND n."recipientOrgId" = ${request.orgId}
-        AND n."recipientSequence" <= ${BigInt(notificationSequence)}
-        AND s."inactiveAtUtcMs" IS NULL
-        ${paymentNotices}
-        AND ((${request.isShipper} = TRUE AND s."customerOrgId" = ${request.orgId})
-          OR (${request.isCarrier} = TRUE AND s."carrierId" = ${request.orgId}))
-      GROUP BY n."shipmentId"
-      ${request.before ? Prisma.sql`HAVING MAX(n."createdAtUtcMs") < ${BigInt(request.before.latestAt)} OR (MAX(n."createdAtUtcMs") = ${BigInt(request.before.latestAt)} AND n."shipmentId" COLLATE "C" < ${request.before.shipmentId})` : Prisma.empty}
-      ORDER BY MAX(n."createdAtUtcMs") DESC, n."shipmentId" COLLATE "C" DESC
+    prisma.$queryRaw<Array<{ key: string; shipmentId: string; tripId: string | null; notificationId: string | null; latestAtUtcMs: bigint; unreadCount: bigint; shipmentReference: string | null }>>(Prisma.sql`
+      SELECT * FROM (${rows}) AS inbox
+      ${request.before ? Prisma.sql`WHERE inbox."latestAtUtcMs" < ${BigInt(request.before.latestAt)} OR (inbox."latestAtUtcMs" = ${BigInt(request.before.latestAt)} AND inbox."key" COLLATE "C" < ${request.before.shipmentId})` : Prisma.empty}
+      ORDER BY inbox."latestAtUtcMs" DESC, inbox."key" COLLATE "C" DESC
       LIMIT ${request.limit + 1}
     `),
-    prisma.$queryRaw<Array<{ unreadCount: bigint }>>(Prisma.sql`
-      SELECT COUNT(*) FILTER (WHERE n."readAtUtcMs" IS NULL) AS "unreadCount"
-      FROM "NotificationRow" n
-      INNER JOIN "ShipmentRow" s ON s."id" = n."shipmentId"
-      WHERE n."recipientUserId" = ${request.userId}
-        AND n."recipientOrgId" = ${request.orgId}
-        AND n."recipientSequence" <= ${BigInt(notificationSequence)}
-        AND s."inactiveAtUtcMs" IS NULL
-        ${paymentNotices}
-        AND ((${request.isShipper} = TRUE AND s."customerOrgId" = ${request.orgId})
-          OR (${request.isCarrier} = TRUE AND s."carrierId" = ${request.orgId}))
+    prisma.$queryRaw<Array<{ unreadCount: bigint | null }>>(Prisma.sql`
+      SELECT SUM(inbox."unreadCount")::bigint AS "unreadCount" FROM (${rows}) AS inbox
     `),
   ]);
   return {
     notificationSequence,
     unreadCount: Number(unreadRow[0]?.unreadCount ?? 0n),
-    groups: groupRows.map(row => ({
-      shipmentId: row.shipmentId,
-      latestAtUtcMs: Number(row.latestAtUtcMs),
-      unreadCount: Number(row.unreadCount),
-      shipmentReference: row.shipmentReference ?? row.shipmentId.slice(0, 8).toUpperCase(),
-    })),
+    groups: groupRows.map(row => row.tripId && row.notificationId
+      ? { shipmentId: "", tripId: row.tripId, notificationId: row.notificationId, latestAtUtcMs: Number(row.latestAtUtcMs), unreadCount: Number(row.unreadCount) }
+      : {
+        shipmentId: row.shipmentId,
+        latestAtUtcMs: Number(row.latestAtUtcMs),
+        unreadCount: Number(row.unreadCount),
+        shipmentReference: row.shipmentReference ?? row.shipmentId.slice(0, 8).toUpperCase(),
+      }),
   };
 };
 export async function saveStoreToDatabase(store: Store): Promise<void> {
@@ -760,7 +774,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
       where: { id: m.id }, create: { ...m, sequence: BigInt(m.sequence), createdAtUtcMs: BigInt(m.createdAtUtcMs) }, update: {},
     });
     for (const n of store.notifications.values()) await tx.notificationRow.upsert({
-      where: { id: n.id }, create: { id: n.id, recipientSequence: BigInt(n.recipientSequence), eventId: n.eventId, eventKey: n.eventKey, recipientUserId: n.recipientUserId, recipientOrgId: n.recipientOrgId, shipmentId: n.shipmentId, conversationId: n.conversationId ?? null, messageId: n.messageId ?? null, createdAtUtcMs: BigInt(n.createdAtUtcMs), readAtUtcMs: n.readAtUtcMs == null ? null : BigInt(n.readAtUtcMs), data: n.data ?? undefined },
+      where: { id: n.id }, create: { id: n.id, recipientSequence: BigInt(n.recipientSequence), eventId: n.eventId, eventKey: n.eventKey, recipientUserId: n.recipientUserId, recipientOrgId: n.recipientOrgId, shipmentId: n.shipmentId, conversationId: n.conversationId ?? null, messageId: n.messageId ?? null, createdAtUtcMs: BigInt(n.createdAtUtcMs), readAtUtcMs: n.readAtUtcMs == null ? null : BigInt(n.readAtUtcMs), data: n.tripId ? { ...n.data, tripId: n.tripId } : n.data ?? undefined },
       update: { readAtUtcMs: n.readAtUtcMs == null ? null : BigInt(n.readAtUtcMs) },
     });
     for (const s of store.conversationReadStates.values()) await tx.conversationReadStateRow.upsert({

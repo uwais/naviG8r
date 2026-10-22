@@ -4,6 +4,8 @@ import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { listGroupedNotifications, type GroupedInboxPageReader } from "./notifications.ts";
+import { authorizationContext, resolvePrincipal } from "./rbac.ts";
 import { inviteCarrierDriver, registerCustomerUser } from "./services.ts";
 
 /** Carrier A with two drivers, a dispatcher and an owner, all signed in; nobody assigned yet. */
@@ -88,4 +90,23 @@ test("a trip given to a second driver tells the second; the first no longer sees
   const backToA = await tripNotices(tokens.driverA);
   assert.deepEqual(backToA.map((notice) => notice.id), [first.id], "driver A sees the first notice again, not a second");
   assert.equal([...f.store.notifications.values()].filter((n) => n.eventKey === "trip.assigned" && n.recipientUserId === driverA.user.id).length, 1);
+});
+
+// The database Updates reader returns a new-trip row with no shipment; the PostgreSQL test itself needs a database.
+test("the database Updates rows keep a new trip while it is the driver's, keyed by its notice", async t => {
+  const { f, driverA, driverB, tokens, assign, tripNotices } = await carrierWithTwoDrivers(t);
+  assert.equal((await assign(driverA)).status, 200);
+  const [notice] = await tripNotices(tokens.driverA);
+  assert.ok(notice);
+  const reader: GroupedInboxPageReader = async () => ({
+    notificationSequence: f.store.notificationSequence, unreadCount: 1,
+    groups: [{ shipmentId: "", tripId: f.trip.id, notificationId: notice.id, latestAtUtcMs: notice.createdAtUtcMs, unreadCount: 1 }],
+  });
+  const asDriverA = () => authorizationContext.run({ principal: resolvePrincipal(f.store, driverA.user.id, f.carrierA.org.id), requestId: "synthetic" },
+    () => listGroupedNotifications(f.store, 30, undefined, reader));
+  const page = await asDriverA();
+  assert.deepEqual(page.shipments.map((row) => ({ tripId: row.tripId, tripRoute: (row as { tripRoute?: string }).tripRoute })), [{ tripId: f.trip.id, tripRoute: "A to B" }]);
+
+  assert.equal((await assign(driverB, tokens.owner)).status, 200);
+  assert.deepEqual((await asDriverA()).shipments, [], "no longer driver A's trip");
 });

@@ -317,7 +317,8 @@ export type GroupedInboxPageRequest = {
 export type GroupedInboxPageSource = {
   notificationSequence: number;
   unreadCount: number;
-  groups: Array<{ shipmentId: string; latestAtUtcMs: number; unreadCount: number; shipmentReference: string }>;
+  /** A trip notice's row has shipmentId "", its tripId and notificationId, and no shipmentReference. */
+  groups: Array<{ shipmentId: string; latestAtUtcMs: number; unreadCount: number; shipmentReference?: string; tripId?: string; notificationId?: string }>;
 };
 export type GroupedInboxPageReader = (request: GroupedInboxPageRequest) => Promise<GroupedInboxPageSource>;
 
@@ -416,15 +417,19 @@ export async function listGroupedNotifications(store: Store, limit = 30, before?
     const hasMore = page.groups.length > pageSize;
     const shipments = page.groups.slice(0, pageSize);
     const last = shipments.at(-1);
+    // The cursor holds the row's key, as below: the shipment id, or "notice:<id>" for a trip notice.
     const nextBefore = hasMore && last
-      ? encodeOpaque({ ...cursorScope, notificationSequence: page.notificationSequence, latestAt: last.latestAtUtcMs, shipmentId: last.shipmentId })
+      ? encodeOpaque({ ...cursorScope, notificationSequence: page.notificationSequence, latestAt: last.latestAtUtcMs, shipmentId: last.notificationId ? `notice:${last.notificationId}` : last.shipmentId })
       : null;
     // The database reader ignores trip assignments: drop a driver's other groups after the cursor, so paging advances.
-    // It groups by shipment, so trip notices (shipmentId "") are left out here; this inbox does not list them yet.
-    const shown = shipments.filter((group) => {
-      if (group.shipmentId === "") return false;
+    const shown = shipments.flatMap((group) => {
+      if (group.tripId) {
+        const notice = group.notificationId ? store.notifications.get(group.notificationId) : undefined;
+        const trip = store.anchorTrips.get(group.tripId);
+        return notice && trip && tripNoticeStillTheirs(store, notice) ? [{ ...group, tripRoute: `${trip.originCity} to ${trip.destCity}` }] : [];
+      }
       const shipment = store.shipments.get(group.shipmentId);
-      return !shipment || assignedDriverMaySee(store, principal, shipment);
+      return !shipment || assignedDriverMaySee(store, principal, shipment) ? [group] : [];
     });
     return { shipments: shown, nextBefore, unreadCount: page.unreadCount, notificationSequence: page.notificationSequence };
   }
