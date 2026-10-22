@@ -3,9 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('placeholders stay the open items from decisions.md, word for word', () {
-    expect(PendingCopy.changeOrCancelContact, '[NaviG8r contact]',
-        reason:
-            'open item: the contact for change or cancel is not decided yet');
+    expect(PendingCopy.changeOrCancelContact, 'hello@navig8r.org',
+        reason: 'the owner chose this address for change or cancel');
     expect(PendingCopy.whenEwayBillIsNeeded,
         '[One line from the team on when an e-way bill is needed.]',
         reason: 'open item: the team has not written this line yet');
