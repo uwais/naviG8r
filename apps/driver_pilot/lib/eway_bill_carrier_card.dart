@@ -45,7 +45,9 @@ class EwayBillCarrierCard extends StatelessWidget {
       Text(
           truckLines.isEmpty
               ? 'Shown as the shipper entered it. NaviG8r did not make or change this bill. NaviG8r has not checked the truck or the end time.'
-              : 'Shown as entered in NaviG8r. NaviG8r did not make or change this bill. NaviG8r has not checked it on the portal.',
+              : bill['check'] is Map
+                  ? 'Shown as entered in NaviG8r. NaviG8r did not make or change this bill.'
+                  : 'Shown as entered in NaviG8r. NaviG8r did not make or change this bill. NaviG8r has not checked it on the portal.',
           style: NvText.caption),
     ];
   }

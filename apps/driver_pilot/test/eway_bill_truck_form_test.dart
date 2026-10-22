@@ -385,6 +385,64 @@ void main() {
           reason: 'no raw status text');
     });
 
+    testWidgets('a valid bill with the trip truck shows only its summary',
+        (tester) async {
+      final validTomorrow =
+          DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
+      await mountCard(
+          tester,
+          EwayBillCard(shipment: {
+            ...shipment(bill: {
+              ...withTruck(savedBill),
+              'validUntilUtcMs': validTomorrow
+            }),
+            'assignedTruckNumber': 'KA01AB1234'
+          }));
+      expect(
+          find.text('E-way bill saved. Nothing more for you to do until delivery.'),
+          findsOneWidget);
+      expect(find.text('Change truck'), findsNothing);
+      expect(find.widgetWithText(TextButton, 'Change or remove the e-way bill'),
+          findsOneWidget);
+    });
+
+    testWidgets('a different truck on the trip keeps the changes open',
+        (tester) async {
+      final validTomorrow =
+          DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
+      await mountCard(
+          tester,
+          EwayBillCard(shipment: {
+            ...shipment(bill: {
+              ...withTruck(savedBill),
+              'validUntilUtcMs': validTomorrow
+            }),
+            'assignedTruckNumber': 'KA05MN9999'
+          }));
+      expect(find.textContaining('Nothing more for you to do'), findsNothing,
+          reason: 'it would contradict the mismatch sentence');
+      expect(find.widgetWithText(TextButton, 'Change truck'), findsOneWidget,
+          reason: 'the fix is one tap away, not behind the summary');
+    });
+
+    testWidgets('a passed valid-until time keeps the changes open',
+        (tester) async {
+      final passedYesterday = DateTime.now()
+          .subtract(const Duration(days: 1))
+          .millisecondsSinceEpoch;
+      await mountCard(
+          tester,
+          EwayBillCard(shipment: {
+            ...shipment(bill: {
+              ...withTruck(savedBill),
+              'validUntilUtcMs': passedYesterday
+            }),
+            'assignedTruckNumber': 'KA01AB1234'
+          }));
+      expect(find.textContaining('Nothing more for you to do'), findsNothing);
+      expect(find.widgetWithText(TextButton, 'Change truck'), findsOneWidget);
+    });
+
     testWidgets('a shipper without the truck permission gets no truck button',
         (tester) async {
       signInAsShipper();

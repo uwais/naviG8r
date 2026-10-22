@@ -322,9 +322,11 @@ class _EwayBillCardState extends State<EwayBillCard> {
     if (bill != null && bill['kind'] == 'BILL') {
       final truck = bill['truckNumber'];
       SemanticsService.announce(
-          truck is String && truck.isNotEmpty
-              ? 'E-way bill saved. Nothing more for you to do until delivery.'
-              : 'E-way bill saved. The truck is not on it yet.',
+          truck is! String || truck.isEmpty
+              ? 'E-way bill saved. The truck is not on it yet.'
+              : _truckNeedsAttention(bill)
+                  ? 'E-way bill saved. Check the truck and the valid-until time shown.'
+                  : 'E-way bill saved. Nothing more for you to do until delivery.',
           Directionality.of(context));
     }
     if (shipment != null) widget.onSaved?.call(shipment);
