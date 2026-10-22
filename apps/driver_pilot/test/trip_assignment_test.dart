@@ -18,8 +18,8 @@ import 'support/carrier_fixtures.dart';
 import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
-const savedSentence =
-    'Saved. A new driver gets a notice in the app. The trip shows on their Trips screen when they refresh it.';
+/// A driver newly chosen is sent a notice, so the Saved line names them.
+String savedFor(String driver) => 'Saved. $driver gets a notice in the app.';
 const busySentence =
     'This driver is already on another trip that is on the way.';
 const replacedSentence = 'If you change the driver, the old driver stops seeing this trip.';
@@ -160,7 +160,7 @@ void main() {
           reason: 'the sheet closes after a save');
       expect(find.text('KA02XY9999'), findsOneWidget);
       expect(find.text('Synthetic Driver One'), findsOneWidget);
-      expect(find.text(savedSentence), findsOneWidget);
+      expect(find.text(savedFor('Synthetic Driver One')), findsOneWidget);
       expect(find.text(busySentence), findsNothing);
       expect(reported.single['assignedDriverUserId'], 'driver-1',
           reason: 'the trip screen is told, so it can offer Start');
@@ -329,7 +329,7 @@ void main() {
       expect(chosenIn(tester, 'Synthetic Driver Two'), 'driver-2',
           reason: 'and keeps the choice');
       expect(find.textContaining('HTTP'), findsNothing);
-      expect(find.text(savedSentence), findsNothing);
+      expect(find.textContaining('Saved.'), findsNothing);
     });
 
     testWidgets('any other 400 shows only the server sentence', (tester) async {
@@ -400,6 +400,37 @@ void main() {
       }
     });
 
+    testWidgets(
+        'the Saved line follows the choice: the same driver gets no notice, and choosing yourself names your Trips screen',
+        (tester) async {
+      signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
+      final withSelf = {
+        ...fleet,
+        'drivers': [
+          ...fleet['drivers'] as List,
+          {'userId': 'carrier-person', 'displayName': 'Synthetic Owner'},
+        ],
+      };
+      api.dio.httpClientAdapter = MockApiAdapter((request) =>
+          request.method == 'GET'
+              ? jsonResponse(withSelf)
+              : jsonResponse({'trip': null, 'driverBusy': false}));
+      await mountCard(
+          tester,
+          TripAssignmentCard(
+              trip: trip(assigned: {
+            'assignedVehicleId': 'vehicle-1',
+            'assignedDriverUserId': 'driver-2',
+          })));
+      await tester.pumpAndSettle();
+      await chooseAndSave(tester);
+      expect(find.text('Saved.'), findsOneWidget,
+          reason: 'driver two was already on the trip, so is sent nothing');
+      await chooseAndSave(tester, driver: 'Synthetic Owner');
+      expect(find.text('Saved. The trip is on your Trips screen.'), findsOneWidget,
+          reason: 'no notice for your own choice');
+    });
+
     testWidgets('a save refused after a successful one shows no Saved line',
         (tester) async {
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
@@ -423,7 +454,7 @@ void main() {
       await mountCard(tester, TripAssignmentCard(trip: trip()));
       await tester.pumpAndSettle();
       await chooseAndSave(tester);
-      expect(find.text(savedSentence), findsOneWidget);
+      expect(find.text(savedFor('Synthetic Driver Two')), findsOneWidget);
       await openSheet(tester);
       await choose(tester, 'Synthetic Driver Two');
       await tester.tap(inSheet(find.text('Choose Synthetic Driver Two')));
@@ -431,7 +462,7 @@ void main() {
       expect(find.text(completedSentence), findsOneWidget);
       await tester.tap(inSheet(find.text('Cancel')));
       await tester.pumpAndSettle();
-      expect(find.text(savedSentence), findsNothing,
+      expect(find.textContaining('Saved.'), findsNothing,
           reason: 'the second save was refused');
     });
 

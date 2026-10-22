@@ -35,7 +35,7 @@ class TripAssignmentCard extends StatefulWidget {
   State<TripAssignmentCard> createState() => _TripAssignmentCardState();
 }
 
-typedef _Assignment = ({Map<String, dynamic>? trip, bool driverBusy});
+typedef _Assignment = ({Map<String, dynamic>? trip, bool driverBusy, String savedWords});
 
 String? _text(Object? value) =>
     value is String && value.isNotEmpty ? value : null;
@@ -54,9 +54,9 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
   bool _fleetLoaded = false;
   bool _fleetFailed = false;
   bool _driverBusy = false;
-  // True from a successful save until the next one starts or the card shows a different trip, so a refused save
+  // Set from a successful save until the next one starts or the card shows a different trip, so a refused save
   // never shows "Saved.".
-  bool _justSaved = false;
+  String? _savedWords;
 
   Map<String, dynamic> get _trip => _savedTrip ?? widget.trip;
 
@@ -80,7 +80,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
     setState(() {
       _savedTrip = null;
       _driverBusy = false;
-      _justSaved = false;
+      _savedWords = null;
     });
   }
 
@@ -107,7 +107,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
   Future<void> _openSheet() async {
     // Both lines were about the last save; a new attempt starts here.
     setState(() {
-      _justSaved = false;
+      _savedWords = null;
       _driverBusy = false;
     });
     final assignment = await showNvSheet<_Assignment>(
@@ -123,7 +123,7 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
     setState(() {
       if (trip != null) _savedTrip = trip;
       _driverBusy = assignment.driverBusy;
-      _justSaved = true;
+      _savedWords = assignment.savedWords;
     });
     if (trip != null) widget.onAssigned?.call(trip);
   }
@@ -216,11 +216,9 @@ class _TripAssignmentCardState extends State<TripAssignmentCard> {
         const SizedBox(height: NvSpace.s2),
         ..._assigning(),
       ],
-      if (_justSaved) ...[
+      if (_savedWords case final savedWords?) ...[
         const SizedBox(height: NvSpace.s3),
-        const NvMessage(
-            'Saved. A new driver gets a notice in the app. The trip shows on their Trips screen when they refresh it.',
-            tone: NvMessageTone.good),
+        NvMessage(savedWords, tone: NvMessageTone.good),
       ],
       if (_driverBusy) ...[
         const SizedBox(height: NvSpace.s3),
@@ -277,6 +275,19 @@ class _AssignSheetState extends State<_AssignSheet> {
   String _driverName(Map<String, dynamic> driver) =>
       _text(driver['displayName']) ?? 'Driver';
 
+  /// Only a driver newly chosen, other than yourself, is sent a notice (the server's rule), so the words follow
+  /// the choice made.
+  String _savedWordsFor(Map<String, dynamic> driver) {
+    final chosen = driver['userId'];
+    if (chosen == AuthorizationSession.user?['id']) {
+      return 'Saved. The trip is on your Trips screen.';
+    }
+    if (chosen != _text(widget.trip['assignedDriverUserId'])) {
+      return 'Saved. ${_driverName(driver)} gets a notice in the app.';
+    }
+    return 'Saved.';
+  }
+
   // Only the three sizes the app knows get words; anything else shows no size rather than a code.
   String? _sizeWords(Map<String, dynamic> vehicle) {
     final size = vehicle['vehicleClass'];
@@ -306,6 +317,7 @@ class _AssignSheetState extends State<_AssignSheet> {
           result: (
             trip: trip is Map<String, dynamic> ? trip : null,
             driverBusy: response.data?['driverBusy'] == true,
+            savedWords: _savedWordsFor(driver),
           ));
     } catch (e) {
       if (mounted) {
