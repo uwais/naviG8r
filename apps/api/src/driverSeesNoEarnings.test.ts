@@ -197,3 +197,19 @@ test("a stored payment notice cannot be opened or marked read by a driver or dis
   const ownerMarked = await f.request("/v1/notifications/owner-payment/read", "PATCH", {}, tokens.owner);
   assert.equal(ownerMarked.status, 200, "and marks it read");
 });
+
+test("a driver's refused delivery confirmation says nothing of the payment's state", async t => {
+  const { f, tokens } = await carrierWithStaff(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  assert.equal((await f.request(`/v1/pilot/carrier/shipments/${shipmentId}/accept`, "POST", {}, tokens.driver)).status, 200);
+  // The payment has not gone through: a Razorpay order still waiting for the shipper.
+  const shipment = f.store.shipments.get(shipmentId)!;
+  const payment = f.store.payments.get(shipment.paymentId)!;
+  f.store.payments.set(payment.id, { ...payment, provider: "RAZORPAY", status: "CREATED" });
+
+  const refused = await f.request(`/shipments/${shipmentId}/driver-pod`, "POST", {}, tokens.driver);
+  assert.equal(refused.status, 400);
+  assert.equal(refused.body.error, "checkout_not_completed_for_pod");
+  assert.equal("status" in refused.body, false, "no payment status");
+  assert.doesNotMatch(JSON.stringify(refused.body), /CREATED|payment/i, "no payment words");
+});

@@ -1750,9 +1750,9 @@ export function submitDriverPod(
   const payOk =
     pay.status === "AUTHORIZED" || (pay.provider === "MOCK" && pay.status === "CAPTURED");
   if (!payOk) {
+    // A driver meets this refusal, and a driver never learns a payment's state: no status, no payment words.
     throw new ApiError("checkout_not_completed_for_pod", {
-      detail: "Customer must complete payment authorization before driver POD.",
-      status: pay.status,
+      detail: "This booking is not ready for delivery yet.",
     });
   }
 
