@@ -3,13 +3,16 @@
 // ones.
 import 'dart:async';
 
+import 'package:dio/dio.dart' show ResponseBody;
 import 'package:driver_pilot/shipper/book_a_lane.dart';
+import 'package:driver_pilot/shipper/book_pins_check.dart';
 import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/ui/nv_action_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import 'support/mock_api.dart';
 import 'support/shipper_lanes_app.dart';
 import 'support/shipper_screen_checks.dart';
 
@@ -278,6 +281,26 @@ void main() {
       expect(find.text('Check the pins before you pay'), findsOneWidget,
           reason: 'the map card stays, below the place boxes');
       semantics.dispose();
+    });
+
+    testWidgets('a new price keeps the pins check map instead of building a new one',
+        (tester) async {
+      final server = await showPricedBook(tester, height: 4000);
+      final check = tester.element(find.byType(BookPinsCheck));
+      final newPrice = Completer<ResponseBody>();
+      server.answers['/shipments/quote'] = (_) => newPrice.future;
+      await tester.enterText(field('Weight'), '90');
+      await pumpWhileWaiting(tester);
+      expect(find.text('₹2,640'), findsNothing,
+          reason: 'the price card goes while the new price is out');
+      newPrice.complete(jsonResponse({
+        'quote': {'grossPaise': 297000}
+      }));
+      await tester.pumpAndSettle();
+      expect(find.text('Book and pay ₹2,970'), findsOneWidget,
+          reason: 'the price card is back with the new price');
+      expect(tester.element(find.byType(BookPinsCheck)), same(check),
+          reason: 'review: the map was rebuilt on every price change');
     });
 
     testWidgets('Book and pay waits while a place search is out, then goes on',

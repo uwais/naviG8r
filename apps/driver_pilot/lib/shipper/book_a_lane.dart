@@ -510,7 +510,12 @@ class _CustomerBookShipmentScreenState
               ],
               if (_placesToCheck case final places?) ...[
                 const SizedBox(height: NvSpace.s4),
-                BookPinsCheck(pickup: places.pickup, drop: places.drop),
+                // The price card comes and goes above it with each price; the key keeps its map instead of
+                // building a new one each time.
+                BookPinsCheck(
+                    key: const ValueKey("book-pins-check"),
+                    pickup: places.pickup,
+                    drop: places.drop),
               ],
             ],
           ],
