@@ -25,6 +25,12 @@ Future<void> openNotificationInbox(BuildContext context) =>
 Future<void> openTripNotice(BuildContext context,
     {required String notificationId, required String tripId}) async {
   final router = GoRouter.maybeOf(context);
+  // Updates is pushed over the router's pages, on the root navigator; the trip opens as a page under the
+  // shell, so screens pushed like that are closed first or the trip opens behind them.
+  final navigators = {
+    Navigator.of(context),
+    Navigator.of(context, rootNavigator: true)
+  };
   if (notificationId.isNotEmpty) {
     try {
       await api.patch(
@@ -33,7 +39,13 @@ Future<void> openTripNotice(BuildContext context,
       // The trip still opens; the notice stays new until the next try.
     }
   }
-  router?.go('/driver/trip/${Uri.encodeComponent(tripId)}/active');
+  if (router == null) return;
+  for (final navigator in navigators) {
+    if (navigator.mounted) {
+      navigator.popUntil((route) => route.settings is Page);
+    }
+  }
+  router.go('/driver/trip/${Uri.encodeComponent(tripId)}/active');
 }
 
 /// "Updates" (sh-notifications): one row per shipment with new activity, named by its route and
