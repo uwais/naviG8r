@@ -74,31 +74,18 @@ What you should see: the sign-in screen at `/`, and `{"ok":true,...,"paymentProv
 Rishabh's decision, 21 Oct 2026: the demo may take Razorpay **test** keys, so testers go through the real payment
 screen with Razorpay's test cards and UPI. Test mode moves no money.
 
-**Not working yet: do not add the keys until this is fixed.** `Dockerfile.demo` skips `npm install`, so the
-`razorpay` package the API loads for orders, capture and refunds is not in the image. With the keys set, Book and
-pay fails and the booking is undone. Read from `apps/api/src/razorpayPayments.ts` and `Dockerfile.demo`, not tried
-on Render.
+To turn them on, copy these three settings from the beta service into the demo service, under **Environment**, then
+deploy:
 
-Once the image has the package, copy these three settings from the beta service into the demo service, under
-**Environment**, then deploy:
-
-| Setting | What it does |
+| Setting | What it is |
 |---|---|
-| `RAZORPAY_KEY_ID` | The public test key ID. Must start with `rzp_test_`. |
-| `RAZORPAY_KEY_SECRET` | Its secret. The server refuses to start if the key ID is not a test one. |
-| `RAZORPAY_WEBHOOK_SECRET` | Checks Razorpay's webhook calls. Razorpay sends them only to the address set in its dashboard, which is beta's, so the demo hears none unless a test-mode webhook for the demo's address is added there. Payments still confirm without it, from the app's own return from the payment screen. |
+| `RAZORPAY_KEY_ID` | The test key ID. Must start with `rzp_test_`. |
+| `RAZORPAY_KEY_SECRET` | Its secret. |
+| `RAZORPAY_WEBHOOK_SECRET` | The secret Razorpay's webhook calls are checked with. |
 
-With both keys the server uses Razorpay; with no keys, or a key ID alone, payments stay mock. Never copy live keys.
-Keep the values in Render only: never in the repository, Slack or a document.
-
-What to know:
-
-- **Anyone with the link can make test payments** on beta's Razorpay test account, and they show in its test
-  dashboard beside beta's.
-- **The seeded shipments keep their mock payments**, so release, refunds and their screens behave as before. Only
-  bookings made after the keys are in go through Razorpay.
-- **A payment that fails on the payment screen stays "not paid"** without the webhook, because only the webhook
-  reports a failure.
+Only test keys are taken: the server refuses to start if `RAZORPAY_KEY_SECRET` is set and `RAZORPAY_KEY_ID` does not
+start with `rzp_test_`, so live keys are refused. With both keys the server uses Razorpay; with no keys, payments stay
+mock. Keep the values in Render only.
 
 ### Putting a new commit on the demo
 

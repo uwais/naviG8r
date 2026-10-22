@@ -159,7 +159,7 @@ console.table(accounts.map(([userId, phone, orgId, role]) => ({ phone, userId, o
 console.log("OTP_DEBUG=1 returns each generated six-digit code from otp/start. Dual user also has FINANCE in platform.");
 console.log(`Synthetic data: ${process.env.DATA_FILE}`);
 console.log(razorpayTestPayments
-  ? "Payments: Razorpay test mode. Anyone who can open this server can make test payments; no money moves."
+  ? "Payments: Razorpay test mode. No money moves."
   : "Payments: mock. No payment provider is called.");
 
 if (!process.argv.includes("--seed-only")) {
