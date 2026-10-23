@@ -328,6 +328,8 @@ class _CustomerBookShipmentScreenState
   }) async {
     final id = _pendingShipmentIdForCheckout;
     var confirmed = false;
+    // The server refuses a payment for a trip that has already left, in its own sentence.
+    String? refusal;
     if (id != null && id.isNotEmpty) {
       try {
         await api.post<Map<String, dynamic>>(
@@ -340,14 +342,23 @@ class _CustomerBookShipmentScreenState
           },
         );
         confirmed = true;
-      } catch (_) {}
+      } catch (error) {
+        if (_apiErrorCode(error) == "trip_already_started") {
+          refusal = plainErrorSentence(error);
+        }
+      }
     }
     if (!mounted) return;
+    if (refusal != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(refusal)));
+    }
     if (id != null) {
       _openBookedShipment(id,
           announcement: confirmed
               ? null
-              : "Booked. We could not confirm the payment yet. The shipment shows whether it went through.");
+              : refusal ??
+                  "Booked. We could not confirm the payment yet. The shipment shows whether it went through.");
     }
     _pendingShipmentIdForCheckout = null;
   }

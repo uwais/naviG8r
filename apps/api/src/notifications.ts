@@ -54,7 +54,8 @@ export function captureWorkflowNotifications(store: Store, previous: WorkflowSna
     if (!old) emit(shipment, "shipment.booked", shipment.createdAtUtcMs);
     else if (old.status !== "BOOKED" && shipment.status === "BOOKED") emit(shipment, "shipment.carrier_accepted", shipment.acceptedAtUtcMs ?? shipment.updatedAtUtcMs);
     else if (old.status !== "FAILED_CARRIER_REFUNDED" && shipment.status === "FAILED_CARRIER_REFUNDED") {
-      emit(shipment, "shipment.cancelled", shipment.updatedAtUtcMs, undefined, cancelledShipperBody(store, shipment, previous.payments.get(shipment.paymentId)?.status));
+      if (shipment.leftBehindAtUtcMs != null) tellShipperTheTripLeft(store, shipment);
+      else emit(shipment, "shipment.cancelled", shipment.updatedAtUtcMs, undefined, cancelledShipperBody(store, shipment, previous.payments.get(shipment.paymentId)?.status));
     }
     if ((!old?.podAt || old.podAt === 0) && shipment.podAtUtcMs) emit(shipment, "shipment.pod_submitted", shipment.podAtUtcMs);
     if (!old?.podAcceptedAt && shipment.podAcceptedAtUtcMs) emit(shipment, "shipment.pod_accepted", shipment.podAcceptedAtUtcMs);
@@ -63,11 +64,13 @@ export function captureWorkflowNotifications(store: Store, previous: WorkflowSna
     const old = previous.trips.get(id);
     if (trip.assignedDriverUserId && trip.assignedDriverUserId !== old?.assignedDriverUserId) createTripAssignedNotice(store, trip, actorUserId);
     if (!old) continue;
+    // A cancelled shipment, or one the trip left without, is not on the trip, so its people hear nothing of it.
+    const onTrip = (shipment: Shipment) => shipment.anchorTripId === id && shipment.status !== "FAILED_CARRIER_REFUNDED";
     if (!old.startedAt && trip.startedAtUtcMs) {
-      for (const shipment of store.shipments.values()) if (shipment.anchorTripId === id) emit(shipment, "trip.started", trip.startedAtUtcMs);
+      for (const shipment of store.shipments.values()) if (onTrip(shipment)) emit(shipment, "trip.started", trip.startedAtUtcMs);
     }
     if (old.status !== "COMPLETED" && trip.status === "COMPLETED") {
-      for (const shipment of store.shipments.values()) if (shipment.anchorTripId === id) emit(shipment, "trip.completed", trip.completedAtUtcMs ?? Date.now());
+      for (const shipment of store.shipments.values()) if (onTrip(shipment)) emit(shipment, "trip.completed", trip.completedAtUtcMs ?? Date.now());
     }
   }
   for (const [id, payment] of store.payments) {
@@ -186,6 +189,20 @@ function cancelledShipperBody(store: Store, shipment: Shipment, paymentStatusBef
     : paymentStatusBefore === "CAPTURED" ? " Your refund has started."
       : paymentStatusBefore === "CREATED" || paymentStatusBefore === "FAILED" ? " Nothing was charged." : "";
   return `The carrier cannot carry ${load}, so it was cancelled.${money}`;
+}
+
+export const SHIPMENT_LEFT_BEHIND_EVENT = "shipment.left_behind";
+
+/**
+ * The trip started while this booking's checkout was not done, so it was closed (services.ts). Only the shipper is
+ * told: the carrier started the trip. A capture Razorpay had already reported is money taken, which Finance refunds.
+ */
+function tellShipperTheTripLeft(store: Store, shipment: Shipment): void {
+  const collected = store.payments.get(shipment.paymentId)?.status === "CAPTURED_AFTER_CANCEL";
+  const body = collected
+    ? "NaviG8r is refunding your payment. Your bank may take 5-7 working days."
+    : "You were not charged. Book another trip when you are ready.";
+  notifyShipper(store, shipment, SHIPMENT_LEFT_BEHIND_EVENT, "This trip left without your shipment", body);
 }
 
 function createNotifications(store: Store, shipment: Shipment, eventId: string, eventKey: string, createdAtUtcMs: number, messageId?: string, actorUserId?: string, shipperBody?: string): void {
@@ -320,24 +337,39 @@ export function markShipmentNoticesRead(store: Store, shipmentId: string, eventK
   }
 }
 
+// The office's reminders and truck notices reach a shipper at most once in this time per shipment (owner, 23 Oct 2026).
+const SHIPPER_NOTICE_GAP_MS = 6 * 60 * 60 * 1000;
+
+function sentInTheLastGap(store: Store, shipmentId: string, eventKey: string, reason?: string): boolean {
+  const since = Date.now() - SHIPPER_NOTICE_GAP_MS;
+  return [...store.notifications.values()].some((n) =>
+    n.eventKey === eventKey && n.shipmentId === shipmentId && n.createdAtUtcMs > since && (reason === undefined || n.data?.reason === reason));
+}
+
+/** already_reminded: one for this reason is unread, or was sent in the last 6 hours. no_recipient: no shipper login may read notices. */
+export type ReminderAnswer = { sent: true } | { sent: false; why: "already_reminded" | "no_recipient" };
+
 /**
- * The carrier office's Remind button (owner, 23 Oct 2026): tells the shipper why their bill holds the trip. While an
- * unread reminder for the same reason is there, nothing is sent and this returns false. An unread one for another
- * reason is out of date, so it is marked read and the new one sent.
+ * The carrier office's Remind button (owner, 23 Oct 2026): tells the shipper why their bill holds the trip. Nothing
+ * is sent while a reminder for the same reason is unread, or within 6 hours of one, read or not. An unread one for
+ * another reason is out of date, so it is marked read and the new one sent.
  */
-export function remindShipperBillHoldsStart(store: Store, shipment: Shipment, reason: EwayBillStartBlockReason): boolean {
+export function remindShipperBillHoldsStart(store: Store, shipment: Shipment, reason: EwayBillStartBlockReason): ReminderAnswer {
   const alreadyWaiting = [...store.notifications.values()].some((n) =>
     n.eventKey === EWAY_BILL_HOLDS_START_EVENT && n.shipmentId === shipment.id && n.readAtUtcMs == null && n.data?.reason === reason);
-  if (alreadyWaiting) return false;
+  if (alreadyWaiting || sentInTheLastGap(store, shipment.id, EWAY_BILL_HOLDS_START_EVENT, reason)) return { sent: false, why: "already_reminded" };
   markShipmentNoticesRead(store, shipment.id, EWAY_BILL_HOLDS_START_EVENT);
-  return notifyShipper(store, shipment, EWAY_BILL_HOLDS_START_EVENT, "The trip is waiting for your e-way bill", HOLDS_START_SHIPPER_BODY[reason], { reason }) > 0;
+  const sent = notifyShipper(store, shipment, EWAY_BILL_HOLDS_START_EVENT, "The trip is waiting for your e-way bill", HOLDS_START_SHIPPER_BODY[reason], { reason });
+  return sent > 0 ? { sent: true } : { sent: false, why: "no_recipient" };
 }
 
 /**
  * The office changed the trip's truck, and this shipment's bill names a different one. Replaces any earlier unread
- * notice of this kind. [carrierName] is undefined when the carrier has no name: a shipper never sees its id.
+ * notice of this kind, but only once in 6 hours: within them nothing changes, since the shipment screen always
+ * shows the trip's latest truck. [carrierName] is undefined when the carrier has no name: a shipper never sees its id.
  */
 export function notifyShipperTruckChanged(store: Store, shipment: Shipment, carrierName: string | undefined, truckNumber: string, truckOnBill: string): void {
+  if (sentInTheLastGap(store, shipment.id, EWAY_BILL_TRUCK_CHANGED_EVENT)) return;
   markShipmentNoticesRead(store, shipment.id, EWAY_BILL_TRUCK_CHANGED_EVENT);
   const body = `${carrierName ?? "Your carrier"} set the truck on this trip to ${truckNumber}. Your e-way bill has ${truckOnBill}. `
     + `Ask ${carrierName ?? "your carrier"} which is right. If the bill is wrong, fix it on the portal, then here.`;

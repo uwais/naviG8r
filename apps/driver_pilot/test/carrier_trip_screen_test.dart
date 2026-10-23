@@ -1,13 +1,19 @@
+// Over 500 lines and one file: every test drives the one trip screen through the same fake server and bookings.
 // The office's trip screen and its Start sheet (ca-trip, ca-start, PR 7 of the redesign): the trip, its
 // bookings, and Start only behind the sheet.
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_session.dart';
+import 'package:driver_pilot/pilot_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'support/carrier_office_screens.dart';
 import 'support/eway_bill_fixtures.dart' show finalBill;
+import 'support/mock_api.dart';
 
 void main() {
   setUp(() => GeolocatorPlatform.instance = NoLocation());
@@ -445,6 +451,68 @@ void main() {
       await tester.tap(find.widgetWithText(TextButton, 'Remind Mehta Hardware'));
       await tester.pumpAndSettle();
       expect(find.widgetWithText(TextButton, 'Reminder sent'), findsOneWidget);
+    });
+
+    testWidgets(
+        'with no shipper login that can get notices, the line says so instead of Reminder sent',
+        (tester) async {
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [mehta],
+          reminderAnswer: const {'sent': false, 'why': 'no_recipient'}));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      await tester.tap(find.widgetWithText(TextButton, 'Remind Mehta Hardware'));
+      await tester.pumpAndSettle();
+      expect(find.text('No one at Mehta Hardware can get reminders.'),
+          findsOneWidget);
+      expect(find.text('Reminder sent'), findsNothing,
+          reason: 'nothing reached the shipper');
+      expect(find.textContaining('Remind Mehta'), findsNothing);
+    });
+
+    testWidgets(
+        'each booking sends its own reminder, and loading the trip again brings Remind back',
+        (tester) async {
+      final kumar = bookingOn('trip-a', 'kumar',
+          shipper: 'Kumar Traders', weightKg: 100);
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [mehta, kumar]));
+      final served = api.dio.httpClientAdapter as MockApiAdapter;
+      final mehtaAnswer = Completer<ResponseBody>();
+      api.dio.httpClientAdapter = MockApiAdapter((request) =>
+          request.path.endsWith('/mehta/eway-bill-reminder')
+              ? mehtaAnswer.future
+              : served.handle(request));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+
+      await tester.tap(find.widgetWithText(TextButton, 'Remind Mehta Hardware'));
+      await tester.pump();
+      expect(find.text('Sending'), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Remind Kumar Traders'));
+      for (var frame = 0; frame < 5; frame++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.widgetWithText(TextButton, 'Reminder sent'), findsOneWidget,
+          reason: "Kumar Traders' reminder came back");
+      expect(find.text('Sending'), findsOneWidget,
+          reason: "Mehta Hardware's reminder is still on its way");
+
+      mehtaAnswer.complete(jsonResponse({'sent': true}));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextButton, 'Reminder sent'), findsNWidgets(2));
+
+      await tester.tap(find.byTooltip('Refresh'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextButton, 'Remind Mehta Hardware'),
+          findsOneWidget,
+          reason: 'loading again asks the server, which answers if a reminder is still with the shipper');
+      expect(find.widgetWithText(TextButton, 'Remind Kumar Traders'),
+          findsOneWidget);
     });
 
     testWidgets(

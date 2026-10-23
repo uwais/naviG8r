@@ -189,8 +189,10 @@ function applyErpPreauthorizedPayment(store: Store, shipment: Shipment): void {
 export function integrationLoadResponse(store: Store, shipment: Shipment, connection: IntegrationConnection) {
   const enriched = shipmentWithCarrierDisplay(store, shipment);
   const payment = store.payments.get(shipment.paymentId);
+  // A booking closed when its trip left unpaid keeps its CREATED payment, and takes no checkout.
   const checkoutRequired =
     connection.paymentPolicy === "portal_checkout" &&
+    shipment.status === "PENDING_CARRIER_ACCEPT" &&
     payment?.status === "CREATED" &&
     razorpayPaymentsEnabled();
 

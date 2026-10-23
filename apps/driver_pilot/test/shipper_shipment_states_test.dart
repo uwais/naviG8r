@@ -198,6 +198,25 @@ void main() {
       await leave(tester);
     });
 
+    testWidgets(
+        'closed because the trip left before it was paid for: says so, and that nothing was charged',
+        (tester) async {
+      await showShipment(
+          tester,
+          booking(
+              status: 'FAILED_CARRIER_REFUNDED',
+              extra: const {'leftBehindAtUtcMs': 1761200000000}),
+          trip: lane(),
+          payment: {'status': 'CREATED', 'amountPaise': 264000});
+      expect(find.text('This trip left without your shipment'), findsOneWidget,
+          reason: 'owner, 23 Oct 2026: the shipper did not cancel; the trip left');
+      expect(find.text('If your bank shows a payment, it comes back within 3 days.'), findsOneWidget);
+      expect(find.text('This shipment was cancelled'), findsNothing);
+      expect(find.textContaining('Waiting for'), findsNothing,
+          reason: 'no carrier is waiting to accept it');
+      await leave(tester);
+    });
+
     testWidgets('cancelled before any payment: says nothing was paid',
         (tester) async {
       await showShipment(tester, booking(status: 'FAILED_CARRIER_REFUNDED'),

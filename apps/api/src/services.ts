@@ -1900,6 +1900,31 @@ export function acceptCarrierShipment(
   return updated;
 }
 
+/**
+ * Owner, 23 Oct 2026: a booking still waiting whose checkout is not done when its trip starts is closed, the status
+ * Finance's cancel gives, and its room freed; returns the kilograms freed. No money was taken (payment CREATED or
+ * FAILED), so nothing goes to Razorpay and the payment is left as it is. A capture Razorpay already reported is money
+ * taken, so it goes on Finance's list of money collected after a cancel (tripCancel.ts), as a later one does from
+ * the webhook. The shipper's notice is written in notifications.ts.
+ */
+function closeBookingsLeftBehind(store: Store, activeOnTrip: Shipment[], userId: string, now: number): number {
+  let freedKg = 0;
+  for (const s of activeOnTrip) {
+    if (s.status !== "PENDING_CARRIER_ACCEPT" || bookingReadyToAccept(store, s)) continue;
+    const closed: Shipment = { ...s, status: "FAILED_CARRIER_REFUNDED", leftBehindAtUtcMs: now, updatedAtUtcMs: now };
+    store.shipments.set(closed.id, closed);
+    auditAsUser(store, userId, "SHIPMENT_LEFT_BEHIND", "shipment", s.id, s.status, closed.status);
+    const pay = store.payments.get(s.paymentId);
+    if (pay?.provider === "RAZORPAY" && pay.status === "CAPTURED" && pay.razorpayPaymentId) {
+      store.payments.set(pay.id, { ...pay, status: "CAPTURED_AFTER_CANCEL", capturedAfterCancelRazorpayPaymentId: pay.razorpayPaymentId, updatedAtUtcMs: now });
+      auditAsUser(store, userId, "PAYMENT_AFTER_CANCEL", "shipment", s.id, pay.status, "CAPTURED_AFTER_CANCEL", "CAPTURED", pay.razorpayPaymentId);
+    }
+    freedKg += s.weightKg;
+    emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: s.id });
+  }
+  return freedKg;
+}
+
 /** Carrier/driver explicitly starts a load (anchor trip → IN_PROGRESS). */
 export function startAnchorTripAsPilot(
   store: Store,
@@ -1934,9 +1959,11 @@ export function startAnchorTripAsPilot(
   const notReady = [...waitingForAccept, ...shipmentsBlockingStart(store, trip, activeOnTrip, now)];
   // A refusal tells no shipper: the office chooses when to, with Remind (ewayBillReminder.ts).
   if (notReady.length > 0) throw new ApiError("eway_bill_not_ready", { shipments: notReady }, 409);
+  const freedKg = closeBookingsLeftBehind(store, activeOnTrip, params.userId, now);
   const updated: AnchorTrip = {
     ...trip,
     status: "IN_PROGRESS",
+    reservedKg: Math.max(0, trip.reservedKg - freedKg),
     startedAtUtcMs: now,
     startedByUserId: params.userId,
   };
@@ -2143,10 +2170,13 @@ export function markPodDelivered(_store: Store, _params: { shipmentId: string; p
   throw new AuthorizationError("use_pod_upload_and_finance_release", 409);
 }
 
-/** Reverse a BOOKED shipment + free trip capacity if Razorpay order could not be created. */
+/**
+ * Reverse a just-booked shipment + free trip capacity if Razorpay order could not be created. One the trip's start
+ * closed meanwhile is kept: its room is already freed and its shipper told.
+ */
 export function rollbackBooking(store: Store, shipmentId: string): void {
   const s = store.shipments.get(shipmentId);
-  if (!s) return;
+  if (!s || s.leftBehindAtUtcMs != null) return;
   const trip = store.anchorTrips.get(s.anchorTripId);
   if (trip) {
     trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
@@ -2155,6 +2185,19 @@ export function rollbackBooking(store: Store, shipmentId: string): void {
   }
   store.payments.delete(s.paymentId);
   store.shipments.delete(shipmentId);
+}
+
+/**
+ * A booking the trip left without (owner, 23 Oct 2026), or one still waiting on a trip already on the road, takes no
+ * payment. A trip whose carrier asked to cancel it may still go, and the webhook would still record that payment,
+ * so it is not refused here.
+ */
+function refuseCheckoutIfTripLeft(store: Store, s: Shipment): void {
+  const tripStatus = store.anchorTrips.get(s.anchorTripId)?.status;
+  const tripOnTheRoad = tripStatus === "IN_PROGRESS" || tripStatus === "COMPLETED";
+  if (s.leftBehindAtUtcMs != null || (s.status === "PENDING_CARRIER_ACCEPT" && tripOnTheRoad)) {
+    throw new ApiError("trip_already_started", { detail: "This trip has already left. If your bank shows a payment, it comes back within 3 days." }, 409);
+  }
 }
 
 /** Client callback after Razorpay Standard Checkout success (webhook may lag or be unset in pilot). */
@@ -2184,6 +2227,7 @@ export function confirmRazorpayCheckoutAuthorization(
   if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
     return { payment: pay };
   }
+  refuseCheckoutIfTripLeft(store, s);
   if (pay.status !== "CREATED") {
     throw new ApiError("payment_not_confirmable", { status: pay.status });
   }
@@ -2205,6 +2249,8 @@ export async function attachRazorpayOrderForShipment(store: Store, shipmentId: s
   const pay = store.payments.get(s.paymentId);
   if (!pay || pay.provider !== "RAZORPAY") throw new Error("not_razorpay_shipment");
   const { id: orderId } = await createAuthorizeOnlyOrder(pay.amountPaise, s.id);
+  // The trip can start while Razorpay answers; then the shipper is not sent to pay.
+  refuseCheckoutIfTripLeft(store, store.shipments.get(shipmentId) ?? s);
   const t = nowUtcMs();
   store.payments.set(pay.id, {
     ...pay,
@@ -2436,10 +2482,10 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
 }
 
 
-function auditAsUser(store: Store, userId: string, action: string, resourceType: string, resourceId: string, previousState?: string, newState?: string): void {
+function auditAsUser(store: Store, userId: string, action: string, resourceType: string, resourceId: string, previousState?: string, newState?: string, reasonCode?: string, razorpayPaymentId?: string): void {
   const p = principalFor(store, userId);
   const existing = authorizationContext.getStore();
-  authorizationContext.run({ ...existing, principal: p, requestId: existing?.requestId ?? randomUUID() }, () => recordAudit(store, action, resourceType, resourceId, previousState, newState));
+  authorizationContext.run({ ...existing, principal: p, requestId: existing?.requestId ?? randomUUID() }, () => recordAudit(store, action, resourceType, resourceId, previousState, newState, reasonCode, razorpayPaymentId));
 }
 function assertDispatchReady(store: Store, carrierId: string): void {
   const org = store.organizations.get(carrierId);

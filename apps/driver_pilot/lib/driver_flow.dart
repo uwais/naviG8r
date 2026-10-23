@@ -3232,10 +3232,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   DateTime? _locationSentNowAt;
   // The bookings the server named when it refused Start for the e-way bills, kept until the bookings load again.
   List<EwayBillStartHold>? _serverStartHolds;
-  // The reason each shipper was last reminded of from this screen, by shipment. A new reason brings Remind back.
-  final Map<String, EwayBillStartBlock> _remindedFor = {};
-  // The shipment whose reminder is on its way.
-  String? _remindingShipmentId;
+  // The reason each shipper was last reminded of from this screen, by shipment, and whether the server found no
+  // shipper login that can get notices. A new reason brings Remind back; so does loading the screen again.
+  final Map<String, ({EwayBillStartBlock block, bool noRecipient})> _remindedFor = {};
+  // The shipments whose reminder is on its way.
+  final Set<String> _remindingShipmentIds = {};
   // The stop the driver has just confirmed, shown at the top until the screen loads again (dr-done).
   Map<String, dynamic>? _justDelivered;
   Timer? _poll;
@@ -3550,6 +3551,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       _error = null;
       _tripNoLongerAssigned = false;
       _justDelivered = null;
+      _remindedFor.clear();
     });
     _newestTripRequest++;
     try {
@@ -4142,10 +4144,19 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       !(hold.block == EwayBillStartBlock.truckDiffers &&
           _nonEmpty(trip["assignedTruckNumber"]) == null);
 
-  /// Remind [Shipper], then Reminder sent until the reason changes. The server sends nothing while an unread
-  /// reminder for the same reason is with the shipper, and answers the same way, so both read Reminder sent.
+  /// Remind [Shipper], then Reminder sent until the reason changes or the screen loads again. The server sends
+  /// nothing while a reminder for the same reason is unread or was sent in the last 6 hours, and answers
+  /// sent: false, so that reads Reminder sent too. With no shipper login that can get notices, it says so instead.
   Widget _remindButton(EwayBillStartHold hold) {
-    final reminded = _remindedFor[hold.shipmentId] == hold.block;
+    final last = _remindedFor[hold.shipmentId];
+    final reminded = last?.block == hold.block;
+    if (reminded && last!.noRecipient) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: NvSpace.s1),
+        child: Text("No one at ${hold.shipperName} can get reminders.",
+            style: NvText.body),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: NvSpace.s1),
       child: NvButton(
@@ -4153,18 +4164,23 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         kind: NvButtonKind.quiet,
         onPressed: reminded ? null : () => _remindShipper(hold),
         successLabel: reminded ? "Reminder sent" : null,
-        loading: _remindingShipmentId == hold.shipmentId,
+        loading: _remindingShipmentIds.contains(hold.shipmentId),
         loadingLabel: "Sending",
       ),
     );
   }
 
   Future<void> _remindShipper(EwayBillStartHold hold) async {
-    setState(() => _remindingShipmentId = hold.shipmentId);
+    setState(() => _remindingShipmentIds.add(hold.shipmentId));
     try {
-      await api.post<Map<String, dynamic>>(
+      final r = await api.post<Map<String, dynamic>>(
           "/v1/pilot/anchor-trips/${widget.tripId}/shipments/${hold.shipmentId}/eway-bill-reminder");
-      if (mounted) setState(() => _remindedFor[hold.shipmentId] = hold.block);
+      final noRecipient =
+          r.data?["sent"] == false && r.data?["why"] == "no_recipient";
+      if (mounted) {
+        setState(() => _remindedFor[hold.shipmentId] =
+            (block: hold.block, noRecipient: noRecipient));
+      }
     } catch (e) {
       if (!mounted) return;
       final changed = e is DioException && e.response?.statusCode == 409;
@@ -4174,7 +4190,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       // The bill or the trip changed since this screen loaded, so the lines are loaded again.
       if (changed) await _load();
     } finally {
-      if (mounted) setState(() => _remindingShipmentId = null);
+      if (mounted) setState(() => _remindingShipmentIds.remove(hold.shipmentId));
     }
   }
 

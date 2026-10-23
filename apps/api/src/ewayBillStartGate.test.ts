@@ -84,6 +84,13 @@ test("start is refused with one line per booking whose bill is not final, names 
   assert.equal(started.body.trip.status, "IN_PROGRESS");
 });
 
+/** Moves every notice of this kind back by [hours] and one minute, as if sent then. */
+function sentHoursAgo(f: Awaited<ReturnType<typeof httpFixture>>, eventKey: string, hours: number): void {
+  for (const n of f.store.notifications.values()) {
+    if (n.eventKey === eventKey) f.store.notifications.set(n.id, { ...n, createdAtUtcMs: n.createdAtUtcMs - hours * 3600000 - 60000 });
+  }
+}
+
 /** Carrier A's trip with a hired driver and truck KA01AB1234, plus helpers to book, set a bill, start and remind. */
 async function tripWithTruck(t: Parameters<typeof httpFixture>[0]) {
   const f = await httpFixture(t);
@@ -174,7 +181,10 @@ test("a booking whose checkout is not done does not hold the start, and once the
   assert.equal(started.status, 200, "only the shipper can finish paying, so these do not hold the trip");
   assert.equal(started.body.trip.status, "IN_PROGRESS");
 
-  // The shipper finishes paying after the trip has left: the booking still cannot join it.
+  // The start closed both (tripLeftBehind.test.ts). One still waiting, as stored before that rule, and paid after
+  // the trip has left still cannot join it.
+  assert.equal(f.store.shipments.get(unpaid)?.status, "FAILED_CARRIER_REFUNDED");
+  f.store.shipments.set(unpaid, { ...f.store.shipments.get(unpaid)!, status: "PENDING_CARRIER_ACCEPT", leftBehindAtUtcMs: undefined });
   setPayment(unpaid, "AUTHORIZED");
   const accept = () => f.request(`/v1/pilot/carrier/shipments/${unpaid}/accept`, "POST", {}, f.tokens.carrierA);
   const refused = await accept();
@@ -222,7 +232,7 @@ test("a reminder tells the shipper why once, until they read it or the reason ch
   assert.equal(first[0].data?.reason, "no_bill");
   assert.ok(loadStoreFromDisk(process.env.DATA_FILE!).notifications.has(first[0].id), "the reminder is saved");
 
-  assert.deepEqual((await remind(shipmentId)).body, { sent: false }, "the same reason, still unread");
+  assert.deepEqual((await remind(shipmentId)).body, { sent: false, why: "already_reminded" }, "the same reason, still unread");
   assert.equal(noticesFor(EWAY_BILL_HOLDS_START_EVENT, f.shipperA.user.id).length, 1);
 
   setBill(shipmentId, { ...finalBill(), validUntilUtcMs: Date.now() - 1000 });
@@ -236,10 +246,25 @@ test("a reminder tells the shipper why once, until they read it or the reason ch
   assert.equal(second.data?.body, "The valid-until time you entered has passed. Check the bill on the portal, then enter the new time here.");
 
   assert.equal((await f.request(`/v1/notifications/${second.id}/read`, "PATCH", {}, f.tokens.shipperA)).status, 200);
-  assert.deepEqual((await remind(shipmentId)).body, { sent: true }, "read, so the office can remind again");
+  assert.deepEqual((await remind(shipmentId)).body, { sent: false, why: "already_reminded" }, "read, but sent in the last 6 hours");
+  assert.equal(noticesFor(EWAY_BILL_HOLDS_START_EVENT, f.shipperA.user.id).length, 2);
+  sentHoursAgo(f, EWAY_BILL_HOLDS_START_EVENT, 6);
+  assert.deepEqual((await remind(shipmentId)).body, { sent: true }, "read and over 6 hours old, so the office can remind again");
   assert.equal(noticesFor(EWAY_BILL_HOLDS_START_EVENT, f.shipperA.user.id).length, 3);
   assert.equal(noticesFor(EWAY_BILL_HOLDS_START_EVENT, f.carrierA.user.id).length, 0, "the office sent it; it is not told");
   assert.ok(![...f.store.notifications.values()].some((n) => n.eventKey === EWAY_BILL_HOLDS_START_EVENT && n.recipientOrgId === f.carrierA.org.id));
+});
+
+test("with no shipper login that can get notices, a reminder says so, and the out-of-date one it marked read is saved", async t => {
+  const { f, bookAndAccept, setBill, remind } = await tripWithTruck(t);
+  const shipmentId = await bookAndAccept();
+  assert.deepEqual((await remind(shipmentId)).body, { sent: true });
+  const [old] = [...f.store.notifications.values()].filter((n) => n.eventKey === EWAY_BILL_HOLDS_START_EVENT);
+  setBill(shipmentId, { ...finalBill(), validUntilUtcMs: Date.now() - 1000 });
+  f.store.users.set(f.shipperA.user.id, markInactive(f.store.users.get(f.shipperA.user.id)!, Date.now(), "synthetic"));
+
+  assert.deepEqual((await remind(shipmentId)).body, { sent: false, why: "no_recipient" });
+  assert.ok(loadStoreFromDisk(process.env.DATA_FILE!).notifications.get(old.id)?.readAtUtcMs != null, "saved though nothing was sent");
 });
 
 test("a reminder is refused for a booking that does not hold the start, or one not on the trip", async t => {
@@ -308,15 +333,18 @@ test("changing the trip's truck tells only the shippers whose bill names another
   assert.equal(noticesFor(EWAY_BILL_TRUCK_CHANGED_EVENT, f.carrierA.user.id).length, 0, "the office made the change; it is not told");
 
   assert.equal((await assign(third.id)).status, 200);
-  assert.equal(unread(onOldTruck).length, 1, "the earlier notice is marked read before the new one");
-  assert.match(String(unread(onOldTruck)[0].data?.body), /to KA09ZZ0001\. Your e-way bill has KA01AB1234\./);
-  assert.equal(unread(onNewTruck).length, 1);
-  assert.match(String(unread(onNewTruck)[0].data?.body), /Your e-way bill has KA05MN4321\./, "the bill's truck in the portal form");
+  assert.equal(noticesFor(EWAY_BILL_TRUCK_CHANGED_EVENT, f.shipperA.user.id).filter((n) => n.shipmentId === onOldTruck).length, 1,
+    "one notice per shipment in 6 hours: the shipment screen shows the latest truck");
+  assert.match(String(unread(onOldTruck)[0].data?.body), /to KA05MN4321\./, "and the one sent is left as it is");
+  assert.equal(unread(onNewTruck).length, 1, "a shipment not told yet is told");
+  assert.match(String(unread(onNewTruck)[0].data?.body), /to KA09ZZ0001\. Your e-way bill has KA05MN4321\./, "the bill's truck in the portal form");
 
+  sentHoursAgo(f, EWAY_BILL_TRUCK_CHANGED_EVENT, 6);
   const sentBefore = noticesFor(EWAY_BILL_TRUCK_CHANGED_EVENT, f.shipperA.user.id).length;
   assert.equal((await assign(hired.vehicle.id)).status, 200);
   assert.equal(unread(onOldTruck).length, 0, "back on the bill's truck: its notices are marked read");
-  assert.equal(unread(onNewTruck).length, 1);
+  assert.equal(unread(onNewTruck).length, 1, "the earlier notice is marked read before the new one");
+  assert.match(String(unread(onNewTruck)[0].data?.body), /to KA01AB1234\. Your e-way bill has KA05MN4321\./);
   assert.equal(noticesFor(EWAY_BILL_TRUCK_CHANGED_EVENT, f.shipperA.user.id).length, sentBefore + 1, "nothing is sent for the bill the trip is back on");
 });
 

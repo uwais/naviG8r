@@ -6,13 +6,13 @@
 import { AuthorizationError, requirePermission } from "./rbac.ts";
 import { ApiError } from "./services.ts";
 import { shipmentsBlockingStart } from "./ewayBillStartGate.ts";
-import { remindShipperBillHoldsStart } from "./notifications.ts";
+import { remindShipperBillHoldsStart, type ReminderAnswer } from "./notifications.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import { assignedTruckNumber } from "./tripAssignmentRules.ts";
 import type { Store } from "./store.ts";
 
-/** `sent` is false when an unread reminder for the same reason is already with the shipper. */
-export function remindShipperOfEwayBill(store: Store, tripId: string, shipmentId: string): { sent: boolean } {
+/** `sent` is false, with `why`, when the shipper was reminded of this already or no shipper login can get notices. */
+export function remindShipperOfEwayBill(store: Store, tripId: string, shipmentId: string): ReminderAnswer {
   const trip = store.anchorTrips.get(tripId);
   if (!trip || !isActiveEntity(trip)) throw new AuthorizationError("not_found", 404);
   requirePermission(store, "trip.assign", trip);
@@ -29,5 +29,5 @@ export function remindShipperOfEwayBill(store: Store, tripId: string, shipmentId
   if (holding.reason === "truck_differs" && !assignedTruckNumber(store, trip)) {
     throw new ApiError("trip_has_no_truck", { detail: "Choose a truck first." }, 409);
   }
-  return { sent: remindShipperBillHoldsStart(store, shipment, holding.reason) };
+  return remindShipperBillHoldsStart(store, shipment, holding.reason);
 }

@@ -468,6 +468,8 @@ class _CustomerShipmentDetailScreenState
     // Razorpay collected it after the cancel; Finance refunds it in Razorpay, then it reads as REFUNDED.
     final collectedAfterCancel = _paymentStatus == "CAPTURED_AFTER_CANCEL";
     final nothingPaid = paymentNotTaken(_paymentStatus);
+    // The trip started before this booking was paid for, so it was closed (owner, 23 Oct 2026).
+    final leftBehind = _shipment?["leftBehindAtUtcMs"] != null;
     final bill = _shipment?["ewayBill"];
     final madeBill = bill is Map && bill["kind"] == "BILL";
     // The portal allows a cancel within 24 hours of making the bill. Only its date is known, so a bill dated
@@ -502,12 +504,18 @@ class _CustomerShipmentDetailScreenState
             children: [
               Semantics(
                 header: true,
-                child: Text("This shipment was cancelled",
+                child: Text(
+                    leftBehind
+                        ? "This trip left without your shipment"
+                        : "This shipment was cancelled",
                     style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
               ),
               const SizedBox(height: NvSpace.s2),
               if (nothingPaid)
-                const Text("Nothing was paid for this shipment.",
+                Text(
+                    leftBehind
+                        ? "If your bank shows a payment, it comes back within 3 days."
+                        : "Nothing was paid for this shipment.",
                     style: NvText.body)
               else if (holdReleased)
                 const Text(

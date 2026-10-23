@@ -150,7 +150,8 @@ void main() {
     // never offered again: a second Pay would book a second shipment.
     Future<(FakeServer, List<String>)> payThroughCheckout(WidgetTester tester,
         {required Map<String, dynamic> checkoutAnswer,
-        bool confirmFails = false}) async {
+        bool confirmFails = false,
+        Map<String, dynamic>? confirmRefusal}) async {
       final announced = watchAnnouncements(tester);
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
           const MethodChannel('razorpay_flutter'),
@@ -171,6 +172,9 @@ void main() {
       if (confirmFails) {
         server.answer(
             '/v1/payments/razorpay/confirm', {'error': 'internal_error'}, 500);
+      }
+      if (confirmRefusal != null) {
+        server.answer('/v1/payments/razorpay/confirm', confirmRefusal, 409);
       }
       await tester.tap(find.text('Book and pay ₹2,640'));
       await tester.pumpAndSettle();
@@ -218,6 +222,29 @@ void main() {
               'Booked. We could not confirm the payment yet. The shipment shows whether it went through.'),
           reason:
               'the confirm call failed, so the app does not know the payment is held');
+    });
+
+    testWidgets(
+        'a payment refused because the trip has left shows the server sentence, never Booked',
+        (tester) async {
+      const sentence = 'This trip has already left. If your bank shows a payment, it comes back within 3 days.';
+      final (_, announced) = await payThroughCheckout(tester,
+          confirmRefusal: const {'error': 'trip_already_started', 'detail': sentence},
+          checkoutAnswer: {
+            'type': 0,
+            'data': {
+              'razorpay_order_id': 'order_synthetic',
+              'razorpay_payment_id': 'pay_synthetic',
+              'razorpay_signature': 'signature_synthetic'
+            }
+          });
+      expect(find.text(sentence), findsOneWidget,
+          reason: 'owner, 23 Oct 2026: the app shows the server sentence');
+      expect(announced, contains(sentence));
+      expect(announced.where((words) => words.startsWith('Booked')), isEmpty,
+          reason: 'the booking did not go ahead');
+      expect(find.text('Shipment shipment-9'), findsOneWidget,
+          reason: 'the shipment opens and says the trip left without it');
     });
 
     testWidgets(

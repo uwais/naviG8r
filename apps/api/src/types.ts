@@ -327,6 +327,8 @@ export type Shipment = {
   /** Monotonic sequence for integration webhooks per shipment. */
   integrationSequence?: number;
   ewayBill?: EwayBill;
+  /** When its trip started while its checkout was not done, which closed it as FAILED_CARRIER_REFUNDED (owner, 23 Oct 2026). */
+  leftBehindAtUtcMs?: number;
 } & SoftDeleteFields;
 
 export type PaymentProviderId = "MOCK" | "RAZORPAY";

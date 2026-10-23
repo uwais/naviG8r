@@ -1,3 +1,4 @@
+// One file over 800 lines on purpose: it is the route table, one ordered chain of matches, and splitting it would hide that order.
 import { dashboardList, onboardCarrier, setInternalAccess } from "./dashboard.ts";
 import { adminDashboardV1Html } from "./adminDashboardV1.ts";
 import { opsPortalHtml } from "./opsPortal.ts";
@@ -927,7 +928,8 @@ export async function createApp(options: {
       if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/shipments\/[^/]+\/eway-bill-reminder$/.test(url.pathname)) {
         const parts = url.pathname.split("/");
         const out = remindShipperOfEwayBill(store, parts[4]!, parts[6]!);
-        if (out.sent) await persist();
+        // Saved even when nothing was sent: an out-of-date reminder may have been marked read.
+        await persist();
         return json(res, 200, out);
       }
       if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/cancel$/.test(url.pathname)) {
