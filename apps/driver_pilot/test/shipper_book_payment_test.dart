@@ -243,12 +243,7 @@ void main() {
         'Pay, the full-price line and the contact line are on screen without scrolling at 360 x 800',
         (tester) async {
       await showPricedBook(tester, height: 800);
-      for (final words in [
-        'Book and pay ₹2,640',
-        fullPriceLine,
-        failedPaymentLine,
-        contactAbovePay
-      ]) {
+      for (final words in ['Book and pay ₹2,640', fullPriceLine, contactAbovePay]) {
         final shown = tester.getRect(find.text(words));
         expect(shown.top >= 0 && shown.bottom <= 800, isTrue,
             reason:
@@ -267,11 +262,11 @@ void main() {
       final fullPrice = tester.getRect(find.text(fullPriceLine));
       expect(cancelLine.bottom, lessThanOrEqualTo(fullPrice.top),
           reason: 'first in the words, so it shows even when they scroll at large text');
-      final failedPayment = tester.getRect(find.text(failedPaymentLine));
-      expect(failedPayment.top, greaterThanOrEqualTo(fullPrice.bottom),
-          reason: 'owner, 21 Oct 2026: what a failed payment means sits by the full-price line');
-      expect(failedPayment.bottom, lessThanOrEqualTo(button.top),
+      expect(fullPrice.bottom, lessThanOrEqualTo(button.top),
           reason: 'all the words sit above the button');
+      expect(
+          find.textContaining('If you close the payment screen'), findsNothing,
+          reason: 'owner, 22 Oct 2026: a failed payment is said when it happens, not before');
     });
 
   });

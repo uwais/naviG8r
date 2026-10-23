@@ -211,11 +211,7 @@ Future<FakeServer> showPricedBook(WidgetTester tester,
 }
 
 const contactAbovePay =
-    'Booking keeps this capacity for you. To cancel, contact ${PendingCopy.changeOrCancelContact}.';
-
-/// Owner, 21 Oct 2026: a failed payment is said on screen before paying.
-const failedPaymentLine =
-    'If you close the payment screen or the payment does not go through, the shipment stays booked and unpaid. To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.';
+    'To cancel, contact ${PendingCopy.changeOrCancelContact}.';
 
 /// The one bottom button on Book.
 NvButton bookButton(WidgetTester tester) => tester.widget<NvButton>(find
@@ -223,4 +219,4 @@ NvButton bookButton(WidgetTester tester) => tester.widget<NvButton>(find
         of: find.byType(NvActionBar), matching: find.byType(NvButton))
     .last);
 
-const fullPriceLine = 'This is the full price. Nothing is added at payment.';
+const fullPriceLine = 'Full price. Nothing is added at payment.';

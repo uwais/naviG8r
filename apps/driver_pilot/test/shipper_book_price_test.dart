@@ -48,8 +48,8 @@ void main() {
       server.answers['/shipments/quote'] = priceByWeight;
       await tester.pumpAndSettle();
       expect(find.text('Book this trip'), findsOneWidget, reason: 'copy.md: title');
-      expect(find.text('Check the price, then pay.'), findsOneWidget,
-          reason: 'copy.md: sub');
+      expect(find.text('Check the price, then pay.'), findsNothing,
+          reason: 'Uwais, 22 Oct 2026: too verbose, so no line under the title');
       expect(find.text('Capacity remaining: 105 kg'), findsOneWidget,
           reason: 'room left from capacity 1000 and booked 895');
       expect(find.text('Ravi Roadways · Leaves 18 – 19 Oct'), findsOneWidget,
@@ -133,23 +133,18 @@ void main() {
           reason: 'copy.md: the price, Indian grouping');
       expect(find.text(fullPriceLine), findsOneWidget,
           reason: 'decisions.md 6: full price on the same screen as Pay');
-      expect(
-          find.text(
-              'After you pay, Ravi Roadways is asked to accept and name the truck.'),
-          findsOneWidget,
-          reason: 'the carrier has not accepted yet, so the words do not promise it');
-      expect(
-          find.text('NaviG8r holds your payment and releases it after delivery.'),
+      expect(find.text('NaviG8r holds your payment until delivery.'),
           findsOneWidget,
           reason: 'the price card says where the money goes before Pay');
-      expect(
-          find.text(
-              "Book and pay opens our payment partner's screen. There you choose how to pay."),
-          findsOneWidget,
-          reason: 'moved from the confirm sheet: what Pay does next');
-      expect(find.text('If you change the weight or move a pin, the price may change.'),
-          findsOneWidget,
-          reason: 'review: typing the address never changes the price; the pin does');
+      for (final dropped in [
+        'After you pay, Ravi Roadways',
+        'payment partner',
+        'the price may change',
+        'Booking keeps this capacity',
+      ]) {
+        expect(find.textContaining(dropped), findsNothing,
+            reason: 'Uwais, 22 Oct 2026: too verbose; owner approved the shorter screen');
+      }
       expect(find.text(contactAbovePay), findsOneWidget,
           reason:
               'owner decision: no cancel in the app, the contact sits above Pay');

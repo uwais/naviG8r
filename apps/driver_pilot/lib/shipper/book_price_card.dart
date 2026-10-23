@@ -1,24 +1,14 @@
-// Book's price card: the price and what happens after Book and pay, with the two notes a desktop shows
-// under the fields instead.
+// Book's price card: the price and where the payment goes.
 import "package:flutter/material.dart";
 
 import "../ui/format.dart";
 import "../ui/tokens.dart";
 
-const priceChangesNote =
-    "If you change the weight or move a pin, the price may change.";
-
-const paymentPartnerNote =
-    "Book and pay opens our payment partner's screen. There you choose how to pay.";
-
-/// The price and what happens after Book and pay. With the lane above and the words beside the
-/// button, it holds everything the confirm sheet used to show before money moved (sh-book-price).
+/// The price and what happens to the payment. With the lane above and the full-price and cancel
+/// lines beside the button, it holds what the shipper needs before money moves (sh-book-price).
 class BookPriceCard extends StatelessWidget {
-  const BookPriceCard(
-      {required this.pricePaise, required this.carrier, required this.withNotes, super.key});
+  const BookPriceCard({required this.pricePaise, super.key});
   final num pricePaise;
-  final String carrier;
-  final bool withNotes;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -40,17 +30,8 @@ class BookPriceCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: NvSpace.s2),
-            Text("After you pay, $carrier is asked to accept and name the truck.",
+            const Text("NaviG8r holds your payment until delivery.",
                 style: NvText.body),
-            const SizedBox(height: NvSpace.s2),
-            const Text("NaviG8r holds your payment and releases it after delivery.",
-                style: NvText.body),
-            if (withNotes) ...[
-              const SizedBox(height: NvSpace.s2),
-              const Text(paymentPartnerNote, style: NvText.body),
-              const SizedBox(height: NvSpace.s2),
-              const Text(priceChangesNote, style: NvText.caption),
-            ],
           ],
         ),
       );

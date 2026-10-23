@@ -10,15 +10,15 @@ import "ui/nv_message.dart";
 import "ui/tokens.dart";
 
 /// Opens the camera or the phone's photos and gives back the picture, or null if the driver backs out. Tests replace
-/// it, since a widget test cannot open the real plugin. 1600 px wide at quality 70 keeps a phone photo of a
-/// delivery note readable and well under the server's 1.5 MB limit.
+/// it, since a widget test cannot open the real plugin. At most 1280 px on the long side at quality 60, a phone
+/// photo of a delivery note stays readable and well under the server's 1.5 MB limit.
 @visibleForTesting
 Future<Uint8List?> Function(ImageSource source) pickPodPhoto =
     _pickWithImagePicker;
 
 Future<Uint8List?> _pickWithImagePicker(ImageSource source) async {
-  final file = await ImagePicker()
-      .pickImage(source: source, maxWidth: 1600, imageQuality: 70);
+  final file = await ImagePicker().pickImage(
+      source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 60);
   return file?.readAsBytes();
 }
 

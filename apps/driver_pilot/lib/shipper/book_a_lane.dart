@@ -492,15 +492,10 @@ class _CustomerBookShipmentScreenState
     // On a desktop the price and Book and pay sit together in the side column (wb-book).
     final desktop = customerIsDesktop(context);
     final priceCard = laneOpen && _pricePaise != null
-        ? BookPriceCard(
-            pricePaise: _pricePaise!,
-            carrier: lane["carrierDisplayName"]?.toString() ?? "The carrier",
-            // On a desktop these two notes sit under the fields, so Pay stays on a 900-high screen.
-            withNotes: !desktop)
+        ? BookPriceCard(pricePaise: _pricePaise!)
         : null;
     return CustomerScaffold(
       title: "Book this trip",
-      subtitle: "Check the price, then pay.",
       currentPath: "/customer/book",
       actionBar: desktop
           ? null
@@ -550,12 +545,6 @@ class _CustomerBookShipmentScreenState
               if (!desktop && priceCard != null) ...[
                 const SizedBox(height: NvSpace.s4),
                 priceCard,
-              ],
-              if (desktop && priceCard != null) ...[
-                const SizedBox(height: NvSpace.s3),
-                const Text(paymentPartnerNote, style: NvText.body),
-                const SizedBox(height: NvSpace.s2),
-                const Text(priceChangesNote, style: NvText.caption),
               ],
               if (_placesToCheck case final places?) ...[
                 const SizedBox(height: NvSpace.s4),
@@ -700,18 +689,15 @@ class _CustomerBookShipmentScreenState
     final words = [
       if (_actionError != null)
         NvMessage(_actionError!, tone: NvMessageTone.problem),
-      // The way out and the full price sit beside the button (decisions.md 6). One tap books, so the
-      // cancel line is first: at very large text the top of this scroll is the part that shows.
+      // The way out and the full price sit beside the button (decisions.md 6): on a phone the price card
+      // scrolls away, the button does not. One tap books, so the cancel line is first: at very large text
+      // the top of this scroll is the part that shows. A failed payment is said on the shipment screen when
+      // it happens (owner, 22 Oct 2026).
       if (price != null) ...[
-        const Text(
-            "Booking keeps this capacity for you. To cancel, contact ${PendingCopy.changeOrCancelContact}.",
+        const Text("To cancel, contact ${PendingCopy.changeOrCancelContact}.",
             style: NvText.body),
-        const Text("This is the full price. Nothing is added at payment.",
+        const Text("Full price. Nothing is added at payment.",
             style: NvText.bodyStrong),
-        // Owner, 21 Oct 2026: a failed payment is said on screen; the booking stays.
-        const Text(
-            "If you close the payment screen or the payment does not go through, the shipment stays booked and unpaid. To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.",
-            style: NvText.caption),
       ],
     ];
     // At very large text the words above the button scroll inside the bar, so the bar never

@@ -282,5 +282,21 @@ void doubleTextTests() {
       await scrollTo(tester, find.text('Choose another trip'));
       await expectNoOverflowToTheEnd(tester, 'Book too heavy');
     });
+
+    testWidgets('Book with a price at 360 x 640 and 200% text, with Pay on screen',
+        (tester) async {
+      useDoubleTextSize(tester);
+      await showPricedBook(tester, height: 640);
+      await expectNoOverflowToTheEnd(tester, 'Book with a price at 640');
+      await expectNoOverflowToTheEnd(tester, 'the words beside Pay at 640',
+          list: find
+              .descendant(
+                  of: find.byType(NvActionBar),
+                  matching: find.byType(Scrollable))
+              .first);
+      final pay = tester.getRect(find.text('Book and pay ₹2,640'));
+      expect(pay.top >= 0 && pay.bottom <= 640, isTrue,
+          reason: 'decisions.md 8: Pay stays on screen at 200% text');
+    });
   });
 }
