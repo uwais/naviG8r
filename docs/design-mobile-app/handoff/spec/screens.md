@@ -92,7 +92,7 @@ Compute steps from the booking status and e-way bill fields. One function, unit 
 | Booking status | E-way bill state | Current step | Who | Next: line |
 |---|---|---|---|---|
 | Awaiting carrier acceptance | no answer | E-way bill question | You | You say if it needs an e-way bill |
-| Awaiting carrier acceptance | needed / not needed | Carrier accepts | Carrier | [Carrier] accepts and names the truck |
+| Awaiting carrier acceptance | needed / not needed | Carrier accepts | Carrier | [Carrier] accepts and names the truck; [Carrier] accepts when the trip already names its truck, and the step title is then "Carrier accepts" |
 | Accepted | needed, no bill | E-way bill part 1 | You | You make the e-way bill |
 | Accepted | bill, no truck | Truck on bill | You | You add the truck to the e-way bill |
 | Accepted | bill + truck, not checked | Bill check | NaviG8r staff | NaviG8r staff check the bill |

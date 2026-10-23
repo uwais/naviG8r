@@ -352,13 +352,18 @@ class _EwayBillCardState extends State<EwayBillCard> {
           ]
         : const <Widget>[];
     if (status == 'PENDING_CARRIER_ACCEPT') {
+      final truck = _tripTruck;
       return [
-        const Text(
-            'You can make the bill once the carrier accepts and names the truck. We will send you an update.',
+        Text(
+            truck == null
+                ? 'You can make the bill once the carrier accepts and names the truck. We will send you an update.'
+                : 'You can make the bill once the carrier accepts. We will send you an update.',
             style: NvText.body),
         const SizedBox(height: NvSpace.s3),
         EwayBillTransportDetails(
-            carrierName: _carrierName, carrierAccepted: false),
+            carrierName: _carrierName,
+            carrierAccepted: false,
+            truckNumber: truck),
         ...actions,
       ];
     }
@@ -461,11 +466,12 @@ class _EwayBillCardState extends State<EwayBillCard> {
             'Before the goods move, add the truck in your billing software or on the e-way bill portal. Then enter it here.',
             style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
       ],
-      if (widget.shipment['status'] == 'BOOKED') ...[
+      if (widget.shipment['status'] == 'BOOKED' ||
+          widget.shipment['status'] == 'PENDING_CARRIER_ACCEPT') ...[
         const SizedBox(height: NvSpace.s3),
         EwayBillTransportDetails(
             carrierName: _carrierName,
-            carrierAccepted: true,
+            carrierAccepted: widget.shipment['status'] == 'BOOKED',
             transporterId: _transporterId,
             truckNumber: _tripTruck,
             truckPortalField: 'Portal: Update Part B, Vehicle No.'),

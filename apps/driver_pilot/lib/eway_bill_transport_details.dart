@@ -22,7 +22,9 @@ class EwayBillTransportDetails extends StatefulWidget {
   /// Null when the shipment does not name its carrier.
   final String? carrierName;
 
-  /// The transporter ID and the truck are sent only once the carrier has accepted.
+  /// The transporter ID is sent only once the carrier has accepted. The truck is sent as soon as
+  /// the trip names one, so before acceptance it shows with a note that it can still change
+  /// (owner, 22 Oct 2026).
   final bool carrierAccepted;
   final String? transporterId;
   final String? truckNumber;
@@ -129,7 +131,7 @@ class _EwayBillTransportDetailsState extends State<EwayBillTransportDetails> {
               value: transporterId,
               portalField: 'Portal field: Transporter ID. Not your GSTIN.'),
         const SizedBox(height: NvSpace.s2),
-        if (!widget.carrierAccepted)
+        if (truck == null && !widget.carrierAccepted)
           NvCopyRow(
               label: 'Truck number',
               state: NvCopyRowState.notYet,
@@ -139,12 +141,18 @@ class _EwayBillTransportDetailsState extends State<EwayBillTransportDetails> {
               label: 'Truck number',
               state: NvCopyRowState.notYet,
               noValueWords: 'Not chosen yet',
-              guidance: 'Shown once the carrier accepts and names the truck.')
-        else
+              guidance: 'Shown once the carrier names the truck.')
+        else ...[
           NvCopyRow(
               label: 'Truck number',
               value: truck,
               portalField: widget.truckPortalField),
+          if (!widget.carrierAccepted) ...[
+            const SizedBox(height: NvSpace.s1),
+            Text('${widget.carrierName ?? "The carrier"} can still change it.',
+                style: NvText.caption),
+          ],
+        ],
         if (name != null || transporterId != null || truck != null) ...[
           const SizedBox(height: NvSpace.s2),
           NvButton(

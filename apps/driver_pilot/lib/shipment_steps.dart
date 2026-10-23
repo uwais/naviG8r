@@ -91,6 +91,9 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
   final unpaid = paymentNotTaken(paymentStatus);
   final stage = ewayBillStageOf(shipment);
   final waitingForCarrier = status == "PENDING_CARRIER_ACCEPT";
+  // A trip can name its truck before the carrier accepts (owner, 22 Oct 2026); then accepting is all that is left.
+  final truckKnown =
+      (shipment["assignedTruckNumber"]?.toString() ?? "").trim().isNotEmpty;
   final delivered = status == "PENDING_RELEASE" || status == "DELIVERED";
   // Delivery confirmed and the payment held: the shipper's acceptance ends the 48-hour hold early.
   // The server's paymentReady turns true when the hold is over, and then accepting changes nothing.
@@ -136,7 +139,7 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
     _ when waitingForCarrier || status != "BOOKED" => (
         ShipmentStepName.carrierAccepts,
         ShipmentActor.carrier,
-        "$carrier accepts and names the truck"
+        truckKnown ? "$carrier accepts" : "$carrier accepts and names the truck"
       ),
     EwayBillStage.none => (
         ShipmentStepName.ewayBill,
@@ -207,7 +210,9 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
               ShipmentStepName.booked, "Booked and paid", NvStepState.done),
       ShipmentStep(
           ShipmentStepName.carrierAccepts,
-          "Carrier accepts and names the truck",
+          waitingForCarrier && truckKnown
+              ? "Carrier accepts"
+              : "Carrier accepts and names the truck",
           stateWhen(!waitingForCarrier, inProgress: true),
           who: carrier),
       ShipmentStep(

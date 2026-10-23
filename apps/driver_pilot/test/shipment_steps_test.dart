@@ -67,6 +67,22 @@ void main() {
           reason: 'copy.md: the not-needed step says so in its title');
     });
 
+    test(
+        'awaiting acceptance on a trip that already names its truck: the carrier only accepts',
+        () {
+      final named = {
+        ...shipment('PENDING_CARRIER_ACCEPT'),
+        'assignedTruckNumber': 'KA01AB1234'
+      };
+      final waiting = shipmentProgress(named);
+      expect(waiting.next, 'Ravi Roadways accepts',
+          reason: 'the truck is already shown, so the line does not wait for it');
+      expect(waiting.steps[1].title, 'Carrier accepts');
+      final accepted = shipmentProgress({...named, 'status': 'BOOKED'});
+      expect(accepted.steps[1].title, 'Carrier accepts and names the truck',
+          reason: 'once accepted, the step reads as before');
+    });
+
     test('accepted, no bill: the shipper makes the e-way bill', () {
       final progress = shipmentProgress(shipment('BOOKED'));
       expect(progress.current, ShipmentStepName.ewayBill);
