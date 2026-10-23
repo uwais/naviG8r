@@ -2,7 +2,6 @@ import "package:dio/dio.dart";
 
 export "pilot_api_dns.dart";
 import 'package:flutter/foundation.dart';
-import "package:flutter/material.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
 
 /// Production API. Override at run/build time:
@@ -187,15 +186,25 @@ String formatApiError(Object e) {
     if (code == "otp_rate_limited") {
       final retry = body["retryAfterMs"];
       final seconds = retry is num ? (retry / 1000).ceil() : 30;
-      return "Too many code requests. Please wait ${seconds > 0 ? seconds : 1} seconds and try again.";
+      final minutes = (seconds / 60).ceil();
+      final shownSeconds = seconds > 0 ? seconds : 1;
+      final wait = seconds < 60
+          ? "$shownSeconds ${shownSeconds == 1 ? "second" : "seconds"}"
+          : "$minutes ${minutes == 1 ? "minute" : "minutes"}";
+      return "Too many code requests. Please wait $wait and try again.";
     }
-    // The server writes these errors' detail for the carrier: which bank field is wrong and how, or why
-    // the truck cannot change.
+    // The server writes these errors' detail for the carrier: which bank field is wrong and how, why
+    // the truck cannot change, what a transporter ID looks like, that a chosen truck or driver is not theirs, or
+    // that a trip its carrier asked NaviG8r to cancel takes no acceptance or delivery, or that delivery needs a photo.
     final detail = body is Map ? body["detail"] : null;
     if (const [
           "invalid_payout_profile",
           "truck_on_unfinished_trip",
-          "invalid_vehicleRegistrationNumber"
+          "invalid_vehicleRegistrationNumber",
+          "invalid_transporter_id",
+          "invalid_trip_assignment",
+          "trip_cancel_requested",
+          "pod_photo_required"
         ].contains(code) &&
         detail is String &&
         detail.isNotEmpty) {
@@ -203,24 +212,41 @@ String formatApiError(Object e) {
     }
     const messages = {
       "carrier_compliance_required":
-          "Carrier compliance must be approved before accepting shipments or starting trips.",
+          "NaviG8r must approve your company before you can accept bookings or start trips.",
       "payment_hold_active":
-          "Payment is on hold until the shipper accepts delivery or the 48-hour hold expires.",
-      "active_organization_required": "Choose an organization to continue.",
+          "Payment is on hold until the shipper accepts delivery or the 48-hour hold ends.",
+      "active_organization_required": "Choose a company to continue.",
       "membership_inactive":
-          "Your access to this organization is no longer active. Choose another organization.",
+          "You no longer have access to this company. Choose another company.",
       "forbidden":
-          "You do not have permission for this action in the selected organization.",
-      "not_found": "This record is unavailable in the selected organization.",
-      "unauthorized": "Your session has expired. Please sign in again.",
-      "otp_expired": "This code has expired. Request a new code and try again.",
-      "otp_incorrect": "That code is incorrect. Check it and try again.",
+          "You are not allowed to do this in this company.",
+      "not_found": "This is not available in the company you chose.",
+      "unauthorized": "You were signed out. Please sign in again.",
+      // A 409 from every register screen; without it the screen blamed the connection.
+      "phone_already_registered":
+          "This number already has an account. Sign in instead.",
+      // An invite's refusal. Its other one, user_not_found, is worded on the invite screens, which can
+      // say "invite"; sign-in words it its own way.
+      "membership_already_exists": "This number is already in your company.",
+      "otp_expired": "This code has expired. Send a new code.",
+      "otp_incorrect":
+          "That code is not right. Check the SMS and type it again, or send a new code.",
       "otp_challenge_invalid":
           "This code request is no longer valid. Request a new code.",
       "otp_challenge_not_found":
           "This code request is no longer valid. Request a new code.",
       "otp_challenge_mismatch":
           "This code request is no longer valid. Request a new code.",
+      "insufficient_capacity":
+          "This trip does not have enough capacity for that weight. Enter less weight, or choose another trip.",
+      "anchor_trip_not_open":
+          "This trip is no longer taking bookings. Choose another trip.",
+      "address_too_long": "That address is too long. Shorten it.",
+      "checkout_not_completed_for_accept":
+          "The shipper has not finished paying for this booking yet. You can accept it once they do.",
+      // A driver can meet this one, so it says nothing about payment.
+      "checkout_not_completed_for_pod":
+          "This booking is not ready for delivery yet. Ask your office.",
     };
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||
@@ -325,12 +351,6 @@ String? carrierOrgDisplayNameFromPilotMe(
   return null;
 }
 
-String formatInrFromPaise(num paise) {
-  final rupees = paise / 100;
-  if (rupees == rupees.roundToDouble()) return "₹${rupees.toStringAsFixed(0)}";
-  return "₹${rupees.toStringAsFixed(2)}";
-}
-
 String formatIstIsoFromUtc(DateTime utc) {
   final ist = utc.add(const Duration(hours: 5, minutes: 30));
   final y = ist.year;
@@ -342,41 +362,6 @@ String formatIstIsoFromUtc(DateTime utc) {
   return "$y-$m-${d}T$h:$min:$s+05:30";
 }
 
-void defaultAnchorTripWindow(
-    TextEditingController w1, TextEditingController w2) {
-  final utc = DateTime.now().toUtc();
-  final istNow = utc.add(const Duration(hours: 5, minutes: 30));
-  final y = istNow.year;
-  final m = istNow.month;
-  final d = istNow.day;
-  final startUtc =
-      DateTime.utc(y, m, d).subtract(const Duration(hours: 5, minutes: 30));
-  final endUtc = DateTime.utc(y, m, d + 2)
-      .subtract(const Duration(hours: 5, minutes: 30))
-      .subtract(const Duration(seconds: 1));
-  w1.text = formatIstIsoFromUtc(startUtc);
-  w2.text = formatIstIsoFromUtc(endUtc);
-}
-
-/// [seesPayment] is false for a driver, who never sees carrier earnings or their status (owner decision,
-/// 15 Oct 2026), so those two statuses are worded without payment.
-String shipmentStatusLabel(String status, {bool seesPayment = true}) {
-  switch (status) {
-    case "PENDING_CARRIER_ACCEPT":
-      return "Awaiting carrier acceptance";
-    case "BOOKED":
-      return "Accepted";
-    case "PENDING_RELEASE":
-      return seesPayment ? "Awaiting payment release" : "Delivery confirmed";
-    case "DELIVERED":
-      return "Delivered";
-    case "FAILED_CARRIER_REFUNDED":
-      return seesPayment ? status : "Cancelled";
-    default:
-      return status;
-  }
-}
-
 String tripStatusLabel(String status) {
   switch (status) {
     case "OPEN":
@@ -384,9 +369,13 @@ String tripStatusLabel(String status) {
     case "FULL":
       return "Full";
     case "IN_PROGRESS":
-      return "In transit";
+      return "On the way";
     case "COMPLETED":
       return "Done";
+    case "CANCEL_REQUESTED":
+      return "Cancel requested";
+    case "CANCELLED":
+      return "Cancelled";
     default:
       return status;
   }
@@ -428,168 +417,5 @@ String customerMemberRoleLabel(String role) {
       return "Member";
     default:
       return role.isEmpty ? "—" : role;
-  }
-}
-
-String paymentStatusLabel(String status) {
-  switch (status) {
-    case "CREATED":
-      return "Awaiting checkout";
-    case "AUTHORIZED":
-      return "Payment authorized";
-    case "CAPTURED":
-      return "Payment captured";
-    case "FAILED":
-      return "Payment failed";
-    case "REFUNDED":
-      return "Refunded";
-    default:
-      return status;
-  }
-}
-
-/// Short human range from ISO window strings, e.g. "12–14 Jun".
-String formatTripWindowRange(String? windowStart, String? windowEnd) {
-  String dayMonth(String? iso) {
-    if (iso == null || iso.isEmpty) return "—";
-    final t = iso.indexOf("T");
-    final date = t > 0 ? iso.substring(0, t) : iso;
-    final parts = date.split("-");
-    if (parts.length < 3) return date;
-    const months = [
-      "",
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec"
-    ];
-    final m = int.tryParse(parts[1]) ?? 0;
-    final d = int.tryParse(parts[2]) ?? 0;
-    if (m < 1 || m > 12 || d < 1) return date;
-    return "$d ${months[m]}";
-  }
-
-  final a = dayMonth(windowStart);
-  final b = dayMonth(windowEnd);
-  if (a == "—" && b == "—") return "Window not set";
-  if (a == b) return a;
-  return "$a – $b";
-}
-
-class ShipmentTimelineStep {
-  const ShipmentTimelineStep({
-    required this.label,
-    required this.subtitle,
-    required this.complete,
-    required this.current,
-  });
-
-  final String label;
-  final String subtitle;
-  final bool complete;
-  final bool current;
-}
-
-List<ShipmentTimelineStep> shipmentTimelineSteps({
-  required String shipmentStatus,
-  String? tripStatus,
-  bool isLive = false,
-}) {
-  final accepted = shipmentStatus == "BOOKED" ||
-      shipmentStatus == "PENDING_RELEASE" ||
-      shipmentStatus == "DELIVERED";
-  final started = tripStatus == "IN_PROGRESS" || tripStatus == "COMPLETED";
-  final delivered = shipmentStatus == "DELIVERED";
-  final pendingRelease = shipmentStatus == "PENDING_RELEASE";
-
-  return [
-    const ShipmentTimelineStep(
-      label: "Booking placed",
-      subtitle: "Your request was submitted",
-      complete: true,
-      current: false,
-    ),
-    ShipmentTimelineStep(
-      label: "Carrier accepted",
-      subtitle: "Carrier confirmed they will carry your load",
-      complete: accepted || pendingRelease || delivered,
-      current: shipmentStatus == "PENDING_CARRIER_ACCEPT",
-    ),
-    ShipmentTimelineStep(
-      label: "Load started",
-      subtitle: "Carrier marked the trip as started",
-      complete: started || delivered || pendingRelease,
-      current: shipmentStatus == "BOOKED" &&
-          !started &&
-          !delivered &&
-          !pendingRelease,
-    ),
-    ShipmentTimelineStep(
-      label: "In transit",
-      subtitle: isLive
-          ? "Live tracking active"
-          : shipmentStatus == "BOOKED" && tripStatus == "IN_PROGRESS"
-              ? "Load started — waiting for driver GPS"
-              : "Tracking when the load is on the road",
-      complete: delivered || pendingRelease,
-      current: started && !delivered && !pendingRelease,
-    ),
-    ShipmentTimelineStep(
-      label: delivered
-          ? "Delivered"
-          : pendingRelease
-              ? "Delivered (processing)"
-              : "Delivered",
-      subtitle: delivered
-          ? "Shipment complete"
-          : pendingRelease
-              ? "Proof of delivery submitted"
-              : "Confirmation after drop-off",
-      complete: delivered,
-      current: pendingRelease,
-    ),
-  ];
-}
-
-/// Customer-facing tracking hint on shipment detail (below the map).
-String customerTrackingStatusMessage({
-  required String shipmentStatus,
-  String? tripStatus,
-  required bool isLive,
-  bool hasDriverPing = false,
-  String? carrierDisplayName,
-}) {
-  if (isLive) return "Live tracking — updates every ~30 seconds.";
-
-  switch (shipmentStatus) {
-    case "PENDING_CARRIER_ACCEPT":
-      return "Waiting for ${carrierDisplayName ?? "carrier"} to accept your booking.";
-    case "BOOKED":
-      if (tripStatus == null) {
-        return "Tracking status unavailable — use Refresh or pull down to try again.";
-      }
-      if (tripStatus != "IN_PROGRESS") {
-        return "Carrier accepted — tracking starts when the load is started.";
-      }
-      if (!hasDriverPing) {
-        return "Load started — waiting for driver GPS. Pull down or tap Refresh to update.";
-      }
-      return "Load on the road — last GPS signal is stale. Pull down or tap Refresh.";
-    case "PENDING_RELEASE":
-      return "Delivered — proof submitted. Live tracking has ended while payment is processed.";
-    case "DELIVERED":
-      return "Shipment delivered. Tracking is no longer available.";
-    case "FAILED_CARRIER_REFUNDED":
-      return "Booking was cancelled and refunded. Tracking is not available.";
-    default:
-      return "Tracking unavailable for this status.";
   }
 }

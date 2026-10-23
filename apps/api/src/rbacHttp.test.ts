@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { addTestPodPhoto } from "../test/fixtures.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
 import { resolvePrincipal } from "./rbac.ts";
 
@@ -43,6 +44,7 @@ test("HTTP compliance, POD acceptance, finance separation and safe audits persis
   assert.equal((await f.request(kyc, "POST", { status: "APPROVED" }, f.tokens.ops, { "x-reason-code": "DOCUMENTS_REVIEWED" })).status, 200);
   assert.equal((await f.request(accept, "POST", {}, f.tokens.carrierA)).status, 200);
   assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/start`, "POST", {}, f.tokens.finance)).status, 403);
+  addTestPodPhoto(f.store, id);
   assert.equal((await f.request(`/shipments/${id}/driver-pod`, "POST", { notes: "SYNTHETIC PRIVATE NOTE" }, f.tokens.carrierA)).status, 200);
   const release = `/ops/shipments/${id}/release`;
   for (const role of ["ops", "admin", "carrierA", "shipperA"] as const) assert.equal((await f.request(release, "POST", {}, f.tokens[role])).status, 403);

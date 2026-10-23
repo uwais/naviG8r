@@ -97,7 +97,7 @@ void main() {
     };
     await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: DriverPayoutSetupScreen())));
-    expect(find.textContaining('Only an authorized carrier owner'),
+    expect(find.textContaining('Only the owner can change the bank account'),
         findsOneWidget);
     expect(find.byType(TextField), findsNothing);
   });

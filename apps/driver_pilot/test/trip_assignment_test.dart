@@ -1,6 +1,6 @@
-// What follows from the truck and driver named on a trip: the assignment card, the empty-list sentence for
-// drivers, the message after a driver publishes a trip, a driver's refused truck change, and what the e-way
-// bill cards say when the bill's truck is not the trip's.
+// What follows from the truck and driver named on a trip: the assignment card and its "Who drives this trip?"
+// sheet, the empty-list sentence for drivers, the message after a driver publishes a trip, a driver's refused
+// truck change, and what the e-way bill cards say when the bill's truck is not the trip's.
 import 'dart:async';
 
 import 'package:dio/dio.dart';
@@ -8,7 +8,6 @@ import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/eway_bill_card.dart';
 import 'package:driver_pilot/eway_bill_carrier_card.dart';
-import 'package:driver_pilot/eway_bill_portal_link.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/trip_assignment_card.dart';
 import 'package:driver_pilot/unassigned_driver_notice.dart';
@@ -19,21 +18,24 @@ import 'support/carrier_fixtures.dart';
 import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
-const savedSentence =
-    'Saved. The driver is not sent a message. The trip shows on their Loads screen when they pull down to refresh.';
+/// A driver newly chosen is sent a notice, so the Saved line names them.
+String savedFor(String driver) => 'Saved. $driver gets a notice in the app.';
 const busySentence =
-    'This driver is already on another trip that is in progress.';
-const replacedSentence = 'A driver who is replaced stops seeing this trip.';
+    'This driver is already on another trip that is on the way.';
+const replacedSentence = 'If you change the driver, the old driver stops seeing this trip.';
 const changedSentence =
-    'This trip, or your trucks and drivers, changed. Pull down to reload this screen.';
+    'This trip, or your trucks and drivers, changed. Tap Refresh to load this screen again.';
 const unassignedSentence =
-    'Your carrier has not assigned you a trip yet. Ask your carrier to assign one.';
+    'Your office has not given you a trip yet. Ask your office for one.';
 const completedSentence =
     'This trip is complete, so its truck and driver can no longer change.';
 const staleChoiceSentence =
-    'Choose a truck from your own fleet. Pull down to reload your trucks and drivers.';
+    'Choose a truck from your own fleet. Tap Refresh to load your trucks and drivers again.';
 const onTheRoadSentence =
-    'This trip is already on the road with no driver assigned. If a driver started it, they stop seeing it once you choose someone else.';
+    'This trip is on the road with no driver. If a driver started it, they stop seeing it when you choose someone else.';
+const sheetTitle = 'Who drives this trip?';
+const driverSees =
+    'The driver sees the trip and the e-way bill, never the payment.';
 
 const fleet = {
   'vehicles': [
@@ -57,25 +59,49 @@ const fleet = {
 Map<String, dynamic> trip({Map<String, dynamic> assigned = const {}}) =>
     {'id': 'trip-a', 'status': 'OPEN', ...assigned};
 
-Future<void> choose(WidgetTester tester, String hint, String option) async {
-  await tester.tap(find.ancestor(
-      of: find.text(hint), matching: find.byType(DropdownButton<String>)));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(option).last);
+Finder inSheet(Finder finder) =>
+    find.descendant(of: find.byType(BottomSheet), matching: finder);
+
+Future<void> openSheet(WidgetTester tester) async {
+  await tester.tap(find.text('Choose driver'));
   await tester.pumpAndSettle();
 }
 
-FilledButton saveButton(WidgetTester tester) =>
-    tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'));
+Future<void> choose(WidgetTester tester, String option) async {
+  await tester.tap(inSheet(find.text(option)));
+  await tester.pumpAndSettle();
+}
+
+/// The sheet's one primary button, whatever its label says now.
+FilledButton sheetPrimary(WidgetTester tester) =>
+    tester.widget<FilledButton>(inSheet(find.byType(FilledButton)));
+
+/// Which row of a choice list is chosen: the radio group's value, null when none is.
+String? chosenIn(WidgetTester tester, String anyOption) => tester
+    .widget<RadioListTile<String>>(find.ancestor(
+        of: inSheet(find.text(anyOption)),
+        matching: find.byType(RadioListTile<String>)))
+    .groupValue;
+
+Future<void> chooseAndSave(WidgetTester tester,
+    {String truck = 'KA01AB1234', String driver = 'Synthetic Driver Two'}) async {
+  await openSheet(tester);
+  await choose(tester, truck);
+  await choose(tester, driver);
+  await tester.tap(inSheet(find.text('Choose $driver')));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   setUp(signInAsShipper);
 
   group('Truck and driver card', () {
-    testWidgets('an owner starts with nothing chosen, picks both, and saves',
+    testWidgets(
+        'an owner assigns from the sheet: nothing chosen at first, the sheet names the trip, both are saved',
         (tester) async {
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
       final sent = <String, Object?>{};
+      final reported = <Map<String, dynamic>>[];
       api.dio.httpClientAdapter = MockApiAdapter((request) {
         if (request.method == 'GET') return jsonResponse(fleet);
         sent['path'] = request.path;
@@ -90,39 +116,54 @@ void main() {
           'driverBusy': false,
         });
       });
-      await mountCard(tester, TripAssignmentCard(trip: trip()));
+      await mountCard(
+          tester,
+          TripAssignmentCard(
+              trip: trip(),
+              tripInWords: 'Bengaluru to Chennai, 18 – 19 Oct',
+              onAssigned: reported.add));
       await tester.pumpAndSettle();
-      expect(find.text('No truck or driver is assigned to this trip yet.'),
-          findsOneWidget);
-      expect(find.text('Choose a truck'), findsOneWidget,
-          reason: 'no truck is preselected');
-      expect(find.text('Choose a driver'), findsOneWidget,
-          reason: 'no driver is preselected');
-      expect(saveButton(tester).onPressed, isNull,
-          reason: 'nothing to save until both are chosen');
+      expect(find.text('Not chosen yet'), findsNWidgets(2),
+          reason: 'ca-trip: the Truck and Driver rows say Not assigned');
+      expect(find.text('Choose driver'), findsOneWidget,
+          reason: 'ca-trip: the card opens the assign sheet');
+
+      await openSheet(tester);
+      expect(find.text(sheetTitle), findsOneWidget, reason: 'ca-assign title');
       expect(
-          find.text(
-              'Choose a truck and a driver, then tap Save. You can change them until the trip is complete.'),
+          inSheet(find.text('Bengaluru to Chennai, 18 – 19 Oct. $driverSees')),
           findsOneWidget,
-          reason: 'nothing is assigned yet');
-      await choose(tester, 'Choose a truck', 'KA02XY9999');
-      expect(saveButton(tester).onPressed, isNull);
-      await choose(tester, 'Choose a driver', 'Synthetic Driver One');
-      await tester.tap(find.text('Save'));
+          reason: 'copy.md Assign sheet: the trip, and what the driver sees');
+      expect(chosenIn(tester, 'Synthetic Driver One'), isNull,
+          reason: 'spec: no driver preselected');
+      expect(chosenIn(tester, 'KA01AB1234'), isNull,
+          reason: 'the trip names no truck, so none is chosen');
+      expect(sheetPrimary(tester).onPressed, isNull,
+          reason: 'nothing to save until a driver and a truck are chosen');
+      expect(inSheet(find.text('Choose a driver first.')), findsOneWidget,
+          reason: 'a disabled button says why');
+
+      await choose(tester, 'Synthetic Driver One');
+      expect(inSheet(find.text('Choose a truck first.')), findsOneWidget);
+      await choose(tester, 'KA02XY9999');
+      expect(
+          inSheet(find.text(
+              'Bengaluru to Chennai, 18 – 19 Oct, truck KA02XY9999. $driverSees')),
+          findsOneWidget,
+          reason: 'copy.md Assign sheet names the truck');
+      await tester.tap(inSheet(find.text('Choose Synthetic Driver One')));
       await tester.pumpAndSettle();
       expect(sent['path'], '/v1/pilot/anchor-trips/trip-a/assignment');
       expect(
           sent['body'], {'vehicleId': 'vehicle-2', 'driverUserId': 'driver-1'});
-      expect(find.text('Truck: KA02XY9999. Driver: Synthetic Driver One.'),
-          findsOneWidget);
-      expect(find.text(savedSentence), findsOneWidget);
+      expect(find.text(sheetTitle), findsNothing,
+          reason: 'the sheet closes after a save');
+      expect(find.text('KA02XY9999'), findsOneWidget);
+      expect(find.text('Synthetic Driver One'), findsOneWidget);
+      expect(find.text(savedFor('Synthetic Driver One')), findsOneWidget);
       expect(find.text(busySentence), findsNothing);
-      expect(
-          find.text(
-              'Saving replaces the truck and driver assigned now. You can change them until the trip is complete.'),
-          findsOneWidget);
-      expect(find.text(replacedSentence), findsNothing,
-          reason: 'the saved driver is the one chosen');
+      expect(reported.single['assignedDriverUserId'], 'driver-1',
+          reason: 'the trip screen is told, so it can offer Start');
     });
 
     testWidgets(
@@ -139,10 +180,11 @@ void main() {
             'assignedDriverUserId': 'driver-2',
           })));
       await tester.pumpAndSettle();
+      await openSheet(tester);
       expect(find.text(replacedSentence), findsNothing);
-      await choose(tester, 'Synthetic Driver Two', 'Synthetic Driver One');
+      await choose(tester, 'Synthetic Driver One');
       expect(find.text(replacedSentence), findsOneWidget);
-      await choose(tester, 'Synthetic Driver One', 'Synthetic Driver Two');
+      await choose(tester, 'Synthetic Driver Two');
       expect(find.text(replacedSentence), findsNothing);
     });
 
@@ -160,24 +202,23 @@ void main() {
       answer.complete();
       await tester.pumpAndSettle();
       expect(find.text('Loading trucks and drivers...'), findsNothing);
-      expect(find.text('Choose a truck'), findsOneWidget);
+      expect(find.text('Choose driver'), findsOneWidget);
     });
 
-    testWidgets('with no truck to choose, the card says so instead of grey pickers',
+    testWidgets('with no truck to choose, the card says so instead of a sheet',
         (tester) async {
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
       api.dio.httpClientAdapter = MockApiAdapter((request) =>
           jsonResponse({'vehicles': <Object>[], 'drivers': fleet['drivers']!}));
       await mountCard(tester, TripAssignmentCard(trip: trip()));
       await tester.pumpAndSettle();
-      expect(find.text('No trucks or drivers are set up for this carrier yet.'),
+      expect(find.text('You have no trucks or drivers yet.'),
           findsOneWidget);
-      expect(find.byType(DropdownButton<String>), findsNothing);
-      expect(find.widgetWithText(FilledButton, 'Save'), findsNothing);
+      expect(find.text('Choose driver'), findsNothing);
     });
 
     testWidgets(
-        'a trip that already names a truck and driver shows them chosen',
+        'a trip that names its truck and driver shows them; the sheet keeps the truck and chooses no driver',
         (tester) async {
       signInAsCarrierStaff(subrole: 'DISPATCHER', canAssign: true);
       api.dio.httpClientAdapter =
@@ -192,15 +233,19 @@ void main() {
             'assignedDriverName': 'Synthetic Driver Two',
           })));
       await tester.pumpAndSettle();
-      expect(find.text('Choose a truck'), findsNothing);
-      expect(find.text('KA01AB1234'), findsOneWidget,
-          reason: 'the current truck is the chosen one');
+      expect(find.text('KA01AB1234'), findsOneWidget);
       expect(find.text('Synthetic Driver Two'), findsOneWidget);
-      expect(saveButton(tester).onPressed, isNotNull);
+      expect(find.text('Not chosen yet'), findsNothing);
+      await openSheet(tester);
+      expect(chosenIn(tester, 'KA01AB1234'), 'vehicle-1',
+          reason: "the trip's own truck, so it can still be changed here");
+      expect(chosenIn(tester, 'Synthetic Driver One'), isNull,
+          reason: 'spec: no driver preselected');
+      expect(sheetPrimary(tester).onPressed, isNull);
     });
 
     testWidgets(
-        'the truck list writes a truck as the Truck line does, however it was typed',
+        'the card and the sheet write a truck as the e-way bill does, however it was typed',
         (tester) async {
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
       api.dio.httpClientAdapter = MockApiAdapter((request) => jsonResponse({
@@ -216,20 +261,18 @@ void main() {
       await mountCard(
           tester,
           TripAssignmentCard(
-              trip: trip(assigned: {
-            'assignedVehicleId': 'vehicle-1',
-            'assignedTruckNumber': 'KA01AB1234',
-          })));
+              trip: trip(assigned: {'assignedVehicleId': 'vehicle-1'})));
       await tester.pumpAndSettle();
-      expect(find.text('Truck: KA01AB1234. Driver: not assigned.'),
-          findsOneWidget);
       expect(find.text('KA01AB1234'), findsOneWidget,
-          reason: 'the chosen truck in the list');
+          reason: 'the Truck row, from the fleet list');
+      await openSheet(tester);
+      expect(inSheet(find.text('KA01AB1234')), findsOneWidget);
       expect(find.text('ka 01-ab 1234'), findsNothing);
+      expect(inSheet(find.text('Medium truck')), findsOneWidget,
+          reason: 'sizes in words, never the code');
     });
 
-    testWidgets(
-        'a driver already on a trip in progress is a warning, not a block',
+    testWidgets('a driver already on a trip in progress is a warning, not a block',
         (tester) async {
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
       api.dio.httpClientAdapter = MockApiAdapter((request) =>
@@ -238,12 +281,9 @@ void main() {
               : jsonResponse({'trip': trip(), 'driverBusy': true}));
       await mountCard(tester, TripAssignmentCard(trip: trip()));
       await tester.pumpAndSettle();
-      await choose(tester, 'Choose a truck', 'KA01AB1234');
-      await choose(tester, 'Choose a driver', 'Synthetic Driver Two');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
+      await chooseAndSave(tester);
       expect(find.text(busySentence), findsOneWidget);
-      await choose(tester, 'Synthetic Driver Two', 'Synthetic Driver One');
+      await openSheet(tester);
       expect(find.text(busySentence), findsNothing,
           reason: 'the warning was about the driver chosen before');
     });
@@ -262,12 +302,15 @@ void main() {
             'assignedDriverUserId': 'driver-2',
           })));
       await tester.pumpAndSettle();
-      expect(find.text('Choose a truck'), findsOneWidget);
-      expect(saveButton(tester).onPressed, isNull);
+      await openSheet(tester);
+      expect(chosenIn(tester, 'KA01AB1234'), isNull);
+      await choose(tester, 'Synthetic Driver Two');
+      expect(sheetPrimary(tester).onPressed, isNull);
+      expect(inSheet(find.text('Choose a truck first.')), findsOneWidget);
     });
 
     testWidgets(
-        "a truck or driver that stopped being valid shows the server's sentence and asks for a reload, never HTTP 400",
+        "a truck or driver that stopped being valid shows the server's sentence in the open sheet, never HTTP 400",
         (tester) async {
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
       api.dio.httpClientAdapter =
@@ -280,13 +323,13 @@ void main() {
                 }, 400));
       await mountCard(tester, TripAssignmentCard(trip: trip()));
       await tester.pumpAndSettle();
-      await choose(tester, 'Choose a truck', 'KA01AB1234');
-      await choose(tester, 'Choose a driver', 'Synthetic Driver Two');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-      expect(find.text(staleChoiceSentence), findsOneWidget);
+      await chooseAndSave(tester);
+      expect(inSheet(find.text(staleChoiceSentence)), findsOneWidget,
+          reason: 'cp-sheet: an error keeps the sheet open');
+      expect(chosenIn(tester, 'Synthetic Driver Two'), 'driver-2',
+          reason: 'and keeps the choice');
       expect(find.textContaining('HTTP'), findsNothing);
-      expect(find.text(savedSentence), findsNothing);
+      expect(find.textContaining('Saved.'), findsNothing);
     });
 
     testWidgets('any other 400 shows only the server sentence', (tester) async {
@@ -300,10 +343,7 @@ void main() {
                 }, 400));
       await mountCard(tester, TripAssignmentCard(trip: trip()));
       await tester.pumpAndSettle();
-      await choose(tester, 'Choose a truck', 'KA01AB1234');
-      await choose(tester, 'Choose a driver', 'Synthetic Driver Two');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
+      await chooseAndSave(tester);
       expect(find.text('Send the truck and the driver as JSON.'), findsOneWidget);
       expect(find.textContaining('Pull down'), findsNothing);
     });
@@ -328,9 +368,12 @@ void main() {
         await mountCard(tester,
             TripAssignmentCard(key: ValueKey(entry.key), trip: entry.value));
         await tester.pumpAndSettle();
+        await openSheet(tester);
         expect(find.text(onTheRoadSentence),
             entry.key == 'on the road, no driver' ? findsOneWidget : findsNothing,
             reason: entry.key);
+        await tester.tap(inSheet(find.text('Cancel')));
+        await tester.pumpAndSettle();
       }
     });
 
@@ -348,14 +391,44 @@ void main() {
         await mountCard(
             tester, TripAssignmentCard(key: ValueKey(status), trip: trip()));
         await tester.pumpAndSettle();
-        await choose(tester, 'Choose a truck', 'KA01AB1234');
-        await choose(tester, 'Choose a driver', 'Synthetic Driver Two');
-        await tester.tap(find.text('Save'));
-        await tester.pumpAndSettle();
+        await chooseAndSave(tester);
         expect(find.text(status == 409 ? completedSentence : changedSentence),
             findsOneWidget,
             reason: '$status');
+        await tester.tap(inSheet(find.text('Cancel')));
+        await tester.pumpAndSettle();
       }
+    });
+
+    testWidgets(
+        'the Saved line follows the choice: the same driver gets no notice, and choosing yourself names your Trips screen',
+        (tester) async {
+      signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
+      final withSelf = {
+        ...fleet,
+        'drivers': [
+          ...fleet['drivers'] as List,
+          {'userId': 'carrier-person', 'displayName': 'Synthetic Owner'},
+        ],
+      };
+      api.dio.httpClientAdapter = MockApiAdapter((request) =>
+          request.method == 'GET'
+              ? jsonResponse(withSelf)
+              : jsonResponse({'trip': null, 'driverBusy': false}));
+      await mountCard(
+          tester,
+          TripAssignmentCard(
+              trip: trip(assigned: {
+            'assignedVehicleId': 'vehicle-1',
+            'assignedDriverUserId': 'driver-2',
+          })));
+      await tester.pumpAndSettle();
+      await chooseAndSave(tester);
+      expect(find.text('Saved.'), findsOneWidget,
+          reason: 'driver two was already on the trip, so is sent nothing');
+      await chooseAndSave(tester, driver: 'Synthetic Owner');
+      expect(find.text('Saved. The trip is on your Trips screen.'), findsOneWidget,
+          reason: 'no notice for your own choice');
     });
 
     testWidgets('a save refused after a successful one shows no Saved line',
@@ -380,15 +453,16 @@ void main() {
       });
       await mountCard(tester, TripAssignmentCard(trip: trip()));
       await tester.pumpAndSettle();
-      await choose(tester, 'Choose a truck', 'KA01AB1234');
-      await choose(tester, 'Choose a driver', 'Synthetic Driver Two');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-      expect(find.text(savedSentence), findsOneWidget);
-      await tester.tap(find.text('Save'));
+      await chooseAndSave(tester);
+      expect(find.text(savedFor('Synthetic Driver Two')), findsOneWidget);
+      await openSheet(tester);
+      await choose(tester, 'Synthetic Driver Two');
+      await tester.tap(inSheet(find.text('Choose Synthetic Driver Two')));
       await tester.pumpAndSettle();
       expect(find.text(completedSentence), findsOneWidget);
-      expect(find.text(savedSentence), findsNothing,
+      await tester.tap(inSheet(find.text('Cancel')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Saved.'), findsNothing,
           reason: 'the second save was refused');
     });
 
@@ -424,7 +498,7 @@ void main() {
           reason: 'the card comes back with fresh lists');
     });
 
-    testWidgets('a driver only reads the assignment: no pickers, no buttons',
+    testWidgets('a driver only reads the assignment: no sheet, no buttons',
         (tester) async {
       signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
       var requests = 0;
@@ -440,9 +514,9 @@ void main() {
             'assignedDriverName': 'Synthetic Driver One',
           })));
       await tester.pumpAndSettle();
-      expect(find.text('Truck: KA01AB1234. Driver: Synthetic Driver One.'),
-          findsOneWidget);
-      expect(find.byType(DropdownButton<String>), findsNothing);
+      expect(find.text('KA01AB1234'), findsOneWidget);
+      expect(find.text('Synthetic Driver One'), findsOneWidget);
+      expect(find.text('Choose driver'), findsNothing);
       expect(find.byType(FilledButton), findsNothing);
       expect(requests, 0, reason: 'the fleet list is not even asked for');
     });
@@ -466,14 +540,14 @@ void main() {
     });
 
     testWidgets(
-        'above an empty list a driver sees only the carrier name; the office keeps its hint',
+        'with no trips a driver is told none is assigned; the office is told none is open and how to publish',
         (tester) async {
       tester.view.physicalSize = const Size(800, 3000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       for (final subrole in ['DRIVER', 'OWNER']) {
         signInAsCarrierStaff(subrole: subrole, canAssign: subrole == 'OWNER');
-        // The Loads screen refreshes the session first, so the server answers with the same login.
+        // The Trips screen refreshes the session first, so the server answers with the same login.
         api.dio.httpClientAdapter = MockApiAdapter((request) {
           if (request.path == '/v1/auth/me') {
             return jsonResponse({
@@ -490,7 +564,11 @@ void main() {
                 'organizationId': 'carrier-a',
                 'roles': ['CARRIER'],
                 'subrole': subrole,
-                'permissions': ['organization.profile.read', 'load.read'],
+                'permissions': [
+                  'organization.profile.read',
+                  'load.read',
+                  if (subrole == 'OWNER') 'trip.publish'
+                ],
               },
             });
           }
@@ -503,15 +581,17 @@ void main() {
             theme: DriverTheme.theme(),
             home: Scaffold(body: DriverLoadsScreen(key: ValueKey(subrole)))));
         await tester.pumpAndSettle();
+        const publishHelp =
+            'Shippers can book it once you add it.';
         if (subrole == 'DRIVER') {
-          expect(find.text('Synthetic Carrier A'), findsOneWidget);
-          expect(find.textContaining('tap Publish'), findsNothing);
           expect(find.text(unassignedSentence), findsOneWidget);
+          expect(find.text(publishHelp), findsNothing,
+              reason: 'drivers have no Publish tab');
         } else {
-          expect(
-              find.text(
-                  'Synthetic Carrier A · No anchor trips · tap Publish to add a lane'),
-              findsOneWidget);
+          expect(find.text('No open trips.'), findsOneWidget,
+              reason: 'ca-trips: the Open chip is shown first');
+          expect(find.text(publishHelp), findsOneWidget);
+          expect(find.text(unassignedSentence), findsNothing);
         }
       }
     });
@@ -519,18 +599,18 @@ void main() {
 
   group('A driver publishing a trip', () {
     test(
-        'is told for ten seconds that it shows under Loads only if it is assigned to them; the office as before',
+        'is told for ten seconds that it shows under Trips only if it is assigned to them; the office as before',
         () {
       signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
       final forDriver = tripPublishedMessage();
       expect((forDriver.content as Text).data,
-          'Trip published. Your carrier must assign it to a driver. You will see it under Loads only if it is assigned to you.');
+          'Trip added. Your office must choose a driver for it. You see it under Trips only if they choose you.');
       expect(forDriver.duration, const Duration(seconds: 10));
       expect(forDriver.action?.label, 'Close');
 
       signInAsCarrierStaff(subrole: 'OWNER', canAssign: true);
       final forOffice = tripPublishedMessage();
-      expect((forOffice.content as Text).data, 'Trip published.');
+      expect((forOffice.content as Text).data, 'Trip added.');
       expect(forOffice.duration, const SnackBar(content: SizedBox()).duration,
           reason: 'the default length');
       expect(forOffice.action, isNull);
@@ -573,44 +653,45 @@ void main() {
     Map<String, dynamic> onTrip(String truck) =>
         {...shipment(bill: billWithTruck), 'assignedTruckNumber': truck};
     final forCarrierOffice =
-        'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right; if the e-way bill is wrong, update it on the $ewayBillPortalName, then here.';
+        'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right. If the e-way bill is wrong, ask the shipper to change it. If you changed the truck on the e-way bill portal yourself, change it there and tell the shipper.';
 
     testWidgets(
-        'the carrier office is asked to check which truck is right and fix the bill',
+        'the carrier office is asked to check which truck is right and to ask the shipper about the bill',
         (tester) async {
-      signInAsCarrier(canAddTruck: true);
+      signInAsCarrier(office: true);
       await mountCard(
           tester, EwayBillCarrierCard(shipment: onTrip('KA02XY9999')));
       expect(find.text(forCarrierOffice), findsOneWidget);
+      expect(find.textContaining('update it on the'), findsNothing,
+          reason: 'the carrier is not sent to the portal to change the bill');
     });
 
     testWidgets('a driver gets the facts and is told to tell the carrier',
         (tester) async {
-      signInAsCarrier(canAddTruck: false);
+      signInAsCarrier(office: false);
       await mountCard(
           tester, EwayBillCarrierCard(shipment: onTrip('KA02XY9999')));
       expect(
           find.text(
-              'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your carrier.'),
+              'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Tell your office.'),
           findsOneWidget);
       expect(find.textContaining('update it'), findsNothing);
     });
 
     testWidgets(
-        'the shipper is told what the carrier assigned and asked to check with them, not sent to the portal',
+        'the shipper is told what the carrier assigned, to check with them, and that the bill is theirs to change',
         (tester) async {
       signInAsShipper(permissions: ['eway_bill.write', 'eway_bill.add_truck']);
       await mountCard(tester, EwayBillCard(shipment: onTrip('KA02XY9999')));
       expect(
           find.text(
-              'The e-way bill shows KA01AB1234. Your carrier has assigned KA02XY9999 to this trip. Ask your carrier which truck is right.'),
+              'The e-way bill shows KA01AB1234. The carrier put KA02XY9999 on this trip. Ask the carrier which truck is right. If the e-way bill is wrong, change it in your billing software or on the e-way bill portal, then here. If the portal refuses, the carrier may have changed it. Ask them to change it.'),
           findsOneWidget);
-      expect(find.textContaining('portal, then here'), findsNothing);
     });
 
     testWidgets('once the shipment is closed nobody is asked about the trucks',
         (tester) async {
-      signInAsCarrier(canAddTruck: true);
+      signInAsCarrier(office: true);
       await mountCard(
           tester,
           EwayBillCarrierCard(shipment: {
@@ -622,19 +703,20 @@ void main() {
 
     testWidgets('the same truck, written differently, says nothing extra',
         (tester) async {
-      signInAsCarrier(canAddTruck: true);
+      signInAsCarrier(office: true);
       await mountCard(
           tester, EwayBillCarrierCard(shipment: onTrip('ka 01-ab 1234')));
       expect(find.textContaining('The truck on this trip'), findsNothing);
     });
 
-    testWidgets("the carrier's Add truck form starts with the trip's truck",
+    testWidgets(
+        "the shipper's Add truck form starts with the truck the carrier named at acceptance",
         (tester) async {
-      signInAsCarrier(canAddTruck: true);
+      signInAsShipper(permissions: ['eway_bill.write', 'eway_bill.add_truck']);
       await mountCard(
           tester,
-          EwayBillCarrierCard(shipment: {
-            ...shipment(bill: {'kind': 'BILL', 'billNumber': '123456789012'}),
+          EwayBillCard(shipment: {
+            ...shipment(bill: savedBill),
             'assignedTruckNumber': 'KA02XY9999'
           }));
       await tester.tap(find.text('Add truck'));
@@ -653,12 +735,8 @@ void main() {
 
     testWidgets('a form not filled in from the trip says nothing about it',
         (tester) async {
-      signInAsCarrier(canAddTruck: true);
-      await mountCard(
-          tester,
-          EwayBillCarrierCard(
-              shipment: shipment(
-                  bill: {'kind': 'BILL', 'billNumber': '123456789012'})));
+      signInAsShipper(permissions: ['eway_bill.write', 'eway_bill.add_truck']);
+      await mountCard(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
       await tester.tap(find.text('Add truck'));
       await tester.pump();
       expect(find.textContaining('Filled in from the truck'), findsNothing);

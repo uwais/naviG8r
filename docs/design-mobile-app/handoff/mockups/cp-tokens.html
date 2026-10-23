@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tokens used, and ones to add</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 760px; height: 820px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Tokens</h1>
+    <p class="lead" style="max-width: 660px;">Every screen uses the NaviG8r design system's tokens by name. The app's old page <span class="code">#F4F7FA</span> and navy <span class="code">#122C53</span> are replaced by <span class="code">page</span> and <span class="code">navy</span>.</p>
+  </div>
+  <table class="tbl">
+    <thead><tr><th>Used for</th><th>Tokens</th></tr></thead>
+    <tbody>
+      <tr><td class="k">Grounds</td><td><span class="code">page</span> screens · <span class="code">card</span> cards, fields, sheets, bottom bar · <span class="code">sunken</span> waiting panels, disabled, skeletons</td></tr>
+      <tr><td class="k">Text</td><td><span class="code">navy-ink</span> titles · <span class="code">ink</span> body · <span class="code">slate</span> captions and later steps</td></tr>
+      <tr><td class="k">Actions</td><td><span class="code">navy</span> primary, current step, selected chip · <span class="code">focus</span> ring · <span class="code">control-border</span> fields and secondary buttons · <span class="code">line</span> card edges</td></tr>
+      <tr><td class="k">Status</td><td><span class="code">good</span>/<span class="code">good-tint</span> · <span class="code">attention</span>/<span class="code">attention-tint</span> · <span class="code">problem</span>/<span class="code">problem-tint</span> · <span class="code">navy</span>/<span class="code">info-tint</span> · ended: <span class="code">ink</span> on <span class="code">sunken</span></td></tr>
+      <tr><td class="k">Brand</td><td><span class="code">gold</span> only on navy plates (start screen icons) and the drop pin with a navy ring</td></tr>
+      <tr><td class="k">Type</td><td><span class="code">title</span> screen titles · <span class="code">heading</span> sheet titles · <span class="code">body</span>, <span class="code">body-strong</span>, <span class="code">caption</span>, <span class="code">label</span>, <span class="code">nav-label</span> · <span class="code">id</span> mono</td></tr>
+      <tr><td class="k">Space and corners</td><td><span class="code">space-2</span> to <span class="code">space-6</span> · <span class="code">radius-button</span>, <span class="code">radius-input</span>, <span class="code">radius-card</span>, <span class="code">radius-pill</span>, <span class="code">radius-sm</span></td></tr>
+    </tbody>
+  </table>
+  <h2 class="spec-sub">Missing from the system: add these</h2>
+  <table class="tbl">
+    <thead><tr><th>Name</th><th>Value</th><th>Use</th><th>Contrast</th></tr></thead>
+    <tbody>
+      <tr><td class="k"><span class="code">scrim</span></td><td><span class="code">#131F35</span> at 45% (<span class="code">#131F3573</span>)</td><td>Dims the screen under a bottom sheet</td><td>White sheet against the dimmed page: about 3.0:1. Not used behind text.</td></tr>
+      <tr><td class="k"><span class="code">id-display</span> (type)</td><td>Mono, 30/38, weight 600</td><td>E-way bill numbers on the driver's check-post screen</td><td><span class="code">navy-ink</span> on <span class="code">card</span>: about 15:1</td></tr>
+      <tr><td class="k"><span class="code">target-min</span></td><td>48 dp</td><td>Every tap target in the app. The system says 44; this brief asks for 48.</td><td>n/a</td></tr>
+      <tr><td class="k"><span class="code">target-driver</span></td><td>56 dp</td><td>Primary driver actions, used one-handed</td><td>n/a</td></tr>
+      <tr><td class="k"><span class="code">on-good</span> (pairing)</td><td><span class="code">card</span> text on <span class="code">good</span></td><td>The short "Saved" confirmation on a button</td><td>About 6.6:1</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</body>
+</html>

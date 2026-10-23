@@ -1,0 +1,74 @@
+# syntax=docker/dockerfile:1
+# Practice server for testers: fake accounts, mock payments, sign-in code on screen. See docs/redesign-demo-host.md.
+
+# Same Flutter toolchain as Dockerfile.customer-web. The build itself differs: --no-web-resources-cdn serves Flutter's
+# web resources from this build instead of a CDN, and EWAY_PORTAL points at the practice portal.
+FROM debian:bookworm-slim AS web
+
+ARG FLUTTER_VERSION=3.22.3
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH
+ENV FLUTTER_SUPPRESS_ANALYTICS=true
+# Flutter unpacks its downloads with tar, which as root keeps each file's original owner. Render's builder refuses
+# that ("Cannot change ownership"), so the first Render build failed in precache.
+ENV TAR_OPTIONS=--no-same-owner
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       bash ca-certificates curl git unzip xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch "${FLUTTER_VERSION}" \
+      https://github.com/flutter/flutter.git /opt/flutter
+
+RUN flutter config --no-analytics --enable-web \
+    && flutter precache --web
+
+WORKDIR /src/apps/driver_pilot
+COPY apps/driver_pilot ./
+
+# Relative addresses: the app, its API (under /api) and the practice portal share one origin.
+# --pwa-strategy=none: no offline copy, so testers always get the latest build. Flutter still writes an empty
+# flutter_service_worker.js and its loader still registers it; the final stage replaces that file.
+RUN flutter pub get \
+    && flutter build web --release --no-web-resources-cdn --pwa-strategy=none \
+       --dart-define=API_BASE_URL=/api \
+       --dart-define=EWAY_PORTAL=/demo/eway-portal
+
+# The razorpay package alone, for Razorpay test payments (FILE storage loads no Prisma). Not the workspace's npm ci:
+# that would also install Prisma. razorpay and axios are the lockfile's exact versions; the packages under axios
+# follow its version ranges. No package.json here, so nothing else is installed.
+FROM node:22-bookworm-slim AS razorpay
+WORKDIR /deps
+RUN npm install --no-save --no-package-lock --omit=dev --ignore-scripts --no-audit --no-fund \
+      razorpay@2.9.6 axios@1.20.0
+
+# Same Node base as the API's Dockerfile.
+FROM node:22-bookworm-slim
+
+ENV EWAY_DEMO_PORTAL=1
+# Without OTP_TRUST_PROXY the API counts sign-ins by the connecting address, which behind Render's proxy is
+# likely the proxy for every tester, so both limits are set high.
+ENV OTP_PHONE_START_LIMIT=1000
+ENV OTP_IP_START_LIMIT=1000
+ENV RBAC_MANUAL_HOST=0.0.0.0
+ENV RBAC_MANUAL_WEB_DIR=/app/web
+
+WORKDIR /app
+COPY package.json ./package.json
+COPY packages ./packages
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/api/src ./apps/api/src
+# apps/api/src/razorpayPayments.ts imports "razorpay", which Node finds here by walking up from apps/api/src.
+COPY --from=razorpay /deps/node_modules ./node_modules
+COPY scripts/rbac-manual.mjs ./scripts/rbac-manual.mjs
+COPY --from=web /src/apps/driver_pilot/build/web ./web
+# Removes the offline worker and copy that earlier demo builds left in testers' browsers.
+COPY docker/demo/flutter_service_worker.js ./web/flutter_service_worker.js
+
+USER node
+EXPOSE 10000
+
+# Render sets PORT; 10000 is its default.
+CMD ["sh", "-c", "RBAC_MANUAL_PORT=\"${PORT:-10000}\" exec node --experimental-strip-types scripts/rbac-manual.mjs"]

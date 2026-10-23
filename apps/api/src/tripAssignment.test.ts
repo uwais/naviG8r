@@ -2,6 +2,7 @@ import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { addTestPodPhoto } from "../test/fixtures.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
 import { inviteCarrierDriver, publishAnchorTrip, registerCustomerUser } from "./services.ts";
 import { getIntegrationShipmentSnapshot, getIntegrationShipmentTracking } from "./integrationServices.ts";
@@ -169,11 +170,16 @@ test("a driver sees only the trips naming them and their shipments, on every rou
 
   const inbox = await get("/v1/notifications", first.token);
   assert.ok((inbox.body.notifications as Array<{ shipmentId: string }>).length > 0, "the driver hears about their own shipment");
-  assert.deepEqual([...new Set((inbox.body.notifications as Array<{ shipmentId: string }>).map((item) => item.shipmentId))], [mine]);
+  // Owner, 21 Oct 2026: the driver also hears that the trip is theirs, a notice with no shipment.
+  const notices = inbox.body.notifications as Array<{ shipmentId: string; tripId?: string }>;
+  assert.deepEqual(notices.filter((item) => item.tripId).map((item) => item.tripId), [f.trip.id]);
+  assert.deepEqual([...new Set(notices.filter((item) => !item.tripId).map((item) => item.shipmentId))], [mine]);
   const grouped = await get("/v1/notifications/shipments", first.token);
-  assert.deepEqual((grouped.body.shipments as Array<{ shipmentId: string }>).map((group) => group.shipmentId), [mine]);
+  const rows = grouped.body.shipments as Array<{ shipmentId: string; tripId?: string }>;
+  assert.deepEqual(rows.filter((group) => !group.tripId).map((group) => group.shipmentId), [mine]);
 
   assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/start`, "POST", {}, first.token)).status, 200, "a driver starts their own trip");
+  addTestPodPhoto(f.store, mine);
   assert.equal((await f.request(`/shipments/${mine}/driver-pod`, "POST", {}, first.token)).status, 200, "and confirms delivery on it");
 
   assert.deepEqual(ids((await get("/v1/pilot/carrier/shipments", f.tokens.carrierA)).body.shipments), [mine, theirs].sort());
@@ -242,6 +248,9 @@ test("a trip from before assignment existed stays with the driver who started it
   const refunded = await bookAndAccept(f, f.trip.id);
   // Written directly: since this change a driver cannot start a trip that names nobody, as one could before it.
   f.store.anchorTrips.set(f.trip.id, { ...f.store.anchorTrips.get(f.trip.id)!, status: "IN_PROGRESS", startedAtUtcMs: Date.now(), startedByUserId: first.userId });
+  // Saved as the old data was, with nobody's request behind it: a person is not told of their own action, and
+  // the driver's next request would otherwise count as the one that started the trip.
+  await authorizationContext.run({ system: true, requestId: "synthetic-legacy-start" }, () => f.persist());
   const get = (path: string, token: string) => f.request(path, "GET", undefined, token);
   const ping = { lat: 12.9, lng: 77.6 };
 
@@ -264,6 +273,7 @@ test("a trip from before assignment existed stays with the driver who started it
   const heard = (await get("/v1/notifications", first.token)).body.notifications as Array<{ shipmentId: string }>;
   assert.deepEqual([...new Set(heard.map((item) => item.shipmentId))].sort(), [delivered, refunded].sort(), "notifications pick up the same rule");
   assert.deepEqual((await get("/v1/notifications", second.token)).body.notifications, []);
+  addTestPodPhoto(f.store, delivered);
   assert.equal((await f.request(`/shipments/${delivered}/driver-pod`, "POST", {}, first.token)).status, 200);
   assert.equal((await f.request(`/shipments/${refunded}/fail-refund`, "POST", {}, f.tokens.finance)).status, 200, "the other booking leaves the trip another way");
   const completed = await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/complete`, "POST", {}, first.token);
@@ -284,6 +294,7 @@ test("when the last proof of delivery completes a trip from before assignment, i
   f.store.anchorTrips.set(f.trip.id, { ...f.store.anchorTrips.get(f.trip.id)!, status: "IN_PROGRESS", startedAtUtcMs: Date.now(), startedByUserId: first.userId });
   const get = (path: string, token: string) => f.request(path, "GET", undefined, token);
 
+  addTestPodPhoto(f.store, shipmentId);
   assert.equal((await f.request(`/shipments/${shipmentId}/driver-pod`, "POST", {}, first.token)).status, 200);
   assert.equal(f.store.anchorTrips.get(f.trip.id)?.status, "COMPLETED", "precondition: the last proof of delivery completes the trip");
   const reloaded = await get(`/v1/pilot/anchor-trips/${f.trip.id}`, first.token);

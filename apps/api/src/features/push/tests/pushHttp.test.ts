@@ -31,7 +31,7 @@ test("push registration and notification-open routes are bearer-scoped without s
   const tokenA = "fcm-token-for-http-test-user-a-123456789";
   const registered = await f.request("/v1/me/push-devices", "PUT", {
     installationId, token: tokenA, consented: true, permissionGranted: true, channelEnabled: true,
-  }, f.tokens.shipperA, { "x-organization-id": "stale-unselected-org" });
+  }, f.tokens.carrierA, { "x-organization-id": "stale-unselected-org" });
   assert.equal(registered.status, 200);
   assert.equal(JSON.stringify(registered.body).includes(tokenA), false);
   const device = f.store.pushDevices.get(registered.body.deviceId)!;
@@ -39,14 +39,15 @@ test("push registration and notification-open routes are bearer-scoped without s
 
   const booking = await f.book();
   assert.equal(booking.status, 201);
-  const notification = [...f.store.notifications.values()].find(item => item.recipientUserId === f.shipperA.user.id && item.eventKey === "shipment.booked");
+  // The carrier's notice: the shipper who books is not told of their own booking (owner, 21 Oct 2026).
+  const notification = [...f.store.notifications.values()].find(item => item.recipientUserId === f.carrierA.user.id && item.eventKey === "shipment.booked");
   assert.ok(notification);
   assert.equal([...f.store.pushIntents.values()].filter(intent => intent.notificationId === notification!.id).length, 1);
   assert.equal([...f.store.pushDeliveries.values()].filter(delivery => delivery.deviceId === device.id).length, 1);
 
-  const opened = await f.request(`/v1/notifications/${notification.id}/open`, "POST", {}, f.tokens.shipperA, { "x-organization-id": f.shipperB.org.id });
+  const opened = await f.request(`/v1/notifications/${notification.id}/open`, "POST", {}, f.tokens.carrierA, { "x-organization-id": f.carrierB.org.id });
   assert.equal(opened.status, 200);
-  assert.equal(opened.body.organizationId, f.shipperA.org.id);
+  assert.equal(opened.body.organizationId, f.carrierA.org.id);
   assert.equal(opened.body.shipmentId, booking.body.shipment.id);
   const crossUser = await f.request(`/v1/notifications/${notification.id}/open`, "POST", {}, f.tokens.shipperB);
   assert.equal(crossUser.status, 404);
@@ -59,7 +60,7 @@ test("push registration and notification-open routes are bearer-scoped without s
   assert.equal(reassigned.body.deviceId, device.id);
   assert.equal(reassigned.body.ownershipGeneration, registered.body.ownershipGeneration + 1);
 
-  const staleRevoke = await f.request(`/v1/me/push-devices/${device.id}`, "DELETE", { ownershipGeneration: registered.body.ownershipGeneration }, f.tokens.shipperA);
+  const staleRevoke = await f.request(`/v1/me/push-devices/${device.id}`, "DELETE", { ownershipGeneration: registered.body.ownershipGeneration }, f.tokens.carrierA);
   assert.equal(staleRevoke.status, 200);
   assert.equal(staleRevoke.body.revoked, false);
   const currentRevoke = await f.request(`/v1/me/push-devices/${device.id}`, "DELETE", { ownershipGeneration: reassigned.body.ownershipGeneration }, f.tokens.shipperB);

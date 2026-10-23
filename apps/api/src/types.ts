@@ -1,3 +1,5 @@
+// The shared domain types, in one file past 500 lines: Shipment is built from the types beside it (e-way bill,
+// photos, payment and ledger states), so split files would mostly import each other back.
 export type VehicleClass = "SMALL" | "MEDIUM" | "LARGE";
 
 export type OrgKind = "CARRIER_SOLO" | "CARRIER_FLEET" | "CUSTOMER" | "CARRIER_LEGACY" | "PLATFORM";
@@ -15,7 +17,10 @@ export type MembershipRole =
   | "OPS_AGENT"
   | "SHIPPER" | "CARRIER" | "OPS" | "FINANCE" | "ADMIN";
 
-export type AnchorTripStatus = "OPEN" | "FULL" | "IN_PROGRESS" | "COMPLETED";
+/** CANCEL_REQUESTED: the carrier asked NaviG8r to cancel a trip with bookings; it takes no new ones. Lifecycle in tripCancel.ts. */
+export type AnchorTripStatus = "OPEN" | "FULL" | "IN_PROGRESS" | "COMPLETED" | "CANCEL_REQUESTED" | "CANCELLED";
+
+export type TripCancelReasonCode = "TRUCK_UNAVAILABLE" | "DRIVER_UNAVAILABLE" | "ROUTE_CHANGED" | "OTHER";
 
 export type ShipmentStatus =
   | "PENDING_CARRIER_ACCEPT"
@@ -40,6 +45,8 @@ export type ConversationMessage = {
   sequence: number;
   senderUserId: string;
   senderOrgId: string;
+  /** A carrier sender's role when the message was sent, so reassigning the trip later does not relabel it. */
+  senderRoleLabel?: "Driver" | "Office";
   body: string;
   clientRequestId: string;
   createdAtUtcMs: number;
@@ -53,7 +60,10 @@ export type Notification = {
   eventKey: string;
   recipientUserId: string;
   recipientOrgId: string;
+  /** "" for a trip notice, which has tripId instead (the database column cannot be empty). */
   shipmentId: string;
+  /** Set only on a driver's new-trip notice (trip.assigned). */
+  tripId?: string;
   conversationId?: string;
   messageId?: string;
   createdAtUtcMs: number;
@@ -86,7 +96,13 @@ export type ConversationEscalationGrant = {
 
 export type LedgerLineStatus = "ACCRUED" | "PAID";
 
-export type PaymentStatus = "CREATED" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "REFUNDED";
+/**
+ * HOLD_RELEASED: the shipment was cancelled while the money was only authorized. Razorpay refunds only captured
+ * payments and releases an authorization nobody captures within 3 days of payment by itself, so nothing is sent.
+ * CAPTURED_AFTER_CANCEL: Razorpay reported a capture after the shipment was cancelled. The shipment stays cancelled;
+ * Finance refunds the money in the Razorpay dashboard, then marks it REFUNDED on the operations page.
+ */
+export type PaymentStatus = "CREATED" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "REFUNDED" | "HOLD_RELEASED" | "CAPTURED_AFTER_CANCEL";
 
 /** Soft-delete tombstone (INACTIVE). Omitted / null = ACTIVE. */
 export type SoftDeleteFields = {
@@ -114,6 +130,8 @@ export type Organization = {
   payoutContactId?: string;
   /** RazorpayX fund account id; required to send this carrier a real payout. */
   payoutFundAccountId?: string;
+  /** A carrier's GSTIN or TRANSIN, which shippers enter on the e-way bill so the bill is assigned to this carrier. */
+  transporterId?: string;
 } & SoftDeleteFields;
 
 export type User = {
@@ -214,6 +232,8 @@ export type AnchorTrip = {
   /** The truck and the driver the carrier named for this trip. A DRIVER login sees only trips naming them. */
   assignedVehicleId?: string;
   assignedDriverUserId?: string;
+  /** Set while CANCEL_REQUESTED, and kept once CANCELLED. The audit row keeps the reason code; only this keeps the note. */
+  cancelRequest?: { reasonCode: TripCancelReasonCode; note?: string; requestedAtUtcMs: number };
 } & SoftDeleteFields;
 
 export type EwayBillNotNeededReason = "BELOW_THRESHOLD" | "GOODS_EXEMPT" | "OTHER";
@@ -244,6 +264,18 @@ export type EwayBill = {
     checkedAtUtcMs: number;
     checkedByUserId: string;
   };
+};
+
+export type PodPhotoContentType = "image/jpeg" | "image/png" | "image/webp";
+
+export type PodPhoto = {
+  /** Made by the server; also the file name, so it is never taken from a request. */
+  id: string;
+  contentType: PodPhotoContentType;
+  bytes: number;
+  sha256: string;
+  uploadedAtUtcMs: number;
+  uploadedByUserId: string;
 };
 
 export type Shipment = {
@@ -279,6 +311,8 @@ export type Shipment = {
   /** User who submitted driver POD (ops release follows). */
   podSubmittedByUserId?: string;
   podNotes?: string;
+  /** What is known about each proof of delivery photo. The photo itself is a file on disk (podPhotos.ts). */
+  podPhotos?: PodPhoto[];
   firstPayoutEligibleAtUtcMs: number | null;
   payoutBatchCutoffUtcMs: number | null;
   createdAtUtcMs: number;
@@ -309,6 +343,8 @@ export type Payment = {
   razorpayOrderId?: string;
   /** Set after payment authorized (checkout success / webhook). */
   razorpayPaymentId?: string;
+  /** The Razorpay payment captured after the shipment was cancelled, which Finance refunds; razorpayPaymentId keeps the earlier one. */
+  capturedAfterCancelRazorpayPaymentId?: string;
   createdAtUtcMs: number;
   updatedAtUtcMs: number;
 } & SoftDeleteFields;

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Web: shipment and e-way bill</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="web">
+  <header class="wtop">
+    <div class="wtop-in">
+      <img src="assets/logo-horizontal-light-transparent.png" alt="NaviG8r" style="height: 32px; width: auto;">
+      <nav class="wnav" aria-label="Main" style="flex: 1;">
+        <a href="wb-shipments.dc.html">Home</a>
+        <a href="wb-lanes.dc.html">Find a lane</a>
+        <a href="wb-shipments.dc.html" aria-current="page">Shipments</a>
+      </nav>
+      <button class="hdr-who-btn" type="button" aria-haspopup="menu" aria-label="Sharma Textiles, Priya Raman, Shipper. Switch company or sign out" style="flex: none;"><span class="hdr-text"><span class="hdr-co">Sharma Textiles</span><span class="hdr-sub">Priya Raman · Shipper</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+    </div>
+  </header>
+  <main class="wmain" aria-labelledby="h">
+    <a class="btn btn-quiet" href="wb-shipments.dc.html" style="align-self: flex-start; padding-left: 0;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Shipments</a>
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+      <h1 id="h" class="h1" style="font-size: 32px; line-height: 38px;">Bengaluru to Chennai</h1>
+      <span class="st st-info">Accepted</span>
+    </div>
+    <div class="wcols">
+      <section class="wcol-main" aria-label="Steps">
+        <ol class="steps" aria-label="Steps for this shipment">
+          <li class="step done"><span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><div class="step-main"><p class="step-title"><span class="sr">Done: </span>Booked and paid</p><p class="step-who">17 Oct · ₹2,640 held until delivery</p></div></li>
+          <li class="step done"><span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><div class="step-main"><p class="step-title"><span class="sr">Done: </span>Accepted by Ravi Roadways</p><p class="step-who">17 Oct, 09:12 IST · truck <span class="mono" style="font-size: 13px;">KA01AB1234</span></p></div></li>
+          <li class="step now"><span class="mk">3</span><div class="step-main"><p class="step-title"><span class="sr">Your step: </span>E-way bill</p><p class="step-who">You · Part 1 of 2</p>
+            <div class="step-panel" style="gap: 14px;">
+              <p class="h2">Make the bill on the government portal. Copy these two in:</p>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px;">
+                <div class="copy"><div class="copy-text"><span class="copy-label">Truck number</span><span class="copy-val">KA01AB1234</span><span class="copy-where">Portal field: Vehicle No. (Part B)</span></div><button class="btn btn-secondary btn-sm" type="button" aria-label="Copy truck number KA01AB1234">Copy</button></div>
+                <div class="copy"><div class="copy-text"><span class="copy-label">Carrier's transporter ID</span><span class="copy-val">29ABCDE1234F1Z5</span><span class="copy-where">Portal field: Transporter ID. Not your GSTIN.</span></div><button class="btn btn-secondary btn-sm" type="button" aria-label="Copy transporter ID 29ABCDE1234F1Z5">Copy</button></div>
+              </div>
+              <p class="cap-ink">Make it on loading day, before the goods move: the bill is valid from when the truck is entered, one day per 200 km, ending at midnight India time.</p>
+              <div class="btn-row" style="max-width: 560px;">
+                <a class="btn btn-primary" href="#" style="flex: 2 1 0;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/></svg>Open the e-way bill portal</a>
+                <button class="btn btn-secondary" type="button">I have made it</button>
+              </div>
+            </div></div></li>
+          <li class="step later"><span class="mk">4</span><div class="step-main"><p class="step-title">On the way</p><p class="step-who">Ravi Roadways</p></div></li>
+          <li class="step later"><span class="mk">5</span><div class="step-main"><p class="step-title">Delivered</p><p class="step-who">Ravi Roadways, then you</p></div></li>
+        </ol>
+        <p class="small">NaviG8r never makes or changes an e-way bill. You make it on the portal.</p>
+      </section>
+      <aside class="wcol-side">
+        <section class="card" aria-labelledby="dt">
+          <h2 id="dt" class="h2">Shipment</h2>
+          <dl class="kv">
+            <div class="kv-row"><dt>Pickup</dt><dd>Bommasandra, Bengaluru</dd></div>
+            <div class="kv-row"><dt>Drop</dt><dd>Guindy, Chennai</dd></div>
+            <div class="kv-row"><dt>Weight</dt><dd class="tnum">80 kg</dd></div>
+            <div class="kv-row"><dt>Carrier</dt><dd>Ravi Roadways</dd></div>
+            <div class="kv-row"><dt>Price</dt><dd class="tnum">₹2,640</dd></div>
+          </dl>
+        </section>
+        <section class="card" aria-labelledby="ms">
+          <h2 id="ms" class="h2">Messages with Ravi Roadways</h2>
+          <p class="cap-ink">No messages yet.</p>
+          <button class="btn btn-secondary btn-full" type="button">Write a message</button>
+        </section>
+        <section class="card-sunken" aria-labelledby="cc">
+          <h2 id="cc" class="h2">Change or cancel</h2>
+          <p class="cap-ink">You cannot cancel here. Contact [NaviG8r contact] about this booking.</p>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

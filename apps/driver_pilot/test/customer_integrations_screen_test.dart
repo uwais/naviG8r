@@ -1,5 +1,5 @@
 import "package:dio/dio.dart";
-import "package:driver_pilot/customer_flow.dart";
+import "package:driver_pilot/shipper/erp_integrations.dart";
 import "package:driver_pilot/customer_session.dart";
 import "package:driver_pilot/driver_theme.dart";
 import "package:driver_pilot/pilot_api.dart";
@@ -40,6 +40,13 @@ void main() {
                       "status": "DELIVERED",
                       "attempts": 1,
                       "lastHttpStatus": 200,
+                    },
+                    {
+                      "id": "whd_2",
+                      "eventId": "evt_retry",
+                      "status": "DEAD",
+                      "attempts": 3,
+                      "lastHttpStatus": 500,
                     },
                   ],
                 },
@@ -87,11 +94,73 @@ void main() {
     expect(find.text("ERP Smoke Co"), findsAtLeastNWidgets(1));
     expect(find.text("Create key"), findsOneWidget);
     expect(find.text("Save settings"), findsOneWidget);
-    expect(find.text("Send test ping"), findsOneWidget);
-    expect(find.text("Recent webhook deliveries"), findsOneWidget);
+    expect(find.text("Send a test webhook"), findsOneWidget);
+    expect(find.text("Recent webhook calls"), findsOneWidget);
     expect(find.text("abc123"), findsOneWidget);
     expect(find.text("evt_test"), findsOneWidget);
+    await tester.scrollUntilVisible(
+        find.textContaining("Failed. No more automatic tries"), 200,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.textContaining("Failed. No more automatic tries"), findsOneWidget,
+        reason: "a delivery given up on says the automatic tries have stopped");
   });
+
+  for (final textScale in [1.0, 2.0]) {
+    testWidgets(
+        "CustomerIntegrationsScreen fits 360 x 800 at ${(textScale * 100).round()}% text",
+        (tester) async {
+      CustomerSession.applyForTest(
+        userFullName: "ERP Admin",
+        userPhone: "9111009900",
+        customerOrgId: "org_test",
+        customerOrgName: "ERP Smoke Co",
+        customerRole: "CUSTOMER_ADMIN",
+      );
+
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: DriverTheme.theme(),
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!),
+          home: const CustomerIntegrationsScreen(),
+        ),
+      );
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(tester.takeException(), isNull,
+          reason: "nothing overflows at the top of the screen");
+
+      // The list builds lazily, so scroll to the end to lay out every field.
+      final list = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(find.text("Retry"), 200,
+          scrollable: list);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull,
+          reason: "nothing overflows further down the screen");
+
+      await tester.scrollUntilVisible(find.text("Payment policy"), -200,
+          scrollable: list);
+      await tester.pumpAndSettle();
+      final chosenPolicy = tester.widget<Text>(
+          find.text("Portal checkout (Razorpay in customer web)"));
+      expect(chosenPolicy.maxLines, 1,
+          reason: "the closed field keeps the chosen policy to one line");
+      expect(chosenPolicy.overflow, TextOverflow.ellipsis);
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull,
+          reason: "the payment policy choices fit the open menu");
+      expect(find.text("ERP pre-authorized (book without portal checkout)"),
+          findsOneWidget,
+          reason: "the menu is open and shows the other choice");
+    });
+  }
 
   testWidgets("CustomerIntegrationsScreen shows admin required for non-admin",
       (tester) async {
@@ -109,7 +178,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining("Only org admins"), findsOneWidget);
+    expect(find.textContaining("Only company admins"), findsOneWidget);
     expect(find.text("Create key"), findsNothing);
   });
 }

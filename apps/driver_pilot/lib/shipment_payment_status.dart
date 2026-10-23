@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'authorization_session.dart';
 import 'pilot_api.dart';
+import 'plain_error_sentence.dart';
+import 'pod_photo_view.dart';
+import 'ui/format.dart';
 
 class ShipmentPaymentStatus extends StatefulWidget {
   const ShipmentPaymentStatus(
@@ -12,9 +15,8 @@ class ShipmentPaymentStatus extends StatefulWidget {
   final Map<String, dynamic> shipment;
   final Future<void> Function()? onAccepted;
 
-  /// False for a driver: the card's held and released payment lines never show, the delivery line does. The
-  /// shipment's status label still moves to "Delivered" when payment is released, which the owner has not
-  /// decided to hide.
+  /// False leaves out the held and released payment lines and keeps the delivery line. Only the shipper's
+  /// shipment screen shows this card today, and it keeps the default.
   final bool showPaymentStatus;
 
   @override
@@ -39,7 +41,7 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
         builder: (context) => AlertDialog(
               title: const Text('Accept delivery?'),
               content: const Text(
-                  'Confirm that this shipment was delivered. Acceptance allows Finance to release payment before the 48-hour hold ends.'),
+                  'Check that the goods arrived. If you accept, NaviG8r can release your payment before the 48-hour hold ends, and messages on this shipment close. If you do nothing, NaviG8r can release it when the hold ends.'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(context, false),
@@ -65,7 +67,10 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
       if (!mounted || scope != AuthorizationSession.scopeKey) return;
       await widget.onAccepted?.call();
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error = plainErrorSentence(e,
+            'Could not accept delivery. Check your connection, then try again.'));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -78,9 +83,13 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
     final accepted = shipment['podAcceptedAtUtcMs'] != null;
     final ready = shipment['paymentReady'] == true;
     final hold = shipment['paymentHoldUntilUtcMs'];
-    final until = hold is num
-        ? DateTime.fromMillisecondsSinceEpoch(hold.toInt()).toLocal().toString()
+    final photoIds = podPhotoIds(shipment);
+    final holdEnds = hold is num
+        ? DateTime.fromMillisecondsSinceEpoch(hold.toInt(), isUtc: true)
         : null;
+    final until = holdEnds == null
+        ? null
+        : '${formatDate(holdEnds)}, ${formatTimeIst(holdEnds)}';
     return Card(
         child: Padding(
             padding: const EdgeInsets.all(16),
@@ -90,15 +99,21 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
                 Text(
                     accepted
                         ? 'Delivery accepted'
-                        : 'Proof of delivery submitted',
+                        : 'Carrier confirmed delivery',
                     style: Theme.of(context).textTheme.titleMedium),
                 if (widget.showPaymentStatus) ...[
                   const SizedBox(height: 8),
                   Text(shipment['status'] == 'DELIVERED'
-                      ? 'Payment released.'
+                      ? 'NaviG8r released your payment.'
                       : ready
-                          ? 'Ready for Finance review and payment release.'
-                          : 'Payment on hold${until == null ? '' : ' until $until'}. Shipper acceptance can end the hold earlier.'),
+                          ? 'NaviG8r checks it, then releases your payment.'
+                          : 'Payment on hold${until == null ? '' : ' until $until'}. If you accept delivery, the hold can end sooner and messages on this shipment close.'),
+                ],
+                if (photoIds.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  PodPhotosButton(
+                      shipmentId: '${shipment['id']}', photoIds: photoIds),
+                  const SizedBox(height: 8),
                 ],
                 if (_error != null)
                   Text(_error!, style: const TextStyle(color: Colors.red)),

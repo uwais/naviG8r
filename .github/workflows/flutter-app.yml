@@ -47,6 +47,8 @@ jobs:
         working-directory: apps/driver_pilot
         run: flutter analyze --no-fatal-infos
 
+      # "test" is a dummy, not a key: it only lets the geocoding cost tests run, against a fake server.
+      # Never put a real key here.
       - name: Test
         working-directory: apps/driver_pilot
-        run: flutter test
+        run: flutter test --dart-define=MAPS_API_KEY=test

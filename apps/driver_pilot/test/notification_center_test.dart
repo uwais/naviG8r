@@ -11,13 +11,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/conversation_drafts.dart';
 import 'package:driver_pilot/notification_center.dart';
+import 'package:driver_pilot/shipment_conversation.dart';
 import 'package:driver_pilot/pilot_api.dart';
+
+import 'support/app_lifecycle.dart';
 
 class _CommunicationAdapter implements HttpClientAdapter {
   final List<String> calls = [];
   final List<Map<String, dynamic>> sentMessages = [];
   int messageCount = 0;
+  String? eventKey;
   Completer<void>? sendGate;
+  // Holds the inbox and messages loads while set.
+  Completer<void>? loadGate;
   bool failGatedSend = false;
 
   @override
@@ -25,6 +31,7 @@ class _CommunicationAdapter implements HttpClientAdapter {
       Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
     calls.add('${options.method} ${options.path}');
     if (options.path == '/v1/notifications/shipments') {
+      if (loadGate != null) await loadGate!.future;
       return _json({
         'shipments': [
           {
@@ -40,12 +47,14 @@ class _CommunicationAdapter implements HttpClientAdapter {
     }
     if (options.path.endsWith('/conversation/timeline') &&
         options.method == 'GET') {
+      if (loadGate != null) await loadGate!.future;
       return _json({
         'conversation': {'id': 'shipment-1'},
         'items': [
           {
             'type': 'event',
             'id': 'event-1',
+            if (eventKey != null) 'eventKey': eventKey,
             'title': 'Load booked',
             'body': 'The carrier accepted this shipment.'
           },
@@ -198,16 +207,36 @@ void main() {
       home: const NotificationInboxScreen(),
     ));
     await tester.pumpAndSettle();
-    expect(find.text('Notifications'), findsOneWidget);
-    expect(find.text('Shipment update'), findsOneWidget);
-    expect(find.textContaining('New update'), findsOneWidget);
-    expect(find.textContaining('Shipment SHIPMENT'), findsOneWidget);
+    expect(find.text('Updates'), findsOneWidget,
+        reason: 'sh-notifications: the inbox is titled Updates');
+    expect(find.text('Shipment update'), findsOneWidget,
+        reason:
+            'with no shipment list to name it from, the row keeps a plain title');
+    expect(find.text('New update'), findsOneWidget);
+    expect(find.textContaining('SHIPMENT'), findsNothing,
+        reason:
+            'copy.md: a shipment is never named by an ID or reference code');
     await tester.tap(find.text('Shipment update'));
     await tester.pumpAndSettle();
     expect(find.text('Load booked'), findsOneWidget);
     expect(find.text('The carrier accepted this shipment.'), findsOneWidget);
     expect(adapter.calls,
         contains('POST /v1/shipments/shipment-1/conversation/read'));
+  });
+
+  testWidgets(
+      'a known event in the conversation is in plain words, not the server\'s "load"',
+      (tester) async {
+    final adapter = _CommunicationAdapter()
+      ..eventKey = 'shipment.carrier_accepted';
+    _configureApi(adapter);
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      home: const ShipmentConversationScreen(shipmentId: 'shipment-1'),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('The carrier accepted your shipment.'), findsOneWidget);
+    expect(find.text('Load booked'), findsNothing);
   });
 
   testWidgets(
@@ -360,4 +389,61 @@ void main() {
     expect(await ConversationDrafts.read('user-1:org-1', 'shipment-1'),
         containsPair('body', 'Draft during cleanup'));
   });
+
+  // Second review, 21 Oct 2026: the inbox and the messages screen checked every 30 s with the app in
+  // the background, and a messages check also marks them read.
+  for (final (screen, path) in const [
+    (NotificationInboxScreen(), 'GET /v1/notifications/shipments'),
+    (
+      ShipmentConversationScreen(shipmentId: 'shipment-1'),
+      'GET /v1/shipments/shipment-1/conversation/timeline'
+    ),
+  ]) {
+    testWidgets(
+        '${screen.runtimeType} makes no timed check in the background, and one on return',
+        (tester) async {
+      final adapter = _CommunicationAdapter();
+      _configureApi(adapter);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(splashFactory: NoSplash.splashFactory),
+        home: screen,
+      ));
+      await tester.pumpAndSettle();
+      int checks() => adapter.calls.where((call) => call == path).length;
+      final before = checks();
+      await sendAppToBackground(tester);
+      await tester.pump(const Duration(seconds: 61));
+      expect(checks(), before, reason: 'two 30 s turns pass in the background');
+      await bringAppBack(tester);
+      await tester.pumpAndSettle();
+      expect(checks(), before + 1, reason: 'one check when the app is shown again');
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets(
+        '${screen.runtimeType} sends one timed check at a time, even when the app comes back during one',
+        (tester) async {
+      final adapter = _CommunicationAdapter();
+      _configureApi(adapter);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(splashFactory: NoSplash.splashFactory),
+        home: screen,
+      ));
+      await tester.pumpAndSettle();
+      int checks() => adapter.calls.where((call) => call == path).length;
+      final before = checks();
+      final answer = adapter.loadGate = Completer<void>();
+      await tester.pump(const Duration(seconds: 30));
+      expect(checks(), before + 1, reason: 'the timed check is out');
+      await sendAppToBackground(tester);
+      await bringAppBack(tester);
+      await tester.pump(const Duration(seconds: 30));
+      expect(checks(), before + 1,
+          reason: 'review: coming back, and the next turn, each sent another while one was out');
+      adapter.loadGate = null;
+      answer.complete();
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 }

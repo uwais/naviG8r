@@ -1893,6 +1893,7 @@ The rest of the fix stands: title from the matching transfer's `netToCarrierPais
 
 
 **MEDIUM — The 10% platform commission is never shown to the carrier, only the post-deduction figure**
+*Superseded 21 Oct 2026: owner hard rule. A carrier never sees the shipper's price or NaviG8r's cut, as an amount or a rate. Do not build this fix.*
 `apps/driver_pilot/lib/driver_flow.dart:850` · hidden-costs
 
 *What goes wrong:* The carrier is shown what they receive but never what the customer paid or what was deducted, and the word "net" is left to carry the whole explanation - to a reader whose first language may not be English. The house rule is that fees appear on the same screen as the headline number; here the fee is in the payload and is simply not rendered, so a carrier cannot check the platform's arithmetic on their own earnings.

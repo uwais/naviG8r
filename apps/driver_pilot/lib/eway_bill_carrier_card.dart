@@ -1,144 +1,85 @@
 import 'package:flutter/material.dart';
 
 import 'authorization_session.dart';
-import 'driver_theme.dart';
-import 'eway_bill_closed.dart';
-import 'eway_bill_portal_link.dart';
-import 'eway_bill_truck_form.dart';
 import 'eway_bill_words.dart';
+import 'ui/format.dart';
+import 'ui/tokens.dart';
 
-/// A shipment's e-way bill for carriers and drivers. Everyone reads it; a carrier owner or dispatcher
-/// can also type in the truck once it is on the bill on the portal. The server already leaves out the
-/// bill date, the maker's GSTIN and the invoice number for carrier logins.
-class EwayBillCarrierCard extends StatefulWidget {
+/// A shipment's e-way bill for carriers and drivers, read only. The shipper adds the truck to the bill;
+/// every carrier login only reads it, though the carrier pays any check-post fine, so it shows the
+/// bill's state in words (owner decision, 18 Oct 2026). The server already leaves out the bill date,
+/// the maker's GSTIN and the invoice number for carrier logins. It has no frame or title of its own:
+/// the booking screen shows it inside its "Truck on the e-way bill" step.
+class EwayBillCarrierCard extends StatelessWidget {
   const EwayBillCarrierCard({required this.shipment, super.key});
   final Map<String, dynamic> shipment;
 
-  @override
-  State<EwayBillCarrierCard> createState() => _EwayBillCarrierCardState();
-}
-
-class _EwayBillCarrierCardState extends State<EwayBillCarrierCard> {
-  late Map<String, dynamic>? _bill = _billFrom(widget.shipment);
-  bool _addingTruck = false;
-  num _savedAtUtcMs = 0;
-
-  static Map<String, dynamic>? _billFrom(Map<String, dynamic> shipment) {
-    final raw = shipment['ewayBill'];
-    return raw is Map<String, dynamic> ? raw : null;
-  }
-
-  bool get _canAddTruck =>
-      AuthorizationSession.can('eway_bill.add_truck') &&
-      _bill?['kind'] == 'BILL' &&
-      !ewayBillIsClosed(widget.shipment);
-
-  @override
-  void didUpdateWidget(EwayBillCarrierCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // A different shipment in the same spot starts clean; an open truck form for the old one closes.
-    if (widget.shipment['id'] != oldWidget.shipment['id']) {
-      _bill = _billFrom(widget.shipment);
-      _addingTruck = false;
-      _savedAtUtcMs = 0;
-      return;
-    }
-    // The screen refreshes every 15 seconds. Never overwrite something half typed.
-    if (_addingTruck) return;
-    // A refresh that started before our own save can arrive after it; the newer server time wins.
-    final parentTime = widget.shipment['updatedAtUtcMs'];
-    if (parentTime is num && parentTime < _savedAtUtcMs) return;
-    _bill = _billFrom(widget.shipment);
-  }
-
-  void _showSaved(Map<String, dynamic> shipment) => setState(() {
-        _bill = _billFrom(shipment);
-        final savedTime = shipment['updatedAtUtcMs'];
-        if (savedTime is num) _savedAtUtcMs = savedTime;
-        _addingTruck = false;
-      });
+  String get _shipper => shipment['customerOrgName'] is String &&
+          (shipment['customerOrgName'] as String).isNotEmpty
+      ? shipment['customerOrgName'] as String
+      : 'The shipper';
 
   List<Widget> _billLines(Map<String, dynamic> bill) {
     final number = bill['billNumber'];
     final truckLines = ewayBillTruckLines(bill);
-    final canAddTruck = _canAddTruck;
-    // Holding eway_bill.add_truck is what makes a login the carrier office here; a driver does not.
-    final mismatch = ewayBillTruckMismatchSentence(widget.shipment, bill,
-        reader: AuthorizationSession.can('eway_bill.add_truck')
+    // Naming a trip's truck and driver is what makes a login the carrier office here; a driver cannot.
+    final office = AuthorizationSession.can('trip.assign');
+    final mismatch = ewayBillTruckMismatchSentence(shipment, bill,
+        reader: office
             ? TruckMismatchReader.carrierOffice
             : TruckMismatchReader.driver);
-    final assignedTruck = widget.shipment['assignedTruckNumber'];
     return [
+      // A driver reads the number out at a check post, so it is set large (dr-ewb).
       if (number is String)
-        SelectableText(groupedBillNumber(number),
-            style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: DriverTheme.navy)),
+        SelectableText(formatBillNumber(number),
+            style: office ? NvText.id : NvText.idDisplay),
       if (truckLines.isEmpty)
-        Text(canAddTruck
-            ? 'Truck not on this bill yet. Add your truck to the bill on the portal, then enter it here.'
-            : 'Truck not added yet.')
+        Text('$_shipper has not added the truck to the bill yet.',
+            style: NvText.body)
       else
-        for (final line in truckLines) Text(line),
-      if (mismatch != null) Text(mismatch),
-      Text(ewayBillCheckLine(bill, forShipper: false)),
+        for (final line in truckLines) Text(line, style: NvText.body),
+      if (mismatch != null) Text(mismatch, style: NvText.body),
+      // An unlooked-up bill is covered by the caption below; only what ops saw adds anything.
+      if (bill['check'] is Map)
+        Text(ewayBillCheckLine(bill, forShipper: false), style: NvText.body),
       Text(
           truckLines.isEmpty
-              ? 'Shown as the shipper entered it. naviG8r has not made or changed this bill, and has not checked the truck or the expiry.'
-              : 'Shown as entered in naviG8r. naviG8r has not made or changed this bill, and has not checked it against the portal.',
-          style: const TextStyle(color: DriverTheme.muted)),
-      if (canAddTruck && _addingTruck) ...[
-        const SizedBox(height: 8),
-        EwayBillTruckForm(
-            path:
-                '/v1/pilot/carrier/shipments/${widget.shipment['id']}/eway-bill/truck',
-            current: bill,
-            assignedTruckNumber: assignedTruck is String ? assignedTruck : null,
-            clearsCheck: bill['check'] is Map,
-            onSaved: _showSaved,
-            onCancel: () => setState(() => _addingTruck = false)),
-      ] else if (canAddTruck) ...[
-        const SizedBox(height: 8),
-        Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton(
-                onPressed: () => setState(() => _addingTruck = true),
-                child:
-                    Text(truckLines.isEmpty ? 'Add truck' : 'Change truck'))),
-      ],
-      if (canAddTruck) const EwayBillPortalButton(),
+              ? 'Shown as the shipper entered it. NaviG8r did not make or change this bill. NaviG8r has not checked the truck or the end time.'
+              : bill['check'] is Map
+                  ? 'Shown as entered in NaviG8r. NaviG8r did not make or change this bill.'
+                  : 'Shown as entered in NaviG8r. NaviG8r did not make or change this bill. NaviG8r has not checked it on the portal.',
+          style: NvText.caption),
     ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final shipment = widget.shipment;
-    final bill = _bill;
-    final shipper = shipment['customerOrgName'] is String &&
-            (shipment['customerOrgName'] as String).isNotEmpty
-        ? shipment['customerOrgName'] as String
-        : 'The shipper';
-    final children = <Widget>[
-      Text('E-way bill', style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 4),
-    ];
+    final raw = shipment['ewayBill'];
+    final bill = raw is Map<String, dynamic> ? raw : null;
+    final List<Widget> lines;
     if (bill == null) {
-      children.add(
-          Text('$shipper has not added an e-way bill or said none is needed.'));
+      lines = [
+        Text('$_shipper has not added an e-way bill or said none is needed.',
+            style: NvText.body)
+      ];
     } else if (bill['kind'] == 'NOT_NEEDED') {
-      children.add(Text(
-          '$shipper says no e-way bill is needed: ${notNeededReasonWords(bill)}. '
-          "This is the shipper's statement. naviG8r has not checked it."));
+      lines = [
+        Text(
+            '$_shipper says no e-way bill is needed: ${notNeededReasonWords(bill)}. '
+            "This is what the shipper says. NaviG8r has not checked it.",
+            style: NvText.body)
+      ];
     } else {
-      children.addAll(_billLines(bill));
+      lines = _billLines(bill);
     }
-    return Card(
-        child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: children)));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final (index, line) in lines.indexed) ...[
+          if (index > 0) const SizedBox(height: NvSpace.s2),
+          line,
+        ],
+      ],
+    );
   }
 }

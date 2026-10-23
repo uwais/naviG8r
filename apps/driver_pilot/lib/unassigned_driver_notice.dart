@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'driver_session.dart';
-import 'driver_theme.dart';
+import 'ui/nv_list_card.dart';
 
-/// Under an empty trip list. The server shows a driver only their own trips, so for a driver an empty list
+/// In place of an empty trip list. The server shows a driver only their own trips, so for a driver an empty list
 /// means none yet. Everyone else sees nothing here.
 class UnassignedDriverNotice extends StatelessWidget {
   const UnassignedDriverNotice({super.key});
@@ -11,10 +11,8 @@ class UnassignedDriverNotice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (DriverSession.carrierRole != 'DRIVER') return const SizedBox.shrink();
-    return const Padding(
-        padding: EdgeInsets.only(top: 24),
-        child: Text(
-            'Your carrier has not assigned you a trip yet. Ask your carrier to assign one.',
-            style: TextStyle(color: DriverTheme.mutedOnBackground)));
+    return const NvListEmpty(
+        title:
+            'Your office has not given you a trip yet. Ask your office for one.');
   }
 }

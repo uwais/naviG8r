@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Accessibility notes</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 1040px; min-height: 1900px; gap: 22px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Accessibility notes</h1>
+    <p class="lead" style="max-width: 820px;">WCAG 2.2 AA. Applies to every screen on this canvas. Contrast values are the design system's.</p>
+  </div>
+
+  <h2 class="spec-sub">Rules for every screen</h2>
+  <table class="tbl"><thead><tr><th style="width: 200px;">Topic</th><th>Rule</th></tr></thead><tbody>
+    <tr><td class="k">Contrast</td><td>Body <span class="code">ink</span> on <span class="code">page</span> 14.0:1; captions <span class="code">slate</span> 5.0:1; status words 5.6 to 12.9:1 on their tints; control borders <span class="code">control-border</span> 3.6:1; focus ring <span class="code">navy</span> 14.6:1. Gold never carries text on light grounds.</td></tr>
+    <tr><td class="k">Not colour alone</td><td>Every status has a word. Step states also differ by marker: tick (done), number with halo (yours), clock (waiting), "!" (problem). Map pins are named in the chip.</td></tr>
+    <tr><td class="k">Targets</td><td>48 x 48 dp minimum, 56 dp for driver primaries. Quiet text buttons keep 48 dp height. At least 8 dp between adjacent targets.</td></tr>
+    <tr><td class="k">Text size</td><td>Works at 200% system font: cards grow, nothing truncates except the header (full name is in its accessible label). Fact rows wrap to stacked label over value. The sticky action bar stays; content scrolls above it.</td></tr>
+    <tr><td class="k">Width</td><td>All screens built at 360 dp; no horizontal scroll. Web tables scroll inside their own box.</td></tr>
+    <tr><td class="k">Icon buttons</td><td>None in the app: every action has a word. Decorative icons are aria-hidden. Copy buttons are labelled with what they copy: "Copy truck number KA01AB1234".</td></tr>
+    <tr><td class="k">Motion</td><td>Spinners respect reduce-motion (show the word only). Sheets fade, no slide, when reduce-motion is on.</td></tr>
+    <tr><td class="k">Dark mode</td><td>Off. The app does not follow the phone's dark setting.</td></tr>
+  </tbody></table>
+
+  <h2 class="spec-sub">Heading and focus order</h2>
+  <table class="tbl"><thead><tr><th style="width: 200px;">Screen</th><th>Headings</th><th>Focus order</th></tr></thead><tbody>
+    <tr><td class="k">Tab screens</td><td>H1 screen title; H2 per section (Needs you, Your shipments, Today)</td><td>Header account button, Back if any, content top to bottom, action bar, bottom tabs</td></tr>
+    <tr><td class="k">Shipment, booking</td><td>H1 route or shipper; the step list is one ordered list named "Steps for this shipment"; the open step's question is H2</td><td>Header, Messages, Change or cancel, each step in order, inside the open step: copy rows, then primary, then secondary</td></tr>
+    <tr><td class="k">E-way bill form</td><td>H1 "Enter the bill's details"</td><td>Fields in the bill's order, then Save. On a failed save, focus moves to the error summary, which links to each field.</td></tr>
+    <tr><td class="k">Bottom sheets</td><td>Sheet title is the dialog's name (aria-labelledby)</td><td>Focus moves to the title, then choices, primary, Cancel. Focus is trapped while open; Back or Cancel closes it and returns focus to the button that opened it.</td></tr>
+    <tr><td class="k">Driver e-way bills</td><td>H1 "E-way bills"; each bill is a region named "E-way bill for [shipper]"</td><td>Back, then bills in drop order, then Call</td></tr>
+  </tbody></table>
+
+  <h2 class="spec-sub">What a screen reader announces</h2>
+  <table class="tbl"><thead><tr><th style="width: 260px;">After</th><th>Announced (polite unless marked)</th></tr></thead><tbody>
+    <tr><td class="k">Send code</td><td>"Code sent to +91 98450 12345."</td></tr>
+    <tr><td class="k">Wrong code</td><td>Assertive: "That code is not right. Check the SMS and type it again, or send a new code."</td></tr>
+    <tr><td class="k">Match my route</td><td>"2 lanes with room for 80 kg, closest to your route first." or the empty message</td></tr>
+    <tr><td class="k">Get price</td><td>"Price for 80 kg: 2,640 rupees. This is the full price."</td></tr>
+    <tr><td class="k">Change weight, pickup or drop</td><td>"Price cleared. Get a new price before paying."</td></tr>
+    <tr><td class="k">Too heavy</td><td>Assertive: "This lane does not have room for that weight. Enter a lower weight, or choose another lane."</td></tr>
+    <tr><td class="k">Pay and book returns</td><td>"Booked. Waiting for Ravi Roadways to accept." Focus moves to the shipment's H1.</td></tr>
+    <tr><td class="k">E-way bill answer</td><td>"Saved: this load needs an e-way bill."</td></tr>
+    <tr><td class="k">Copy</td><td>"Truck number copied." or assertive "Could not copy. Press and hold the number to copy it."</td></tr>
+    <tr><td class="k">Save e-way bill</td><td>"E-way bill saved. Nothing more for you to do until delivery." Errors: assertive summary, then each field's error when focused.</td></tr>
+    <tr><td class="k">Accept with truck</td><td>"Accepted with KA01AB1234. Sharma Textiles can make the e-way bill now."</td></tr>
+    <tr><td class="k">Assign driver</td><td>"Prakash Naidu assigned. You can start the trip on loading day."</td></tr>
+    <tr><td class="k">Start trip</td><td>"Trip started. Shippers are told their goods are on the way."</td></tr>
+    <tr><td class="k">Confirm delivery</td><td>"Delivery confirmed at Guindy. Next stop: Ambattur."</td></tr>
+    <tr><td class="k">Any list loading</td><td>"Loading [lanes | shipments | bookings | trips]." once, then the count when loaded</td></tr>
+  </tbody></table>
+
+  <h2 class="spec-sub">Role checks to test</h2>
+  <ul style="display: flex; flex-direction: column; gap: 6px; list-style: disc; padding-left: 22px;">
+    <li class="lead">Signed in as a driver, search every screen's accessibility tree for "₹", "paid", "commission", "receive", "payout", "net". None may appear.</li>
+    <li class="lead">Signed in as a dispatcher, the payment block and bank details never render, and the status reads "Delivery confirmed".</li>
+    <li class="lead">Signed out, no tabs render; only the start screen and sign-in.</li>
+  </ul>
+</div>
+
+</body>
+</html>

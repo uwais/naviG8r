@@ -41,17 +41,17 @@ class OrganizationAccess extends StatelessWidget {
                           Text(
                               internal
                                   ? 'Internal workspace'
-                                  : 'Organization access',
+                                  : 'Company access',
                               style: Theme.of(context).textTheme.titleLarge),
                           const SizedBox(height: 12),
                           Text(AuthorizationSession.error ??
                               (internal
-                                  ? 'Use the operations portal for Finance, Operations, and Admin work. Select a shipper or carrier organization above to use its mobile workspace.'
+                                  ? 'Use the operations portal for Finance, Operations, and Admin work. Choose a shipper or carrier company above to use it in the app.'
                                   : AuthorizationSession.organizations.isEmpty
-                                      ? 'You have no active organization membership. Contact your organization administrator.'
+                                      ? 'You are not a member of any company yet. Contact your company admin.'
                                       : AuthorizationSession.principal == null
-                                          ? 'Choose an organization above to continue.'
-                                          : 'You have no mobile permissions in this organization. Contact your organization administrator.')),
+                                          ? 'Choose a company above to continue.'
+                                          : 'You cannot use the app for this company. Contact your company admin.')),
                           if (internal) ...[
                             const SizedBox(height: 12),
                             SelectableText(
@@ -60,7 +60,7 @@ class OrganizationAccess extends StatelessWidget {
                           if (AuthorizationSession.error != null)
                             const TextButton(
                                 onPressed: AuthorizationSession.refresh,
-                                child: Text('Retry')),
+                                child: Text('Try again')),
                         ]),
                       )))
                     : KeyedSubtree(
@@ -102,7 +102,7 @@ String? mobileAccessRedirect(String path) {
         !AuthorizationSession.hasRole('CARRIER')) {
       return AuthorizationSession.home;
     }
-    if (path == '/customer/login' || path == '/driver/onboarding/otp') {
+    if (path == '/customer/login') {
       return AuthorizationSession.home;
     }
   }
@@ -131,7 +131,9 @@ String? mobileAccessRedirect(String path) {
     if (!AuthorizationSession.can(permission)) return '/customer';
   }
   if (path.startsWith('/driver') && !driverPublic) {
-    if (!AuthorizationSession.signedIn) return '/driver/onboarding/phone';
+    // /driver shows the same sign-in inside the carrier shell. The shipper's sign-in here swapped the shell out
+    // and back mid-transition and put it in the tree twice; unconfirmed as the cause of the blank screen.
+    if (!AuthorizationSession.signedIn) return '/driver';
     if (!AuthorizationSession.hasRole('CARRIER')) {
       return AuthorizationSession.home;
     }
@@ -147,17 +149,23 @@ String? mobileAccessRedirect(String path) {
                         ? 'payment.read'
                         : 'load.read';
     if (!AuthorizationSession.can(permission)) return '/driver';
+    if (permission == 'payment.read' && !carrierSeesPaymentAmounts()) {
+      return '/driver';
+    }
   }
   return null;
 }
 
-/// Placed inside each route's app bar so screen readers can reach the selector.
-class OrganizationToolbar extends StatelessWidget {
-  const OrganizationToolbar({this.showSignOut = true, super.key});
+/// A carrier's payment amounts are the owner's, as on Profile and the booking screen: a dispatcher
+/// holds payment.read too, and only the owner may add the bank account.
+bool carrierSeesPaymentAmounts() =>
+    AuthorizationSession.can('payment.read') &&
+    AuthorizationSession.can('bank_account.create_token');
 
-  /// False hides this bar's 'Sign out of all organizations' icon; use it only where the app bar above already has a
-  /// Sign out icon, so the top right shows one.
-  final bool showSignOut;
+/// Only on the access gate (no company chosen yet, or access could not load), where no app
+/// screen and so no header shows; app screens switch company and sign out from its menu.
+class OrganizationToolbar extends StatelessWidget {
+  const OrganizationToolbar({super.key});
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -173,7 +181,7 @@ class OrganizationToolbar extends StatelessWidget {
                       child: DropdownButton<String>(
                         isExpanded: true,
                         value: AuthorizationSession.organizationId,
-                        hint: const Text('Choose organization'),
+                        hint: const Text('Choose company'),
                         underline: const SizedBox.shrink(),
                         items: AuthorizationSession.organizations
                             .map((o) => DropdownMenuItem(
@@ -192,14 +200,13 @@ class OrganizationToolbar extends StatelessWidget {
                       ),
                     ),
                     const IconButton(
-                        tooltip: 'Refresh access',
+                        tooltip: 'Refresh',
                         onPressed: AuthorizationSession.refresh,
                         icon: Icon(Icons.refresh)),
-                    if (showSignOut)
-                      const IconButton(
-                          tooltip: 'Sign out of all organizations',
-                          onPressed: AuthorizationSession.signOut,
-                          icon: Icon(Icons.logout)),
+                    const IconButton(
+                        tooltip: 'Sign out of all companies',
+                        onPressed: AuthorizationSession.signOut,
+                        icon: Icon(Icons.logout)),
                   ]),
                 ),
               ),

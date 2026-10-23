@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { ewayBillMarkup, ewayBillScript } from "./opsConsoleBetaEwayBills.ts";
 import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
+import { tripCancelMarkup, tripCancelScript } from "./opsConsoleBetaTripCancels.ts";
+import { podPhotoMarkup, podPhotoScript } from "./opsConsoleBetaPodPhotos.ts";
 
 /**
  * The redesigned operations page, served at /ops/beta beside the current /ops page until the team agrees
@@ -8,7 +10,7 @@ import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
  * Built from the "NaviG8r ops console" design on the NaviG8r design system; token names match that system.
  *
  * Over 500 lines because markup and script are one screen: every element id the script reads is defined
- * here, or in opsConsoleBetaEwayBills.ts, which is pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
+ * here, or in opsConsoleBetaEwayBills.ts, opsConsoleBetaTripCancels.ts or opsConsoleBetaPodPhotos.ts, which are pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
  */
 export function opsConsoleBetaHtml(): string {
   return page;
@@ -57,6 +59,7 @@ const markup = `
     <span class="caption">Needs someone</span>
     <a class="jump" href="#carriers" id="jumpCarriers">Carriers waiting <span class="count" id="countCarriers">0</span></a>
     <a class="jump" href="#payments">Payments waiting <span class="count" id="countPayments">0</span></a>
+    <a class="jump" href="#tripCancels">Trip cancel requests <span class="count" id="countTripCancels">0</span></a>
     <a class="jump" href="#ewayBills" id="jumpEwayBills">E-way bills to check <span class="count" id="countEwayBills">0</span></a>
     <a class="jump" href="#ewayMissing" id="jumpEwayMissing">Missing e-way bills <span class="count" id="countEwayMissing">0</span></a>
     <a class="jump" href="#team">Team access</a>
@@ -85,7 +88,7 @@ const markup = `
     <section id="payments" class="card span3" aria-labelledby="paymentsTitle">
       <div class="head"><h2 id="paymentsTitle">Payments waiting for release</h2><span id="paymentsCount" class="caption"></span><div class="grow"></div><span id="paymentsUpdated" class="caption"></span><button id="paymentsReload" class="btn btn-quiet btn-sm" type="button">Reload</button></div>
       <div id="paymentsBody"></div>
-    </section>
+    </section>${tripCancelMarkup}
     <section id="team" class="card" aria-labelledby="teamTitle">
       <div class="head"><h2 id="teamTitle">Team access</h2><div class="grow"></div><span id="teamTag"></span></div>
       <div id="teamBody" class="body"></div>
@@ -98,7 +101,7 @@ const markup = `
   <div id="releaseMoney" class="money"></div>
   <div id="releaseResult"></div>
   <div class="pair"><button id="releaseCancel" class="btn btn-secondary" type="button">Cancel</button><button id="releaseConfirm" class="btn btn-primary" type="button"></button></div>
-</dialog>
+</dialog>${podPhotoMarkup}
 <footer class="caption"><span>NaviG8r operations</span><span>All times IST, 24-hour</span><span>This is the beta page. Today's pages are still at <a href="/ops">/ops</a> and <a href="/ops/v1">/ops/v1</a>.</span></footer>
 `;
 
@@ -202,7 +205,7 @@ async function request(path, method = 'GET', body, headers = {}) {
   }
   const code = out.error || String(response.status);
   if (response.status === 401) byId('signin').hidden = false;
-  if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, unchanged: refusedBeforeChange.includes(code), retryAfterMs: out.retryAfterMs });
+  if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, code, unchanged: refusedBeforeChange.includes(code), retryAfterMs: out.retryAfterMs });
   return out;
 }
 const nothingChanged = error => error.unchanged ? 'Nothing changed.' : "Couldn't confirm whether it was saved. Reload to see the current status before trying again.";
@@ -459,7 +462,7 @@ function paymentRow(shipment, showAmounts) {
   const route = shipment.pickupAddress && shipment.dropAddress ? shipment.pickupAddress + ' to ' + shipment.dropAddress : null;
   const status = element('td', {}, statusTag(paymentStatus(shipment)));
   const proof = shipment.podAtUtcMs
-    ? element('td', {}, 'Uploaded ' + at(shipment.podAtUtcMs), element('div', { class: 'caption', text: shipment.podAcceptedAtUtcMs ? 'Shipper accepted ' + at(shipment.podAcceptedAtUtcMs) : 'Shipper has not accepted yet' }))
+    ? element('td', {}, 'Uploaded ' + at(shipment.podAtUtcMs), element('div', { class: 'caption', text: shipment.podAcceptedAtUtcMs ? 'Shipper accepted ' + at(shipment.podAcceptedAtUtcMs) : 'Shipper has not accepted yet' }), podPhotoButtons(shipment))
     : element('td', {}, element('span', { class: 'caption', text: 'Not uploaded yet' }));
   const action = element('td');
   const whyId = 'why-' + shipment.id;
@@ -662,7 +665,7 @@ async function loadWorkspace() {
   byId('notice').hidden = true;
   byId('tools').hidden = byId('sections').hidden = false;
   renderTeam();
-  await Promise.all([loadCarriers(), loadPayments(), loadEwayBills()]);
+  await Promise.all([loadCarriers(), loadPayments(), loadTripCancels(), loadEwayBills()]);
 }
 
 // A second click while a sign-in is still running would try the same code again and fail confusingly.
@@ -727,6 +730,8 @@ byId('organization').onchange = () => {
 byId('carriersReload').onclick = () => run(loadCarriers, "Couldn't reload");
 byId('paymentsReload').onclick = () => run(loadPayments, "Couldn't reload");
 ${ewayBillScript}
+${tripCancelScript}
+${podPhotoScript}
 byId('legend').append(...[['Done', 'good'], ['Someone must act', 'attention'], ['Blocked or failed', 'problem'], ['In progress', 'info']].map(statusTag));
 if (!token) byId('signin').hidden = false;
 else {
@@ -752,6 +757,8 @@ const sha256 = (text: string): string => "'sha256-" + createHash("sha256").updat
 /** Only this page's own script and stylesheet may run, fonts come only from Google, and data stays on this server. */
 export const opsConsoleBetaContentSecurityPolicy = [
   "default-src 'self'",
+  // Proof of delivery photos are fetched with the sign-in and shown from memory.
+  "img-src 'self' blob:",
   "script-src " + sha256(script),
   "style-src " + sha256(opsConsoleBetaStyles) + " https://fonts.googleapis.com",
   "font-src https://fonts.gstatic.com",

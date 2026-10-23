@@ -56,11 +56,11 @@ async function signIn(page: Page, phone: string, options: { requireVisibleDebugC
         response.url().endsWith("/v1/auth/me") && response.status() === 200,
     ),
     page
-      .getByRole("button", { name: "Verify and continue", exact: true })
+      .getByRole("button", { name: "Sign in", exact: true })
       .evaluate((element: HTMLElement) => element.click()),
   ]);
   await expect(
-    page.getByRole("button", { name: "Verify and continue", exact: true }),
+    page.getByRole("button", { name: "Sign in", exact: true }),
   ).toHaveCount(0);
 }
 
@@ -94,12 +94,12 @@ test("shipper opens a conversation from shipment details", async ({ page }, info
     page.getByRole("group", { name: /Payment on hold/ }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Shipment conversation", exact: true }),
+    page.getByRole("button", { name: "Messages", exact: true }),
   ).toBeVisible();
   await page.waitForTimeout(500);
   await page.screenshot({ path: info.outputPath("shipment-details-conversation-entry.png") });
   await page
-    .getByRole("button", { name: "Shipment conversation", exact: true })
+    .getByRole("button", { name: "Messages", exact: true })
     .evaluate((element: HTMLElement) => element.click());
   await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
@@ -140,7 +140,8 @@ test("shipper opens one grouped notification row into events and messages", asyn
   }));
 
   await signIn(page, "8000000001", { requireVisibleDebugCode: false });
-  const inboxButton = page.getByRole("button", { name: /Notifications/ });
+  // Shippers reach the inbox from the Updates row on Home (sh-home); the bell is carrier-only.
+  const inboxButton = page.getByRole("button", { name: /Updates/ });
   await expect(inboxButton).toBeVisible();
   await inboxButton.evaluate((element: HTMLElement) => element.click());
   const shipmentRow = page.locator("flt-semantics-host").getByText(/Shipment update/);
@@ -253,7 +254,8 @@ test("driver starts one generated challenge without exposing it in the URL", asy
     .evaluate((e: HTMLElement) => e.click());
   const challenge = await (await started).json();
   expect(challenge.debugCode).toMatch(/^\d{6}$/);
-  await expect(page).toHaveURL(/#\/driver\/onboarding\/otp\?phone=8000000003$/);
+  // The carriers' old address opens the one sign-in; the code step stays at that address.
+  await expect(page).toHaveURL(/#\/customer\/login$/);
   expect(starts).toBe(1);
   expect(page.url()).not.toContain(challenge.challengeId);
   expect(page.url()).not.toContain("debugCode");

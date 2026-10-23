@@ -34,7 +34,7 @@ void main() {
     expect(
         formatApiError(
             payoutSetupRefusal({'error': 'forbidden', 'detail': 'x'})),
-        'You do not have permission for this action in the selected organization.');
+        'You are not allowed to do this in this company.');
   });
 
   test('the refused field is read only from a bank details refusal', () {

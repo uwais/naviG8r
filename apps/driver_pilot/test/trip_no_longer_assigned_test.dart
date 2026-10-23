@@ -1,5 +1,5 @@
 // A driver's screens once the server's answer has changed under them: a trip given to someone else since they
-// opened it, and the shipment screen after Confirm delivery.
+// opened it, an owner's phone once they no longer drive the trip, and the shipment screen after Confirm delivery.
 import 'dart:async';
 
 import 'package:driver_pilot/driver_flow.dart';
@@ -15,10 +15,10 @@ import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
 const tripNoLongerYours =
-    'This trip is no longer assigned to you. Pull down on the Loads screen to refresh.';
+    'This trip is no longer yours. Go back to Trips and tap Refresh.';
 
 const notOnYourTrip =
-    'This shipment is not on a trip assigned to you now. Go back and pull down on Shipments to refresh.';
+    'This booking is no longer on your trip. Go back to Trips and tap Refresh.';
 
 /// Stands in for the phone's location service, which a widget test does not have. Location is allowed, no
 /// one-off position comes back, and each time the trip screen listens for positions it gets a stream of its own.
@@ -27,6 +27,10 @@ class FakeLocationService extends GeolocatorPlatform {
 
   /// While a test holds this, the phone has not yet answered where it is now.
   Completer<void>? positionHeld;
+
+  /// Each handler the trip screen listens with. Calling one hands the screen a position that was
+  /// already on its way when sharing stopped.
+  final positionHandlers = <void Function(Position)>[];
 
   /// The trip screen shares the location while it listens for positions.
   bool get sharing => streams.any((positions) => positions.hasListener);
@@ -46,7 +50,21 @@ class FakeLocationService extends GeolocatorPlatform {
   Stream<Position> getPositionStream({LocationSettings? locationSettings}) {
     final positions = StreamController<Position>();
     streams.add(positions);
-    return positions.stream;
+    return _KeepsHandler(positions.stream, positionHandlers.add);
+  }
+}
+
+/// A stream of positions that also gives each listener's handler to [keep].
+class _KeepsHandler extends StreamView<Position> {
+  _KeepsHandler(super.stream, this.keep);
+  final void Function(void Function(Position)) keep;
+
+  @override
+  StreamSubscription<Position> listen(void Function(Position)? onData,
+      {Function? onError, void Function()? onDone, bool? cancelOnError}) {
+    if (onData != null) keep(onData);
+    return super.listen(onData,
+        onError: onError, onDone: onDone, cancelOnError: cancelOnError);
   }
 }
 
@@ -64,6 +82,9 @@ Future<void> pullDown(WidgetTester tester) async {
   await tester.fling(find.byType(ListView), const Offset(0, 1200), 1000);
   await tester.pumpAndSettle();
 }
+
+Finder inSheet(Finder finder) =>
+    find.descendant(of: find.byType(BottomSheet), matching: finder);
 
 /// A driver of an approved carrier, so Accept, Start and Confirm delivery are on offer.
 void signInAsApprovedDriver() => signInAsCarrierLogin(
@@ -106,7 +127,7 @@ void main() {
           MockApiAdapter((_) => jsonResponse({'shipments': <Object>[]}));
       await mountScreen(
           tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
-      expect(find.text('Could not load this shipment.'), findsOneWidget);
+      expect(find.text('Could not load this booking.'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.text('Try again'), findsOneWidget);
     });
@@ -147,8 +168,10 @@ void main() {
                     shipmentOnTripA(status: 'PENDING_CARRIER_ACCEPT')
                   ]
                 }));
-      await mountScreen(tester, const DriverShipmentsScreen());
-      await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+      // Accept is on the booking screen since the redesign (PR 6), not on the list.
+      await mountScreen(
+          tester, const DriverShipmentDetailScreen(shipmentId: 'shipment-a'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Accept booking'));
       await tester.pumpAndSettle();
       expect(find.text(tripNoLongerYours), findsOneWidget);
       expect(find.textContaining('unavailable'), findsNothing);
@@ -176,20 +199,26 @@ void main() {
         });
       });
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
-      await tester.tap(find.text('Start load'));
+      await tester.tap(find.text('Start trip'));
+      await tester.pumpAndSettle();
+      // PR 7: Start opens the confirm sheet first; its Start trip sends the request.
+      expect(refused, isFalse, reason: 'nothing is sent before the sheet');
+      await tester.tap(find.descendant(
+          of: find.byType(BottomSheet), matching: find.text('Start trip')));
       await tester.pumpAndSettle();
       expect(find.text(tripNoLongerYours), findsOneWidget,
           reason: 'on screen, with no snack bar repeating it');
-      for (final stale in ['Load not started', 'Start load']) {
+      for (final stale in ['Ready to start', 'Start trip', 'Show e-way bills']) {
         expect(find.text(stale), findsNothing, reason: stale);
       }
       expect(find.textContaining('unavailable'), findsNothing);
     });
 
     testWidgets(
-        'when Complete load answers 404, only the sentence is left and location sharing stops',
+        'when Complete trip answers 404, only the sentence is left and location sharing stops',
         (tester) async {
-      signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
+      // PR 8: Complete trip shows only to a login that may change a trip's status, as every driver may.
+      signInAsApprovedDriver();
       var refused = false;
       api.dio.httpClientAdapter = MockApiAdapter((request) {
         if (request.method == 'POST') {
@@ -210,11 +239,11 @@ void main() {
           reason: 'opening the screen listens for positions once');
       expect(location.sharing, isTrue);
 
-      await tester.tap(find.text('Complete load'));
+      await tester.tap(find.text('Complete trip'));
       await tester.pumpAndSettle();
       expect(find.text(tripNoLongerYours), findsOneWidget,
           reason: 'on screen, with no snack bar repeating it');
-      expect(find.text('Load in progress'), findsNothing);
+      expect(find.text('On the way'), findsNothing);
       expect(location.sharing, isFalse);
     });
 
@@ -238,16 +267,16 @@ void main() {
       });
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
       const gpsLine =
-          'Live GPS is shared with customers while the load is in progress.';
-      expect(find.text('Load in progress'), findsOneWidget);
+          'Shippers see your location while this trip is on the way and this app is open.';
+      expect(find.text('On the way'), findsOneWidget);
       expect(find.text(gpsLine), findsOneWidget);
       expect(location.sharing, isTrue);
 
       await pullDown(tester);
       expect(find.text(tripNoLongerYours), findsOneWidget);
       for (final stale in [
-        'Load in progress',
-        'Load not started',
+        'On the way',
+        'Show e-way bills',
         gpsLine,
         'Truck and driver'
       ]) {
@@ -257,7 +286,7 @@ void main() {
       expect(location.sharing, isFalse);
 
       await pullDown(tester);
-      expect(find.text('Load in progress'), findsOneWidget,
+      expect(find.text('On the way'), findsOneWidget,
           reason: 'pulling down asks again');
       expect(location.streams, hasLength(2),
           reason: 'listening again after the give-back');
@@ -305,13 +334,190 @@ void main() {
     testWidgets('is told the same when confirming delivery answers 404',
         (tester) async {
       signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
-      api.dio.httpClientAdapter =
-          MockApiAdapter((_) => jsonResponse({'error': 'not_found'}, 404));
+      // The list still had the delivery and its photo when the screen opened; confirming answers 404.
+      api.dio.httpClientAdapter = MockApiAdapter((request) => request.path ==
+              '/v1/pilot/carrier/shipments'
+          ? jsonResponse({
+              'shipments': [
+                shipmentOnTripA(photoIds: ['photo-1'])
+              ]
+            })
+          : jsonResponse({'error': 'not_found'}, 404));
       await mountScreen(
           tester, const DriverPodScreen(shipmentId: 'shipment-a'));
-      await tester.tap(find.text('Confirm POD'));
+      await tester.tap(find.text('Confirm delivery'));
       await tester.pumpAndSettle();
       expect(find.text(tripNoLongerYours), findsOneWidget);
+    });
+  });
+
+  group('An owner driving a trip in transit', () {
+    const sharedLine =
+        'Shippers see your location while this trip is on the way and this app is open.';
+    const stoppedLine =
+        "Location sharing has stopped on this phone. You are no longer this trip's driver.";
+    Map<String, dynamic> tripDrivenBy(String driver) => {
+          'id': 'trip-a',
+          'status': 'IN_PROGRESS',
+          'assignedVehicleId': 'vehicle-1',
+          'assignedTruckNumber': 'KA01AB1234',
+          'assignedDriverUserId': driver,
+        };
+    final somewhere = Position(
+        latitude: 12.97,
+        longitude: 77.59,
+        timestamp: DateTime(2026, 10, 19),
+        accuracy: 5,
+        altitude: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        headingAccuracy: 0,
+        speed: 0,
+        speedAccuracy: 0);
+
+    /// The office answers as the trip stands, with the owner and a second driver in the fleet, and keeps every
+    /// position this phone sends.
+    List<Object?> answerAsTheOffice(Map<String, dynamic> Function() trip) {
+      final positionsSent = <Object?>[];
+      api.dio.httpClientAdapter = MockApiAdapter((request) {
+        switch (request.path) {
+          case '/v1/pilot/anchor-trips/trip-a':
+            return jsonResponse({'trip': trip()});
+          case '/v1/pilot/anchor-trips/trip-a/location':
+            positionsSent.add(request.data);
+            return jsonResponse(<String, Object>{});
+          case '/v1/pilot/anchor-trips/trip-a/assignment':
+            return jsonResponse({
+              'trip': tripDrivenBy((request.data as Map)['driverUserId'] as String),
+              'driverBusy': false
+            });
+          case '/v1/pilot/carrier/fleet':
+            return jsonResponse({
+              'vehicles': [
+                {
+                  'id': 'vehicle-1',
+                  'registrationNumber': 'KA01AB1234',
+                  'vehicleClass': 'MEDIUM'
+                }
+              ],
+              'drivers': [
+                {'userId': 'carrier-person', 'displayName': 'Synthetic Owner'},
+                {'userId': 'driver-2', 'displayName': 'Synthetic Driver Two'},
+              ],
+            });
+        }
+        return jsonResponse({
+          'shipments': [shipmentOnTripA(status: 'PENDING_RELEASE')]
+        });
+      });
+      return positionsSent;
+    }
+
+    /// The Assign driver sheet on the trip screen, with the trip's truck and [driver] chosen.
+    Future<void> assignFromTheTripScreen(
+        WidgetTester tester, String driver) async {
+      await tester.tap(find.text('Choose driver'));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('KA01AB1234')));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text(driver)));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('Choose $driver')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'shares again the moment they assign the trip back to themselves from the trip screen',
+        (tester) async {
+      signInAsCarrierOwner(alsoAllowed: ['trip.assign', 'load.status_update']);
+      final positionsSent =
+          answerAsTheOffice(() => tripDrivenBy('carrier-person'));
+      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      await assignFromTheTripScreen(tester, 'Synthetic Driver Two');
+      expect(location.sharing, isFalse);
+      expect(find.text(stoppedLine), findsOneWidget);
+
+      await assignFromTheTripScreen(tester, 'Synthetic Owner');
+      expect(location.sharing, isTrue,
+          reason: 'reviewer: the screen said shared while nothing was sent');
+      location.streams.last.add(somewhere);
+      await tester.pumpAndSettle();
+      expect(positionsSent, hasLength(1),
+          reason: "given back, the phone sends the truck's position again");
+      expect(find.text(sharedLine), findsOneWidget);
+      expect(find.text(stoppedLine), findsNothing);
+    });
+
+    testWidgets(
+        'a position already on its way when they assign another driver is not sent',
+        (tester) async {
+      signInAsCarrierOwner(alsoAllowed: ['trip.assign', 'load.status_update']);
+      final positionsSent =
+          answerAsTheOffice(() => tripDrivenBy('carrier-person'));
+      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      await assignFromTheTripScreen(tester, 'Synthetic Driver Two');
+      expect(location.sharing, isFalse);
+      location.positionHandlers.single(somewhere);
+      await tester.pumpAndSettle();
+      expect(positionsSent, isEmpty,
+          reason:
+              "reviewer: a post racing the stop could land as the truck's position");
+    });
+
+    testWidgets(
+        'stops sharing the moment they assign another driver from the trip screen, and is told so',
+        (tester) async {
+      signInAsCarrierOwner(alsoAllowed: ['trip.assign', 'load.status_update']);
+      final positionsSent =
+          answerAsTheOffice(() => tripDrivenBy('carrier-person'));
+      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      expect(location.sharing, isTrue, reason: 'the owner is the driver');
+      expect(find.text(sharedLine), findsOneWidget);
+
+      await tester.tap(find.text('Choose driver'));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('KA01AB1234')));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('Synthetic Driver Two')));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('Choose Synthetic Driver Two')));
+      await tester.pumpAndSettle();
+
+      expect(location.sharing, isFalse,
+          reason: "this phone is no longer in the truck, so it stops listening");
+      location.streams.single.add(somewhere);
+      await tester.pumpAndSettle();
+      expect(positionsSent, isEmpty,
+          reason: "the office's position is never sent as the truck's");
+      expect(find.text(sharedLine), findsNothing);
+      expect(find.text(stoppedLine), findsOneWidget);
+    });
+
+    testWidgets(
+        'stops sharing when a pull-down shows the trip was given to another driver elsewhere, and is told so',
+        (tester) async {
+      signInAsCarrierOwner(alsoAllowed: ['trip.assign', 'load.status_update']);
+      var driver = 'carrier-person';
+      final positionsSent = answerAsTheOffice(() => tripDrivenBy(driver));
+      await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      expect(location.sharing, isTrue);
+
+      driver = 'driver-2';
+      await pullDown(tester);
+      expect(location.sharing, isFalse);
+      location.streams.single.add(somewhere);
+      await tester.pumpAndSettle();
+      expect(positionsSent, isEmpty);
+      expect(find.text(sharedLine), findsNothing);
+      expect(find.text(stoppedLine), findsOneWidget);
+
+      driver = 'carrier-person';
+      await pullDown(tester);
+      expect(location.streams, hasLength(2),
+          reason: 'given back to the owner, the phone shares again');
+      expect(location.sharing, isTrue);
+      expect(find.text(sharedLine), findsOneWidget);
+      expect(find.text(stoppedLine), findsNothing);
     });
   });
 
@@ -326,7 +532,9 @@ void main() {
           return jsonResponse(<String, Object>{});
         }
         return jsonResponse({
-          'shipments': [shipmentOnTripA(status: status)]
+          'shipments': [
+            shipmentOnTripA(status: status, photoIds: ['photo-1'])
+          ]
         });
       });
       final router =
@@ -353,9 +561,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Confirm delivery'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Confirm POD'));
+      await tester.tap(find.text('Confirm delivery'));
       await tester.pumpAndSettle();
-      expect(find.text('Status: Delivery confirmed'), findsOneWidget);
+      expect(find.text('Delivery confirmed'), findsOneWidget);
       expect(find.text('Confirm delivery'), findsNothing);
     });
   });

@@ -38,9 +38,9 @@ void main() {
     AuthorizationSession.clear();
     await tester.pumpWidget(const DriverPilotApp());
     await pumpAuthorizationFrames(tester);
-    expect(find.text('Sign in with phone'), findsOneWidget);
-    expect(find.text('Driver & carrier'), findsOneWidget);
-    expect(find.text('Manage payout method'), findsNothing);
+    expect(find.text('Sign in with your phone'), findsOneWidget,
+        reason: 'PR 3: signed out, the app opens on the phone sign-in');
+    expect(find.text('Change bank account'), findsNothing);
   });
   testWidgets(
       'App-root organization picker switches shipper and internal workspaces',
@@ -70,15 +70,16 @@ void main() {
     await tester.pumpWidget(const DriverPilotApp());
     await pumpAuthorizationFrames(tester);
     expect(
-        find.text('Choose an organization above to continue.'), findsOneWidget);
+        find.text('Choose a company above to continue.'), findsOneWidget);
     selectOrganizationForWidget(
         'shipper-a', 'SHIPPER', ['load.read', 'load.create']);
     await pumpAuthorizationFrames(tester);
-    expect(find.text('Book freight'), findsOneWidget);
+    expect(find.text('Book a trip for new goods'), findsOneWidget,
+        reason: 'PR 4: the shipper Home, which no longer says Book freight');
     selectOrganizationForWidget('platform', 'FINANCE', ['payment.capture']);
     await pumpAuthorizationFrames(tester);
     expect(find.text('Internal workspace'), findsOneWidget);
-    expect(find.text('Book freight'), findsNothing);
+    expect(find.text('Book a trip for new goods'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -95,8 +96,8 @@ void main() {
     AuthorizationSession.initialized = false;
     await tester.pumpWidget(const DriverPilotApp());
     await pumpAuthorizationFrames(tester);
-    expect(find.text('Sign in with phone'), findsOneWidget,
-        reason: 'a logged-out launch has to reach the driver welcome screen');
+    expect(find.text('Sign in with your phone'), findsOneWidget,
+        reason: 'a logged-out launch has to reach the sign-in');
     expect(AuthorizationSession.signedIn, isFalse);
     expect(tester.takeException(), isNull);
   });

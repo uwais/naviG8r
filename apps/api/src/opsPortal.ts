@@ -11,14 +11,14 @@ export function opsPortalHtml(
   const title = workflowOnly ? heading : `NaviG8r · ${heading}`;
   const fullDashboardPath = options.operations ? "/ops/v1" : "/admin/v1";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
-<style>body{font:16px system-ui;max-width:960px;margin:32px auto;padding:16px;color:#17243b}button,input,select{padding:10px;margin:6px}article{border:1px solid #ccd3de;border-radius:8px;padding:16px;margin:12px 0}label{display:block}#error{color:#a11212}#notice{color:#16623a;font-weight:600}small{display:block;color:#526079}
+<style>body{font:16px system-ui;max-width:960px;margin:32px auto;padding:16px;color:#17243b}button,input,select{padding:10px;margin:6px}article{border:1px solid #ccd3de;border-radius:8px;padding:16px;margin:12px 0}label{display:block}#error{color:#a11212}#notice{color:#16623a;font-weight:600}small{display:block;color:#526079}.ask button{min-height:48px}
 ${workflowOnly ? "" : "body{max-width:none;margin:0;padding:0}.dashboard-header{box-sizing:border-box;background:#102d4e;color:white;padding:20px 32px;display:flex;gap:24px;align-items:center;justify-content:space-between;font:15px system-ui,-apple-system,sans-serif}.dashboard-header strong{font-size:23px;letter-spacing:-.6px}.dashboard-header small{color:#bdd0e4;font-size:smaller}.dashboard-header nav{display:flex;gap:20px;align-items:center}.dashboard-header a{color:#d5e9ff;outline-offset:4px}.compact-dashboard{box-sizing:border-box;max-width:992px;margin:32px auto;padding:16px}.compact-dashboard input,.compact-dashboard select{box-sizing:border-box;max-width:calc(100% - 12px)}@media(max-width:650px){.dashboard-header{padding:18px;align-items:start}.dashboard-header nav{flex-direction:column;gap:8px;align-items:end}.compact-dashboard{margin:0 auto;padding:20px 14px}}"}
 .compact-dashboard h1{font-size:30px;letter-spacing:-.7px;margin:0 0 6px;color:#182c45}@media(max-width:650px){.compact-dashboard h1{font-size:25px}}
 </style></head><body>
 ${workflowOnly ? "" : `<header class="dashboard-header"><div><strong>NaviG8r</strong><small>Operations &amp; administration · V2</small></div><nav aria-label="Dashboard navigation"><a href="${fullDashboardPath}">Open full dashboard (V1)</a><a href="/workflow">Shipment / POD workspace</a></nav></header><main class="compact-dashboard">`}
 <h1>${heading}</h1>${workflowOnly ? '<nav><a href="/admin">Admin workspace</a></nav><p><a href="/admin/v1">Open full dashboard (V1)</a></p>' : ""}<p id="error" role="alert"></p>
 <section id="login"><label>Phone<input id="phone" autocomplete="tel"></label><button id="start">Send code</button><label>Verification code<input id="code" autocomplete="one-time-code"></label><button id="verify">Sign in</button></section>
-<section id="workspace" hidden><label>Acting organization<select id="organization"><option value="">Select an organization</option></select></label><button id="signout">Sign out</button><p id="roles"></p><p id="access"></p><div id="shipments"></div>
+<section id="workspace" hidden><label>Acting organization<select id="organization"><option value="">Select an organization</option></select></label><button id="signout">Sign out</button><p id="roles"></p><p id="access"></p><p id="released" role="status" tabindex="-1"></p><div id="shipments"></div>
 <section id="roleManagement" hidden><h2>Membership roles</h2><label>User ID<input id="memberUser"></label><label>Organization ID<input id="memberOrg"></label><label>Roles (comma separated)<input id="memberRoles" placeholder="OPS,FINANCE"></label><button id="saveRoles">Save roles</button></section>
 <section id="compliance" hidden><h2>Carrier compliance review</h2><p id="notice" role="status"></p><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="reason"></label><p>If you reject with DOCUMENTS_MISSING, BANK_DETAILS_MISMATCH, DUPLICATE_ACCOUNT or NOT_A_CARRIER, only the carrier's owner sees that reason in their app, in plain words; BANK_DETAILS_MISMATCH only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details.</p><h3>Not yet approved</h3><p id="kycEmpty" hidden>Every carrier is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Carrier organization ID<input id="carrierOrg"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
 ${workflowOnly ? "" : "</main>"}<script>
@@ -65,11 +65,32 @@ async function loadWorkspace(){
  for(const s of out.shipments){
   const row=document.createElement('article'), title=document.createElement('strong'), status=document.createElement('p');title.textContent=s.id;status.textContent=s.status;row.append(title,status);
   const hold=document.createElement('small');hold.textContent=s.paymentReady?'Ready for payment release':s.paymentHoldUntilUtcMs?'Payment held until acceptance or '+new Date(s.paymentHoldUntilUtcMs).toLocaleString():'Awaiting POD';row.append(hold);
-  if(s.status==='PENDING_RELEASE'&&principal.permissions.includes('payment.capture')){const b=document.createElement('button');b.textContent='Release payment';b.disabled=!s.paymentReady;b.onclick=perform(async()=>{await request('/ops/shipments/'+s.id+'/release','POST',{});await loadWorkspace();});row.append(b);}
+  if(s.status==='PENDING_RELEASE'&&principal.permissions.includes('payment.capture')){const b=document.createElement('button');b.textContent='Release payment';b.disabled=!s.paymentReady;b.onclick=perform(()=>askToRelease(row,b,s.id));row.append(b);}
   if(s.status==='PENDING_RELEASE'&&!s.podAcceptedAtUtcMs&&principal.permissions.includes('pod.accept')){const b=document.createElement('button');b.textContent='Accept POD';b.onclick=perform(async()=>{await request('/shipments/'+s.id+'/accept-pod','POST',{});await loadWorkspace();});row.append(b);}
   $('shipments').append(row);
  }
  if(!$('compliance').hidden) await loadKycQueue();
+}
+const rupees=paise=>'₹'+(paise/100).toLocaleString('en-IN',{minimumFractionDigits:paise%100?2:0,maximumFractionDigits:2});
+// Releasing sends money, so the first tap only asks, with the amount, carrier and route read fresh from the server.
+async function askToRelease(row,button,shipmentId){
+ let detail; button.disabled=true;$('released').textContent='';
+ try{detail=await request('/ops/shipments/'+encodeURIComponent(shipmentId));}finally{button.disabled=false;}
+ const s=detail.shipment;
+ if(s.status!=='PENDING_RELEASE'||!s.paymentReady) throw Error('This payment is no longer waiting for release. Reload to see where it stands.');
+ if(!Number.isFinite(s.netToCarrierPaise)) throw Error('Release is off for this shipment: the server did not send the amount. Nothing was released.');
+ const route=s.pickupAddress&&s.dropAddress?s.pickupAddress+' to '+s.dropAddress:'shipment '+s.id, credit=rupees(s.netToCarrierPaise);
+ const ask=document.createElement('div'),question=document.createElement('p'),confirmRelease=document.createElement('button'),cancel=document.createElement('button');
+ question.textContent='Release payment for '+route+'? '+credit+' is credited to '+detail.carrierOrgName+"'s ledger and paid out in the payout batch, not sent now.";
+ confirmRelease.textContent='Confirm release';cancel.textContent='Cancel';
+ ask.className='ask';ask.setAttribute('role','group');ask.setAttribute('aria-label',question.textContent);ask.append(question,confirmRelease,cancel);
+ cancel.onclick=()=>{ask.remove();button.hidden=false;button.focus();};
+ confirmRelease.onclick=perform(async()=>{confirmRelease.disabled=cancel.disabled=true;try{await request('/ops/shipments/'+encodeURIComponent(shipmentId)+'/release','POST',{});}finally{confirmRelease.disabled=cancel.disabled=false;}
+  // The reload removes the row and its buttons, so focus moves to the result instead of being dropped.
+  // The result is shown before the reload so a failed reload cannot hide a release that went through.
+  $('released').textContent='Payment released for shipment '+shipmentId+': '+credit+' credited to '+detail.carrierOrgName+"'s ledger.";$('released').focus();
+  try{await loadWorkspace();}catch(e){$('released').textContent+=' Released, but the list could not refresh. Reload the page.';}});
+ button.hidden=true;row.append(ask);cancel.focus();
 }
 const kycLabels={SUBMITTED:'Bank details submitted',NOT_STARTED:'No bank details yet',REJECTED:'Rejected'};
 async function loadKycQueue(){

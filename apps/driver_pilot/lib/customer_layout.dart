@@ -1,20 +1,28 @@
 import "package:flutter/material.dart";
 
-import "driver_theme.dart";
+import "ui/nv_header.dart";
+import "ui/tokens.dart";
 
-/// Layout breakpoints for customer web (mobile vs desktop).
+/// Shipper layout sizes. From [desktop] wide the screens use the top bar and two columns
+/// (mockups wb-*); below it they use the phone layout, centred.
 abstract final class CustomerBreakpoints {
-  static const double tablet = 600;
-  static const double desktop = 900;
-  static const double contentWide = 1100;
-  static const double contentNarrow = 640;
+  static const double desktop = 1024;
+  static const double contentMax = 1200;
+  static const double phoneContentMax = 640;
+  static const double desktopGutter = 32;
+  static const double sideColumn = 340;
+
+  /// The narrowest a lane card gets in the desktop grid.
+  static const double laneCardMin = 320;
+
+  /// Below this width the shipments table scrolls sideways inside its own box.
+  static const double tableMin = 880;
 }
 
-bool customerUseRail(double width) => width >= CustomerBreakpoints.desktop;
+bool customerIsDesktop(BuildContext context) =>
+    MediaQuery.sizeOf(context).width >= CustomerBreakpoints.desktop;
 
-bool customerIsWide(double width) => width >= CustomerBreakpoints.tablet;
-
-/// Centers customer page content with readable max width on larger screens.
+/// Centres a shipper page's content: up to 1200 wide on a desktop, a phone column otherwise.
 class CustomerPageFrame extends StatelessWidget {
   const CustomerPageFrame({required this.child, super.key});
 
@@ -22,111 +30,131 @@ class CustomerPageFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = customerIsWide(constraints.maxWidth);
-        final maxW = wide ? CustomerBreakpoints.contentWide : CustomerBreakpoints.contentNarrow;
-        return Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxW),
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: wide ? 32 : 16, vertical: wide ? 8 : 0),
-              child: child,
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Two-column row on desktop; stacks on mobile.
-class CustomerResponsiveRow extends StatelessWidget {
-  const CustomerResponsiveRow({
-    required this.primary,
-    required this.secondary,
-    this.secondaryFlex = 1,
-    this.primaryFlex = 1,
-    super.key,
-  });
-
-  final Widget primary;
-  final Widget secondary;
-  final int primaryFlex;
-  final int secondaryFlex;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth >= CustomerBreakpoints.desktop) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(flex: primaryFlex, child: primary),
-              const SizedBox(width: 24),
-              Expanded(flex: secondaryFlex, child: secondary),
-            ],
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            primary,
-            const SizedBox(height: 16),
-            secondary,
-          ],
-        );
-      },
+    final desktop = customerIsDesktop(context);
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+            maxWidth: desktop
+                ? CustomerBreakpoints.contentMax +
+                    2 * CustomerBreakpoints.desktopGutter
+                : CustomerBreakpoints.phoneContentMax),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+              horizontal:
+                  desktop ? CustomerBreakpoints.desktopGutter : NvSpace.gutter),
+          child: child,
+        ),
+      ),
     );
   }
 }
 
 const List<NavigationDestination> kCustomerNavDestinations = [
-  NavigationDestination(icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: "Home"),
-  NavigationDestination(icon: Icon(Icons.travel_explore_outlined), selectedIcon: Icon(Icons.travel_explore), label: "Trips"),
-  NavigationDestination(icon: Icon(Icons.shopping_cart_outlined), selectedIcon: Icon(Icons.shopping_cart), label: "Book"),
-  NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: "Shipments"),
+  NavigationDestination(
+      icon: Icon(Icons.home_outlined),
+      selectedIcon: Icon(Icons.home),
+      label: "Home"),
+  NavigationDestination(
+      icon: Icon(Icons.travel_explore_outlined),
+      selectedIcon: Icon(Icons.travel_explore),
+      label: "Book a trip"),
+  NavigationDestination(
+      icon: Icon(Icons.receipt_long_outlined),
+      selectedIcon: Icon(Icons.receipt_long),
+      label: "Shipments"),
 ];
 
-List<NavigationRailDestination> customerRailDestinations() {
-  return kCustomerNavDestinations
-      .map(
-        (d) => NavigationRailDestination(
-          icon: d.icon,
-          selectedIcon: d.selectedIcon ?? d.icon,
-          label: Text(d.label),
-        ),
-      )
-      .toList();
-}
+/// The desktop top bar: [header] carries the links and the account button, lined up with the
+/// page's content below it.
+class CustomerTopBar extends StatelessWidget implements PreferredSizeWidget {
+  const CustomerTopBar({required this.header, super.key});
 
-/// Branded side header for desktop customer shell.
-class CustomerBrandHeader extends StatelessWidget {
-  const CustomerBrandHeader({super.key});
+  final NvHeader header;
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "NaviG8r",
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: DriverTheme.navy,
+  Size get preferredSize => header.preferredSize;
+
+  // The header draws the same bottom line in the same place, so the two read as one line.
+  @override
+  Widget build(BuildContext context) => Material(
+        color: NvColors.page,
+        shape: const Border(bottom: BorderSide(color: NvColors.line)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: CustomerBreakpoints.desktopGutter - NvSpace.s2),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                  maxWidth: CustomerBreakpoints.contentMax + 2 * NvSpace.s2),
+              child: header,
+            ),
+          ),
+        ),
+      );
+}
+
+/// The name and the three tabs as links, for the desktop top bar. The links scroll sideways
+/// rather than overflow when large text meets a narrow window.
+class CustomerTopNavigation extends StatelessWidget {
+  const CustomerTopNavigation(
+      {required this.selectedIndex, required this.onSelect, super.key});
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        Padding(
+          padding: const EdgeInsets.only(left: NvSpace.s2, right: NvSpace.s6),
+          child: Text("NaviG8r",
+              style: NvText.heading.copyWith(fontWeight: FontWeight.w800)),
+        ),
+        Flexible(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (final (index, destination)
+                  in kCustomerNavDestinations.indexed)
+                Padding(
+                  padding: const EdgeInsets.only(right: NvSpace.s1),
+                  child: _TopNavigationLink(
+                      label: destination.label,
+                      selected: index == selectedIndex,
+                      onTap: () => onSelect(index)),
                 ),
+            ]),
           ),
-          const SizedBox(height: 4),
-          Text(
-            "Book & track freight",
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: DriverTheme.muted),
+        ),
+      ]);
+}
+
+class _TopNavigationLink extends StatelessWidget {
+  const _TopNavigationLink(
+      {required this.label, required this.selected, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => MergeSemantics(
+        child: Semantics(
+          selected: selected,
+          child: TextButton(
+            onPressed: onTap,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(0, NvSpace.targetMin),
+              padding: const EdgeInsets.symmetric(horizontal: NvSpace.s3),
+              backgroundColor: selected ? NvColors.navIndicator : null,
+              foregroundColor: selected ? NvColors.navyInk : NvColors.slate,
+              textStyle: NvText.bodyStrong,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(NvRadius.button)),
+            ),
+            child: Text(label),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
 }

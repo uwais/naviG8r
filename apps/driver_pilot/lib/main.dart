@@ -1,6 +1,6 @@
 import "dart:async";
 
-import "package:flutter/foundation.dart" show kIsWeb;
+import "package:flutter/foundation.dart" show kIsWeb, kReleaseMode;
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
@@ -8,13 +8,16 @@ import "package:go_router/go_router.dart";
 
 import "authorization_session.dart";
 import "organization_access.dart";
-import "customer_flow.dart";
+import "shipper/shipment_screen.dart";
+import "shipper/shipper_routes.dart";
+import "shipper/shipper_scaffold.dart";
 import "driver_flow.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
-import "pilot_api.dart";
 import "notification_center.dart";
+import "pilot_api.dart";
+import "shipment_conversation.dart";
 import "push_notifications.dart";
 
 Future<void> _copyToClipboard(
@@ -109,27 +112,32 @@ class _DriverPilotAppState extends State<DriverPilotApp>
             path: "/workspace", builder: (_, __) => const SizedBox.shrink()),
         ...driverFlowRoutes(),
         ...customerFlowRoutes(),
-        GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
         GoRoute(
             path: "/", redirect: (_, __) => kIsWeb ? "/customer" : "/driver"),
-        GoRoute(path: "/register", builder: (_, __) => const RegisterScreen()),
+        // Kept in release for links to /login?mode=customer; without it, release goes to the start.
         GoRoute(
           path: "/login",
           redirect: (context, state) {
             if (state.uri.queryParameters["mode"] == "customer")
               return "/customer/login";
-            return null;
+            return kReleaseMode ? "/" : null;
           },
           builder: (_, __) => const LoginScreen(),
         ),
-        GoRoute(path: "/trips", builder: (_, __) => const MyTripsScreen()),
-        GoRoute(
-          path: "/trips/:tripId",
-          builder: (_, state) =>
-              TripDetailScreen(tripId: state.pathParameters["tripId"] ?? ""),
-        ),
-        GoRoute(
-            path: "/publish", builder: (_, __) => const PublishTripScreen()),
+        // The developer lab is left out of release builds; its link is hidden there too.
+        if (!kReleaseMode) ...[
+          GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
+          GoRoute(
+              path: "/register", builder: (_, __) => const RegisterScreen()),
+          GoRoute(path: "/trips", builder: (_, __) => const MyTripsScreen()),
+          GoRoute(
+            path: "/trips/:tripId",
+            builder: (_, state) =>
+                TripDetailScreen(tripId: state.pathParameters["tripId"] ?? ""),
+          ),
+          GoRoute(
+              path: "/publish", builder: (_, __) => const PublishTripScreen()),
+        ],
       ],
     );
 
@@ -189,6 +197,7 @@ class _DriverPilotAppState extends State<DriverPilotApp>
       ),
       title: kIsWeb ? "NaviG8r Customer" : "NaviG8r Driver",
       theme: DriverTheme.theme(),
+      themeMode: ThemeMode.light,
       routerConfig: router,
     );
   }
@@ -209,7 +218,9 @@ Future<void> _openPushNotification(String notificationId) async {
     if (!identityIsCurrent()) return;
     final organizationId = route['organizationId']?.toString();
     final shipmentId = route['shipmentId']?.toString();
-    if (organizationId == null || shipmentId == null) return;
+    // A driver's new-trip notice opens the trip instead of a shipment.
+    final tripId = route['tripId']?.toString();
+    if (organizationId == null || (shipmentId == null && tripId == null)) return;
     if (!AuthorizationSession.organizations
         .any((org) => org['id'] == organizationId)) {
       await AuthorizationSession.refresh();
@@ -221,11 +232,16 @@ Future<void> _openPushNotification(String notificationId) async {
       await AuthorizationSession.selectOrganization(organizationId);
     }
     if (!identityIsCurrent()) return;
-    if (!AuthorizationSession.can('conversation.read')) return;
     final context = _rootNavigatorKey.currentContext;
     if (context == null || !context.mounted) return;
+    if (tripId != null) {
+      await openTripNotice(context,
+          notificationId: notificationId, tripId: tripId);
+      return;
+    }
+    if (!AuthorizationSession.can('conversation.read')) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => ShipmentConversationScreen(shipmentId: shipmentId),
+      builder: (_) => ShipmentConversationScreen(shipmentId: shipmentId!),
     ));
   } catch (_) {
     // Push payloads are hints; the authenticated resolver decides whether to open.
@@ -1313,13 +1329,12 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Suggested freight (lane reference)",
+                    "Suggested amount to you (lane reference)",
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    "Advisory — customer quotes use shipment pickup→drop when booked. "
-                    "Tune server env FREIGHT_PAISE_PER_KM_*.",
+                    "Advisory: about what you would receive for a load on this lane.",
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 10),
@@ -1346,14 +1361,14 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                         .map((s) {
                       final m = Map<String, dynamic>.from(s);
                       final w = m["weightKg"];
-                      final gp = m["grossPaise"];
-                      final rupees = (gp is num)
-                          ? (gp / 100).toStringAsFixed(
-                              (gp.remainder(100).abs() < 1e-6) ? 0 : 2)
+                      final netToCarrierPaise = m["netToCarrierPaise"];
+                      final rupees = (netToCarrierPaise is num)
+                          ? (netToCarrierPaise / 100).toStringAsFixed(
+                              (netToCarrierPaise.remainder(100).abs() < 1e-6) ? 0 : 2)
                           : "?";
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 4),
-                        child: Text("≈ ₹$rupees total at ${w ?? "?"} kg"),
+                        child: Text("≈ ₹$rupees to you at ${w ?? "?"} kg"),
                       );
                     })),
                   ] else

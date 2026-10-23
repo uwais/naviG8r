@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bookings list</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="scr">
+  <header class="hdr">
+    <a class="hdr-who-btn" href="c-menu.dc.html" aria-haspopup="dialog" aria-label="Ravi Roadways, Ravi Shetty, Owner. Switch company or sign out"><span class="hdr-text"><span class="hdr-co">Ravi Roadways</span><span class="hdr-sub">Ravi Shetty · Owner</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a>
+  </header>
+  <main class="body body--tight" aria-labelledby="h">
+    <h1 id="h" class="h1">Bookings</h1>
+    <div class="chips" role="group" aria-label="Show">
+      <button class="chip" type="button" aria-pressed="true">Needs you (2)</button>
+      <button class="chip" type="button" aria-pressed="false">Active</button>
+      <button class="chip" type="button" aria-pressed="false">Done</button>
+    </div>
+    <a class="lane" href="ca-booking-new.dc.html" style="border-color: var(--navy);">
+      <div class="lane-top"><p class="h2">Sharma Textiles</p><span class="st st-att">Waiting for you</span></div>
+      <p class="cap-ink">Bommasandra, Bengaluru <span class="route-arrow">to</span> Guindy, Chennai</p>
+      <p class="cap">18 Oct · 80 kg · E-way bill: needed</p>
+      <p class="cap-ink"><span class="strong">Next:</span> accept and choose the truck.</p>
+      <svg class="lane-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+    </a>
+    <a class="lane" href="ca-booking-truck.dc.html">
+      <div class="lane-top"><p class="h2">Lakshmi Foods</p><span class="st st-att">Truck not on bill</span></div>
+      <p class="cap-ink">Hosur <span class="route-arrow">to</span> Peelamedu, Coimbatore</p>
+      <p class="cap">19 Oct · 400 kg</p>
+      <p class="cap-ink"><span class="strong">Next:</span> add the truck to the e-way bill.</p>
+      <svg class="lane-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+    </a>
+  </main>
+  <nav class="nav" aria-label="Main">
+    <a class="tab" href="ca-home.dc.html"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg></span>Home</a>
+    <a class="tab" aria-current="page" href="ca-bookings.dc.html"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg></span>Bookings</a>
+    <a class="tab" href="ca-trips.dc.html"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17" r="1.6"/><circle cx="17" cy="17" r="1.6"/></svg></span>Trips</a>
+    <a class="tab" href="ca-publish.dc.html"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>Publish</a>
+    <a class="tab" href="ca-profile.dc.html"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></span>Profile</a>
+  </nav>
+</div>
+
+</body>
+</html>

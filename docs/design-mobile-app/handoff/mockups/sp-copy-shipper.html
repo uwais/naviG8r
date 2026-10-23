@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Copy: start, sign in, shipper</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 1040px; min-height: 2600px; gap: 22px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Copy: start, sign in, shipper</h1>
+    <p class="lead" style="max-width: 820px;">Every visible string, by screen. Brackets mark text the team still has to supply. Placeholders in examples (names, numbers) are synthetic.</p>
+  </div>
+
+  <h2 class="spec-sub">Formats (every screen)</h2>
+  <table class="tbl"><thead><tr><th style="width: 180px;">Thing</th><th>Format</th><th>Never</th></tr></thead><tbody>
+    <tr><td class="k">Date</td><td>18 Oct · 18 – 19 Oct · 18 Oct 2026 when the year is not this year, or in a form</td><td>2026-10-17, 10/17</td></tr>
+    <tr><td class="k">Time</td><td>16:40 IST (24-hour)</td><td>7:41 AM</td></tr>
+    <tr><td class="k">Money</td><td>₹2,640 (Indian grouping, no paise unless paise matter, tabular figures)</td><td>₹4704.35 net, "Net to carrier: ₹45"</td></tr>
+    <tr><td class="k">Weight, room</td><td>80 kg · Room left: 105 kg</td><td>Capacity 1000 kg (895 kg reserved)</td></tr>
+    <tr><td class="k">Shipment name</td><td>Route plus date: "Bengaluru to Chennai, 18 Oct"</td><td>SHP_4135, any internal ID</td></tr>
+    <tr><td class="k">Copyable IDs</td><td>Mono face. Bill numbers shown as 3412 0098 7654, copied without spaces</td><td>Body face for IDs</td></tr>
+  </tbody></table>
+
+  <h2 class="spec-sub">Start, sign in, code, account menu</h2>
+  <table class="tbl"><thead><tr><th style="width: 180px;">Element</th><th>Copy</th><th style="width: 260px;">Notes</th></tr></thead><tbody>
+    <tr><td class="k">Start title</td><td>How do you use NaviG8r?</td><td>Replaces the Flutter logo screen</td></tr>
+    <tr><td class="k">Start sub</td><td>Choose one. You can add the other later from the account menu.</td><td></td></tr>
+    <tr><td class="k">Choice 1</td><td>I ship goods · Book space on a carrier's trip and follow it to delivery.</td><td>Question 2: one app or two</td></tr>
+    <tr><td class="k">Choice 2</td><td>I carry goods · For truck owners, dispatchers and drivers.</td><td></td></tr>
+    <tr><td class="k">Start footer</td><td>Already have an account? Either choice signs you in with your phone number. · New carrier? Sign in first, then register your company.</td><td>"Developer lab" removed from release builds</td></tr>
+    <tr><td class="k">Sign-in title, sub</td><td>Sign in with your phone · We send a 6-digit code to this number by SMS.</td><td></td></tr>
+    <tr><td class="k">Field, help, button</td><td>Mobile number · 10 digits. Standard SMS rates may apply. · Send code</td><td>+91 shown as a fixed prefix</td></tr>
+    <tr><td class="k">Role reminder</td><td>Signing in to ship goods. · I carry goods instead</td><td></td></tr>
+    <tr><td class="k">Code screen</td><td>Enter the code · We sent a 6-digit code to +91 98450 12345. · 6-digit code · The code fills in by itself if your phone reads the SMS. · Sign in</td><td>No "Challenge id" field</td></tr>
+    <tr><td class="k">Resend</td><td>No SMS yet? You can ask for a new code in 0:24. · Send a new code · Change number</td><td>A real timer, not urgency</td></tr>
+    <tr><td class="k">Code errors</td><td>That code is not right. Check the SMS and type it again, or send a new code. · This code has expired. Send a new code.</td><td>role="alert"</td></tr>
+    <tr><td class="k">Code loading</td><td>Signing you in</td><td>On the button</td></tr>
+    <tr><td class="k">Account menu</td><td>[Name] · [full phone] · YOUR COMPANIES · [Company] [Role] · Add a company · Register as a carrier, or join one · Sign out · Close</td><td>The only place for switching and sign-out</td></tr>
+  </tbody></table>
+
+  <h2 class="spec-sub">Shipper home, Find a lane</h2>
+  <table class="tbl"><thead><tr><th style="width: 180px;">Element</th><th>Copy</th><th style="width: 260px;">Notes</th></tr></thead><tbody>
+    <tr><td class="k">Header</td><td>[Company] · [Person] · [Role: Shipper, Owner, Dispatcher, Driver]</td><td></td></tr>
+    <tr><td class="k">Home</td><td>Home · NEEDS YOU · [the next task, e.g. "Make the e-way bill"] · [route, date, who did what] · Open shipment · Your shipments · Updates · [n] new since yesterday · Find a lane for new goods</td><td>Nothing needs you: card hidden; Find a lane becomes primary</td></tr>
+    <tr><td class="k">Lanes title, sub</td><td>Find a lane · Pick a lane going your way.</td><td></td></tr>
+    <tr><td class="k">Switch</td><td>Browse all · Match my route</td><td></td></tr>
+    <tr><td class="k">Browse note</td><td>Every open lane, not sorted by distance. To see the closest to your route first, use Match my route.</td><td>Browse is not ranked</td></tr>
+    <tr><td class="k">Match result line</td><td>[n] lanes with room for [weight] kg, closest to your route first.</td><td>Announced</td></tr>
+    <tr><td class="k">Lane card</td><td>[From] to [To] · [Carrier] · [Size] truck · Dates · Room left · [Open | Full]</td><td>Full lane: "Room left: None"</td></tr>
+    <tr><td class="k">Empty, match</td><td>No lanes pass near this route with room for [weight] kg. · Try a lower weight, or browse all lanes. · Change weight · Browse all lanes</td><td></td></tr>
+    <tr><td class="k">Empty, browse</td><td>No lanes are open right now. · New lanes appear here when carriers publish them.</td><td></td></tr>
+    <tr><td class="k">Loading, error</td><td>Loading lanes. · Could not load lanes. Check your connection, then try again. · Try again</td><td></td></tr>
+  </tbody></table>
+
+  <h2 class="spec-sub">Book and pay</h2>
+  <table class="tbl"><thead><tr><th style="width: 180px;">Element</th><th>Copy</th><th style="width: 260px;">Notes</th></tr></thead><tbody>
+    <tr><td class="k">Title, sub</td><td>Book space · Check the price, then pay.</td><td></td></tr>
+    <tr><td class="k">Fields</td><td>Weight · Up to [room] kg on this lane. · Pickup · Drop · Change</td><td>Start at the searched values, else empty</td></tr>
+    <tr><td class="k">Button 1</td><td>Get price · loading: Getting price</td><td>Was "Get quote"</td></tr>
+    <tr><td class="k">Price</td><td>Price · ₹[amount] · This is the full price. Nothing is added at payment. · Changing weight, pickup or drop clears this price, and you get a new one.</td><td>Tax line only if question 5 says so</td></tr>
+    <tr><td class="k">Above Pay</td><td>Your payment is held when you book and collected after delivery. Booked shipments cannot be cancelled in the app; to change one, contact [NaviG8r contact].</td><td>Open item 6 (contact)</td></tr>
+    <tr><td class="k">Button 2</td><td>Pay ₹[amount] and book</td><td>Was "Book &amp; pay"; only after a price</td></tr>
+    <tr><td class="k">Confirm sheet</td><td>Pay ₹[amount] to book? · Lane · Carrier · Dates · Weight · You pay · The payment is held now and collected after delivery. · [Carrier] then accepts and names the truck. · You cannot cancel in the app. To change the booking, contact [NaviG8r contact]. · Continue to payment · Go back · Next, you choose how to pay on the payment provider's screen.</td><td>Not checked: provider's screen</td></tr>
+    <tr><td class="k">Too heavy</td><td>This lane does not have room for that weight. Enter a lower weight, or choose another lane. · Choose another lane</td><td>Replaces "HTTP 400"</td></tr>
+  </tbody></table>
+
+  <h2 class="spec-sub">Shipment screen and e-way bill</h2>
+  <table class="tbl"><thead><tr><th style="width: 180px;">Element</th><th>Copy</th><th style="width: 260px;">Notes</th></tr></thead><tbody>
+    <tr><td class="k">Summary</td><td>[From] to [To] · [Status] · [pickup locality] to [drop locality] · [weight] · [dates] · [carrier] · Messages · Change or cancel</td><td>Title is the route, not the carrier</td></tr>
+    <tr><td class="k">Steps</td><td>Booked and paid · Carrier accepts and names the truck · E-way bill · Bill check · On the way · Delivered</td><td>Each with who: You, [Carrier], NaviG8r staff</td></tr>
+    <tr><td class="k">Waiting</td><td>Waiting for [Carrier] to accept. Your payment is on hold; it is collected after delivery.</td><td>Brief A.3</td></tr>
+    <tr><td class="k">Step 0</td><td>Does this load need an e-way bill? · [one line from the team] · Yes, make one · No e-way bill needed · [Carrier] sees your answer before accepting.</td><td>Neither preselected</td></tr>
+    <tr><td class="k">Before acceptance</td><td>You can make the bill once the carrier accepts and names the truck. We will send you an update.</td><td>True after PR #153</td></tr>
+    <tr><td class="k">Step 1</td><td>Make the bill on the government portal. Copy these two in: · Truck number · Portal field: Vehicle No. (Part B) · Carrier's transporter ID · Portal field: Transporter ID. Not your GSTIN. · Make it on loading day, before the goods move: the bill is valid from when the truck is entered. · Open the e-way bill portal · I have made it. Enter the details</td><td>No transporter ID: "[Carrier] has not added one. Leave Transporter ID empty. Only you, the bill's maker, can then change the truck."</td></tr>
+    <tr><td class="k">Step 2</td><td>E-WAY BILL · PART 2 OF 2 · Enter the bill's details · Copy these four from the bill on the portal. · E-way bill number · 12 digits, at the top of the bill. · Bill date · Your GSTIN · The GSTIN that made the bill. Not the carrier's transporter ID. · Invoice number · Save e-way bill · NaviG8r staff then check it on the portal.</td><td></td></tr>
+    <tr><td class="k">Step 2 errors</td><td>[n] details need fixing before you can save. · This has [n] digits. An e-way bill number has 12. · This is the carrier's transporter ID. Enter the GSTIN that made the bill.</td><td></td></tr>
+    <tr><td class="k">Step 3</td><td>Bill [number] saved. The truck is not on it yet. · Add the truck on the portal before the goods move, then enter it here. · Portal: Update Part B, Vehicle No. · The bill's validity starts when the truck is added: one day per 200 km, ending at midnight India time. · Add truck</td><td>Shipper or carrier</td></tr>
+    <tr><td class="k">Step 4</td><td>E-way bill saved. Nothing more for you to do until delivery. · NaviG8r staff check the bill on the portal by hand. We will tell you if anything needs fixing.</td><td></td></tr>
+    <tr><td class="k">Step 4 problem</td><td>E-way bill needs a fix · NaviG8r staff found a difference · The [field] on the portal's bill is [value]. You entered [value]. · If the portal is right, fix it here. If the bill itself is wrong, change it on the portal first. · Fix the details · Ask NaviG8r staff</td><td></td></tr>
+    <tr><td class="k">Footnote</td><td>NaviG8r never makes or changes an e-way bill. You make it on the portal.</td><td>Once per screen, small</td></tr>
+    <tr><td class="k">Not needed</td><td>E-way bill: not needed · You said so on [date]. [Carrier] saw this before accepting. · Change</td><td></td></tr>
+    <tr><td class="k">On the way</td><td>Left [pickup] on [date] at [time] IST. [Carrier] confirms when it is delivered. · Message [Carrier]</td><td></td></tr>
+    <tr><td class="k">Delivered</td><td>[Carrier] confirmed delivery and added proof of delivery. Your payment of ₹[amount] is collected now. · View proof of delivery · Book another shipment</td><td>Open item 8 (payment issue)</td></tr>
+    <tr><td class="k">Cancelled</td><td>This shipment was cancelled · NaviG8r operations cancelled it on [date] at your request. · You paid · Refunded · Refunds reach your account in the time your bank or payment app takes. · Questions about this refund? Contact [NaviG8r contact].</td><td>Replaces the system code</td></tr>
+    <tr><td class="k">Updates</td><td>[Carrier] accepted your shipment · [Route, date]. You can make the e-way bill now. · Your shipment is on the way · E-way bill checked · Delivered · Proof of delivery is ready.</td><td>Named by route and date</td></tr>
+  </tbody></table>
+</div>
+
+</body>
+</html>
