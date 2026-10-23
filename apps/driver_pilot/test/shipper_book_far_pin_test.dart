@@ -97,19 +97,27 @@ void main() {
     ({String sentence, String help}) refusal(Map<String, Object> body) =>
         farPinsRefusal(body, startTown: 'Hoskote', endTown: 'Kolar');
 
-    test("the server's refusal names the pin it refused and how far", () {
+    test("the server's refusal names the pin it refused, how far, and its limit", () {
       expect(
           refusal({'pickupDistanceKm': 15.3, 'dropDistanceKm': 2, 'maxPickupKm': 15, 'maxDropKm': 15}),
           (
             sentence:
-                'Pickup pin is 16 km from Hoskote.',
+                'Pickup pin is about 16 km from Hoskote. This trip picks up within 15 km.',
             help: 'Move the pickup pin, or choose another trip.',
           ));
       expect(
           refusal({'pickupDistanceKm': 20.1, 'dropDistanceKm': 30, 'maxPickupKm': 12.5, 'maxDropKm': 15})
               .sentence,
-          'Pickup pin is 21 km from Hoskote, drop pin 30 km from Kolar.',
-          reason: 'distance rounded up');
+          'Pickup pin is about 21 km from Hoskote, drop pin about 30 km from Kolar. '
+          'This trip picks up within 12 km and drops within 15 km.',
+          reason: 'distance rounded up, limit rounded down');
+    });
+
+    test("without the server's limits, a pin over 15 km is named and no limit is said", () {
+      expect(refusal({'pickupDistanceKm': 2, 'dropDistanceKm': 15.3}), (
+        sentence: 'Drop pin is about 16 km from Kolar.',
+        help: 'Move the drop pin, or choose another trip.',
+      ));
     });
 
     test("without the server's numbers, both pins", () {
@@ -226,7 +234,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
         find.text(
-            'Drop pin is 14 km from Kolar.'),
+            'Drop pin is about 14 km from Kolar. This trip drops within 12 km.'),
         findsOneWidget,
         reason: 'not "Could not book. Check your connection"');
     expectNoPrice(tester);

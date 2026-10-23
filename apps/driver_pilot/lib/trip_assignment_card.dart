@@ -391,7 +391,7 @@ class _AssignSheetState extends State<_AssignSheet> {
               style: NvText.body),
         if (onTheRoadWithNoDriverAssigned)
           const Text(
-              'A driver who started it stops seeing it.',
+              'A driver who started it stops seeing it when you choose someone else.',
               style: NvText.body),
         const SizedBox(height: NvSpace.s2),
         NvChoiceRows<String>(

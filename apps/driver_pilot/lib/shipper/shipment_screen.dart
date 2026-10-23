@@ -511,7 +511,7 @@ class _CustomerShipmentDetailScreenState
                     style: NvText.body)
               else if (holdReleased)
                 const Text(
-                    "NaviG8r never collected this payment. It comes back within 3 days. Your bank may take 5-7 more working days.",
+                    "NaviG8r never collected this payment. It comes back within 3 days of when you paid. Your bank may take 5-7 more working days.",
                     style: NvText.body)
               else if (collectedAfterCancel)
                 const Text(

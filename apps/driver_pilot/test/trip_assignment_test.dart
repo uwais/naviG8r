@@ -32,7 +32,7 @@ const completedSentence =
 const staleChoiceSentence =
     'Choose a truck from your own fleet. Tap Refresh to load your trucks and drivers again.';
 const onTheRoadSentence =
-    'A driver who started it stops seeing it.';
+    'A driver who started it stops seeing it when you choose someone else.';
 const sheetTitle = 'Who drives this trip?';
 const driverSees =
     'The driver never sees payments.';

@@ -107,7 +107,7 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
                       ? 'NaviG8r released your payment.'
                       : ready
                           ? 'NaviG8r checks it, then releases your payment.'
-                          : 'Payment on hold${until == null ? '' : ' until $until'}. Accept delivery to release it sooner.'),
+                          : 'Payment on hold${until == null ? '' : ' until $until'}.${_canAccept ? ' Accept delivery to release it sooner.' : ''}'),
                 ],
                 if (photoIds.isNotEmpty) ...[
                   const SizedBox(height: 8),

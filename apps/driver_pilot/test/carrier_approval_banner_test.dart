@@ -57,7 +57,7 @@ void main() {
       (tester) async {
     signInCarrier(kycStatus: 'NOT_STARTED', owner: true);
     final router = await showBanner(tester);
-    expect(find.textContaining('so NaviG8r can approve your company'), findsOneWidget);
+    expect(find.textContaining('so NaviG8r can check your company'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, 'Add bank details'));
     await tester.pumpAndSettle();
     // The form shows the banner without its button, so no button means the form is open.
@@ -82,7 +82,7 @@ void main() {
   testWidgets('no button to the bank form while already on it', (tester) async {
     signInCarrier(kycStatus: 'NOT_STARTED', owner: true);
     await showBanner(tester, at: '/driver/payout-setup');
-    expect(find.textContaining('so NaviG8r can approve your company'), findsOneWidget);
+    expect(find.textContaining('so NaviG8r can check your company'), findsOneWidget);
     expect(find.byType(FilledButton), findsNothing);
   });
 
@@ -229,7 +229,7 @@ void main() {
       (tester) async {
     signInCarrier(kycStatus: 'NOT_STARTED', owner: true);
     await showBanner(tester);
-    expect(find.textContaining('so NaviG8r can approve your company'), findsOneWidget);
+    expect(find.textContaining('so NaviG8r can check your company'), findsOneWidget);
 
     AuthorizationSession.organizations.first['kycStatus'] = 'SUBMITTED';
     AuthorizationSession.revision.value++;

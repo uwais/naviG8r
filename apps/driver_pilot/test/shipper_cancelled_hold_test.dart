@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/shipper_shipment_app.dart';
 
 const _held =
-    'NaviG8r never collected this payment. It comes back within 3 days. Your bank may take 5-7 more working days.';
+    'NaviG8r never collected this payment. It comes back within 3 days of when you paid. Your bank may take 5-7 more working days.';
 const _cancelTheBill =
     'Made an e-way bill? Cancel it on the portal within 24 hours of making it.';
 

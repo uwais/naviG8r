@@ -3124,7 +3124,7 @@ const _tripNoLongerAssignedSentence =
 
 /// While a trip is in transit and this screen is open, the driver's phone sends its position, and shippers see it.
 const _locationSharedSentence =
-    "Shippers see your location while this app is open.";
+    "Shippers see your location while you are on the way and this app is open.";
 
 /// In place of the sentence above when location is refused or switched off, so nothing is being sent.
 const _locationOffSentence =

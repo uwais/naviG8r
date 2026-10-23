@@ -95,7 +95,7 @@ class CarrierApprovalBanner extends StatelessWidget {
       "REJECTED" => _rejectedMessage(owner: owner),
       _ => owner
           ? (
-              "Add bank details so NaviG8r can approve your company. Until then, you cannot accept bookings or start trips.",
+              "Add bank details so NaviG8r can check your company. Until then, you cannot accept bookings or start trips.",
               "Add bank details"
             )
           : (

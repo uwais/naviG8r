@@ -4,6 +4,7 @@ import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/organization_access.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/shipment_payment_status.dart';
+import 'package:driver_pilot/ui/format.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,6 +39,8 @@ void main() {
         'paymentReady': accepted,
         'paymentHoldUntilUtcMs': 172801000,
       };
+  final holdEnds = DateTime.fromMillisecondsSinceEpoch(172801000, isUtc: true);
+  final holdUntil = '${formatDate(holdEnds)}, ${formatTimeIst(holdEnds)}';
 
   testWidgets(
       'accepting delivery requires confirmation and refreshes server state',
@@ -61,7 +64,9 @@ void main() {
                         setState(() => accepted = true);
                       },
                     )))));
-    expect(find.textContaining('Payment on hold'), findsOneWidget);
+    expect(find.text('Payment on hold until $holdUntil. Accept delivery to release it sooner.'),
+        findsOneWidget,
+        reason: 'this shipper can accept, so the line says how to release it sooner');
     await tester.tap(find.text('Accept delivery'));
     await tester.pumpAndSettle();
     expect(requests, 0);
@@ -82,10 +87,13 @@ void main() {
     await tester.pumpWidget(MaterialApp(
         home: ShipmentPaymentStatus(shipment: shipment(org: 'shipper-b'))));
     expect(find.text('Accept delivery'), findsNothing);
+    expect(find.text('Payment on hold until $holdUntil.'), findsOneWidget,
+        reason: 'no "Accept delivery to release it sooner" when there is nothing to tap');
     AuthorizationSession.principal!['permissions'] = [];
     await tester.pumpWidget(
         MaterialApp(home: ShipmentPaymentStatus(shipment: shipment())));
     expect(find.text('Accept delivery'), findsNothing);
+    expect(find.text('Payment on hold until $holdUntil.'), findsOneWidget);
   });
 
   testWidgets('driver cannot render payout form through a direct screen',

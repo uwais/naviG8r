@@ -151,9 +151,8 @@ void main() {
               'copy.md payment (owner only), without the bank digits the API does not send');
       expect(find.text('Waiting for NaviG8r to check the delivery'), findsOneWidget,
           reason: 'review: payouts are not live, so the step says what NaviG8r does, not that money moves');
-      expect(find.textContaining('released'), findsNothing,
-          reason: 'nothing says money has moved; "releases your payment" is the owner-approved promise (22 Oct 2026)');
-      expect(find.text('Payment being released'), findsNothing);
+      expect(find.textContaining(RegExp(r'releas(ed|ing)', caseSensitive: false)), findsNothing,
+          reason: 'nothing says money has moved or is moving; "releases your payment" is the owner-approved promise (22 Oct 2026)');
     });
 
     testWidgets('tells the owner NaviG8r checked the delivery, never that a payment was released',
