@@ -38,6 +38,17 @@ class SignInPhonePage extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(
               NvSpace.gutter, NvSpace.s6, NvSpace.gutter, NvSpace.s6),
           children: [
+            // The wordmark is a picture of the name, so screen readers get the name once.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Semantics(
+                label: "NaviG8r",
+                image: true,
+                child: Image.asset("assets/brand/navig8r-logo.png",
+                    height: 52, excludeFromSemantics: true),
+              ),
+            ),
+            const SizedBox(height: NvSpace.s6),
             Semantics(
               header: true,
               child:
