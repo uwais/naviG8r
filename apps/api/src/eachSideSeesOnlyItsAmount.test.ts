@@ -4,6 +4,7 @@ import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { addTestPodPhoto } from "../test/fixtures.ts";
 import { inviteCarrierDriver, registerCustomerUser } from "./services.ts";
 import { authorizationContext, resolvePrincipal } from "./rbac.ts";
 import { serializeResponse } from "./rbacResponses.ts";
@@ -45,6 +46,7 @@ async function deliveredShipment(t: TestContext) {
   const id = booked.body.shipment.id as string;
   const accepted = await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, carrier.dispatcher);
   assert.equal(accepted.status, 200);
+  addTestPodPhoto(f.store, id);
   const delivery = await f.request(`/shipments/${id}/driver-pod`, "POST", {}, carrier.driver);
   assert.equal(delivery.status, 200);
   const podAccepted = await f.request(`/shipments/${id}/accept-pod`, "POST", {}, f.tokens.shipperA);

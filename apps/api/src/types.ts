@@ -262,6 +262,18 @@ export type EwayBill = {
   };
 };
 
+export type PodPhotoContentType = "image/jpeg" | "image/png" | "image/webp";
+
+export type PodPhoto = {
+  /** Made by the server; also the file name, so it is never taken from a request. */
+  id: string;
+  contentType: PodPhotoContentType;
+  bytes: number;
+  sha256: string;
+  uploadedAtUtcMs: number;
+  uploadedByUserId: string;
+};
+
 export type Shipment = {
   id: string;
   anchorTripId: string;
@@ -295,6 +307,8 @@ export type Shipment = {
   /** User who submitted driver POD (ops release follows). */
   podSubmittedByUserId?: string;
   podNotes?: string;
+  /** What is known about each proof of delivery photo. The photo itself is a file on disk (podPhotos.ts). */
+  podPhotos?: PodPhoto[];
   firstPayoutEligibleAtUtcMs: number | null;
   payoutBatchCutoffUtcMs: number | null;
   createdAtUtcMs: number;

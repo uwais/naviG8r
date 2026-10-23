@@ -3,6 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { addTestPodPhoto } from "../test/fixtures.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
 import { inviteCarrierDriver, publishAnchorTrip, registerCustomerUser } from "./services.ts";
 import { getIntegrationShipmentSnapshot, getIntegrationShipmentTracking } from "./integrationServices.ts";
@@ -137,6 +138,7 @@ test("the shipper's shipments carry the carrier's transporter ID from acceptance
   const erp = JSON.stringify([getIntegrationShipmentSnapshot(f.store, f.shipperA.org.id, id), getIntegrationShipmentTracking(f.store, f.shipperA.org.id, id)]);
   assert.deepEqual([erp.includes("TransporterId"), erp.includes("29ABCDE1234F1Z5")], [false, false], "ERP responses keep their shape, and never carry the ID");
 
+  addTestPodPhoto(f.store, id);
   assert.equal((await f.request(`/shipments/${id}/driver-pod`, "POST", {}, f.tokens.carrierA)).status, 200);
   assert.equal("carrierTransporterId" in (await get(`/shipments/${id}`, f.tokens.shipperA)).body.shipment, false, "gone once the driver confirms delivery");
 

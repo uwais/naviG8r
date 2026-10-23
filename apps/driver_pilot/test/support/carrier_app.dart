@@ -82,7 +82,8 @@ Map<String, dynamic> carrierBooking(String tripId, String id,
         required String drop,
         num weightKg = 80,
         String status = 'BOOKED',
-        Map<String, dynamic>? bill}) =>
+        Map<String, dynamic>? bill,
+        List<String> photoIds = const []}) =>
     {
       'id': id,
       'anchorTripId': tripId,
@@ -95,6 +96,7 @@ Map<String, dynamic> carrierBooking(String tripId, String id,
       'assignedTruckNumber': 'KA01AB1234',
       'updatedAtUtcMs': 1760000000000,
       if (bill != null) 'ewayBill': bill,
+      if (photoIds.isNotEmpty) 'podPhotos': podPhotos(photoIds),
     };
 
 /// The fake server. It changes as the app writes: a confirmed delivery moves the booking on.

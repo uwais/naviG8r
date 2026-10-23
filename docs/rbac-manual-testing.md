@@ -159,14 +159,25 @@ await rbacCall('/ops/shipments/load-a-hold/release', 'POST', {}); // rejected; n
 
 `load-a-expired` lets Finance exercise the expired 48-hour hold without waiting or obtaining acceptance. Release it only after completing the negative Ops check above.
 
-To exercise a new upload, sign in as **Carrier A**:
+To exercise a new upload, sign in as **Carrier A**. A carrier login confirms delivery only after at least one photo is sent, so send a photo first. `rbacCall` sends JSON, so the photo goes with `fetch`; these 16 bytes are the smallest file the server reads as a JPEG:
 
 ```js
+const photo = new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0x00, 0x08, 1, 1, 0, 0, 0x3f, 0, 0x11, 0x11, 0xff, 0xd9]);
+await fetch('/v1/shipments/load-a-booked/pod-photos', {
+  method: 'POST',
+  headers: {
+    'content-type': 'image/jpeg',
+    authorization: `Bearer ${sessionStorage.getItem('navig8r_access')}`,
+    'x-organization-id': document.getElementById('organization').value,
+  },
+  body: photo,
+}).then((response) => response.json());
+// 201 { photo: { id, contentType, uploadedAtUtcMs } }; without a photo, driver-pod below answers 409 pod_photo_required.
 await rbacCall('/shipments/load-a-booked/driver-pod', 'POST', { notes: 'Synthetic POD test' });
 // 200, PENDING_RELEASE; a new 48-hour hold begins.
 ```
 
-POD here records a delivery transition; raw document upload/storage and dispute management are outside this approved scope. Payment release uses MOCK and moves no money. Settlement remains subject to the existing payout schedule; the manual launcher does not run background payouts.
+Proof of delivery photos are in scope (owner, 22 Oct 2026): one to three per shipment, JPEG, PNG or WebP up to 1.5 MB each, sent to `POST /v1/shipments/:id/pod-photos`, read with `GET /v1/shipments/:id/pod-photos/:photoId` by the shipment's shipper, its carrier, the trip's driver and NaviG8r staff (anyone else gets 404), and removable with `DELETE` until delivery is confirmed. The server removes location data from each photo and stores the file on its own disk beside the data file, in `pod-photos/<shipmentId>/`; the data file keeps only which photos there are. Photos are kept for 6 months, the same as e-way bills; the job that deletes them after that is not built yet, so nothing is deleted today. Ops confirming delivery for a carrier still needs no photo, because that was not decided. Other document upload and dispute management remain outside this approved scope. Payment release uses MOCK and moves no money. Settlement remains subject to the existing payout schedule; the manual launcher does not run background payouts.
 
 ## 6. Verify independent compliance approval
 

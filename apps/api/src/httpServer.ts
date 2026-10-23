@@ -11,6 +11,7 @@ import { assignTrip, carrierFleet } from "./tripAssignment.ts";
 import { cancelTrip, listPaymentsCollectedAfterCancelForOps, listTripCancelRequestsForOps, markRefundedInRazorpay, requestTripCancel, withdrawTripCancelRequest } from "./tripCancel.ts";
 import { setCarrierTransporterId } from "./carrierTransporterId.ts";
 import { serializeResponse } from "./rbacResponses.ts";
+import { addPodPhoto, isPodPhotoUploadPath, podPhotosRoot, readPodPhoto, readPodPhotoUpload, removePodPhoto, removePodPhotoFile, type PodPhotoUpload } from "./podPhotos.ts";
 import http from "node:http";
 import { URL } from "node:url";
 import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
@@ -279,6 +280,8 @@ export async function createApp(options: {
   }
   const otp = createOtpDependencies();
   const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (options.dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
+  // Beside the data file, so a test or the demo with its own data file gets its own photos folder.
+  const podPhotoRoot = podPhotosRoot(dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
 
   let store: ReturnType<typeof loadStoreFromDisk>;
   let rawPersist: () => Promise<void>;
@@ -431,7 +434,7 @@ export async function createApp(options: {
     const method = req.method ?? "GET";
     const urlPath = (req.url ?? "/").split("?", 1)[0];
     const capturesState = !["GET", "HEAD", "OPTIONS"].includes(method) || /\/conversation\/(?:timeline|messages)$/.test(urlPath);
-    void runSerialized(() => authorizationContext.run(requestContext(), async () => {
+    const handleRequest = (podPhotoUpload: PodPhotoUpload | null) => runSerialized(() => authorizationContext.run(requestContext(), async () => {
     try {
       const method = req.method ?? "GET";
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -1338,6 +1341,35 @@ export async function createApp(options: {
         }
       }
 
+      const podPhotoRoute = /^\/v1\/shipments\/([^/]+)\/pod-photos(?:\/([^/]+))?$/.exec(url.pathname);
+      if (podPhotoRoute && !podPhotoRoute[2] && method === "POST" && podPhotoUpload) {
+        const added = addPodPhoto(store, podPhotoRoot, podPhotoRoute[1]!, podPhotoUpload, header(req, "content-type") ?? undefined);
+        try {
+          await persist();
+        } catch (error) {
+          removePodPhotoFile(added.file);
+          throw error;
+        }
+        const { id, contentType, uploadedAtUtcMs } = added.photo;
+        return json(res, 201, { photo: { id, contentType, uploadedAtUtcMs } });
+      }
+      if (podPhotoRoute?.[2] && method === "DELETE") {
+        const removed = removePodPhoto(store, podPhotoRoot, podPhotoRoute[1]!, podPhotoRoute[2]);
+        await persist();
+        removePodPhotoFile(removed.file);
+        return json(res, 200, { removed: true });
+      }
+      if (podPhotoRoute?.[2] && method === "GET") {
+        const photo = readPodPhoto(store, podPhotoRoot, podPhotoRoute[1]!, podPhotoRoute[2]);
+        res.statusCode = 200;
+        res.setHeader("content-type", photo.contentType);
+        res.setHeader("content-length", photo.bytes.length);
+        res.setHeader("cache-control", "private, no-store");
+        res.setHeader("x-content-type-options", "nosniff");
+        res.end(photo.bytes);
+        return;
+      }
+
       if (method === "POST" && /^\/shipments\/[^/]+\/eway-bill$/.test(url.pathname)) {
         const shipment = saveEwayBill(store, url.pathname.split("/")[2]!, (await readJson(req, 8 * 1024)) ?? {});
         await persist();
@@ -1511,6 +1543,12 @@ export async function createApp(options: {
       return json(res, 400, { error: msg });
     }
   }), capturesState).catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
+    if (method === "POST" && isPodPhotoUploadPath(urlPath)) {
+      // Read the upload before taking the queue, so a slow phone does not hold up others.
+      void readPodPhotoUpload(req).then(handleRequest, () => res.destroy());
+      return;
+    }
+    void handleRequest(null);
   });
 
   return { server, store, persist, runSerialized, dataFilePath };

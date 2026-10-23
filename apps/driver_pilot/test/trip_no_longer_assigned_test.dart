@@ -334,8 +334,15 @@ void main() {
     testWidgets('is told the same when confirming delivery answers 404',
         (tester) async {
       signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
-      api.dio.httpClientAdapter =
-          MockApiAdapter((_) => jsonResponse({'error': 'not_found'}, 404));
+      // The list still had the delivery and its photo when the screen opened; confirming answers 404.
+      api.dio.httpClientAdapter = MockApiAdapter((request) => request.path ==
+              '/v1/pilot/carrier/shipments'
+          ? jsonResponse({
+              'shipments': [
+                shipmentOnTripA(photoIds: ['photo-1'])
+              ]
+            })
+          : jsonResponse({'error': 'not_found'}, 404));
       await mountScreen(
           tester, const DriverPodScreen(shipmentId: 'shipment-a'));
       await tester.tap(find.text('Confirm delivery'));
@@ -525,7 +532,9 @@ void main() {
           return jsonResponse(<String, Object>{});
         }
         return jsonResponse({
-          'shipments': [shipmentOnTripA(status: status)]
+          'shipments': [
+            shipmentOnTripA(status: status, photoIds: ['photo-1'])
+          ]
         });
       });
       final router =

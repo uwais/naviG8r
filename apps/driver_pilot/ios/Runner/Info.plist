@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>To take a photo of the signed delivery note when you confirm a delivery.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>To choose a photo of the signed delivery note when you confirm a delivery.</string>
 </dict>
 </plist>

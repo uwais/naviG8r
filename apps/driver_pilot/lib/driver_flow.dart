@@ -26,6 +26,8 @@ import "maps_config.dart";
 import "pilot_api.dart";
 import "shipment_conversation.dart";
 import "plain_error_sentence.dart";
+import "pod_photo_capture.dart";
+import "pod_photo_view.dart";
 import "signed_in_header.dart";
 import "sign_in_screen.dart";
 import "transporter_id_section.dart";
@@ -2281,8 +2283,9 @@ class _DriverShipmentDetailScreenState
     );
   }
 
-  /// Confirming opens today's proof of delivery screen (notes, no photo). It is offered once the trip is on the
-  /// road, or whenever the trip could not be read, since the server accepts it for any accepted booking.
+  /// Confirming opens the proof of delivery screen (photos, then notes). It is offered once the trip is on the
+  /// road, or whenever the trip could not be read, since the server accepts it for any accepted booking. Once
+  /// delivered, the step offers the photos.
   NvStep _deliveryStep(Map<String, dynamic> s, {required bool delivered}) {
     const title = "Confirm delivery";
     if (delivered) {
@@ -2290,12 +2293,18 @@ class _DriverShipmentDetailScreenState
       final moment = podAt is num
           ? DateTime.fromMillisecondsSinceEpoch(podAt.toInt(), isUtc: true)
           : null;
+      final photoIds = podPhotoIds(s);
       return NvStep(
           title: "Delivery confirmed",
           who: moment == null
               ? null
               : "${formatDate(moment)}, ${formatTimeIst(moment)}",
-          state: NvStepState.done);
+          state: NvStepState.done,
+          panel: photoIds.isEmpty
+              ? null
+              : PodPhotosButton(
+                  shipmentId: widget.shipmentId, photoIds: photoIds),
+          panelAlwaysShown: photoIds.isNotEmpty);
     }
     final driver = _trip?["assignedDriverName"];
     final who = driver is String && driver.isNotEmpty
@@ -4157,9 +4166,9 @@ class _StartTripSheet extends StatelessWidget {
   }
 }
 
-/// dr-confirm: which drop this is, then Confirm delivery at the bottom. The mockup's photo step is not here: the
-/// app has no camera and the API takes only notes, so the notes field stays. Closes with true once confirmed, and
-/// the screen underneath says so.
+/// dr-confirm: which drop this is, the photo of the signed delivery note (one to three, each sent as it is taken),
+/// the optional notes, then Confirm delivery at the bottom, held until a photo is sent. Closes with true once
+/// confirmed, and the screen underneath says so.
 class DriverPodScreen extends StatefulWidget {
   const DriverPodScreen({required this.shipmentId, super.key});
   final String shipmentId;
@@ -4170,6 +4179,8 @@ class DriverPodScreen extends StatefulWidget {
 
 class _DriverPodScreenState extends State<DriverPodScreen> {
   final _notes = TextEditingController();
+  late final _photos =
+      PodPhotoDraft(widget.shipmentId, refusalSentence: _driverRefusalSentence);
   // Null until found: the stop's place, shipper and weight only name the drop, so the screen works without them.
   Map<String, dynamic>? _shipment;
   bool _busy = false;
@@ -4180,12 +4191,17 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
   @override
   void initState() {
     super.initState();
+    _photos.addListener(_photosChanged);
     _loadShipment();
   }
+
+  void _photosChanged() => setState(() {});
 
   @override
   void dispose() {
     _notes.dispose();
+    _photos.removeListener(_photosChanged);
+    _photos.dispose();
     super.dispose();
   }
 
@@ -4197,7 +4213,9 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
       if (raw is! List) return;
       for (final shipment in raw.whereType<Map<String, dynamic>>()) {
         if (shipment["id"] == widget.shipmentId) {
-          if (mounted) setState(() => _shipment = shipment);
+          if (!mounted) return;
+          setState(() => _shipment = shipment);
+          _photos.addAlreadySent(podPhotoIds(shipment));
           return;
         }
       }
@@ -4262,10 +4280,19 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
               const SizedBox(height: NvSpace.s4),
             ],
             NvSectionCard(
+              title: "Photo of the signed delivery note",
+              children: [PodPhotoCapture(draft: _photos, forDriver: _forDriver)],
+            ),
+            const SizedBox(height: NvSpace.s4),
+            NvSectionCard(
               title: "Confirm the goods are handed over",
               children: [
                 const SizedBox(height: NvSpace.s2),
                 Text(_whatHappensNext, style: NvText.body),
+                const SizedBox(height: NvSpace.s2),
+                Text(
+                    "${shipment == null ? "The shipper" : _shipperName(shipment)} gets the photo as proof of delivery.",
+                    style: NvText.body),
                 const SizedBox(height: NvSpace.s3),
                 NvField(label: "Notes", optional: true, controller: _notes),
               ],
@@ -4284,7 +4311,13 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
             ],
             NvButton(
               label: "Confirm delivery",
-              onPressed: _confirm,
+              onPressed:
+                  _photos.photos.isEmpty || _photos.sending ? null : _confirm,
+              disabledReason: _photos.sending
+                  ? "Wait for the photo to finish sending."
+                  : _photos.photos.isEmpty
+                      ? "Add the proof of delivery first."
+                      : null,
               loading: _busy,
               loadingLabel: "Confirming",
               forDriver: _forDriver,

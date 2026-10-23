@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { ewayBillMarkup, ewayBillScript } from "./opsConsoleBetaEwayBills.ts";
 import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
 import { tripCancelMarkup, tripCancelScript } from "./opsConsoleBetaTripCancels.ts";
+import { podPhotoMarkup, podPhotoScript } from "./opsConsoleBetaPodPhotos.ts";
 
 /**
  * The redesigned operations page, served at /ops/beta beside the current /ops page until the team agrees
@@ -9,7 +10,7 @@ import { tripCancelMarkup, tripCancelScript } from "./opsConsoleBetaTripCancels.
  * Built from the "NaviG8r ops console" design on the NaviG8r design system; token names match that system.
  *
  * Over 500 lines because markup and script are one screen: every element id the script reads is defined
- * here, or in opsConsoleBetaEwayBills.ts or opsConsoleBetaTripCancels.ts, which are pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
+ * here, or in opsConsoleBetaEwayBills.ts, opsConsoleBetaTripCancels.ts or opsConsoleBetaPodPhotos.ts, which are pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
  */
 export function opsConsoleBetaHtml(): string {
   return page;
@@ -100,7 +101,7 @@ const markup = `
   <div id="releaseMoney" class="money"></div>
   <div id="releaseResult"></div>
   <div class="pair"><button id="releaseCancel" class="btn btn-secondary" type="button">Cancel</button><button id="releaseConfirm" class="btn btn-primary" type="button"></button></div>
-</dialog>
+</dialog>${podPhotoMarkup}
 <footer class="caption"><span>NaviG8r operations</span><span>All times IST, 24-hour</span><span>This is the beta page. Today's pages are still at <a href="/ops">/ops</a> and <a href="/ops/v1">/ops/v1</a>.</span></footer>
 `;
 
@@ -461,7 +462,7 @@ function paymentRow(shipment, showAmounts) {
   const route = shipment.pickupAddress && shipment.dropAddress ? shipment.pickupAddress + ' to ' + shipment.dropAddress : null;
   const status = element('td', {}, statusTag(paymentStatus(shipment)));
   const proof = shipment.podAtUtcMs
-    ? element('td', {}, 'Uploaded ' + at(shipment.podAtUtcMs), element('div', { class: 'caption', text: shipment.podAcceptedAtUtcMs ? 'Shipper accepted ' + at(shipment.podAcceptedAtUtcMs) : 'Shipper has not accepted yet' }))
+    ? element('td', {}, 'Uploaded ' + at(shipment.podAtUtcMs), element('div', { class: 'caption', text: shipment.podAcceptedAtUtcMs ? 'Shipper accepted ' + at(shipment.podAcceptedAtUtcMs) : 'Shipper has not accepted yet' }), podPhotoButtons(shipment))
     : element('td', {}, element('span', { class: 'caption', text: 'Not uploaded yet' }));
   const action = element('td');
   const whyId = 'why-' + shipment.id;
@@ -730,6 +731,7 @@ byId('carriersReload').onclick = () => run(loadCarriers, "Couldn't reload");
 byId('paymentsReload').onclick = () => run(loadPayments, "Couldn't reload");
 ${ewayBillScript}
 ${tripCancelScript}
+${podPhotoScript}
 byId('legend').append(...[['Done', 'good'], ['Someone must act', 'attention'], ['Blocked or failed', 'problem'], ['In progress', 'info']].map(statusTag));
 if (!token) byId('signin').hidden = false;
 else {
@@ -755,6 +757,8 @@ const sha256 = (text: string): string => "'sha256-" + createHash("sha256").updat
 /** Only this page's own script and stylesheet may run, fonts come only from Google, and data stays on this server. */
 export const opsConsoleBetaContentSecurityPolicy = [
   "default-src 'self'",
+  // Proof of delivery photos are fetched with the sign-in and shown from memory.
+  "img-src 'self' blob:",
   "script-src " + sha256(script),
   "style-src " + sha256(opsConsoleBetaStyles) + " https://fonts.googleapis.com",
   "font-src https://fonts.gstatic.com",

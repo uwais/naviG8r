@@ -195,7 +195,7 @@ String formatApiError(Object e) {
     }
     // The server writes these errors' detail for the carrier: which bank field is wrong and how, why
     // the truck cannot change, what a transporter ID looks like, that a chosen truck or driver is not theirs, or
-    // that a trip its carrier asked NaviG8r to cancel takes no acceptance or delivery.
+    // that a trip its carrier asked NaviG8r to cancel takes no acceptance or delivery, or that delivery needs a photo.
     final detail = body is Map ? body["detail"] : null;
     if (const [
           "invalid_payout_profile",
@@ -203,7 +203,8 @@ String formatApiError(Object e) {
           "invalid_vehicleRegistrationNumber",
           "invalid_transporter_id",
           "invalid_trip_assignment",
-          "trip_cancel_requested"
+          "trip_cancel_requested",
+          "pod_photo_required"
         ].contains(code) &&
         detail is String &&
         detail.isNotEmpty) {

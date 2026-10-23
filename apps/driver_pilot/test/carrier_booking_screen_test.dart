@@ -230,7 +230,7 @@ void main() {
     });
 
     testWidgets(
-        'in transit offers today\'s Confirm delivery, with no photo requirement',
+        'in transit offers Confirm delivery, which opens the photo step',
         (tester) async {
       signInAsOwner();
       answer(
@@ -244,7 +244,7 @@ void main() {
       expect(confirm, findsOneWidget);
       expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull,
           reason:
-              'no photo capture exists, so confirming is not held behind one');
+              'the photo is added on the next screen, which holds its own Confirm delivery until one is sent');
       expect(find.text('Add the proof of delivery first.'), findsNothing);
     });
 

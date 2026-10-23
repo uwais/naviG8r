@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { addTestPodPhoto } from "../test/fixtures.ts";
 import { FakePage, inlineScript } from "../test/fakePage.ts";
 import type { FakeElement } from "../test/fakePage.ts";
 
@@ -10,6 +11,7 @@ const rupees = (paise: number) => "₹" + (paise / 100).toLocaleString("en-IN", 
 async function readyToRelease(f: Awaited<ReturnType<typeof httpFixture>>) {
   const id = (await f.book()).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  addTestPodPhoto(f.store, id);
   assert.equal((await f.request(`/shipments/${id}/driver-pod`, "POST", {}, f.tokens.carrierA)).status, 200);
   assert.equal((await f.request(`/shipments/${id}/accept-pod`, "POST", {}, f.tokens.shipperA)).status, 200);
   const credit = rupees(f.store.shipments.get(id)!.netToCarrierPaise);
@@ -122,6 +124,7 @@ test("/ops/v1: a shipment that is not ready, or already released, gets a plain s
   const f = await httpFixture(t);
   const held = (await f.book()).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${held}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  addTestPodPhoto(f.store, held);
   assert.equal((await f.request(`/shipments/${held}/driver-pod`, "POST", {}, f.tokens.carrierA)).status, 200);
   const { id: released } = await readyToRelease(f);
   assert.equal((await f.request(`/ops/shipments/${released}/release`, "POST", {}, f.tokens.finance)).status, 200);

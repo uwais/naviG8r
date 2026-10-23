@@ -1760,6 +1760,11 @@ export function submitDriverPod(
       detail: "This booking is not ready for delivery yet.",
     });
   }
+  // A carrier login confirms with a photo (owner, 22 Oct 2026). Ops confirming for a carrier still may without
+  // one: whether ops needs a photo was not decided.
+  if (!principal.roles.includes("OPS") && !(s.podPhotos?.length)) {
+    throw new ApiError("pod_photo_required", { detail: "Add a photo of the signed delivery note first." }, 409);
+  }
 
   const podAtUtcMs = nowUtcMs();
   const updated: Shipment = {

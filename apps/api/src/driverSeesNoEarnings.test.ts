@@ -4,6 +4,7 @@ import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { addTestPodPhoto } from "../test/fixtures.ts";
 import { authorizationContext, effectivePermissions, resolvePrincipal } from "./rbac.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import { inviteCarrierDriver, registerCustomerUser } from "./services.ts";
@@ -41,6 +42,7 @@ test("a driver gets 403 on earnings, ledger and payout batches, and no carrier m
   assert.equal(accepted.status, 200);
   const refunded = (await f.book()).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${refunded}/accept`, "POST", {}, tokens.ownerDriver)).status, 200);
+  addTestPodPhoto(f.store, delivered);
   const delivery = await f.request(`/shipments/${delivered}/driver-pod`, "POST", {}, tokens.driver);
   assert.equal(delivery.status, 200);
   assert.equal((await f.request(`/shipments/${refunded}/fail-refund`, "POST", {}, f.tokens.finance)).status, 200, "a payment status changes");
@@ -93,6 +95,7 @@ test("a driver gets no payout dates or payment hold, even once delivered; the of
   const { f, tokens } = await carrierWithStaff(t);
   const id = (await f.book()).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, tokens.driver)).status, 200);
+  addTestPodPhoto(f.store, id);
   assert.equal((await f.request(`/shipments/${id}/driver-pod`, "POST", {}, tokens.driver)).status, 200);
   assert.equal((await f.request(`/shipments/${id}/accept-pod`, "POST", {}, f.tokens.shipperA)).status, 200);
   assert.equal((await f.request(`/ops/shipments/${id}/release`, "POST", {}, f.tokens.finance)).status, 200, "delivered, so the payout dates are set");

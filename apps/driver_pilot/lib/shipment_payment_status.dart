@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'authorization_session.dart';
 import 'pilot_api.dart';
 import 'plain_error_sentence.dart';
+import 'pod_photo_view.dart';
 import 'ui/format.dart';
 
 class ShipmentPaymentStatus extends StatefulWidget {
@@ -82,6 +83,7 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
     final accepted = shipment['podAcceptedAtUtcMs'] != null;
     final ready = shipment['paymentReady'] == true;
     final hold = shipment['paymentHoldUntilUtcMs'];
+    final photoIds = podPhotoIds(shipment);
     final holdEnds = hold is num
         ? DateTime.fromMillisecondsSinceEpoch(hold.toInt(), isUtc: true)
         : null;
@@ -106,6 +108,12 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
                       : ready
                           ? 'NaviG8r checks it, then releases your payment.'
                           : 'Payment on hold${until == null ? '' : ' until $until'}. If you accept delivery, the hold can end sooner.'),
+                ],
+                if (photoIds.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  PodPhotosButton(
+                      shipmentId: '${shipment['id']}', photoIds: photoIds),
+                  const SizedBox(height: 8),
                 ],
                 if (_error != null)
                   Text(_error!, style: const TextStyle(color: Colors.red)),

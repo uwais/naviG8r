@@ -39,9 +39,15 @@ export function bookTestShipment(store: Store, params: Parameters<typeof bookShi
   }
   return asUser(store, userId!, () => bookShipment(store, { ...params, customerOrg: { id: org!.id, displayName: org!.displayName }, bookedByUserId: userId }), org.id);
 }
+/** A carrier confirms delivery with a photo. Tests that are not about the photo record one with no file behind it. */
+export function addTestPodPhoto(store: Store, shipmentId: string): void {
+  const shipment = store.shipments.get(shipmentId)!;
+  store.shipments.set(shipmentId, { ...shipment, podPhotos: [{ id: randomUUID(), contentType: "image/jpeg", bytes: 1, sha256: "synthetic", uploadedAtUtcMs: 1, uploadedByUserId: "synthetic" }] });
+}
 export async function deliverTestShipment(store: Store, params: { shipmentId: string; podAtUtcMs?: number }) {
   const shipment = store.shipments.get(params.shipmentId)!;
   const carrier = [...store.memberships.values()].find(m => m.orgId === shipment.carrierId)!;
+  addTestPodPhoto(store, shipment.id);
   submitDriverPod(store, { shipmentId: shipment.id, userId: carrier.userId });
   if (params.podAtUtcMs != null) store.shipments.set(shipment.id, { ...store.shipments.get(shipment.id)!, podAtUtcMs: params.podAtUtcMs });
   const shipper = [...store.memberships.values()].find(m => m.orgId === shipment.customerOrgId)!;

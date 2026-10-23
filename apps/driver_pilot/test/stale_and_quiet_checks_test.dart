@@ -66,7 +66,9 @@ void main() {
           trips: [carrierTrip('trip-moving', status: 'IN_PROGRESS')],
           bookings: [
             carrierBooking('trip-moving', 'booked',
-                shipper: 'Mehta Hardware', drop: 'Guindy, Chennai')
+                shipper: 'Mehta Hardware',
+                drop: 'Guindy, Chennai',
+                photoIds: ['photo-1'])
           ],
         ));
 

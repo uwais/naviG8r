@@ -383,7 +383,9 @@ void main() {
           return jsonResponse({'shipment': delivered});
         }
         return jsonResponse({
-          'shipments': [shipmentOnTripA(status: status)]
+          'shipments': [
+            shipmentOnTripA(status: status, photoIds: ['photo-1'])
+          ]
         });
       });
       final router = GoRouter(initialLocation: '/', routes: [

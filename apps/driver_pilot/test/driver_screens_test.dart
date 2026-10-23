@@ -25,11 +25,13 @@ Map<String, dynamic> billWith(String number, {String? truck}) => {
     };
 
 /// Three drops in Chennai; the third bill was made without the truck.
-List<Map<String, dynamic>> threeDrops() => [
+/// [guindyPhotoIds]: proof of delivery photos already sent for the first drop, so Confirm delivery can be tapped.
+List<Map<String, dynamic>> threeDrops({List<String> guindyPhotoIds = const []}) => [
       carrierBooking('trip-today', 'guindy',
           shipper: 'Sharma Textiles',
           drop: 'Guindy, Chennai',
-          bill: billWith('341200987654', truck: 'KA01AB1234')),
+          bill: billWith('341200987654', truck: 'KA01AB1234'),
+          photoIds: guindyPhotoIds),
       carrierBooking('trip-today', 'ambattur',
           shipper: 'Lakshmi Foods',
           drop: 'Ambattur, Chennai',
@@ -305,7 +307,9 @@ void main() {
         (tester) async {
       final heard = listenForAnnouncements(tester);
       final semantics = tester.ensureSemantics();
-      final server = signInAsDriver(todayStatus: 'IN_PROGRESS');
+      final server = signInAsDriver(
+          todayStatus: 'IN_PROGRESS',
+          bookings: threeDrops(guindyPhotoIds: ['photo-1']));
       await mountCarrierApp(tester, '/driver/trip/trip-today/active');
       await tester.tap(find.text('I am here: confirm delivery'));
       await tester.pumpAndSettle();
@@ -376,20 +380,23 @@ void main() {
 
   group('Confirm delivery (dr-confirm)', () {
     testWidgets(
-        'names the drop, asks for no photo, and holds Confirm delivery in a 56 dp bar',
+        'names the drop, asks for the photo first, and holds Confirm delivery in a 56 dp bar until one is sent',
         (tester) async {
       signInAsDriver(todayStatus: 'IN_PROGRESS');
       await mountCarrierApp(tester, '/driver/shipment/guindy/pod');
       expect(find.text('Guindy, Chennai · Sharma Textiles · 80 kg'),
           findsOneWidget,
           reason: 'dr-confirm: which drop this is');
+      expect(find.text('Photo of the signed delivery note'), findsOneWidget,
+          reason: 'copy.md Confirm, step 1');
       expect(find.text('Confirm the goods are handed over'), findsOneWidget,
           reason: 'copy.md Confirm, step 2');
-      expect(find.textContaining(RegExp('photo', caseSensitive: false)),
-          findsNothing,
-          reason:
-              'RECON gap 30: the app takes no photo, so nothing asks for or promises one');
+      expect(find.text('Sharma Textiles gets the photo as proof of delivery.'),
+          findsOneWidget);
+      expect(find.text('Add the proof of delivery first.'), findsOneWidget,
+          reason: 'copy.md: Confirm delivery says why it waits');
       final confirm = find.widgetWithText(FilledButton, 'Confirm delivery');
+      expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
       expect(heightOf(tester, confirm), NvSpace.targetDriver);
       expect(tester.getRect(confirm).bottom,
           lessThanOrEqualTo(tabsTop(tester)));
@@ -397,7 +404,9 @@ void main() {
 
     testWidgets('with no signal it says so in copy.md words and stays',
         (tester) async {
-      final server = signInAsDriver(todayStatus: 'IN_PROGRESS');
+      final server = signInAsDriver(
+          todayStatus: 'IN_PROGRESS',
+          bookings: threeDrops(guindyPhotoIds: ['photo-1']));
       await mountCarrierApp(tester, '/driver/shipment/guindy/pod');
       api.dio.httpClientAdapter = MockApiAdapter((request) =>
           request.method == 'POST'
@@ -409,7 +418,8 @@ void main() {
           find.text('Could not confirm: no signal. Try again when you have one.'),
           findsOneWidget,
           reason: 'copy.md Offline');
-      expect(find.text('Confirm the goods are handed over'), findsOneWidget,
+      // The top of the screen: the photo step now pushes step 2 below a 360 x 800 phone's first screenful.
+      expect(find.text('Photo of the signed delivery note'), findsOneWidget,
           reason: 'the screen stays so the driver can try again');
     });
   });

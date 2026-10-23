@@ -1,6 +1,6 @@
 import { authorizationContext, paymentReady } from "./rbac.ts";
 import { ewayBillForRoles } from "./ewayBillVisibility.ts";
-import type { EwayBill } from "./types.ts";
+import type { EwayBill, PodPhoto } from "./types.ts";
 const pick = (v: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter(k => v[k] !== undefined).map(k => [k, v[k]]));
 /** What the carrier earns and when it is paid. A DRIVER never gets these, whatever the route (owner decision, 15 Oct 2026). */
 const carrierPayFields = ["netToCarrierPaise", "totalNetToCarrierPaise", "pendingAccruedPaise", "paidPaise", "firstPayoutEligibleAtUtcMs", "payoutBatchCutoffUtcMs", "paidAtUtcMs", "cutoffUtcMs", "paymentReady", "paymentHoldUntilUtcMs"];
@@ -25,7 +25,12 @@ export function serializeResponse(value: unknown): unknown {
     if (p?.roles.some(r => ["CARRIER", "FINANCE"].includes(r))) keys.push("netToCarrierPaise");
     if (p?.roles.includes("FINANCE")) keys.push("commissionPaise", "paymentId");
     const ewayBill = ewayBillForRoles(v.ewayBill as EwayBill | undefined, p?.roles ?? []);
-    out = { ...pick(v, keys), ...(ewayBill ? { ewayBill } : {}), paymentReady: paymentReady(v as never), paymentHoldUntilUtcMs: typeof v.podAtUtcMs === "number" ? v.podAtUtcMs + 48 * 60 * 60 * 1000 : null };
+    // Everyone who may read the shipment may see its delivery photos (owner, 22 Oct 2026). Only which photos there
+    // are: each file comes from its own route, and who sent it and its checksum stay on the server.
+    const podPhotos = p && Array.isArray(v.podPhotos)
+      ? (v.podPhotos as PodPhoto[]).map(({ id, contentType, uploadedAtUtcMs }) => ({ id, contentType, uploadedAtUtcMs }))
+      : undefined;
+    out = { ...pick(v, keys), ...(ewayBill ? { ewayBill } : {}), ...(podPhotos ? { podPhotos } : {}), paymentReady: paymentReady(v as never), paymentHoldUntilUtcMs: typeof v.podAtUtcMs === "number" ? v.podAtUtcMs + 48 * 60 * 60 * 1000 : null };
   } else if ("providerRef" in v && "amountPaise" in v) {
     out = pick(v, ["id", "shipmentId", "status", "provider", "createdAtUtcMs", "updatedAtUtcMs", ...(p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r)) ? ["amountPaise", "razorpayOrderId"] : []),
       // Finance refunds it in the Razorpay dashboard by this id.

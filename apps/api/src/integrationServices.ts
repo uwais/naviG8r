@@ -1,5 +1,6 @@
 import { requirePermission } from "./rbac.ts";
 import { withoutEwayBill } from "./ewayBillVisibility.ts";
+import { withoutPodPhotos } from "./podPhotos.ts";
 import { withoutTripAssignment } from "./tripAssignmentRules.ts";
 import { withoutCarrierTransporterId } from "./carrierTransporterId.ts";
 import { isActiveEntity } from "./softDelete.ts";
@@ -335,7 +336,7 @@ export function getIntegrationShipmentTracking(store: Store, orgId: string, ship
   const fresh = loc != null && now - loc.recordedAtUtcMs <= staleMs;
   const isLive = fresh && shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
   return {
-    shipment: withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment))))),
+    shipment: withoutPodPhotos(withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment)))))),
     trip: tripForErp(tripWithCarrierDisplay(store, trip)),
     liveLocation: loc,
     isLive,
@@ -356,7 +357,7 @@ export function getIntegrationShipmentSnapshot(store: Store, orgId: string, ship
   const trip = store.anchorTrips.get(shipment.anchorTripId);
   return {
     ...integrationLoadResponse(store, shipment, conn),
-    shipment: withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(enriched)))),
+    shipment: withoutPodPhotos(withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(enriched))))),
     payment,
     trip: trip ? tripForErp(trip) : null,
   };

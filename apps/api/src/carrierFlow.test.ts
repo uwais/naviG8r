@@ -1,4 +1,4 @@
-import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { addTestPodPhoto, bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
@@ -93,6 +93,7 @@ test("POD on last booking auto-completes IN_PROGRESS trip", () => {
   acceptCarrierShipment(store, { shipmentId: shipment.id, userId: onboard.user.id });
   startAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
 
+  addTestPodPhoto(store, shipment.id);
   submitDriverPod(store, { shipmentId: shipment.id, userId: onboard.user.id });
 
   const updatedTrip = store.anchorTrips.get(trip.id)!;
@@ -136,6 +137,7 @@ test("completeAnchorTripAsPilot requires all shipments POD'd", () => {
     (e: unknown) => e instanceof ApiError && (e as ApiError).message === "shipments_still_active",
   );
 
+  addTestPodPhoto(store, shipment.id);
   submitDriverPod(store, { shipmentId: shipment.id, userId: onboard.user.id });
   const done = completeAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
   assert.equal(done.status, "COMPLETED");

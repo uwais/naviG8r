@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'support/carrier_app.dart';
+import 'support/carrier_fixtures.dart' show podPhotos;
 
 final moneyWords =
     RegExp(r'₹|paid|commission|receive|payout|\bnet\b|your payment|releases? the payment', caseSensitive: false);
@@ -47,8 +48,12 @@ void main() {
       ],
       bookings: [
         bookingWithAmounts('pending', 'PENDING_CARRIER_ACCEPT'),
-        bookingWithAmounts('booked', 'BOOKED'),
-        bookingWithAmounts('released', 'PENDING_RELEASE'),
+        // Confirm delivery waits for a photo; these were sent earlier, so it can be tapped.
+        {...bookingWithAmounts('booked', 'BOOKED'), 'podPhotos': podPhotos(['photo-1'])},
+        {
+          ...bookingWithAmounts('released', 'PENDING_RELEASE'),
+          'podPhotos': podPhotos(['photo-2'])
+        },
         bookingWithAmounts('delivered', 'DELIVERED'),
         bookingWithAmounts('open-booked', 'BOOKED', tripId: 'trip-open'),
         bookingWithAmounts('done-delivered', 'DELIVERED', tripId: 'trip-done'),
