@@ -125,9 +125,12 @@ void main() {
       expect(
           find.text(
               'Bengaluru to Mysuru, ${formatDate(laneStart)}. Ravi Roadways confirmed delivery on ${formatDate(deliveredAt)}. '
-              'Check the goods. If you accept, NaviG8r can release your payment before the 48-hour hold ends. If you do nothing, NaviG8r can release it when the hold ends.'),
+              'Check the goods, then accept.'),
           findsOneWidget,
-          reason: 'review: accepting is optional, and the card says what happens either way');
+          reason:
+              "owner's 22 Oct call: Home says it in one line; the hold rule lives on the shipment screen and the Accept confirmation, not on Home");
+      expect(find.textContaining('48-hour hold'), findsNothing,
+          reason: "owner's 22 Oct call: the hold rule is not on Home");
       await tester.tap(find.text('Open shipment'));
       await tester.pumpAndSettle();
       expect(find.widgetWithText(FilledButton, 'Accept delivery'),

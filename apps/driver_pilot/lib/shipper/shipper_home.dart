@@ -244,7 +244,8 @@ class _NeedsYouCard extends StatelessWidget {
   final Map<String, dynamic> shipment;
   final Map<String, dynamic>? lane;
 
-  // Who did what, in the shipment step's own words (spec/copy.md). Accept delivery also says accepting is optional.
+  // Who did what, in the shipment step's own words (spec/copy.md). Accept delivery stays one line; the
+  // 48-hour hold rule lives on the shipment screen and in the Accept delivery confirmation.
   String get _whatHappened {
     final bill = shipment["ewayBill"];
     final carrier = carrierOf(shipment);
@@ -253,8 +254,7 @@ class _NeedsYouCard extends StatelessWidget {
       final date = formatDate(DateTime.fromMillisecondsSinceEpoch(
           deliveredAt.toInt(),
           isUtc: true));
-      return "$carrier confirmed delivery on $date. Check the goods. If you accept, NaviG8r can release your payment before the 48-hour hold ends. "
-          "If you do nothing, NaviG8r can release it when the hold ends.";
+      return "$carrier confirmed delivery on $date. Check the goods, then accept.";
     }
     if (task == "Fix the e-way bill") return "NaviG8r found a problem with the e-way bill.";
     if (bill is Map && bill["billNumber"] is String) {
