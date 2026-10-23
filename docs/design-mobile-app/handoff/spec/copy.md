@@ -122,7 +122,7 @@ Open checks: "contact NaviG8r" names no phone number or email; the app has none 
 | Cancelled, collected after cancel | This shipment was cancelled · Your payment came in after the cancel. NaviG8r is refunding it. Your bank may take 5-7 working days. · Questions about this refund? Contact [NaviG8r contact]. | Payment `CAPTURED_AFTER_CANCEL`: Razorpay collected it after the cancel and Finance refunds it in Razorpay. Once Finance marks it refunded it reads as Cancelled (`REFUNDED`) |
 | Cancelled, bill made | Made an e-way bill? Cancel it on the portal within 24 hours of making it. · If you made an e-way bill for this load, it is over 24 hours old, so the portal no longer lets you cancel it. | Only when a bill was entered. NaviG8r never cancels the bill. The second sentence when the bill's date is before yesterday in India: only the date is known, not the time, so a bill dated today or yesterday may still be inside its 24 hours and gets the first. The 24 hours: CGST rule 138(9), via the GST Council's e-way bill flyer; the current rule text was not re-read |
 | Closed, trip left | This trip left without your shipment · You were not charged. · Questions about this shipment? Contact [NaviG8r contact]. · Book a trip | The trip started before the shipper finished paying, so the server closed the booking (owner, 23 Oct 2026; `leftBehindAtUtcMs` set). Replaces "This shipment was cancelled" and "Nothing was paid for this shipment."; the money lines of the other Cancelled rows still apply if a payment came in. Status word stays Cancelled, never Waiting for carrier |
-| Update: trip left | This trip left without your shipment · You were not charged. Book another trip when you are ready. | To shipper logins only, when the trip starts without the booking. If Razorpay had already collected it: NaviG8r is refunding your payment. Your bank may take 5-7 working days. The shipper hears no Trip started or Trip completed for it |
+| Update: trip left | This trip left without your shipment · If your bank shows a payment, it comes back within 3 days. Book another trip when you are ready. | To shipper logins only, when the trip starts without the booking. If Razorpay had already collected it: NaviG8r is refunding your payment. Your bank may take 5-7 working days. The shipper hears no Trip started or Trip completed for it |
 | Update: cancelled | Shipment cancelled · The carrier cannot carry your load from [From] to [To], so it was cancelled. + one of: NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that. · Your refund has started. · Nothing was charged. | Sent when Finance cancels the shipment; the carrier's office and driver read "NaviG8r cancelled this shipment on your trip." "Nothing was charged." only for a payment never made (`CREATED` or `FAILED`) |
 | Updates | [Carrier] accepted your shipment · [Route, date]. You can make the e-way bill now. · Your shipment is on the way · E-way bill checked · Delivered · Proof of delivery is ready. | Named by route and date |
 
@@ -332,8 +332,7 @@ Findings:
      authorized the payment: with UPI or netbanking the bank shows a debit until Razorpay
      releases the hold (within 3 days), the case the Cancelled, hold released row refuses to
      call untaken. Fixed 23 Oct 2026: the 409 and the closed-shipment screen now say "If your bank shows a
-     payment, it comes back within 3 days."; the start notice keeps "You were not charged." (no
-     checkout was finished then).
+     payment, it comes back within 3 days."; the start notice says the same.
 Accepted risks: none
 ```
 

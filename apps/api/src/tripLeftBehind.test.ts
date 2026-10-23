@@ -83,7 +83,7 @@ test("starting closes each waiting booking not paid for: shipper told, no money 
   // The test sets each payment straight in the store, which the server reports as a payment change; that notice is the test's own.
   for (const id of [unpaid, failed]) {
     assert.deepEqual(toldB.filter((n) => n.shipmentId === id && n.eventKey !== "payment.status_changed").map((n) => [n.eventKey, n.data.title, n.data.body]),
-      [[SHIPMENT_LEFT_BEHIND_EVENT, "This trip left without your shipment", "You were not charged. Book another trip when you are ready."]],
+      [[SHIPMENT_LEFT_BEHIND_EVENT, "This trip left without your shipment", "If your bank shows a payment, it comes back within 3 days. Book another trip when you are ready."]],
       "only this notice: no Trip started, no Shipment cancelled");
   }
   assert.ok((await inbox(f, f.tokens.shipperA)).some((n) => n.shipmentId === accepted && n.eventKey === "trip.started"), "the shipper on the trip is still told");

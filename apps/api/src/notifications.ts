@@ -201,7 +201,7 @@ function tellShipperTheTripLeft(store: Store, shipment: Shipment): void {
   const collected = store.payments.get(shipment.paymentId)?.status === "CAPTURED_AFTER_CANCEL";
   const body = collected
     ? "NaviG8r is refunding your payment. Your bank may take 5-7 working days."
-    : "You were not charged. Book another trip when you are ready.";
+    : "If your bank shows a payment, it comes back within 3 days. Book another trip when you are ready.";
   notifyShipper(store, shipment, SHIPMENT_LEFT_BEHIND_EVENT, "This trip left without your shipment", body);
 }
 
