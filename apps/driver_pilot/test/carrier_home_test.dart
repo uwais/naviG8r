@@ -190,6 +190,13 @@ void main() {
       expect(find.text("Waiting for Synthetic Shipper A's e-way bill"),
           findsOneWidget,
           reason: 'listed with the other trips');
+      expect(find.text('Waiting on shippers'), findsOneWidget,
+          reason: 'the cards the office cannot act on sit under their own heading');
+      expect(
+          tester.getRect(find.text('Waiting on shippers')).top,
+          lessThan(tester
+              .getRect(find.text("Waiting for Synthetic Shipper A's e-way bill"))
+              .top));
 
       // The bill names a different truck: the office can change the trip's truck.
       signInAsCarrierOwner(alsoAllowed: ['load.status_update', 'trip.assign']);
@@ -199,6 +206,8 @@ void main() {
       await mountRouted(tester, const DriverWelcomeScreen(key: ValueKey(2)));
       expect(underNeedsYou("Waiting for Synthetic Shipper A's e-way bill"),
           findsOneWidget);
+      expect(find.text('Waiting on shippers'), findsNothing,
+          reason: 'no card waits on a shipper alone, so no heading');
 
       // The same, for a login that may not change the truck.
       signInAsCarrierOwner(alsoAllowed: ['load.status_update']);

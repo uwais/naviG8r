@@ -24,6 +24,7 @@ const rules: [string, RegExp, Permission][] = [
   ["POST", /^\/v1\/pilot\/anchor-trips$/, "trip.publish"],
   ["POST", /^\/v1\/pilot\/anchor-trips\/[^/]+\/(?:start|complete|location)$/, "load.status_update"],
   ["POST", /^\/v1\/pilot\/anchor-trips\/[^/]+\/assignment$/, "trip.assign"],
+  ["POST", /^\/v1\/pilot\/anchor-trips\/[^/]+\/shipments\/[^/]+\/eway-bill-reminder$/, "trip.assign"],
   ["POST", /^\/v1\/pilot\/anchor-trips\/[^/]+\/(?:cancel|cancel-request|cancel-request\/withdraw)$/, "trip.assign"],
   ["GET", /^\/v1\/pilot\/carrier\/fleet$/, "trip.assign"],
   ["POST", /^\/v1\/pilot\/rates\/estimate$/, "trip.publish"],

@@ -8,11 +8,13 @@ import 'package:flutter_test/flutter_test.dart';
 String? taskFor(Map<String, dynamic> shipment,
         {bool canWriteBill = true,
         bool canAddTruck = true,
-        bool canAcceptDelivery = true}) =>
+        bool canAcceptDelivery = true,
+        String? tripStatus}) =>
     shipperTaskFor(shipment,
         canWriteBill: canWriteBill,
         canAddTruck: canAddTruck,
-        canAcceptDelivery: canAcceptDelivery);
+        canAcceptDelivery: canAcceptDelivery,
+        tripStatus: tripStatus);
 
 const bill = {'kind': 'BILL', 'billNumber': '341200987654'};
 // The truck and its valid-until time are saved together; this one is far ahead.
@@ -265,6 +267,14 @@ void main() {
       expect(onTheWay.statusWord, 'On the way',
           reason: 'once the trip has started, the start no longer waits on it');
       expect(onTheWay.task, isNull);
+      final beforeAcceptance = shipmentProgress({
+        ...shipment('PENDING_CARRIER_ACCEPT', billWithTruck),
+        'assignedTruckNumber': 'KA02XY9999'
+      }, now: now);
+      expect(beforeAcceptance.ewayBill, EwayBillStage.truckOrTimeWrong);
+      expect(stateOf(beforeAcceptance, ShipmentStepName.ewayBill),
+          NvStepState.later,
+          reason: 'waiting for the carrier, the start does not wait on the bill yet');
     });
 
     test('a truck with no valid-until time counts as not added, as the start gate does', () {
@@ -332,10 +342,16 @@ void main() {
         ...shipment('BOOKED', billWithTruck),
         'assignedTruckNumber': 'KA02XY9999'
       };
-      expect(taskFor(truckDiffers), 'Fix the e-way bill',
+      expect(taskFor(truckDiffers, tripStatus: 'OPEN'), 'Fix the e-way bill',
           reason: 'a bill with another truck holds the trip, so Home asks for it');
-      expect(taskFor(truckDiffers, canAddTruck: false), isNull,
+      expect(taskFor(truckDiffers, tripStatus: 'OPEN', canAddTruck: false),
+          isNull,
           reason: 'the truck and its time are fixed in the truck form, which needs eway_bill.add_truck');
+      expect(taskFor(truckDiffers, tripStatus: 'OPEN', canWriteBill: false),
+          isNull,
+          reason: 'the fix may change the bill itself, which needs eway_bill.write');
+      expect(taskFor(truckDiffers), isNull,
+          reason: 'with no trip status a started trip reads as not started, so no task');
       expect(taskFor(awaitingAcceptance, canAcceptDelivery: false), isNull,
           reason: 'no pod.accept, no delivery to accept');
     });

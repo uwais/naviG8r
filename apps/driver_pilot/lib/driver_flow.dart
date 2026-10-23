@@ -1340,12 +1340,18 @@ class _OfficeHomeState extends State<_OfficeHome> {
                 onOpen: () => _open(task.path)),
           ],
         ],
-        for (final task in waitingOnShippers) ...[
-          const SizedBox(height: NvSpace.s3),
-          NvListCard(
-              title: task.title,
-              subtitle: task.detail,
-              onOpen: () => _open(task.path)),
+        if (waitingOnShippers.isNotEmpty) ...[
+          const SizedBox(height: NvSpace.s6),
+          Semantics(
+              header: true,
+              child: const Text("Waiting on shippers", style: NvText.heading)),
+          for (final task in waitingOnShippers) ...[
+            const SizedBox(height: NvSpace.s3),
+            NvListCard(
+                title: task.title,
+                subtitle: task.detail,
+                onOpen: () => _open(task.path)),
+          ],
         ],
         if (onTheRoad.isNotEmpty) ...[
           const SizedBox(height: NvSpace.s6),
@@ -3209,6 +3215,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   DateTime? _locationSentNowAt;
   // The bookings the server named when it refused Start for the e-way bills, kept until the bookings load again.
   List<EwayBillStartHold>? _serverStartHolds;
+  // The reason each shipper was last reminded of from this screen, by shipment. A new reason brings Remind back.
+  final Map<String, EwayBillStartBlock> _remindedFor = {};
+  // The shipment whose reminder is on its way.
+  String? _remindingShipmentId;
   // The stop the driver has just confirmed, shown at the top until the screen loads again (dr-done).
   Map<String, dynamic>? _justDelivered;
   Timer? _poll;
@@ -3434,7 +3444,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           "/v1/pilot/anchor-trips/${widget.tripId}/start");
       final t = r.data?["trip"];
       if (!mounted) return;
-      if (t is Map<String, dynamic>) setState(() => _trip = t);
+      if (t is Map<String, dynamic>) {
+        // A timed check sent before Start would answer with the trip not started yet.
+        _newestTripRequest++;
+        setState(() => _trip = t);
+      }
       if (_posSub == null) await _startLocation();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -3605,6 +3619,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       return;
     }
     _checkingBookingsQuietly = true;
+    // Each request in its own try, so a failed trip request still lets the bookings load.
     try {
       final tripRequest = ++_newestTripRequest;
       final r = await api
@@ -3617,6 +3632,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         setState(() => _trip = t);
         _stopSharingIfNotInTheTruck();
       }
+    } catch (_) {}
+    try {
       final ships = await _fetchTripBookings();
       if (mounted && !_loading && ships != null) {
         setState(() {
@@ -4032,35 +4049,99 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   List<Widget> _ewayBillStartBlockList(Map<String, dynamic> trip) {
     final holds = _ewayBillStartHolds(trip);
     if (holds.isEmpty) return const [];
-    final lines = [
-      for (final hold in holds)
-        ewayBillStartBlockLine(hold, reader: _startGateReader),
-      ewayBillStartBlockFooter(_startGateReader),
-    ];
+    // Lines and the line under them take at most a quarter of the screen: at 200% text a few bookings' lines
+    // pushed the bar taller than a 360 x 800 phone. The lines scroll on their own, so who to contact never
+    // scrolls out of sight; it gets up to half the quarter, and scrolls in its own box only past that.
+    final maxHeight = MediaQuery.sizeOf(context).height / 4;
     return [
-      // At most a quarter of the screen, scrolling past that: at 200% text a few bookings' lines pushed the
-      // bar taller than a 360 x 800 phone.
       ConstrainedBox(
-        constraints:
-            BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height / 4),
-        child: SingleChildScrollView(
-          child: Semantics(
-            liveRegion: true,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final line in lines)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: NvSpace.s1),
-                    child: Text(line, style: NvText.body),
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                child: Semantics(
+                  liveRegion: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final hold in holds) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: NvSpace.s1),
+                          child: Text(
+                              ewayBillStartBlockLine(hold,
+                                  reader: _startGateReader),
+                              style: NvText.body),
+                        ),
+                        if (_mayRemind(hold, trip)) _remindButton(hold),
+                      ],
+                    ],
                   ),
-              ],
+                ),
+              ),
             ),
-          ),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxHeight / 2),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: NvSpace.s1),
+                  child: Text(ewayBillStartBlockFooter(_startGateReader),
+                      style: NvText.body),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
       const SizedBox(height: NvSpace.s2),
     ];
+  }
+
+  /// The office reminds a shipper; a driver calls the office instead. With no truck on the trip, a different
+  /// truck is the office's to settle by choosing one, so the shipper is not reminded of it.
+  bool _mayRemind(EwayBillStartHold hold, Map<String, dynamic> trip) =>
+      !_forDriver &&
+      AuthorizationSession.can("trip.assign") &&
+      hold.shipmentId.isNotEmpty &&
+      !(hold.block == EwayBillStartBlock.truckDiffers &&
+          _nonEmpty(trip["assignedTruckNumber"]) == null);
+
+  /// Remind [Shipper], then Reminder sent until the reason changes. The server sends nothing while an unread
+  /// reminder for the same reason is with the shipper, and answers the same way, so both read Reminder sent.
+  Widget _remindButton(EwayBillStartHold hold) {
+    final reminded = _remindedFor[hold.shipmentId] == hold.block;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: NvSpace.s1),
+      child: NvButton(
+        label: "Remind ${hold.shipperName}",
+        kind: NvButtonKind.quiet,
+        onPressed: reminded ? null : () => _remindShipper(hold),
+        successLabel: reminded ? "Reminder sent" : null,
+        loading: _remindingShipmentId == hold.shipmentId,
+        loadingLabel: "Sending",
+      ),
+    );
+  }
+
+  Future<void> _remindShipper(EwayBillStartHold hold) async {
+    setState(() => _remindingShipmentId = hold.shipmentId);
+    try {
+      await api.post<Map<String, dynamic>>(
+          "/v1/pilot/anchor-trips/${widget.tripId}/shipments/${hold.shipmentId}/eway-bill-reminder");
+      if (mounted) setState(() => _remindedFor[hold.shipmentId] = hold.block);
+    } catch (e) {
+      if (!mounted) return;
+      final changed = e is DioException && e.response?.statusCode == 409;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(plainErrorSentence(
+              e, changed ? "Nothing was sent. The trip loaded again." : null))));
+      // The bill or the trip changed since this screen loaded, so the lines are loaded again.
+      if (changed) await _load();
+    } finally {
+      if (mounted) setState(() => _remindingShipmentId = null);
+    }
   }
 
   Widget _tripSummary(Map<String, dynamic> trip) {
@@ -4211,7 +4292,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   key: ValueKey("cancel-${trip["id"]}"),
                   trip: trip,
                   hasBookings: _hasActiveShipments,
-                  onChanged: (saved) => setState(() => _trip = saved),
+                  onChanged: (saved) {
+                    // A timed check sent before the change would answer with the old status.
+                    _newestTripRequest++;
+                    setState(() => _trip = saved);
+                  },
                   onReload: _load,
                 ),
                 gap,

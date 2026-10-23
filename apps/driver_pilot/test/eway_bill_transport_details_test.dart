@@ -244,7 +244,7 @@ void main() {
         find.text(
             'Make the bill on loading day, in your billing software or on the portal. Copy in these details:'),
         findsOneWidget);
-    expect(find.text('The trip cannot start until the bill is here.'),
+    expect(find.text('The trip cannot start until the bill is here, or you say none is needed.'),
         findsOneWidget,
         reason: 'the shipper is told what waits on their bill');
     expect(

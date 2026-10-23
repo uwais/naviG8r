@@ -51,7 +51,6 @@ import { emitIntegrationEvent } from "./integrationWebhooks.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
 import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
 import { shipmentsBlockingStart } from "./ewayBillStartGate.ts";
-import { notifyShippersBillsHoldStart } from "./notifications.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -1913,11 +1912,8 @@ export function startAnchorTripAsPilot(
   }
   const now = nowUtcMs();
   const notReady = shipmentsBlockingStart(store, trip, activeOnTrip, now);
-  if (notReady.length > 0) {
-    // The route saves these notices with the refusal; the trip itself is unchanged.
-    notifyShippersBillsHoldStart(store, notReady);
-    throw new ApiError("eway_bill_not_ready", { shipments: notReady }, 409);
-  }
+  // A refusal tells no shipper: the office chooses when to, with Remind (ewayBillReminder.ts).
+  if (notReady.length > 0) throw new ApiError("eway_bill_not_ready", { shipments: notReady }, 409);
   const updated: AnchorTrip = {
     ...trip,
     status: "IN_PROGRESS",

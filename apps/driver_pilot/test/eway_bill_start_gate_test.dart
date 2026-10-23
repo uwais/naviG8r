@@ -65,14 +65,14 @@ void main() {
             ],
             now: now),
         [
-          (shipperName: 'Synthetic Shipper A', block: EwayBillStartBlock.noBill),
-          (shipperName: 'The shipper', block: EwayBillStartBlock.truckMissing),
+          (shipmentId: '', shipperName: 'Synthetic Shipper A', block: EwayBillStartBlock.noBill),
+          (shipmentId: '', shipperName: 'The shipper', block: EwayBillStartBlock.truckMissing),
         ]);
   });
 
   test('each line says who acts, for the office and for the driver', () {
     String line(EwayBillStartBlock block, StartGateReader reader) =>
-        ewayBillStartBlockLine((shipperName: 'Shipper One', block: block),
+        ewayBillStartBlockLine((shipmentId: 'a', shipperName: 'Shipper One', block: block),
             reader: reader);
     const office = StartGateReader.carrierOffice;
     const driver = StartGateReader.driver;
@@ -86,7 +86,7 @@ void main() {
         "Shipper One's e-way bill has a different truck from this trip.",
         reason: 'a driver cannot change the trip truck');
     expect(line(EwayBillStartBlock.expired, office),
-        'Shipper One: the valid-until time entered here has passed.');
+        "The valid-until time on Shipper One's e-way bill has passed.");
     expect(line(EwayBillStartBlock.problem, office),
         "NaviG8r found a problem with Shipper One's e-way bill.");
     for (final block in EwayBillStartBlock.values) {
@@ -120,11 +120,11 @@ void main() {
           ],
         })),
         [
-          (shipperName: 'Shipper One', block: EwayBillStartBlock.noBill),
-          (shipperName: 'Shipper Two', block: EwayBillStartBlock.truckMissing),
-          (shipperName: 'Shipper Three', block: EwayBillStartBlock.truckDiffers),
-          (shipperName: 'Shipper Four', block: EwayBillStartBlock.expired),
-          (shipperName: 'The shipper', block: EwayBillStartBlock.problem),
+          (shipmentId: 'a', shipperName: 'Shipper One', block: EwayBillStartBlock.noBill),
+          (shipmentId: 'b', shipperName: 'Shipper Two', block: EwayBillStartBlock.truckMissing),
+          (shipmentId: 'c', shipperName: 'Shipper Three', block: EwayBillStartBlock.truckDiffers),
+          (shipmentId: 'd', shipperName: 'Shipper Four', block: EwayBillStartBlock.expired),
+          (shipmentId: 'e', shipperName: 'The shipper', block: EwayBillStartBlock.problem),
         ]);
     expect(ewayBillNotReadyHolds(refusal(409, {'error': 'trip_not_startable'})),
         isNull);

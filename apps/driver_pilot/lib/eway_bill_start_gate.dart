@@ -13,8 +13,12 @@ enum EwayBillStartBlock { noBill, truckMissing, truckDiffers, expired, problem }
 /// Who reads the lines: the office can change the trip's truck, a driver can only call the office.
 enum StartGateReader { carrierOffice, driver }
 
-/// One booking that holds the trip, with its shipper's name.
-typedef EwayBillStartHold = ({String shipperName, EwayBillStartBlock block});
+/// One booking that holds the trip, with its shipper's name. [shipmentId] is empty when none came.
+typedef EwayBillStartHold = ({
+  String shipmentId,
+  String shipperName,
+  EwayBillStartBlock block
+});
 
 /// Null when the booking is not accepted or its bill is final. A trip with no truck differs from any truck.
 /// The truck and its valid-until time are saved together, so a bill with no valid-until time has no truck yet.
@@ -60,7 +64,7 @@ String ewayBillStartBlockLine(EwayBillStartHold hold,
           "$shipper's e-way bill has a different truck from this trip.",
       },
     EwayBillStartBlock.expired =>
-      '$shipper: the valid-until time entered here has passed.',
+      "The valid-until time on $shipper's e-way bill has passed.",
     EwayBillStartBlock.problem =>
       "NaviG8r found a problem with $shipper's e-way bill.",
   };
@@ -76,6 +80,8 @@ String ewayBillStartBlockFooter(StartGateReader reader) => switch (reader) {
 String _shipperName(Object? name) =>
     name is String && name.isNotEmpty ? name : 'The shipper';
 
+String _shipmentId(Object? id) => id is String ? id : '';
+
 /// Every accepted booking on [trip] that holds it, empty when the trip may start.
 List<EwayBillStartHold> ewayBillStartHolds(
     Map<String, dynamic> trip, List<Map<String, dynamic>> bookings,
@@ -86,7 +92,11 @@ List<EwayBillStartHold> ewayBillStartHolds(
       if (ewayBillStartBlock(
               booking, tripTruck is String ? tripTruck : null, now)
           case final block?)
-        (shipperName: _shipperName(booking['customerOrgName']), block: block),
+        (
+          shipmentId: _shipmentId(booking['id']),
+          shipperName: _shipperName(booking['customerOrgName']),
+          block: block
+        ),
   ];
 }
 
@@ -113,7 +123,11 @@ List<EwayBillStartHold>? ewayBillNotReadyHolds(Object error) {
     if (shipments is List)
       for (final shipment in shipments.whereType<Map>())
         if (_blockByServerReason[shipment['reason']] case final block?)
-          (shipperName: _shipperName(shipment['shipperName']), block: block),
+          (
+            shipmentId: _shipmentId(shipment['shipmentId']),
+            shipperName: _shipperName(shipment['shipperName']),
+            block: block
+          ),
   ];
   return holds.isEmpty ? null : holds;
 }

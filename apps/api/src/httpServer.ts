@@ -8,6 +8,7 @@ import { carrierRejection } from "./carrierRejection.ts";
 import { addEwayBillTruck, checkEwayBill, listEwayBillsForOps, removeEwayBill, saveEwayBill } from "./ewayBill.ts";
 import { ewayPortalAddress, handleEwayDemoPortal, isEwayDemoPortalPath } from "./ewayDemoPortal.ts";
 import { assignTrip, carrierFleet } from "./tripAssignment.ts";
+import { remindShipperOfEwayBill } from "./ewayBillReminder.ts";
 import { cancelTrip, listPaymentsCollectedAfterCancelForOps, listTripCancelRequestsForOps, markRefundedInRazorpay, requestTripCancel, withdrawTripCancelRequest } from "./tripCancel.ts";
 import { setCarrierTransporterId } from "./carrierTransporterId.ts";
 import { serializeResponse } from "./rbacResponses.ts";
@@ -865,8 +866,6 @@ export async function createApp(options: {
             return json(res, 200, { trip: tripWithCarrierDisplay(store, trip) });
           } catch (e) {
             if (e instanceof ApiError) {
-              // This refusal told the shippers whose bills hold the trip; their notices are saved.
-              if (e.message === "eway_bill_not_ready") await persist();
               const status = e.httpStatus ?? 400;
               return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
             }
@@ -922,6 +921,12 @@ export async function createApp(options: {
       if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/assignment$/.test(url.pathname)) {
         const out = assignTrip(store, url.pathname.split("/")[4]!, (await readJson(req, 8 * 1024)) ?? {});
         await persist();
+        return json(res, 200, out);
+      }
+      if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/shipments\/[^/]+\/eway-bill-reminder$/.test(url.pathname)) {
+        const parts = url.pathname.split("/");
+        const out = remindShipperOfEwayBill(store, parts[4]!, parts[6]!);
+        if (out.sent) await persist();
         return json(res, 200, out);
       }
       if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/cancel$/.test(url.pathname)) {

@@ -385,14 +385,16 @@ class _EwayBillCardState extends State<EwayBillCard> {
           carrierAccepted: true,
           transporterId: _transporterId,
           truckNumber: _tripTruck),
-      const SizedBox(height: NvSpace.s3),
-      const Text('The trip cannot start until the bill is here.',
-          style: NvText.body),
+      // Under the portal button, so a 1280 x 900 desktop still shows that button without scrolling.
       if (canEdit && widget.portalButtonInPanel) ...[
         const SizedBox(height: NvSpace.s3),
         const EwayBillPortalButton(
             label: 'Open the e-way bill portal', kind: NvButtonKind.primary),
       ],
+      const SizedBox(height: NvSpace.s3),
+      const Text(
+          'The trip cannot start until the bill is here, or you say none is needed.',
+          style: NvText.body),
       ...actions,
     ];
   }

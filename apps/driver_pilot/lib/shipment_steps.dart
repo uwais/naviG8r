@@ -229,9 +229,11 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
     _ when delivered => NvStepState.done,
     EwayBillStage.notNeeded || EwayBillStage.billWithTruck => NvStepState.done,
     EwayBillStage.problem => NvStepState.problem,
-    // Once the trip is on the way, the start no longer waits on this bill.
-    EwayBillStage.truckOrTimeWrong =>
-      inTransit ? NvStepState.done : NvStepState.problem,
+    // Once the trip is on the way, the start no longer waits on this bill. Before the carrier accepts, the
+    // start does not wait on it yet either.
+    EwayBillStage.truckOrTimeWrong => inTransit
+        ? NvStepState.done
+        : (waitingForCarrier ? NvStepState.later : NvStepState.problem),
     EwayBillStage.none ||
     EwayBillStage.billWithoutTruck =>
       waitingForCarrier ? NvStepState.later : NvStepState.yours,
@@ -290,9 +292,12 @@ String? shipperTaskFor(Map<String, dynamic> shipment,
   if (task == "Accept delivery") {
     return canAcceptDelivery ? task : null;
   }
-  // A wrong truck or a passed valid-until time is fixed in the truck form, like adding the truck.
-  if (task == "Add the truck to the e-way bill" ||
-      (task != null && progress.ewayBill == EwayBillStage.truckOrTimeWrong)) {
+  // A wrong truck or a passed valid-until time may need the bill's details and its truck fixed, so both
+  // permissions. With no trip status a started trip reads as not started, so the task is not shown.
+  if (task != null && progress.ewayBill == EwayBillStage.truckOrTimeWrong) {
+    return canAddTruck && canWriteBill && tripStatus != null ? task : null;
+  }
+  if (task == "Add the truck to the e-way bill") {
     return canAddTruck ? task : null;
   }
   return canWriteBill ? task : null;

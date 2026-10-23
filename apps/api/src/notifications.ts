@@ -289,41 +289,59 @@ const HOLDS_START_SHIPPER_BODY: Record<EwayBillStartBlockReason, string> = {
   problem: "NaviG8r found a problem with your e-way bill. Check the details here and on the portal.",
 };
 
-/** One notice to each shipper login on the shipment that may read notices. Never the carrier: it is the one acting. */
-function notifyShipper(store: Store, shipment: Shipment, eventKey: string, title: string, body: string, skipRecipient: (userId: string) => boolean = () => false): void {
+/** One notice to each shipper login on the shipment that may read notices, and how many were sent. Never the carrier: it is the one acting. */
+function notifyShipper(store: Store, shipment: Shipment, eventKey: string, title: string, body: string, extraData: Record<string, string> = {}): number {
   const now = Date.now();
   getOrCreateConversation(store, shipment);
+  let sent = 0;
   for (const recipient of notificationRecipients(store, shipment, eventKey)) {
-    if (recipient.role !== "SHIPPER" || skipRecipient(recipient.userId)) continue;
+    if (recipient.role !== "SHIPPER") continue;
     const notification: Notification = {
       id: randomUUID(), recipientSequence: ++store.notificationSequence,
       eventId: `${eventKey}:${shipment.id}:${recipient.userId}:${now}`, eventKey,
       recipientUserId: recipient.userId, recipientOrgId: recipient.orgId,
       shipmentId: shipment.id, conversationId: shipment.id, createdAtUtcMs: now,
-      data: { shipmentId: shipment.id, audience: "SHIPPER", title, body },
+      data: { ...extraData, shipmentId: shipment.id, audience: "SHIPPER", title, body },
     };
     store.notifications.set(notification.id, notification);
     enqueuePushIntentForNotification(store, notification);
+    sent++;
+  }
+  return sent;
+}
+
+/** Marks every unread notice of this kind on the shipment read, so a shipper is never left with one that is out of date. */
+export function markShipmentNoticesRead(store: Store, shipmentId: string, eventKey: string): void {
+  const now = Date.now();
+  for (const notice of store.notifications.values()) {
+    if (notice.eventKey === eventKey && notice.shipmentId === shipmentId && notice.readAtUtcMs == null) {
+      store.notifications.set(notice.id, { ...notice, readAtUtcMs: now });
+    }
   }
 }
 
 /**
- * After a refused start: each shipper whose bill holds the trip is told why. A shipper login that has not read the
- * last such notice for that shipment gets no new one, so tapping Start again and again sends nothing more.
+ * The carrier office's Remind button (owner, 23 Oct 2026): tells the shipper why their bill holds the trip. While an
+ * unread reminder for the same reason is there, nothing is sent and this returns false. An unread one for another
+ * reason is out of date, so it is marked read and the new one sent.
  */
-export function notifyShippersBillsHoldStart(store: Store, blocking: Array<{ shipmentId: string; reason: EwayBillStartBlockReason }>): void {
-  for (const { shipmentId, reason } of blocking) {
-    const shipment = store.shipments.get(shipmentId);
-    if (!shipment || !isActiveEntity(shipment)) continue;
-    const hasUnreadNotice = (userId: string) => [...store.notifications.values()].some((n) =>
-      n.eventKey === EWAY_BILL_HOLDS_START_EVENT && n.shipmentId === shipmentId && n.recipientUserId === userId && n.readAtUtcMs == null);
-    notifyShipper(store, shipment, EWAY_BILL_HOLDS_START_EVENT, "The trip is waiting for your e-way bill", HOLDS_START_SHIPPER_BODY[reason], hasUnreadNotice);
-  }
+export function remindShipperBillHoldsStart(store: Store, shipment: Shipment, reason: EwayBillStartBlockReason): boolean {
+  const alreadyWaiting = [...store.notifications.values()].some((n) =>
+    n.eventKey === EWAY_BILL_HOLDS_START_EVENT && n.shipmentId === shipment.id && n.readAtUtcMs == null && n.data?.reason === reason);
+  if (alreadyWaiting) return false;
+  markShipmentNoticesRead(store, shipment.id, EWAY_BILL_HOLDS_START_EVENT);
+  return notifyShipper(store, shipment, EWAY_BILL_HOLDS_START_EVENT, "The trip is waiting for your e-way bill", HOLDS_START_SHIPPER_BODY[reason], { reason }) > 0;
 }
 
-/** The office changed the trip's truck, and this shipment's bill names a different one. */
-export function notifyShipperTruckChanged(store: Store, shipment: Shipment, carrierName: string, truckNumber: string): void {
-  notifyShipper(store, shipment, EWAY_BILL_TRUCK_CHANGED_EVENT, "The truck changed", `${carrierName} changed the truck to ${truckNumber}. Update your e-way bill.`);
+/**
+ * The office changed the trip's truck, and this shipment's bill names a different one. Replaces any earlier unread
+ * notice of this kind. [carrierName] is undefined when the carrier has no name: a shipper never sees its id.
+ */
+export function notifyShipperTruckChanged(store: Store, shipment: Shipment, carrierName: string | undefined, truckNumber: string, truckOnBill: string): void {
+  markShipmentNoticesRead(store, shipment.id, EWAY_BILL_TRUCK_CHANGED_EVENT);
+  const body = `${carrierName ?? "Your carrier"} set the truck on this trip to ${truckNumber}. Your e-way bill has ${truckOnBill}. `
+    + `Ask ${carrierName ?? "your carrier"} which is right. If the bill is wrong, fix it on the portal, then here.`;
+  notifyShipper(store, shipment, EWAY_BILL_TRUCK_CHANGED_EVENT, "The truck on your trip is different from your e-way bill", body);
 }
 
 /** A trip notice is shown, opened or pushed only while its trip is still the recipient's to drive. */

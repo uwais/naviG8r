@@ -321,6 +321,8 @@ void main() {
           findsOneWidget);
       expect(find.text('Call your office.'), findsOneWidget,
           reason: 'a driver is told who to contact');
+      expect(find.textContaining('Remind'), findsNothing,
+          reason: 'only the office reminds a shipper');
       expect(find.text('You can message the shipper from the booking.'),
           findsNothing);
       expect(find.text('Waiting for e-way bill.'), findsOneWidget);

@@ -209,7 +209,7 @@ void main() {
         'Shipper One has not added the e-way bill yet.',
         'Shipper Two has not added the truck to the e-way bill yet.',
         "Shipper Three's e-way bill has a different truck from this trip. Change the trip's truck, or ask Shipper Three to fix the bill.",
-        'Shipper Four: the valid-until time entered here has passed.',
+        "The valid-until time on Shipper Four's e-way bill has passed.",
         "NaviG8r found a problem with Shipper Five's e-way bill.",
       ]) {
         expect(find.text(line), findsOneWidget, reason: line);
@@ -255,7 +255,7 @@ void main() {
       await tester
           .tap(inSheet(find.widgetWithText(FilledButton, 'Start trip')));
       await tester.pumpAndSettle();
-      expect(find.text('Sharma Textiles: the valid-until time entered here has passed.'), findsOneWidget);
+      expect(find.text("The valid-until time on Sharma Textiles's e-way bill has passed."), findsOneWidget);
       expect(find.text("Shipper Two's e-way bill has a different truck from this trip. Change the trip's truck, or ask Shipper Two to fix the bill."),
           findsOneWidget);
       expect(find.text('Waiting for e-way bill.'), findsOneWidget);
@@ -384,6 +384,128 @@ void main() {
               .onPressed,
           isNotNull);
       expect(find.text('Choose a truck first.'), findsNothing);
+    });
+
+    testWidgets(
+        'Remind [Shipper] sends one reminder, then reads Reminder sent until the reason changes',
+        (tester) async {
+      final bookings = [mehta];
+      final server = signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: bookings));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      final remind = find.widgetWithText(TextButton, 'Remind Mehta Hardware');
+      expect(remind, findsOneWidget,
+          reason: 'a quiet button next to the line for the booking that holds Start');
+      await tester.tap(remind);
+      await tester.pumpAndSettle();
+      expect(server.sent.map((request) => request.path),
+          ['/v1/pilot/anchor-trips/trip-a/shipments/mehta/eway-bill-reminder']);
+      final sent = find.widgetWithText(TextButton, 'Reminder sent');
+      expect(sent, findsOneWidget);
+      expect(tester.widget<TextButton>(sent).onPressed, isNull,
+          reason: 'one reminder per reason');
+      await tester.tap(sent);
+      await tester.pumpAndSettle();
+      expect(server.sent, hasLength(1));
+
+      // The shipper added the truck, but its valid-until time has passed: a new reason.
+      bookings[0] = {
+        ...mehta,
+        'ewayBill': {
+          ...finalBill(),
+          'validUntilUtcMs': DateTime.now()
+              .subtract(const Duration(minutes: 1))
+              .millisecondsSinceEpoch
+        }
+      };
+      await tester.pump(const Duration(seconds: 15));
+      await tester.pumpAndSettle();
+      expect(
+          find.text("The valid-until time on Mehta Hardware's e-way bill has passed."),
+          findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Remind Mehta Hardware'),
+          findsOneWidget,
+          reason: 'a new reason can be sent');
+      expect(find.text('Reminder sent'), findsNothing);
+    });
+
+    testWidgets(
+        'a reminder still unread on the server also reads Reminder sent',
+        (tester) async {
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [mehta],
+          reminderAnswer: const {'sent': false}));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      await tester.tap(find.widgetWithText(TextButton, 'Remind Mehta Hardware'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextButton, 'Reminder sent'), findsOneWidget);
+    });
+
+    testWidgets(
+        'no Remind for a login that may not assign trips, or for a different truck while the trip has no truck',
+        (tester) async {
+      signInWith(Server(
+          allowed: ownerAllowed.where((p) => p != 'trip.assign').toList(),
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [mehta]));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      expect(find.text('Mehta Hardware has not added the truck to the e-way bill yet.'),
+          findsOneWidget);
+      expect(find.textContaining('Remind'), findsNothing);
+
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [
+            tripAt('trip-a', assigned: {
+              'assignedDriverUserId': 'driver-1',
+              'assignedDriverName': 'Synthetic Driver One',
+            })
+          ],
+          bookings: [sharma]));
+      await mount(tester,
+          const DriverActiveTripScreen(key: ValueKey(2), tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      expect(find.text('Choose a truck first.'), findsOneWidget);
+      expect(find.textContaining('Remind'), findsNothing,
+          reason: 'the office settles it by choosing a truck, so the shipper is not reminded');
+    });
+
+    testWidgets(
+        'with many bookings holding Start, who to contact stays in sight under the scrolling lines',
+        (tester) async {
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [
+            for (var i = 1; i <= 8; i++)
+              bookingOn('trip-a', 'booking-$i',
+                  shipper: 'Shipper $i', weightKg: 10),
+          ]));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
+      final footer = find.text('You can message the shipper from the booking.');
+      expect(footer, findsOneWidget);
+      final view = tester.view.physicalSize / tester.view.devicePixelRatio;
+      expect((Offset.zero & view).contains(tester.getRect(footer).bottomLeft),
+          isTrue);
+      final before = tester.getRect(footer);
+      const firstLine = 'Shipper 1 has not added the e-way bill yet.';
+      final lines = find.ancestor(
+          of: find.text(firstLine),
+          matching: find.byType(SingleChildScrollView));
+      await tester.drag(lines, const Offset(0, -300));
+      await tester.pumpAndSettle();
+      expect(find.text(firstLine).hitTestable(), findsNothing,
+          reason: 'the lines scrolled');
+      expect(tester.getRect(footer), before,
+          reason: 'the line under them did not move');
+      expect(tester.takeException(), isNull);
     });
   });
 }

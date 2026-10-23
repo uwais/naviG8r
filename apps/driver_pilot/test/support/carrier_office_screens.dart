@@ -95,7 +95,8 @@ class Server {
       this.refusesWrites = false,
       this.refusal = const {'error': 'trip_not_startable'},
       this.fleetFails = false,
-      this.emptyFleet = false});
+      this.emptyFleet = false,
+      this.reminderAnswer = const {'sent': true}});
   final List<String> allowed;
   final bool office;
   final List<Map<String, dynamic>> trips;
@@ -111,6 +112,9 @@ class Server {
 
   /// The fleet loads with no trucks and no drivers.
   final bool emptyFleet;
+
+  /// The answer to Remind [Shipper] when writes are not refused: {sent: false} when a reminder is already unread.
+  final Map<String, dynamic> reminderAnswer;
   final sent = <RequestOptions>[];
 
   void answer() {
@@ -119,6 +123,9 @@ class Server {
         sent.add(request);
         if (refusesWrites) {
           return jsonResponse(refusal, 409);
+        }
+        if (request.path.endsWith('/eway-bill-reminder')) {
+          return jsonResponse(reminderAnswer);
         }
         return jsonResponse({
           'trip':
