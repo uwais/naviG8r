@@ -451,7 +451,11 @@ class _EwayBillCardState extends State<EwayBillCard> {
 
   List<Widget> _billWithoutTruck(Map<String, dynamic> bill) {
     final number = bill['billNumber'];
-    final canAddTruck = _canAddTruck;
+    // The carrier can still change the truck until it accepts, and the server refuses a truck before then.
+    final accepted = widget.shipment['status'] == 'BOOKED';
+    final waitingForCarrier =
+        widget.shipment['status'] == 'PENDING_CARRIER_ACCEPT';
+    final canAddTruck = _canAddTruck && !waitingForCarrier;
     return [
       Text.rich(TextSpan(style: NvText.body, children: [
         const TextSpan(text: 'Bill '),
@@ -460,20 +464,21 @@ class _EwayBillCardState extends State<EwayBillCard> {
             style: NvText.id),
         const TextSpan(text: ' saved. The truck is not on it yet.'),
       ])),
-      if (canAddTruck) ...[
+      if (_canAddTruck) ...[
         const SizedBox(height: NvSpace.s3),
         Text(
-            'Before the goods move, add the truck in your billing software or on the e-way bill portal. Then enter it here.',
+            waitingForCarrier
+                ? 'Add the truck to the bill once ${_carrierName ?? "the carrier"} accepts. ${_carrierName ?? "The carrier"} can still change the truck until then.'
+                : 'Before the goods move, add the truck in your billing software or on the e-way bill portal. Then enter it here.',
             style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
       ],
-      if (widget.shipment['status'] == 'BOOKED' ||
-          widget.shipment['status'] == 'PENDING_CARRIER_ACCEPT') ...[
+      if (accepted || waitingForCarrier) ...[
         const SizedBox(height: NvSpace.s3),
         EwayBillTransportDetails(
             carrierName: _carrierName,
-            carrierAccepted: widget.shipment['status'] == 'BOOKED',
-            transporterId: _transporterId,
-            truckNumber: _tripTruck,
+            carrierAccepted: accepted,
+            transporterId: accepted ? _transporterId : null,
+            truckNumber: accepted ? _tripTruck : null,
             truckPortalField: 'Portal: Update Part B, Vehicle No.'),
       ],
       const SizedBox(height: NvSpace.s3),

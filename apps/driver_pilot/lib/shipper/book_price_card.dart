@@ -7,8 +7,12 @@ import "../ui/tokens.dart";
 /// The price and what happens to the payment. With the lane above and the full-price and cancel
 /// lines beside the button, it holds what the shipper needs before money moves (sh-book-price).
 class BookPriceCard extends StatelessWidget {
-  const BookPriceCard({required this.pricePaise, super.key});
+  const BookPriceCard(
+      {required this.pricePaise, required this.carrier, super.key});
   final num pricePaise;
+
+  /// The carrier's name, or "The carrier", at the start of a sentence.
+  final String carrier;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -30,7 +34,8 @@ class BookPriceCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: NvSpace.s2),
-            const Text("NaviG8r holds your payment until delivery.",
+            Text(
+                "$carrier accepts after you pay. NaviG8r holds your payment and releases it after delivery.",
                 style: NvText.body),
           ],
         ),

@@ -240,7 +240,8 @@ export function shipmentWithCarrierDisplay(
   store: Store,
   shipment: Shipment,
 ): Shipment & { carrierDisplayName: string; assignedTruckNumber?: string; carrierTransporterId?: string } {
-  const truckNumber = assignedTruckNumber(store, store.anchorTrips.get(shipment.anchorTripId));
+  // A shipment the carrier turned down is no longer on that truck, so it stops naming it.
+  const truckNumber = shipment.status === "FAILED_CARRIER_REFUNDED" ? undefined : assignedTruckNumber(store, store.anchorTrips.get(shipment.anchorTripId));
   const transporterId = shipment.status === "BOOKED" ? store.organizations.get(shipment.carrierId)?.transporterId : undefined;
   return {
     ...shipment,
@@ -1218,10 +1219,8 @@ export function getShipmentTripTracking(
 } {
   const shipment = store.shipments.get(shipmentId);
   if (!shipment) throw new Error("shipment_not_found");
-  const visible =
-    shipmentVisibleToCustomerUser(store, shipment, userId) ||
-    isOpsAdmin(store, userId) ||
-    isOpsAgent(store, userId);
+  const asShipper = shipmentVisibleToCustomerUser(store, shipment, userId);
+  const visible = asShipper || isOpsAdmin(store, userId) || isOpsAgent(store, userId);
   if (!visible) {
     try {
       pilotGetMyAnchorTrip(store, userId, shipment.anchorTripId);
@@ -1236,10 +1235,12 @@ export function getShipmentTripTracking(
   const fresh = isTripLocationLive(loc ?? undefined, now);
   const tripStarted = trip.status === "IN_PROGRESS";
   const isLive = fresh && shipment.status === "BOOKED" && tripStarted;
+  // A shipper sees the truck only while their own goods are on it; before that, or after a refund, it carries others'.
+  const shipperMaySeeTruck = shipment.status === "BOOKED" && tripStarted;
   return {
     shipment: shipmentWithCarrierDisplay(store, shipment),
     trip: tripWithCarrierDisplay(store, trip),
-    liveLocation: loc,
+    liveLocation: asShipper && !shipperMaySeeTruck ? null : loc,
     isLive,
     staleAfterUtcMs: TRIP_TRACKING_STALE_MS,
   };

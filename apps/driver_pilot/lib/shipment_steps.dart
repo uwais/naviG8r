@@ -210,9 +210,7 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
               ShipmentStepName.booked, "Booked and paid", NvStepState.done),
       ShipmentStep(
           ShipmentStepName.carrierAccepts,
-          waitingForCarrier && truckKnown
-              ? "Carrier accepts"
-              : "Carrier accepts and names the truck",
+          truckKnown ? "Carrier accepts" : "Carrier accepts and names the truck",
           stateWhen(!waitingForCarrier, inProgress: true),
           who: carrier),
       ShipmentStep(

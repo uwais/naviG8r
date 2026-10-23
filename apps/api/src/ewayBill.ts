@@ -75,6 +75,10 @@ export function addEwayBillTruck(store: Store, shipmentId: string, input: Record
   if (bill?.kind !== "BILL") {
     throw new ApiError("eway_bill_not_entered", { detail: "The shipper has not added an e-way bill to this shipment yet." }, 409);
   }
+  // The carrier can still change the truck until it accepts, so a truck added now could be the wrong one.
+  if (shipment.status === "PENDING_CARRIER_ACCEPT") {
+    throw new ApiError("carrier_not_accepted", { detail: "Add the truck once the carrier accepts." }, 409);
+  }
   const now = Date.now();
   const checked = checkEwayBillTruck(input, now);
   if (!checked.ok) throw new ApiError("invalid_eway_truck", { detail: checked.detail, field: checked.field });

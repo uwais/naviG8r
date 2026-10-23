@@ -300,7 +300,7 @@ class _CustomerBookShipmentScreenState
       if (priced) {
         final spokenRupees = formatRupees(_pricePaise!).substring(1);
         announce(context,
-            "Price for ${formatKg(weightKg)}: $spokenRupees rupees. This is the full price.");
+            "Price for ${formatKg(weightKg)}: $spokenRupees rupees. Full price. Nothing is added at payment.");
       }
     } catch (error) {
       if (mounted && request == _newestPriceRequest) {
@@ -492,7 +492,9 @@ class _CustomerBookShipmentScreenState
     // On a desktop the price and Book and pay sit together in the side column (wb-book).
     final desktop = customerIsDesktop(context);
     final priceCard = laneOpen && _pricePaise != null
-        ? BookPriceCard(pricePaise: _pricePaise!)
+        ? BookPriceCard(
+            pricePaise: _pricePaise!,
+            carrier: lane["carrierDisplayName"]?.toString() ?? "The carrier")
         : null;
     return CustomerScaffold(
       title: "Book this trip",

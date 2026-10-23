@@ -14,6 +14,7 @@ import 'package:go_router/go_router.dart';
 
 import 'support/mock_api.dart';
 import 'support/shipper_lanes_app.dart';
+import 'support/shipper_screen_checks.dart';
 
 void main() {
   group('Book', () {
@@ -133,9 +134,12 @@ void main() {
           reason: 'copy.md: the price, Indian grouping');
       expect(find.text(fullPriceLine), findsOneWidget,
           reason: 'decisions.md 6: full price on the same screen as Pay');
-      expect(find.text('NaviG8r holds your payment until delivery.'),
+      expect(
+          find.text(
+              'Ravi Roadways accepts after you pay. NaviG8r holds your payment and releases it after delivery.'),
           findsOneWidget,
-          reason: 'the price card says where the money goes before Pay');
+          reason:
+              'the price card says who accepts and where the money goes before Pay');
       for (final dropped in [
         'After you pay, Ravi Roadways',
         'payment partner',
@@ -154,6 +158,15 @@ void main() {
       expect(quoted['weightKg'], 80);
       expect((quoted['pickup'] as Map)['lat'], 12.8,
           reason: 'the pickup pin from the search is priced');
+    });
+
+    testWidgets('a screen reader hears the same full-price line as the screen',
+        (tester) async {
+      final announced = watchAnnouncements(tester);
+      await showPricedBook(tester);
+      expect(announced.where((words) => words.endsWith(fullPriceLine)),
+          hasLength(1),
+          reason: 'the spoken price matches the line beside Book and pay');
     });
 
     testWidgets('while the price is coming the button says so',

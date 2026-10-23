@@ -339,9 +339,7 @@ class _CustomerShipmentDetailScreenState
         return NvStep(
             title: step.title,
             state: step.state,
-            who: step.state == NvStepState.done && truck.isNotEmpty
-                ? "$carrier · Truck $truck"
-                : step.who,
+            who: truck.isNotEmpty ? "$carrier · Truck $truck" : step.who,
             panel: Text(waiting, style: NvText.body));
       case ShipmentStepName.ewayBill:
         final partOne = step.state == NvStepState.yours &&

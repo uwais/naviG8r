@@ -186,3 +186,17 @@ test("only the shipper adds the truck; every carrier login is refused; any chang
   assert.ok([...restored.auditEvents.values()].some(e => e.action === "EWAY_BILL_TRUCK_ADDED"));
   assert.equal(JSON.stringify([...restored.auditEvents.values()]).includes("KA01AB1234"), false, "no typed text in the audit log");
 });
+
+test("the truck waits for the carrier to accept: refused with 409 while acceptance is pending", async t => {
+  const f = await httpFixture(t);
+  const booking = await f.book(); assert.equal(booking.status, 201);
+  const id = booking.body.shipment.id as string;
+  assert.equal(f.store.shipments.get(id)!.status, "PENDING_CARRIER_ACCEPT");
+  assert.equal((await f.request(`/shipments/${id}/eway-bill`, "POST", goodBill, f.tokens.shipperA)).status, 200, "the bill itself can be saved before acceptance");
+  const tomorrow = Date.now() + 24 * 60 * 60 * 1000;
+  const refused = await f.request(`/shipments/${id}/eway-bill/truck`, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow }, f.tokens.shipperA);
+  assert.deepEqual([refused.status, refused.body.error], [409, "carrier_not_accepted"]);
+  assert.equal(f.store.shipments.get(id)!.ewayBill!.truckNumber, undefined, "the refused call wrote no truck");
+  assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  assert.equal((await f.request(`/shipments/${id}/eway-bill/truck`, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: tomorrow }, f.tokens.shipperA)).status, 200, "added once the carrier accepts");
+});

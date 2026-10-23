@@ -79,8 +79,12 @@ void main() {
           reason: 'the truck is already shown, so the line does not wait for it');
       expect(waiting.steps[1].title, 'Carrier accepts');
       final accepted = shipmentProgress({...named, 'status': 'BOOKED'});
-      expect(accepted.steps[1].title, 'Carrier accepts and names the truck',
-          reason: 'once accepted, the step reads as before');
+      expect(accepted.steps[1].title, 'Carrier accepts',
+          reason: 'the title does not change when the carrier accepts');
+      expect(
+          shipmentProgress(shipment('PENDING_CARRIER_ACCEPT')).steps[1].title,
+          'Carrier accepts and names the truck',
+          reason: 'no truck on the trip yet');
     });
 
     test('accepted, no bill: the shipper makes the e-way bill', () {

@@ -96,28 +96,65 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
   });
 
-  testWidgets('after acceptance the truck shows with no note', (tester) async {
+  testWidgets('after acceptance the truck still shows with the note',
+      (tester) async {
     await mountCard(
         tester,
         EwayBillCard(
             shipment: carriedBy(
                 shipment(), {'assignedTruckNumber': 'KA01AB1234'})));
     expect(find.text('KA01AB1234'), findsOneWidget);
-    expect(find.textContaining('can still change it'), findsNothing);
+    expect(find.text('Ravi Roadways can still change it.'), findsOneWidget,
+        reason: 'the carrier can change the truck until the trip is finished');
   });
 
   testWidgets(
-      'a bill saved before acceptance shows the trip truck for Update Part B, with the note',
+      'a bill saved before acceptance waits for the carrier: no truck, no Add truck',
       (tester) async {
+    signInAsShipper(permissions: ['eway_bill.write', 'eway_bill.add_truck']);
+    final waiting = carriedBy(
+        shipment(bill: savedBill, status: 'PENDING_CARRIER_ACCEPT'), {
+      'assignedTruckNumber': 'KA01AB1234',
+      'carrierTransporterId': '29ABCDE1234F1Z5'
+    });
+    await mountCard(tester, EwayBillCard(shipment: waiting));
+    expect(
+        find.text(
+            'Add the truck to the bill once Ravi Roadways accepts. Ravi Roadways can still change the truck until then.'),
+        findsOneWidget);
+    expect(find.textContaining('Before the goods move'), findsNothing);
+    expect(find.text('Add truck'), findsNothing,
+        reason: 'the server refuses a truck before acceptance');
+    expect(find.text('KA01AB1234'), findsNothing);
+    expect(find.text('Portal: Update Part B, Vehicle No.'), findsNothing);
+    expect(find.text('29ABCDE1234F1Z5'), findsNothing,
+        reason: 'the transporter ID waits for acceptance');
+    expect(find.text('After Ravi Roadways accepts'), findsNWidgets(2),
+        reason: 'the transporter ID and truck rows both wait');
+
     await mountCard(
         tester,
         EwayBillCard(
-            shipment: carriedBy(
-                shipment(bill: savedBill, status: 'PENDING_CARRIER_ACCEPT'),
-                {'assignedTruckNumber': 'KA01AB1234'})));
-    expect(find.text('KA01AB1234'), findsOneWidget);
+            shipment: {...waiting, 'id': 'shipment-b', 'status': 'BOOKED'}));
+    expect(find.text('KA01AB1234'), findsOneWidget,
+        reason: 'once accepted, the card is as before');
     expect(find.text('Portal: Update Part B, Vehicle No.'), findsOneWidget);
-    expect(find.text('Ravi Roadways can still change it.'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget);
+  });
+
+  testWidgets(
+      'with no carrier name the waiting line says the carrier, capitalised at the start',
+      (tester) async {
+    signInAsShipper(permissions: ['eway_bill.write', 'eway_bill.add_truck']);
+    await mountCard(
+        tester,
+        EwayBillCard(
+            shipment:
+                shipment(bill: savedBill, status: 'PENDING_CARRIER_ACCEPT')));
+    expect(
+        find.text(
+            'Add the truck to the bill once the carrier accepts. The carrier can still change the truck until then.'),
+        findsOneWidget);
   });
 
   testWidgets(

@@ -124,6 +124,21 @@ void main() {
     });
 
     testWidgets(
+        'before acceptance the carrier step names the trip truck, even with no e-way bill needed',
+        (tester) async {
+      await showShipment(
+          tester,
+          booking(
+              status: 'PENDING_CARRIER_ACCEPT',
+              ewayBill: notNeededBill,
+              extra: {'assignedTruckNumber': 'KA01AB1234'}),
+          trip: lane());
+      expect(find.text('Ravi Roadways · Truck KA01AB1234'), findsOneWidget,
+          reason: 'the bill step shows no truck here, so the carrier step does');
+      await leave(tester);
+    });
+
+    testWidgets(
         'an 11-digit bill number is stopped with its own sentence, before anything is sent',
         (tester) async {
       final announced = watchAnnouncements(tester);

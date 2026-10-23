@@ -56,11 +56,11 @@ Every visible string, by screen. Brackets mark text the team still has to supply
 
 | Element | Copy | Notes |
 |---|---|---|
-| Title, sub | Book space · Check the price, then pay. |  |
+| Title | Book this trip | No subtitle (Uwais, 22 Oct 2026: too verbose; owner approved the shorter screen) |
 | Lane | [From] to [To] · [Carrier] · Leaves [dates] · Room left: [n] kg |  |
 | Fields | Weight · Up to [room] kg on this lane. · Pickup · Drop (place boxes: City or area · search · map pin) | Start at the searched values and pins, else empty. Same place box as Publish |
-| Price | Price · ₹[amount] · After you pay, [Carrier] accepts and names the truck. · Book and pay opens the payment provider's screen, where you choose how to pay. · Changing weight, pickup or drop gets a new price. | Fetched by itself once weight, pickup and drop are in (Rishabh, 19 Oct 2026). Tax line only if question 5 says so. Typing new words in a place box after its search drops that place's pin and the price, and the line under the button asks to search for it; after a pin drag, the typed name stays with the pin |
-| Above the button | This is the full price. Nothing is added at payment. · Booking holds the room on this lane. To cancel, contact NaviG8r. | The cancel line sits directly above the button (Rishabh, 19 Oct 2026). Both lines fit at 200% text on 360 x 800 when measured in Roboto; the test font cannot show it. Open item 6 (contact) |
+| Price | Price · ₹[amount] · [Carrier] accepts after you pay. NaviG8r holds your payment and releases it after delivery. | "The carrier" when the lane names none. Fetched by itself once weight, pickup and drop are in (Rishabh, 19 Oct 2026). Tax line only if question 5 says so. Typing new words in a place box after its search drops that place's pin and the price, and the line under the button asks to search for it; after a pin drag, the typed name stays with the pin |
+| Above the button | To cancel, contact hello@navig8r.org. · Full price. Nothing is added at payment. | The cancel line comes first, so it is the part that shows at very large text; at very large text both lines scroll inside the bar. A screen reader hears a new price as "Price for [weight]: [amount] rupees. Full price. Nothing is added at payment." Open item 6 (contact): the owner chose the address |
 | Button | Book and pay ₹[amount] · while fetching: Getting the price · after a price error: Try again · before a price, disabled: Book and pay, with "To see the price, enter the weight and search for the pickup and drop." (only the missing parts) or "Enter a lower weight to see the price." · after a pin drag, disabled until the pin is named: "Updating address from pin…" | One tap books and opens the payment provider; the confirm sheet is gone (Rishabh, 19 Oct 2026). While the booking is sent, weight, pickup and drop cannot be changed |
 | Too heavy | This lane does not have room for that weight. Enter a lower weight, or choose another lane. · Choose another lane | Replaces "HTTP 400" |
 
@@ -89,6 +89,8 @@ Findings:
      above it say both before the tap.
 Accepted risks: finding 1 — Rishabh, 19 Oct 2026: one tap books and opens payment, and the
   label and the line say so; shipper cancel is not built (his 17 Oct call).
+Re-screened 22 Oct 2026: the subtitle, payment-partner, price-change and capacity lines were
+  cut; the basis is now the Book and pay label, the carrier-accepts line and the cancel line.
 Open checks: "contact NaviG8r" names no phone number or email; the app has none to show yet
   (open item 6). The line "Your payment is held when you book and collected after delivery."
   is no longer on Book; the shipment screen says it while the booking waits for the carrier.

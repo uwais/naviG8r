@@ -23,8 +23,8 @@ class EwayBillTransportDetails extends StatefulWidget {
   final String? carrierName;
 
   /// The transporter ID is sent only once the carrier has accepted. The truck is sent as soon as
-  /// the trip names one, so before acceptance it shows with a note that it can still change
-  /// (owner, 22 Oct 2026).
+  /// the trip names one (owner, 22 Oct 2026). It always shows with a note that it can still
+  /// change, since the carrier can change the truck until the trip is finished.
   final bool carrierAccepted;
   final String? transporterId;
   final String? truckNumber;
@@ -147,11 +147,9 @@ class _EwayBillTransportDetailsState extends State<EwayBillTransportDetails> {
               label: 'Truck number',
               value: truck,
               portalField: widget.truckPortalField),
-          if (!widget.carrierAccepted) ...[
-            const SizedBox(height: NvSpace.s1),
-            Text('${widget.carrierName ?? "The carrier"} can still change it.',
-                style: NvText.caption),
-          ],
+          const SizedBox(height: NvSpace.s1),
+          Text('${widget.carrierName ?? "The carrier"} can still change it.',
+              style: NvText.caption),
         ],
         if (name != null || transporterId != null || truck != null) ...[
           const SizedBox(height: NvSpace.s2),
