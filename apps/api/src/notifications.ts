@@ -1,5 +1,9 @@
-// Over 500 lines on purpose: one concern, the shipment conversation (its notices, messages, read marks and
-// support access), and the one notice with no shipment, a driver's new trip, which shares the inbox and its checks.
+/**
+ * What the people on a shipment are told and say to each other: notifications, their words, and the shipment
+ * conversation, plus the one notice with no shipment, a driver's new trip, which shares the inbox and its checks.
+ * Over 500 lines and still one file because these share one timeline and one read watermark, and a message creates
+ * its notification here; split, each half would need the other's private helpers to work.
+ */
 import { randomUUID } from "node:crypto";
 import { authorizationContext, effectivePermissions, legacyRoles, principalFor, recordAudit, requirePermission, type Principal } from "./rbac.ts";
 import { isActiveEntity } from "./softDelete.ts";
@@ -37,15 +41,18 @@ export function captureWorkflowNotifications(store: Store, previous: WorkflowSna
   // Owner, 21 Oct 2026: "No need for their own action". The person whose request made these changes is not
   // told about them. A webhook, the payment provider or a timer has no person behind it, so all may hear.
   const actorUserId = authorizationContext.getStore()?.principal?.userId;
-  const emit = (shipment: Shipment | undefined, eventKey: string, occurredAt: number, sourceTransitionId?: string) => {
+  const emit = (shipment: Shipment | undefined, eventKey: string, occurredAt: number, sourceTransitionId?: string, shipperBody?: string) => {
     if (!shipment) return;
     getOrCreateConversation(store, shipment);
-    createNotifications(store, shipment, sourceTransitionId ?? `${eventKey}:${shipment.id}:${occurredAt}`, eventKey, occurredAt, undefined, actorUserId);
+    createNotifications(store, shipment, sourceTransitionId ?? `${eventKey}:${shipment.id}:${occurredAt}`, eventKey, occurredAt, undefined, actorUserId, shipperBody);
   };
   for (const [id, shipment] of store.shipments) {
     const old = previous.shipments.get(id);
     if (!old) emit(shipment, "shipment.booked", shipment.createdAtUtcMs);
     else if (old.status !== "BOOKED" && shipment.status === "BOOKED") emit(shipment, "shipment.carrier_accepted", shipment.acceptedAtUtcMs ?? shipment.updatedAtUtcMs);
+    else if (old.status !== "FAILED_CARRIER_REFUNDED" && shipment.status === "FAILED_CARRIER_REFUNDED") {
+      emit(shipment, "shipment.cancelled", shipment.updatedAtUtcMs, undefined, cancelledShipperBody(store, shipment, previous.payments.get(shipment.paymentId)?.status));
+    }
     if ((!old?.podAt || old.podAt === 0) && shipment.podAtUtcMs) emit(shipment, "shipment.pod_submitted", shipment.podAtUtcMs);
     if (!old?.podAcceptedAt && shipment.podAcceptedAtUtcMs) emit(shipment, "shipment.pod_accepted", shipment.podAcceptedAtUtcMs);
   }
@@ -145,7 +152,23 @@ function notificationRecipients(store: Store, shipment: Shipment, eventKey: stri
   return recipients;
 }
 
-function createNotifications(store: Store, shipment: Shipment, eventId: string, eventKey: string, createdAtUtcMs: number, messageId?: string, actorUserId?: string): void {
+/**
+ * What a shipper reads when Finance cancels their shipment because the carrier cannot carry it. Which money words
+ * apply comes from the payment before the cancel: an unpaid booking's payment is also marked REFUNDED. A held
+ * payment may already have left the shipper's bank (UPI, netbanking), so it is never called untaken.
+ */
+function cancelledShipperBody(store: Store, shipment: Shipment, paymentStatusBefore: string | undefined): string {
+  const trip = store.anchorTrips.get(shipment.anchorTripId);
+  const load = trip?.originCity && trip?.destCity ? `your load from ${trip.originCity} to ${trip.destCity}` : "your load";
+  const status = store.payments.get(shipment.paymentId)?.status;
+  const money = status === "HOLD_RELEASED"
+    ? " NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that."
+    : paymentStatusBefore === "CAPTURED" ? " Your refund has started."
+      : paymentStatusBefore === "CREATED" || paymentStatusBefore === "FAILED" ? " Nothing was charged." : "";
+  return `The carrier cannot carry ${load}, so it was cancelled.${money}`;
+}
+
+function createNotifications(store: Store, shipment: Shipment, eventId: string, eventKey: string, createdAtUtcMs: number, messageId?: string, actorUserId?: string, shipperBody?: string): void {
   const conversationId = shipment.id;
   for (const recipient of notificationRecipients(store, shipment, eventKey, actorUserId)) {
     const duplicate = [...store.notifications.values()].some(n => n.eventId === eventId && n.recipientUserId === recipient.userId && n.recipientOrgId === recipient.orgId);
@@ -154,7 +177,7 @@ function createNotifications(store: Store, shipment: Shipment, eventId: string, 
       id: randomUUID(), recipientSequence: ++store.notificationSequence,
       eventId, eventKey, recipientUserId: recipient.userId, recipientOrgId: recipient.orgId,
       shipmentId: shipment.id, conversationId, ...(messageId ? { messageId } : {}), createdAtUtcMs,
-      data: { shipmentId: shipment.id, audience: recipient.role, title: notificationTitle(eventKey, recipient.role), body: notificationBody(eventKey, recipient.role) },
+      data: { shipmentId: shipment.id, audience: recipient.role, title: notificationTitle(eventKey, recipient.role), body: (recipient.role === "SHIPPER" ? shipperBody : undefined) ?? notificationBody(eventKey, recipient.role) },
     };
     store.notifications.set(notification.id, notification);
     enqueuePushIntentForNotification(store, notification);
@@ -170,6 +193,7 @@ function notificationTitle(eventKey: string, role: "SHIPPER" | "CARRIER"): strin
     "shipment.pod_submitted": ["Proof of delivery submitted", "Proof of delivery submitted"],
     "shipment.pod_accepted": ["Proof of delivery accepted", "Proof of delivery accepted"],
     "payment.status_changed": ["Payment status updated", "Payment status updated"],
+    "shipment.cancelled": ["Shipment cancelled", "Shipment cancelled"],
     "conversation.message": ["New shipment message", "New shipment message"],
   };
   const values = titles[eventKey] ?? ["Shipment update", "Shipment update"];
@@ -185,6 +209,8 @@ function notificationBody(eventKey: string, role: "SHIPPER" | "CARRIER"): string
     "shipment.pod_submitted": ["The carrier submitted proof of delivery.", "Proof of delivery was submitted."],
     "shipment.pod_accepted": ["Proof of delivery was accepted.", "The shipper accepted proof of delivery."],
     "payment.status_changed": ["A payment status for this load changed.", "A payment status for this load changed."],
+    // The shipper's words, with the route and the money, are written per shipment in cancelledShipperBody.
+    "shipment.cancelled": ["This shipment was cancelled.", "NaviG8r cancelled this shipment on your trip."],
     "conversation.message": ["A participant added a message to the shipment conversation.", "A participant added a message to the shipment conversation."],
   };
   const values = bodies[eventKey] ?? ["There is an update for this shipment.", "There is an update for this shipment."];

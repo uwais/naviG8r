@@ -14,6 +14,7 @@ import {
 } from "./config.ts";
 import type {
   AnchorTrip,
+  AnchorTripStatus,
   Carrier,
   DriverProfile,
   GeoPoint,
@@ -1745,6 +1746,10 @@ export function submitDriverPod(
   if (s.status !== "BOOKED") {
     throw new ApiError("shipment_not_deliverable", { status: s.status });
   }
+  // Refused rather than ending the trip: a delivered load means the trip ran, which a cancelled trip would deny.
+  if (store.anchorTrips.get(s.anchorTripId)?.status === "CANCEL_REQUESTED") {
+    throw new ApiError("trip_cancel_requested", { detail: "This trip's carrier asked NaviG8r to cancel it, so delivery cannot be confirmed now." }, 409);
+  }
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
   const payOk =
@@ -1780,6 +1785,20 @@ function shipmentsOnAnchorTrip(store: Store, tripId: string): Shipment[] {
 
 function anchorTripHasActiveShipments(shipments: Shipment[]): boolean {
   return shipments.some((s) => s.status === "BOOKED" || s.status === "PENDING_CARRIER_ACCEPT");
+}
+
+/**
+ * A booking waiting for acceptance, paid or not, or an accepted one, oldest first: what keeps a carrier from
+ * cancelling a trip itself, and what Finance cancels one by one when the carrier asks.
+ */
+export function bookingsOnTrip(store: Store, tripId: string): Shipment[] {
+  return shipmentsOnAnchorTrip(store, tripId)
+    .filter((s) => anchorTripHasActiveShipments([s]))
+    .sort((a, b) => a.createdAtUtcMs - b.createdAtUtcMs);
+}
+
+export function tripHasBookings(store: Store, tripId: string): boolean {
+  return anchorTripHasActiveShipments(shipmentsOnAnchorTrip(store, tripId));
 }
 
 function maybeAutoCompleteAnchorTripAfterPod(store: Store, tripId: string, userId: string): void {
@@ -1824,6 +1843,10 @@ export function acceptCarrierShipment(
   requireAssistance(store, principal, s.carrierId);
   if (s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new ApiError("shipment_not_acceptable", { status: s.status });
+  }
+  // The same words for the office and its drivers: a driver did not ask and cannot withdraw.
+  if (store.anchorTrips.get(s.anchorTripId)?.status === "CANCEL_REQUESTED") {
+    throw new ApiError("trip_cancel_requested", { detail: "This trip's carrier asked NaviG8r to cancel it, so it cannot take this booking now." }, 409);
   }
   assertDispatchReady(store, s.carrierId);
   const pay = store.payments.get(s.paymentId);
@@ -2182,19 +2205,30 @@ export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: 
   store.payments.set(pay.id, { ...pay, status: "CAPTURED", updatedAtUtcMs: nowUtcMs() });
 }
 
-export async function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Promise<Shipment> {
+/**
+ * fromCancelRequest: sent from a carrier's cancel request on the operations page, so it must not cancel once the
+ * carrier has withdrawn that request. The general fail-refund action does not send it.
+ */
+export async function failCarrierAndRefund(store: Store, params: { shipmentId: string; fromCancelRequest?: boolean }): Promise<Shipment> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
   requirePermission(store, "payment.refund", s);
   if (s.status !== "BOOKED" && s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new Error("shipment_not_refundable");
   }
+  if (params.fromCancelRequest && store.anchorTrips.get(s.anchorTripId)?.status !== "CANCEL_REQUESTED") {
+    throw new ApiError("cancel_request_withdrawn", { detail: "The carrier withdrew this request. Nothing changed." }, 409);
+  }
 
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
 
+  // Razorpay refunds only captured payments; an authorization nobody captures is released by Razorpay within 3 days
+  // of payment (owner decision, 19 Oct 2026), so a held payment sends nothing. An ERP-preauthorized payment is
+  // AUTHORIZED with no Razorpay payment or order behind it, so it is no hold and is refused as before.
+  const holdOnly = pay.provider === "RAZORPAY" && pay.status === "AUTHORIZED" && Boolean(pay.razorpayPaymentId || pay.razorpayOrderId);
   if (pay.provider === "RAZORPAY") {
-    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
+    if (pay.status === "CAPTURED" || (pay.status === "AUTHORIZED" && !holdOnly)) {
       if (!pay.razorpayPaymentId) {
         throw new ApiError("razorpay_payment_id_missing", { status: pay.status });
       }
@@ -2203,22 +2237,15 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
       } catch (e: any) {
         throw new ApiError("razorpay_refund_failed", { detail: "Payment provider operation failed" });
       }
-    } else if (pay.status !== "CREATED" && pay.status !== "FAILED") {
+    } else if (pay.status !== "CREATED" && pay.status !== "FAILED" && !holdOnly) {
       throw new ApiError("payment_not_refundable", { status: pay.status });
     }
   } else if (pay.status !== "CAPTURED") {
     throw new Error("payment_not_captured");
   }
 
-  const trip = store.anchorTrips.get(s.anchorTripId);
-  if (trip) {
-    trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
-    if (trip.status === "FULL") trip.status = "OPEN";
-    store.anchorTrips.set(trip.id, trip);
-  }
-
   const now = nowUtcMs();
-  store.payments.set(pay.id, { ...pay, status: "REFUNDED", updatedAtUtcMs: now });
+  store.payments.set(pay.id, { ...pay, status: holdOnly ? "HOLD_RELEASED" : "REFUNDED", updatedAtUtcMs: now });
 
   const updated: Shipment = {
     ...s,
@@ -2226,7 +2253,17 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
     updatedAtUtcMs: now,
   };
   store.shipments.set(updated.id, updated);
-  recordAudit(store, "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
+  recordAudit(store, holdOnly ? "PAYMENT_HOLD_RELEASED" : "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
+
+  const trip = store.anchorTrips.get(s.anchorTripId);
+  if (trip) {
+    const reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
+    // Only a full trip reopens. A trip its carrier asked to cancel ends once its last booking is cancelled.
+    let status: AnchorTripStatus = trip.status === "FULL" ? "OPEN" : trip.status;
+    if (trip.status === "CANCEL_REQUESTED" && !tripHasBookings(store, trip.id)) status = "CANCELLED";
+    store.anchorTrips.set(trip.id, { ...trip, reservedKg, status });
+    if (status === "CANCELLED") recordAudit(store, "TRIP_STATUS_CHANGED", "trip", trip.id, trip.status, status);
+  }
   emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: updated.id });
   return updated;
 }

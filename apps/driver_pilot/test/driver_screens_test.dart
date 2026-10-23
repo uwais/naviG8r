@@ -220,6 +220,19 @@ void main() {
       expect(secondTop, lessThan(tester.getTopLeft(find.text('Salem to Madurai')).dy),
           reason: 'earliest first');
     });
+
+    testWidgets(
+        "a trip the office asked NaviG8r to cancel stays on Today, with its status, as on Trips",
+        (tester) async {
+      signInAsDriver(todayStatus: 'CANCEL_REQUESTED');
+      await mountCarrierApp(tester, '/driver');
+      expect(find.text('Bengaluru to Chennai'), findsOneWidget,
+          reason: 'its shippers are still booked on it');
+      expect(find.text('Cancel requested'), findsOneWidget);
+      expect(find.text('Ready to start'), findsNothing,
+          reason: 'the trip cannot start while the request stands');
+      expect(find.text('No trip today.'), findsNothing);
+    });
   });
 
   group('Trip (dr-trip)', () {

@@ -30,6 +30,7 @@ import "signed_in_header.dart";
 import "sign_in_screen.dart";
 import "transporter_id_section.dart";
 import "trip_assignment_card.dart";
+import "trip_cancel_card.dart";
 import "ui/format.dart";
 import "ui/nv_action_bar.dart";
 import "ui/nv_button.dart";
@@ -1091,6 +1092,8 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
     for (final booking in loaded.bookings
         .where((booking) => booking["status"] == "PENDING_CARRIER_ACCEPT")) {
       final trip = loaded.tripsById[booking["anchorTripId"]];
+      // The server refuses to accept a booking on a trip the office asked NaviG8r to cancel.
+      if (trip?["status"] == "CANCEL_REQUESTED") continue;
       final route = _tripRoute(trip);
       final dates = _tripDates(trip);
       final weight = _weightWords(booking);
@@ -1499,8 +1502,11 @@ class _DriverTodayState extends State<_DriverToday> {
       ..sort(_byStart);
   }
 
+  /// A trip whose carrier asked NaviG8r to cancel it still has shippers booked, so it stays listed, as on Trips.
   static bool _notStarted(Map<String, dynamic> trip) =>
-      trip["status"] == "OPEN" || trip["status"] == "FULL";
+      trip["status"] == "OPEN" ||
+      trip["status"] == "FULL" ||
+      trip["status"] == "CANCEL_REQUESTED";
 
   static int _byStart(Map<String, dynamic> a, Map<String, dynamic> b) =>
       _tripStart(a)!.compareTo(_tripStart(b)!);
@@ -1539,8 +1545,9 @@ class _DriverTodayState extends State<_DriverToday> {
         padding: const EdgeInsets.symmetric(vertical: NvSpace.s2),
         child: Text(words, style: NvText.bodyStrong));
     final NvStatusLabel? status;
-    if (trip["status"] == "IN_PROGRESS") {
-      status = const NvStatusLabel("On the way", tone: NvStatusTone.info);
+    if (trip["status"] == "IN_PROGRESS" ||
+        trip["status"] == "CANCEL_REQUESTED") {
+      status = _tripStatusLabel(trip);
     } else if (accepted != null && accepted > 0) {
       status = const NvStatusLabel("Ready to start", tone: NvStatusTone.good);
     } else {
@@ -1602,6 +1609,8 @@ class _DriverTodayState extends State<_DriverToday> {
     ];
     return NvListCard(
       title: _tripRoute(trip) ?? "Trip",
+      status:
+          trip["status"] == "CANCEL_REQUESTED" ? _tripStatusLabel(trip) : null,
       subtitle: details.isEmpty ? null : details.join(" · "),
       onOpen: () => _open(trip),
     );
@@ -1813,7 +1822,7 @@ class _DriverShipmentDetailScreenState
       _shipment = found;
       _shipmentMissingFromList = false;
     });
-    if (!_forDriver) await _loadTrip(found);
+    await _loadTrip(found);
   }
 
   Future<void> _loadTrip(Map<String, dynamic> shipment) async {
@@ -1868,18 +1877,24 @@ class _DriverShipmentDetailScreenState
   }
 
   /// A driver's view of one booking on their trip: who, where, the e-way bill, and the one thing to do now held
-  /// at the bottom. A driver may still accept (the API lets them), so Accept stays. No amounts.
+  /// at the bottom. A driver may accept (the API lets them), except on a trip their office asked NaviG8r to cancel,
+  /// where the server refuses Accept and Confirm delivery, so both are off. No amounts.
   Widget _driverView(Map<String, dynamic> s) {
     final status = s["status"]?.toString() ?? "";
     final statusWords = _bookingStatus(s, null, onBookingScreen: true);
     final pickup = _nonEmpty(s["pickupAddress"]);
     final drop = _nonEmpty(s["dropAddress"]);
     final weight = _weightWords(s);
+    // The driver did not ask and cannot withdraw, so this is not the office's sentence.
+    const officeAskedToCancel = "Your office asked NaviG8r to cancel this trip.";
+    final cancelRequested = _trip?["status"] == "CANCEL_REQUESTED";
     final String? cannotAcceptReason;
     if (!DriverSession.complianceApproved) {
       cannotAcceptReason = "You can accept once NaviG8r approves your company.";
     } else if (!AuthorizationSession.can("carrier.offer_accept")) {
       cannotAcceptReason = "You cannot accept bookings. Ask your office.";
+    } else if (cancelRequested) {
+      cannotAcceptReason = officeAskedToCancel;
     } else {
       cannotAcceptReason = null;
     }
@@ -1894,7 +1909,8 @@ class _DriverShipmentDetailScreenState
           fullWidth: true),
       "BOOKED" when AuthorizationSession.can("pod.upload") => NvButton(
           label: "Confirm delivery",
-          onPressed: _confirmDelivery,
+          onPressed: cancelRequested ? null : _confirmDelivery,
+          disabledReason: cancelRequested ? officeAskedToCancel : null,
           forDriver: true,
           fullWidth: true),
       _ => null,
@@ -2143,6 +2159,8 @@ class _DriverShipmentDetailScreenState
       cannotAcceptReason = "You can accept once NaviG8r approves your company.";
     } else if (!AuthorizationSession.can("carrier.offer_accept")) {
       cannotAcceptReason = "You cannot accept bookings. Ask the owner.";
+    } else if (_trip?["status"] == "CANCEL_REQUESTED") {
+      cannotAcceptReason = cancelRequestedAcceptSentence;
     } else {
       cannotAcceptReason = null;
     }
@@ -2366,9 +2384,9 @@ String? _nonEmpty(Object? value) =>
 enum _TripGroup { open, inTransit, done }
 
 _TripGroup? _tripGroup(Map<String, dynamic> trip) => switch (trip["status"]) {
-      "OPEN" || "FULL" => _TripGroup.open,
+      "OPEN" || "FULL" || "CANCEL_REQUESTED" => _TripGroup.open,
       "IN_PROGRESS" => _TripGroup.inTransit,
-      "COMPLETED" => _TripGroup.done,
+      "COMPLETED" || "CANCELLED" => _TripGroup.done,
       _ => null,
     };
 
@@ -2380,6 +2398,9 @@ NvStatusLabel? _tripStatusLabel(Map<String, dynamic>? trip) =>
       "IN_PROGRESS" =>
         const NvStatusLabel("On the way", tone: NvStatusTone.info),
       "COMPLETED" => const NvStatusLabel("Done", tone: NvStatusTone.ended),
+      "CANCEL_REQUESTED" =>
+        const NvStatusLabel("Cancel requested", tone: NvStatusTone.attention),
+      "CANCELLED" => const NvStatusLabel("Cancelled", tone: NvStatusTone.ended),
       _ => null,
     };
 
@@ -3632,6 +3653,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       "COMPLETED" => const NvStatusLabel("Done", tone: NvStatusTone.ended),
       "OPEN" || "FULL" when _acceptedBookings.isNotEmpty =>
         const NvStatusLabel("Ready to start", tone: NvStatusTone.good),
+      "CANCEL_REQUESTED" || "CANCELLED" => _tripStatusLabel(trip),
       _ => null,
     };
     final points = _resolvedMapPoints();
@@ -3905,6 +3927,18 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   _bookingOnTrip(booking, trip),
                   const SizedBox(height: NvSpace.s3),
                 ],
+              ],
+              if (trip != null &&
+                  const {"OPEN", "FULL", "CANCEL_REQUESTED", "CANCELLED"}
+                      .contains(status)) ...[
+                TripCancelCard(
+                  key: ValueKey("cancel-${trip["id"]}"),
+                  trip: trip,
+                  hasBookings: _hasActiveShipments,
+                  onChanged: (saved) => setState(() => _trip = saved),
+                  onReload: _load,
+                ),
+                gap,
               ],
               if (status == "COMPLETED")
                 const NvMessage(

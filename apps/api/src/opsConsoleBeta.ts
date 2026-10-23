@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { ewayBillMarkup, ewayBillScript } from "./opsConsoleBetaEwayBills.ts";
 import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
+import { tripCancelMarkup, tripCancelScript } from "./opsConsoleBetaTripCancels.ts";
 
 /**
  * The redesigned operations page, served at /ops/beta beside the current /ops page until the team agrees
@@ -8,7 +9,7 @@ import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
  * Built from the "NaviG8r ops console" design on the NaviG8r design system; token names match that system.
  *
  * Over 500 lines because markup and script are one screen: every element id the script reads is defined
- * here, or in opsConsoleBetaEwayBills.ts, which is pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
+ * here, or in opsConsoleBetaEwayBills.ts or opsConsoleBetaTripCancels.ts, which are pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
  */
 export function opsConsoleBetaHtml(): string {
   return page;
@@ -57,6 +58,7 @@ const markup = `
     <span class="caption">Needs someone</span>
     <a class="jump" href="#carriers" id="jumpCarriers">Carriers waiting <span class="count" id="countCarriers">0</span></a>
     <a class="jump" href="#payments">Payments waiting <span class="count" id="countPayments">0</span></a>
+    <a class="jump" href="#tripCancels">Trip cancel requests <span class="count" id="countTripCancels">0</span></a>
     <a class="jump" href="#ewayBills" id="jumpEwayBills">E-way bills to check <span class="count" id="countEwayBills">0</span></a>
     <a class="jump" href="#ewayMissing" id="jumpEwayMissing">Missing e-way bills <span class="count" id="countEwayMissing">0</span></a>
     <a class="jump" href="#team">Team access</a>
@@ -85,7 +87,7 @@ const markup = `
     <section id="payments" class="card span3" aria-labelledby="paymentsTitle">
       <div class="head"><h2 id="paymentsTitle">Payments waiting for release</h2><span id="paymentsCount" class="caption"></span><div class="grow"></div><span id="paymentsUpdated" class="caption"></span><button id="paymentsReload" class="btn btn-quiet btn-sm" type="button">Reload</button></div>
       <div id="paymentsBody"></div>
-    </section>
+    </section>${tripCancelMarkup}
     <section id="team" class="card" aria-labelledby="teamTitle">
       <div class="head"><h2 id="teamTitle">Team access</h2><div class="grow"></div><span id="teamTag"></span></div>
       <div id="teamBody" class="body"></div>
@@ -202,7 +204,7 @@ async function request(path, method = 'GET', body, headers = {}) {
   }
   const code = out.error || String(response.status);
   if (response.status === 401) byId('signin').hidden = false;
-  if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, unchanged: refusedBeforeChange.includes(code), retryAfterMs: out.retryAfterMs });
+  if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, code, unchanged: refusedBeforeChange.includes(code), retryAfterMs: out.retryAfterMs });
   return out;
 }
 const nothingChanged = error => error.unchanged ? 'Nothing changed.' : "Couldn't confirm whether it was saved. Reload to see the current status before trying again.";
@@ -662,7 +664,7 @@ async function loadWorkspace() {
   byId('notice').hidden = true;
   byId('tools').hidden = byId('sections').hidden = false;
   renderTeam();
-  await Promise.all([loadCarriers(), loadPayments(), loadEwayBills()]);
+  await Promise.all([loadCarriers(), loadPayments(), loadTripCancels(), loadEwayBills()]);
 }
 
 // A second click while a sign-in is still running would try the same code again and fail confusingly.
@@ -727,6 +729,7 @@ byId('organization').onchange = () => {
 byId('carriersReload').onclick = () => run(loadCarriers, "Couldn't reload");
 byId('paymentsReload').onclick = () => run(loadPayments, "Couldn't reload");
 ${ewayBillScript}
+${tripCancelScript}
 byId('legend').append(...[['Done', 'good'], ['Someone must act', 'attention'], ['Blocked or failed', 'problem'], ['In progress', 'info']].map(statusTag));
 if (!token) byId('signin').hidden = false;
 else {

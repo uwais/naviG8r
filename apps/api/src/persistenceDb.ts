@@ -790,7 +790,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
     for (const key of PERMISSIONS) await tx.permission.upsert({ where: { key }, create: { key }, update: {} });
     for (const roleKey of ROLES) for (const permissionKey of ROLE_PERMISSIONS[roleKey]) await tx.rolePermission.upsert({ where: { roleKey_permissionKey: { roleKey, permissionKey } }, create: { roleKey, permissionKey }, update: {} });
     for (const m of store.memberships.values()) for (const roleKey of store.membershipRoles.get(`${m.userId}:${m.orgId}`) ?? []) await tx.membershipRoleAssignment.create({ data: { userId: m.userId, orgId: m.orgId, roleKey } });
-    for (const e of store.auditEvents.values()) await tx.auditEvent.upsert({ where: { id: e.id }, create: { ...e, timestamp: BigInt(e.timestamp) }, update: {} });
+    // The audit table has no Razorpay payment column, and Prisma refuses a field it does not know.
+    for (const { razorpayPaymentId: _noColumn, ...e } of store.auditEvents.values()) await tx.auditEvent.upsert({ where: { id: e.id }, create: { ...e, timestamp: BigInt(e.timestamp) }, update: {} });
     await tx.authorizationMigration.upsert({ where: { key: "rbac-v1" }, create: { key: "rbac-v1" }, update: {} });
     const dump = dumpStore(store);
     const data = JSON.parse(JSON.stringify(Object.fromEntries(integrationMaps.map(name => [name, dump[name]]))));

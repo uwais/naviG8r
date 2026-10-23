@@ -318,6 +318,12 @@ function withoutCarrierPay<T extends Shipment>(shipment: T): Omit<T, "netToCarri
   return rest;
 }
 
+/** A carrier's cancel request, its note above all, is between the carrier and NaviG8r; an ERP caller reads the status only. */
+function tripForErp<T extends { cancelRequest?: unknown }>(trip: T) {
+  const { cancelRequest: _request, ...rest } = withoutTripAssignment(trip);
+  return rest;
+}
+
 export function getIntegrationShipmentTracking(store: Store, orgId: string, shipmentId: string) {
   const shipment = store.shipments.get(shipmentId);
   if (!shipment || shipment.customerOrgId !== orgId) throw new Error("shipment_not_found");
@@ -330,7 +336,7 @@ export function getIntegrationShipmentTracking(store: Store, orgId: string, ship
   const isLive = fresh && shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
   return {
     shipment: withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment))))),
-    trip: withoutTripAssignment(tripWithCarrierDisplay(store, trip)),
+    trip: tripForErp(tripWithCarrierDisplay(store, trip)),
     liveLocation: loc,
     isLive,
     staleAfterUtcMs: staleMs,
@@ -352,7 +358,7 @@ export function getIntegrationShipmentSnapshot(store: Store, orgId: string, ship
     ...integrationLoadResponse(store, shipment, conn),
     shipment: withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(enriched)))),
     payment,
-    trip: trip ? withoutTripAssignment(trip) : null,
+    trip: trip ? tripForErp(trip) : null,
   };
 }
 

@@ -29,10 +29,13 @@ export function assignedDriverMaySee(store: Store, principal: Pick<Principal, "i
   return trip?.assignedDriverUserId === principal.userId;
 }
 
-/** A truck named on a trip that is not finished is the truck its shippers read, so a driver may not change it. */
+/**
+ * A truck named on a trip that is not finished is the truck its shippers read, so a driver may not change it.
+ * A cancelled trip is finished; one its carrier asked to cancel still has shippers booked.
+ */
 export function truckOnUnfinishedTrip(store: Store, vehicleId: string): boolean {
   return [...store.anchorTrips.values()].some((trip) =>
-    trip.assignedVehicleId === vehicleId && trip.status !== "COMPLETED" && isActiveEntity(trip));
+    trip.assignedVehicleId === vehicleId && trip.status !== "COMPLETED" && trip.status !== "CANCELLED" && isActiveEntity(trip));
 }
 
 /**
