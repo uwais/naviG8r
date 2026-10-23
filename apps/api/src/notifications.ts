@@ -16,6 +16,8 @@ const MAX_MESSAGE_LENGTH = 4000;
 const DEFAULT_REPLY_WINDOW_DAYS = 14;
 const DEFAULT_MESSAGES_PER_MINUTE = 20;
 const POLICY_VERSION = "support-window-v1";
+// Owner, 22 Oct 2026: "lock once the shipper accepts delivery". Replies close at acceptance, with no support window.
+const ACCEPTED_POLICY_VERSION = "delivery-accepted-v1";
 
 export class CommunicationError extends Error {
   status: number;
@@ -114,7 +116,7 @@ function getOrCreateConversation(store: Store, shipment: Shipment): Conversation
   const current = store.conversations.get(shipment.id);
   if (current) return current;
   const now = Date.now();
-  const terminal = shipment.status === "DELIVERED" || shipment.status === "FAILED_CARRIER_REFUNDED";
+  const terminal = shipment.status === "DELIVERED" || shipment.status === "FAILED_CARRIER_REFUNDED" || shipment.podAcceptedAtUtcMs != null;
   const conversation: Conversation = {
     id: shipment.id, shipmentId: shipment.id, createdAtUtcMs: now, updatedAtUtcMs: now,
     ...(terminal ? { replyUntilUtcMs: now, replyPolicyVersion: "legacy-terminal-read-only" } : {}),
@@ -127,7 +129,15 @@ export function captureTerminalConversationWindows(store: Store, now = Date.now(
   for (const [id, conversation] of store.conversations) {
     if (conversation.terminalAtUtcMs != null || conversation.replyPolicyVersion === "legacy-terminal-read-only") continue;
     const shipment = store.shipments.get(conversation.shipmentId);
-    if (!shipment || !["DELIVERED", "FAILED_CARRIER_REFUNDED"].includes(shipment.status)) continue;
+    if (!shipment) continue;
+    // Accepted delivery locks at once, whatever the status (it stays PENDING_RELEASE until NaviG8r releases payment).
+    const acceptedAt = shipment.podAcceptedAtUtcMs;
+    if (acceptedAt != null) {
+      store.conversations.set(id, { ...conversation, updatedAtUtcMs: now, terminalAtUtcMs: acceptedAt, replyUntilUtcMs: acceptedAt, replyPolicyVersion: ACCEPTED_POLICY_VERSION });
+      continue;
+    }
+    // Released or cancelled without the shipper accepting: the support window below still applies.
+    if (!["DELIVERED", "FAILED_CARRIER_REFUNDED"].includes(shipment.status)) continue;
     const configuredDays = Number(process.env.CONVERSATION_REPLY_WINDOW_DAYS ?? DEFAULT_REPLY_WINDOW_DAYS);
     const replyWindowDays = Number.isFinite(configuredDays) && configuredDays >= 0 ? configuredDays : DEFAULT_REPLY_WINDOW_DAYS;
     store.conversations.set(id, {
@@ -310,7 +320,7 @@ export function resolveNotificationOpenRoute(store: Store, notificationId: strin
 }
 
 type TimelineItem =
-  | { type: "message"; id: string; createdAtUtcMs: number; sequence: number; senderUserId: string; senderOrgId: string; body: string }
+  | { type: "message"; id: string; createdAtUtcMs: number; sequence: number; senderUserId: string; senderOrgId: string; senderLabel: string; body: string }
   | { type: "event"; id: string; createdAtUtcMs: number; recipientSequence: number; eventKey: string; title: string; body: string; readAtUtcMs?: number };
 type TimelineKey = { createdAtUtcMs: number; priority: number; id: string };
 type TimelineCursor = {
@@ -368,6 +378,33 @@ function decodeTimelineCursor(raw: string, expected: Omit<TimelineCursor, "befor
   } catch { throw new CommunicationError("invalid_timeline_cursor", 400); }
 }
 
+/**
+ * Who a message is from, as the viewer reads it (owner, 22 Oct 2026). A person's name only within their own company:
+ * another company's sender is that company's name, plus "Driver" or "Office" on the carrier side, since who drives
+ * is the carrier's business, never the shipper's.
+ */
+function senderLabel(store: Store, viewer: Principal, message: ConversationMessage, tripDriverUserId: string | undefined): string {
+  if (message.senderUserId === viewer.userId && message.senderOrgId === viewer.organizationId) return "You";
+  const org = store.organizations.get(message.senderOrgId);
+  if (org?.kind === "PLATFORM") return "NaviG8r";
+  if (message.senderOrgId === viewer.organizationId) return store.users.get(message.senderUserId)?.fullName?.trim() || "Your team";
+  const company = org?.displayName?.trim() || "Shipment participant";
+  if (org?.kind !== "CARRIER_SOLO" && org?.kind !== "CARRIER_FLEET" && org?.kind !== "CARRIER_LEGACY") return company;
+  // A DRIVER member, or whoever the carrier named as this trip's driver (an owner who drives), reads as Driver.
+  const memberRole = store.memberships.get(`${message.senderUserId}:${message.senderOrgId}`)?.role;
+  const drives = memberRole === "DRIVER" || message.senderUserId === tripDriverUserId;
+  return `${company} · ${drives ? "Driver" : "Office"}`;
+}
+
+/**
+ * Which shipment the Messages screen is about, as the app names a shipment: route plus date, never an ID or
+ * reference (spec copy.md, "Shipment name"). The trip's own field names, so the app's lane helpers read it. Never an amount.
+ */
+function shipmentSummary(store: Store, shipment: Shipment): { originCity?: string; destCity?: string; windowStart?: string } {
+  const trip = store.anchorTrips.get(shipment.anchorTripId);
+  return trip ? { originCity: trip.originCity, destCity: trip.destCity, windowStart: trip.windowStart } : {};
+}
+
 function canPrincipalSend(store: Store, shipment: Shipment, conversation: Conversation, principal: Principal): boolean {
   if (conversation.replyUntilUtcMs != null && Date.now() >= conversation.replyUntilUtcMs) return false;
   if (principal.roles.includes("OPS")) {
@@ -393,9 +430,10 @@ export async function listConversationTimeline(store: Store, shipmentId: string,
     };
   const notificationSequence = decoded?.notificationSequence ?? snapshot.notificationSequence;
   const messageSequence = decoded?.messageSequence ?? snapshot.messageSequence;
+  const tripDriverUserId = store.anchorTrips.get(shipment.anchorTripId)?.assignedDriverUserId;
   const messages: TimelineItem[] = snapshot.messages
     .filter(m => m.conversationId === conversation.id && m.sequence <= messageSequence)
-    .map(m => ({ type: "message", id: m.id, createdAtUtcMs: m.createdAtUtcMs, sequence: m.sequence, senderUserId: m.senderUserId, senderOrgId: m.senderOrgId, body: m.body }));
+    .map(m => ({ type: "message", id: m.id, createdAtUtcMs: m.createdAtUtcMs, sequence: m.sequence, senderUserId: m.senderUserId, senderOrgId: m.senderOrgId, senderLabel: senderLabel(store, principal, m, tripDriverUserId), body: m.body }));
   const events: TimelineItem[] = principal.roles.includes("OPS") ? [] : snapshot.notifications
     .filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && n.shipmentId === shipmentId && (n.conversationId === conversation.id || n.conversationId == null) && n.recipientSequence <= notificationSequence && n.eventKey !== "conversation.message" && !mustNotHearPaymentEvent(principal.subrole, n.eventKey))
     .map(n => ({ type: "event", id: n.id, createdAtUtcMs: n.createdAtUtcMs, recipientSequence: n.recipientSequence, eventKey: n.eventKey, title: String(n.data?.title ?? "Shipment update"), body: String(n.data?.body ?? "There is an update for this shipment."), ...(n.readAtUtcMs == null ? {} : { readAtUtcMs: n.readAtUtcMs }) }));
@@ -408,7 +446,7 @@ export async function listConversationTimeline(store: Store, shipmentId: string,
   const oldest = items[0];
   const nextBefore = hasMore && oldest ? encodeOpaque({ ...cursorScope, notificationSequence, messageSequence, before: keyForTimelineItem(oldest) }) : null;
   return {
-    conversation, items, nextBefore,
+    conversation, items, nextBefore, shipmentSummary: shipmentSummary(store, shipment),
     readWatermark: { notificationSequence, messageSequence },
     canSend: canPrincipalSend(store, shipment, conversation, principal),
   };

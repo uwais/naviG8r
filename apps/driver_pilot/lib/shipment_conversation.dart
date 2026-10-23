@@ -11,6 +11,7 @@ import 'conversation_drafts.dart';
 import 'notice_words.dart';
 import 'pilot_api.dart';
 import 'plain_error_sentence.dart';
+import 'shipper/shipper_words.dart';
 
 const _navy = Color(0xFF122C53);
 const _background = Color(0xFFF4F7FA);
@@ -47,6 +48,8 @@ class _ShipmentConversationScreenState
   String? _nextBefore;
   Map<String, dynamic>? _readWatermark;
   String? _error;
+  // "Hoskote to Kolar, 18 Oct", so the screen says which shipment it is.
+  String? _shipmentName;
   String _clientRequestId = _newClientRequestId();
   String? _lastFailedBody;
   Timer? _poll;
@@ -65,6 +68,7 @@ class _ShipmentConversationScreenState
       if (!mounted) return;
       final raw = response.data?['items'];
       final watermark = response.data?['readWatermark'];
+      final summary = response.data?['shipmentSummary'];
       final roles = AuthorizationSession.principal?['roles'];
       final isOps = roles is List && roles.contains('OPS');
       setState(() {
@@ -76,6 +80,11 @@ class _ShipmentConversationScreenState
         _canSend = response.data?['canSend'] == true &&
             AuthorizationSession.can(
                 isOps ? 'conversation.support_send' : 'conversation.send');
+        // The summary carries the trip's originCity, destCity and windowStart, as a lane does.
+        _shipmentName = summary is Map
+            ? shipmentRouteName(const {},
+                lane: Map<String, dynamic>.from(summary))
+            : null;
         _error = null;
         _loading = false;
       });
@@ -226,7 +235,18 @@ class _ShipmentConversationScreenState
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: _background,
-        appBar: AppBar(title: const Text('Messages')),
+        appBar: AppBar(
+            title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+              const Text('Messages'),
+              if (_shipmentName != null)
+                Text(_shipmentName!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13, color: _muted)),
+            ])),
         body: Column(children: [
           if (!_canSend && !_loading)
             const MaterialBanner(
@@ -308,10 +328,13 @@ class _ShipmentConversationScreenState
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
+                                          // The server names the sender: a teammate by name, another company by its name and role.
                                           Text(
                                               mine
                                                   ? 'You'
-                                                  : 'Shipment participant',
+                                                  : message['senderLabel']
+                                                          ?.toString() ??
+                                                      'Shipment participant',
                                               style: const TextStyle(
                                                   fontSize: 12, color: _muted)),
                                           const SizedBox(height: 4),

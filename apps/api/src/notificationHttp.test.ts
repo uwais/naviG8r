@@ -280,3 +280,63 @@ test("workflow event catalog fanout covers acceptance, trip, POD, and payment ch
   for (const event of ["shipment.carrier_accepted", "shipment.pod_submitted", "shipment.pod_accepted", "trip.started", "payment.status_changed"]) assert.ok(events.includes(event), event);
   assert.equal([...f.store.notifications.values()].filter(n => n.eventKey === "trip.started").length, 2);
 });
+
+// Owner, 22 Oct 2026: "lock once the shipper accepts delivery". The shipment stays PENDING_RELEASE until NaviG8r
+// releases payment, so acceptance itself closes replies, with no support window.
+test("accepting proof of delivery makes the conversation read-only at once, for both sides", async t => {
+  const previous = process.env.CONVERSATION_REPLY_WINDOW_DAYS;
+  process.env.CONVERSATION_REPLY_WINDOW_DAYS = "30";
+  t.after(() => { if (previous === undefined) delete process.env.CONVERSATION_REPLY_WINDOW_DAYS; else process.env.CONVERSATION_REPLY_WINDOW_DAYS = previous; });
+  const f = await httpFixture(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  const messagesPath = `/v1/shipments/${shipmentId}/conversation/messages`;
+  const timelinePath = `/v1/shipments/${shipmentId}/conversation/timeline`;
+  f.store.shipments.set(shipmentId, { ...f.store.shipments.get(shipmentId)!, status: "PENDING_RELEASE", podAtUtcMs: Date.now() });
+  await f.persist();
+  assert.equal((await f.request(messagesPath, "POST", { body: "Delivered at the gate.", clientRequestId: "before-accept" }, f.tokens.carrierA)).status, 201, "replies are open while proof waits");
+  assert.equal((await f.request(timelinePath, "GET", undefined, f.tokens.shipperA)).body.canSend, true);
+
+  assert.equal((await f.request(`/shipments/${shipmentId}/accept-pod`, "POST", {}, f.tokens.shipperA)).status, 200);
+  assert.equal(f.store.shipments.get(shipmentId)?.status, "PENDING_RELEASE");
+  const locked = f.store.conversations.get(shipmentId)!;
+  assert.equal(locked.replyPolicyVersion, "delivery-accepted-v1");
+  assert.equal(locked.replyUntilUtcMs, f.store.shipments.get(shipmentId)!.podAcceptedAtUtcMs, "no window after acceptance, whatever CONVERSATION_REPLY_WINDOW_DAYS says");
+  for (const token of [f.tokens.shipperA, f.tokens.carrierA]) {
+    const timeline = await f.request(timelinePath, "GET", undefined, token);
+    assert.equal(timeline.status, 200);
+    assert.equal(timeline.body.canSend, false);
+    assert.equal(timeline.body.items.some((item: { body: string }) => item.body === "Delivered at the gate."), true, "history stays readable");
+    const late = await f.request(messagesPath, "POST", { body: "One more thing", clientRequestId: `after-accept-${token.slice(-6)}` }, token);
+    assert.equal(late.status, 409);
+    assert.equal(late.body.error, "conversation_read_only");
+  }
+
+  // Release after acceptance does not reopen it with a support window.
+  f.store.shipments.set(shipmentId, { ...f.store.shipments.get(shipmentId)!, status: "DELIVERED" });
+  await f.persist();
+  assert.equal(f.store.conversations.get(shipmentId)?.replyUntilUtcMs, locked.replyUntilUtcMs);
+});
+
+test("a conversation first opened after acceptance is read-only too", async t => {
+  const f = await httpFixture(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  f.store.shipments.set(shipmentId, { ...f.store.shipments.get(shipmentId)!, status: "PENDING_RELEASE", podAtUtcMs: Date.now() - 1000, podAcceptedAtUtcMs: Date.now() });
+  f.store.conversations.delete(shipmentId);
+  const timeline = await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, f.tokens.shipperA);
+  assert.equal(timeline.status, 200);
+  assert.equal(timeline.body.canSend, false);
+});
+
+test("a shipment released without acceptance keeps the configured support window", async t => {
+  const previous = process.env.CONVERSATION_REPLY_WINDOW_DAYS;
+  process.env.CONVERSATION_REPLY_WINDOW_DAYS = "3";
+  t.after(() => { if (previous === undefined) delete process.env.CONVERSATION_REPLY_WINDOW_DAYS; else process.env.CONVERSATION_REPLY_WINDOW_DAYS = previous; });
+  const f = await httpFixture(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  f.store.shipments.set(shipmentId, { ...f.store.shipments.get(shipmentId)!, status: "DELIVERED", podAtUtcMs: Date.now() });
+  await f.persist();
+  const closed = f.store.conversations.get(shipmentId)!;
+  assert.equal(closed.replyPolicyVersion, "support-window-v1");
+  assert.equal(closed.replyUntilUtcMs! - closed.terminalAtUtcMs!, 3 * 24 * 60 * 60 * 1000);
+  assert.equal((await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, f.tokens.shipperA)).body.canSend, true);
+});
