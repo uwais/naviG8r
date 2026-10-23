@@ -39,16 +39,15 @@ test("start is refused with one line per booking whose bill is not final, names 
   const driverToken = await f.login("8000000013");
   const assigned = await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/assignment`, "POST", { vehicleId: hired.vehicle.id, driverUserId: hired.user.id }, f.tokens.carrierA);
   assert.equal(assigned.status, 200);
-  const bookAndAccept = async (accept = true) => {
+  const bookAndAccept = async () => {
     const booking = await f.book(f.tokens.shipperA);
     assert.equal(booking.status, 201);
     const id = booking.body.shipment.id as string;
-    if (accept) assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+    assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
     return id;
   };
   const first = await bookAndAccept();
   const second = await bookAndAccept();
-  await bookAndAccept(false);
   const setBill = (shipmentId: string, ewayBill: EwayBill) =>
     f.store.shipments.set(shipmentId, { ...f.store.shipments.get(shipmentId)!, ewayBill });
   const start = (token = driverToken) => f.request(`/v1/pilot/anchor-trips/${f.trip.id}/start`, "POST", {}, token);
@@ -60,7 +59,7 @@ test("start is refused with one line per booking whose bill is not final, names 
   assert.deepEqual(refused.body.shipments, [
     { shipmentId: first, shipperName: "Synthetic Shipper A", reason: "no_bill" },
     { shipmentId: second, shipperName: "Synthetic Shipper A", reason: "no_bill" },
-  ], "only accepted bookings count; the one waiting for acceptance does not");
+  ]);
   assert.ok(!/paise|amount|net|gross|commission|payment/i.test(JSON.stringify(refused.body)), "no money in the refusal");
 
   setBill(second, finalBill());
@@ -122,6 +121,69 @@ test("a deleted booking neither holds the start nor counts as the accepted one",
   const started = await start();
   assert.equal(started.status, 200);
   assert.equal(started.body.trip.status, "IN_PROGRESS");
+});
+
+test("a booking waiting for the carrier holds the start, listed before the bills, until it is accepted", async t => {
+  const { f, bookAndAccept, setBill, start } = await tripWithTruck(t);
+  const accepted = await bookAndAccept();
+  setBill(accepted, finalBill());
+  const waiting = (await f.book(f.tokens.shipperA)).body.shipment.id as string;
+
+  const refused = await start();
+  assert.equal(refused.status, 409);
+  assert.equal(refused.body.error, "eway_bill_not_ready");
+  assert.deepEqual(refused.body.shipments, [{ shipmentId: waiting, shipperName: "Synthetic Shipper A", reason: "waiting_for_accept" }]);
+  assert.ok(!/paise|amount|net|gross|commission|payment/i.test(JSON.stringify(refused.body)), "no money in the refusal");
+
+  setBill(accepted, { kind: "BILL", billNumber: "123456789012", ...entered });
+  assert.deepEqual((await start()).body.shipments.map((s: { reason: string }) => s.reason), ["waiting_for_accept", "truck_missing"],
+    "the carrier's own step first, then the bills");
+  setBill(accepted, finalBill());
+
+  const listed = await f.request("/v1/pilot/carrier/shipments", "GET", undefined, f.tokens.carrierA);
+  const byId = new Map(listed.body.shipments.map((s: { id: string }) => [s.id, s]));
+  assert.equal((byId.get(waiting) as { readyToAccept?: boolean }).readyToAccept, true);
+  assert.equal("readyToAccept" in (byId.get(accepted) as object), false, "only a booking waiting for the carrier says it");
+  assert.equal(f.store.anchorTrips.get(f.trip.id)?.status, "OPEN", "a refused start changes nothing");
+
+  assert.equal((await f.request(`/v1/pilot/carrier/shipments/${waiting}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  setBill(waiting, finalBill());
+  const started = await start();
+  assert.equal(started.status, 200);
+  assert.equal(started.body.trip.status, "IN_PROGRESS");
+});
+
+test("a booking whose checkout is not done does not hold the start, and once the trip starts no booking is accepted", async t => {
+  const { f, bookAndAccept, setBill, start } = await tripWithTruck(t);
+  const accepted = await bookAndAccept();
+  setBill(accepted, finalBill());
+  const unpaid = (await f.book(f.tokens.shipperA)).body.shipment.id as string;
+  const failed = (await f.book(f.tokens.shipperA)).body.shipment.id as string;
+  const setPayment = (shipmentId: string, status: "CREATED" | "FAILED" | "AUTHORIZED") => {
+    const pay = f.store.payments.get(f.store.shipments.get(shipmentId)!.paymentId)!;
+    f.store.payments.set(pay.id, { ...pay, status });
+  };
+  setPayment(unpaid, "CREATED");
+  setPayment(failed, "FAILED");
+
+  const listed = await f.request("/v1/pilot/carrier/shipments", "GET", undefined, f.tokens.carrierA);
+  for (const id of [unpaid, failed]) {
+    assert.equal(listed.body.shipments.find((s: { id: string }) => s.id === id).readyToAccept, false);
+  }
+  const started = await start();
+  assert.equal(started.status, 200, "only the shipper can finish paying, so these do not hold the trip");
+  assert.equal(started.body.trip.status, "IN_PROGRESS");
+
+  // The shipper finishes paying after the trip has left: the booking still cannot join it.
+  setPayment(unpaid, "AUTHORIZED");
+  const accept = () => f.request(`/v1/pilot/carrier/shipments/${unpaid}/accept`, "POST", {}, f.tokens.carrierA);
+  const refused = await accept();
+  assert.equal(refused.status, 409);
+  assert.deepEqual(refused.body, { error: "trip_already_started", detail: "This trip is already on the way, so it cannot take this booking." });
+  assert.equal(f.store.shipments.get(unpaid)?.status, "PENDING_CARRIER_ACCEPT", "nothing changed");
+
+  f.store.anchorTrips.set(f.trip.id, { ...f.store.anchorTrips.get(f.trip.id)!, status: "COMPLETED" });
+  assert.equal((await accept()).body.error, "trip_already_started", "a finished trip is refused the same way");
 });
 
 test("a refused start tells no shipper: the office reminds them with Remind", async t => {

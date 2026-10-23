@@ -217,13 +217,14 @@ test("a vehicleId is ignored when the trip already names a truck, and when the c
   assert.deepEqual([kept.status, kept.body.shipment.status], [200, "BOOKED"]);
   assert.equal(f.store.anchorTrips.get(f.trip.id)?.assignedVehicleId, staff.driverTruckId, "the office changes a named truck on the trip screen");
 
-  // A trip from before assignments existed: it names nobody, and the driver who started it keeps it.
-  const legacyTrip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "C", destCity: "D", windowStart: "2026-10-16", windowEnd: "2026-10-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
-  const onLegacyTrip = (await f.book(f.tokens.shipperA, { anchorTripId: legacyTrip.id })).body.shipment.id as string;
-  f.store.anchorTrips.set(legacyTrip.id, { ...f.store.anchorTrips.get(legacyTrip.id)!, status: "IN_PROGRESS", startedByUserId: staff.driverUserId });
-  const byDriver = await accept(f, onLegacyTrip, { vehicleId: staff.driverTruckId }, staff.driverToken);
+  // A trip that names the driver and no truck yet. Accepting on a started trip is refused (owner, 23 Oct 2026),
+  // so this is no longer a legacy trip the driver started.
+  const driverOnlyTrip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "C", destCity: "D", windowStart: "2026-10-16", windowEnd: "2026-10-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
+  const onDriverOnlyTrip = (await f.book(f.tokens.shipperA, { anchorTripId: driverOnlyTrip.id })).body.shipment.id as string;
+  f.store.anchorTrips.set(driverOnlyTrip.id, { ...f.store.anchorTrips.get(driverOnlyTrip.id)!, assignedDriverUserId: staff.driverUserId });
+  const byDriver = await accept(f, onDriverOnlyTrip, { vehicleId: staff.driverTruckId }, staff.driverToken);
   assert.deepEqual([byDriver.status, byDriver.body.shipment.status], [200, "BOOKED"]);
-  assert.equal(f.store.anchorTrips.get(legacyTrip.id)?.assignedVehicleId, undefined, "a driver cannot name a truck");
+  assert.equal(f.store.anchorTrips.get(driverOnlyTrip.id)?.assignedVehicleId, undefined, "a driver cannot name a truck");
 });
 
 test("truck numbers in the portal's form: the district padded to two digits and the number to four, ending where a space was typed; other shapes only cleaned", () => {

@@ -507,6 +507,93 @@ void main() {
           reason: 'the line under them did not move');
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets(
+        'a booking waiting for the office to accept holds Start, listed first, with no Remind',
+        (tester) async {
+      Map<String, dynamic> waiting(String id, String shipper, bool ready) => {
+            ...bookingOn('trip-a', id,
+                shipper: shipper, weightKg: 10, status: 'PENDING_CARRIER_ACCEPT'),
+            'readyToAccept': ready,
+          };
+      final server = signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [
+            sharma,
+            waiting('kumar', 'Kumar Traders', true),
+            waiting('unpaid', 'Unpaid Co', false),
+          ]));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      final start = find.widgetWithText(FilledButton, 'Start trip');
+      expect(tester.widget<FilledButton>(start).onPressed, isNull);
+      expect(find.text("Kumar Traders's booking is waiting for you to accept."),
+          findsOneWidget);
+      expect(find.text('Waiting for you to accept a booking.'), findsOneWidget);
+      expect(find.textContaining('Unpaid Co'), findsWidgets,
+          reason: 'it is still listed with the bookings');
+      expect(find.textContaining("Unpaid Co's booking"), findsNothing,
+          reason: 'a booking the server says cannot be accepted yet holds nothing, as on the server');
+      expect(find.textContaining('Remind'), findsNothing,
+          reason: 'the office accepts it; there is nothing to remind the shipper of');
+      expect(find.text('You can message the shipper from the booking.'),
+          findsNothing,
+          reason: 'only a booking to accept holds Start, so there is no shipper to message');
+      await tester.tap(start);
+      await tester.pumpAndSettle();
+      expect(server.sent, isEmpty);
+
+      // With a bill that holds Start too, the booking to accept is listed first and the footer comes back.
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [mehta, waiting('kumar', 'Kumar Traders', true)]));
+      await mount(tester,
+          const DriverActiveTripScreen(key: ValueKey(2), tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      final waitingLine =
+          find.text("Kumar Traders's booking is waiting for you to accept.");
+      final billLine =
+          find.text('Mehta Hardware has not added the truck to the e-way bill yet.');
+      expect(tester.getTopLeft(waitingLine).dy,
+          lessThan(tester.getTopLeft(billLine).dy));
+      expect(find.widgetWithText(TextButton, 'Remind Mehta Hardware'),
+          findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Remind Kumar Traders'),
+          findsNothing);
+      expect(find.text('You can message the shipper from the booking.'),
+          findsOneWidget);
+    });
+
+    testWidgets(
+        'a server refusal naming a booking to accept shows its line and holds Start',
+        (tester) async {
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [sharma],
+          refusesWrites: true,
+          refusal: {
+            'error': 'eway_bill_not_ready',
+            'shipments': [
+              {'shipmentId': 'kumar', 'shipperName': 'Kumar Traders', 'reason': 'waiting_for_accept'},
+            ],
+          }));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      final start = find.widgetWithText(FilledButton, 'Start trip');
+      await tester.tap(start);
+      await tester.pumpAndSettle();
+      await tester
+          .tap(inSheet(find.widgetWithText(FilledButton, 'Start trip')));
+      await tester.pumpAndSettle();
+      expect(find.text("Kumar Traders's booking is waiting for you to accept."),
+          findsOneWidget);
+      expect(find.text('Waiting for you to accept a booking.'), findsOneWidget);
+      expect(tester.widget<FilledButton>(start).onPressed, isNull);
+      expect(find.textContaining('eway_bill_not_ready'), findsNothing);
+    });
   });
 }
 

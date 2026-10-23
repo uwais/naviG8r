@@ -59,6 +59,7 @@ import {
   pilotListMyAnchorTrips,
   pilotRatesEstimate,
   pilotListCarrierShipments,
+  bookingReadyToAccept,
   pilotCarrierEarningsSummary,
   pilotSubmitPayoutSetup,
   pilotListCarrierLedger,
@@ -966,9 +967,11 @@ export async function createApp(options: {
       if (method === "GET" && url.pathname === "/v1/pilot/carrier/shipments") {
         const userId = requireUserId(req, store);
         const anchorTripId = url.searchParams.get("anchorTripId") ?? undefined;
-        const shipments = pilotListCarrierShipments(store, userId, { anchorTripId }).map((s) =>
-          shipmentWithCarrierDisplay(store, s),
-        );
+        // readyToAccept tells the app which waiting bookings hold the trip's start, in words with no payment state.
+        const shipments = pilotListCarrierShipments(store, userId, { anchorTripId }).map((s) => ({
+          ...shipmentWithCarrierDisplay(store, s),
+          ...(s.status === "PENDING_CARRIER_ACCEPT" ? { readyToAccept: bookingReadyToAccept(store, s) } : {}),
+        }));
         return json(res, 200, { shipments });
       }
 

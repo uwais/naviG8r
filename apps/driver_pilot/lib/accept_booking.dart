@@ -8,6 +8,15 @@ import 'ui/nv_choice.dart';
 import 'ui/nv_sheet.dart';
 import 'ui/tokens.dart';
 
+/// Accept on a booking whose trip has started or finished, before it is tapped: the server's own words for
+/// its refusal, trip_already_started (owner, 23 Oct 2026). The same for the office and its drivers.
+const tripStartedAcceptSentence =
+    'This trip is already on the way, so it cannot take this booking.';
+
+/// The trip has left or finished, so the server refuses Accept on it.
+bool tripAlreadyStarted(Map<String, dynamic>? trip) =>
+    trip?['status'] == 'IN_PROGRESS' || trip?['status'] == 'COMPLETED';
+
 /// Accepts [shipment], as every Accept button on the carrier screens does. When the carrier office (a login that
 /// may assign trips) accepts a booking whose trip names no truck, it chooses the truck first, so the shipper has
 /// it for the e-way bill from acceptance (owner decision, 16 Oct 2026). A driver, or a trip that already names its

@@ -1825,6 +1825,16 @@ function paymentAuthorizedForCarrierAccept(pay: Payment): boolean {
 }
 
 /**
+ * A booking waiting for the carrier whose payment lets it be accepted now. Only these hold a trip's start
+ * (owner, 23 Oct 2026): one whose checkout is not done cannot be accepted, and only the shipper can change that.
+ */
+export function bookingReadyToAccept(store: Store, shipment: Shipment): boolean {
+  if (shipment.status !== "PENDING_CARRIER_ACCEPT") return false;
+  const pay = store.payments.get(shipment.paymentId);
+  return pay !== undefined && paymentAuthorizedForCarrierAccept(pay);
+}
+
+/**
  * Accepting can also name the trip's truck, in the same request (owner decision, 16 Oct 2026): only when the trip
  * names none yet and the caller may assign trucks. Otherwise a vehicleId is ignored; the office changes a named
  * truck on the trip screen. The server answers a refusal without undoing earlier writes, so this runs after every
@@ -1851,8 +1861,13 @@ export function acceptCarrierShipment(
   if (s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new ApiError("shipment_not_acceptable", { status: s.status });
   }
+  // A trip that has left takes no more bookings (owner, 23 Oct 2026); start waits for every booking ready to accept.
+  const tripStatus = store.anchorTrips.get(s.anchorTripId)?.status;
+  if (tripStatus === "IN_PROGRESS" || tripStatus === "COMPLETED") {
+    throw new ApiError("trip_already_started", { detail: "This trip is already on the way, so it cannot take this booking." }, 409);
+  }
   // The same words for the office and its drivers: a driver did not ask and cannot withdraw.
-  if (store.anchorTrips.get(s.anchorTripId)?.status === "CANCEL_REQUESTED") {
+  if (tripStatus === "CANCEL_REQUESTED") {
     throw new ApiError("trip_cancel_requested", { detail: "This trip's carrier asked NaviG8r to cancel it, so it cannot take this booking now." }, 409);
   }
   assertDispatchReady(store, s.carrierId);
@@ -1911,7 +1926,12 @@ export function startAnchorTripAsPilot(
     });
   }
   const now = nowUtcMs();
-  const notReady = shipmentsBlockingStart(store, trip, activeOnTrip, now);
+  // A booking waiting for the carrier comes first, since the carrier acts on it; then the e-way bills. The error
+  // keeps its name so app builds already installed still read the bill lines.
+  const waitingForAccept = activeOnTrip
+    .filter((s) => bookingReadyToAccept(store, s))
+    .map((s) => ({ shipmentId: s.id, shipperName: s.customerOrgName, reason: "waiting_for_accept" as const }));
+  const notReady = [...waitingForAccept, ...shipmentsBlockingStart(store, trip, activeOnTrip, now)];
   // A refusal tells no shipper: the office chooses when to, with Remind (ewayBillReminder.ts).
   if (notReady.length > 0) throw new ApiError("eway_bill_not_ready", { shipments: notReady }, 409);
   const updated: AnchorTrip = {

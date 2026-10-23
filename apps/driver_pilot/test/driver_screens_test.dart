@@ -338,6 +338,40 @@ void main() {
     });
 
     testWidgets(
+        'before the trip starts with a booking waiting for the office to accept: Start waits, and the line says so',
+        (tester) async {
+      // Every bill final, so only the waiting booking holds Start (owner, 23 Oct 2026).
+      final bookings = threeDrops();
+      bookings[2] = {
+        ...bookings[2],
+        'ewayBill': billWith('190477315520', truck: 'KA01AB1234')
+      };
+      bookings.add({
+        ...carrierBooking('trip-today', 'adyar',
+            shipper: 'Kumar Traders',
+            drop: 'Adyar, Chennai',
+            status: 'PENDING_CARRIER_ACCEPT'),
+        'readyToAccept': true,
+      });
+      final server = signInAsDriver(bookings: bookings);
+      await mountCarrierApp(tester, '/driver/trip/trip-today/active');
+      final start = find.widgetWithText(FilledButton, 'Start trip');
+      expect(tester.widget<FilledButton>(start).onPressed, isNull);
+      expect(find.text("Kumar Traders's booking is waiting for your office to accept."),
+          findsOneWidget);
+      expect(find.text('Call your office.'), findsOneWidget);
+      expect(find.text('Waiting for your office to accept a booking.'),
+          findsOneWidget);
+      expect(find.text('Booking waiting'), findsOneWidget,
+          reason: 'the status label agrees with the held Start');
+      expect(find.text('Ready to start'), findsNothing);
+      expect(find.textContaining('Remind'), findsNothing);
+      await tester.tap(start);
+      await tester.pumpAndSettle();
+      expect(server.sent, isEmpty);
+    });
+
+    testWidgets(
         'confirming a delivery comes back saying so, with the next stop, and reads both out (dr-done)',
         (tester) async {
       final heard = listenForAnnouncements(tester);

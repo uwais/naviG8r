@@ -22,6 +22,8 @@ export function serializeResponse(value: unknown): unknown {
     if (p?.roles.some(r => ["SHIPPER", "FINANCE"].includes(r))) keys.push("grossPaise");
     // The shipper enters it on the e-way bill (owner decision, 16 Oct 2026); no other role needs it on a shipment.
     if (p?.roles.includes("SHIPPER")) keys.push("carrierTransporterId");
+    // Which waiting bookings hold the trip's start (owner, 23 Oct 2026); set only by the carrier's booking list.
+    if (p?.roles.includes("CARRIER")) keys.push("readyToAccept");
     if (p?.roles.some(r => ["CARRIER", "FINANCE"].includes(r))) keys.push("netToCarrierPaise");
     if (p?.roles.includes("FINANCE")) keys.push("commissionPaise", "paymentId");
     const ewayBill = ewayBillForRoles(v.ewayBill as EwayBill | undefined, p?.roles ?? []);

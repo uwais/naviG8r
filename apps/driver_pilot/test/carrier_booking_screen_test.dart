@@ -196,6 +196,37 @@ void main() {
               'a screen whose trip had not loaded, or was out of date, reads it after tapping');
     });
 
+    const tripStarted =
+        'This trip is already on the way, so it cannot take this booking.';
+    for (final status in ['IN_PROGRESS', 'COMPLETED']) {
+      testWidgets(
+          "Accept is off on a trip that is $status, with the server's sentence",
+          (tester) async {
+        signInAsOwner();
+        answer(bookings: [pending()], trips: [trip(status: status)]);
+        await mountBooking(tester);
+        expect(
+            tester
+                .widget<FilledButton>(find.widgetWithText(FilledButton, 'Accept'))
+                .onPressed,
+            isNull,
+            reason: 'owner, 23 Oct 2026: the server refuses it');
+        expect(find.text(tripStarted), findsOneWidget);
+      });
+    }
+
+    test("a refused Accept on a started trip shows the server's sentence", () {
+      api = Api('http://test');
+      final refusal = DioException(
+        requestOptions: RequestOptions(path: '/accept'),
+        response: Response(
+            requestOptions: RequestOptions(path: '/accept'),
+            statusCode: 409,
+            data: {'error': 'trip_already_started', 'detail': tripStarted}),
+      );
+      expect(plainErrorSentence(refusal), tripStarted);
+    });
+
     testWidgets(
         'a bill without the truck is the shipper\'s to fix: the office reads it, with no form or copy rows',
         (tester) async {

@@ -3,7 +3,8 @@
  * to enable trip start"). Every accepted booking needs a bill marked not needed, or a bill that has the trip's truck,
  * a valid-until time still ahead, and no ops result of PROBLEM. NaviG8r does not check every bill by hand: this
  * reads what was typed in, and a problem ops found when it looked a bill up on the portal also holds the trip.
- * The app mirrors this rule in eway_bill_start_gate.dart; change both together.
+ * A booking still waiting for the carrier to accept also holds the start, ahead of these; that check is in
+ * startAnchorTripAsPilot (services.ts). The app mirrors both in eway_bill_start_gate.dart; change them together.
  */
 import { assignedTruckNumber, portalTruckNumber } from "./tripAssignmentRules.ts";
 import { isActiveEntity } from "./softDelete.ts";

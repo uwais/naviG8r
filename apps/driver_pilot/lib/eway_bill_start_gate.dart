@@ -5,10 +5,19 @@ import 'eway_bill_words.dart';
 // A trip starts only once every accepted booking has a final e-way bill (owner, 23 Oct 2026, after tester
 // Uwais). The server decides, in ewayBillStartGate.ts; this mirrors it so Start trip is not offered when it
 // would be refused. Change both together. NaviG8r does not check every bill by hand: this reads what was typed
-// in, and a problem NaviG8r found on the portal also holds the trip.
+// in, and a problem NaviG8r found on the portal also holds the trip. A booking still waiting for the carrier to
+// accept holds it too, ahead of the bills (owner, 23 Oct 2026), unless the server says it cannot be accepted yet.
 
-/// Why one booking holds the trip, in the order the server checks.
-enum EwayBillStartBlock { noBill, truckMissing, truckDiffers, expired, problem }
+/// Why one booking holds the trip, in the order the server checks. waitingForAccept is not about a bill; it sits
+/// here because the server sends it in the same list.
+enum EwayBillStartBlock {
+  waitingForAccept,
+  noBill,
+  truckMissing,
+  truckDiffers,
+  expired,
+  problem
+}
 
 /// Who reads the lines: the office can change the trip's truck, a driver can only call the office.
 enum StartGateReader { carrierOffice, driver }
@@ -20,11 +29,18 @@ typedef EwayBillStartHold = ({
   EwayBillStartBlock block
 });
 
-/// Null when the booking is not accepted or its bill is final. A trip with no truck differs from any truck.
-/// The truck and its valid-until time are saved together, so a bill with no valid-until time has no truck yet.
-/// [now] is the phone's clock, which can be minutes off the server's; the server decides at Start.
+/// Null when the booking does not hold the trip: an accepted one whose bill is final, a waiting one the server
+/// says cannot be accepted yet (readyToAccept false, or missing from an older server), or any other status.
+/// A trip with no truck differs from any truck. The truck and its valid-until time are saved together, so a
+/// bill with no valid-until time has no truck yet. [now] is the phone's clock, which can be minutes off the
+/// server's; the server decides at Start.
 EwayBillStartBlock? ewayBillStartBlock(
     Map<String, dynamic> booking, String? tripTruckNumber, DateTime now) {
+  if (booking['status'] == 'PENDING_CARRIER_ACCEPT') {
+    return booking['readyToAccept'] == true
+        ? EwayBillStartBlock.waitingForAccept
+        : null;
+  }
   if (booking['status'] != 'BOOKED') return null;
   final bill = booking['ewayBill'];
   if (bill is! Map) return EwayBillStartBlock.noBill;
@@ -54,6 +70,12 @@ String ewayBillStartBlockLine(EwayBillStartHold hold,
     {required StartGateReader reader}) {
   final shipper = hold.shipperName;
   return switch (hold.block) {
+    EwayBillStartBlock.waitingForAccept => switch (reader) {
+        StartGateReader.carrierOffice =>
+          "$shipper's booking is waiting for you to accept.",
+        StartGateReader.driver =>
+          "$shipper's booking is waiting for your office to accept.",
+      },
     EwayBillStartBlock.noBill => '$shipper has not added the e-way bill yet.',
     EwayBillStartBlock.truckMissing =>
       '$shipper has not added the truck to the e-way bill yet.',
@@ -70,10 +92,15 @@ String ewayBillStartBlockLine(EwayBillStartHold hold,
   };
 }
 
-/// The one line under the list.
-String ewayBillStartBlockFooter(StartGateReader reader) => switch (reader) {
-      StartGateReader.carrierOffice =>
-        'You can message the shipper from the booking.',
+/// The one line under [holds]. None for the office when only bookings to accept hold the trip: the office
+/// accepts them, so there is no shipper to message.
+String? ewayBillStartBlockFooter(
+        StartGateReader reader, List<EwayBillStartHold> holds) =>
+    switch (reader) {
+      StartGateReader.carrierOffice => holds.any(
+              (hold) => hold.block != EwayBillStartBlock.waitingForAccept)
+          ? 'You can message the shipper from the booking.'
+          : null,
       StartGateReader.driver => 'Call your office.',
     };
 
@@ -82,12 +109,13 @@ String _shipperName(Object? name) =>
 
 String _shipmentId(Object? id) => id is String ? id : '';
 
-/// Every accepted booking on [trip] that holds it, empty when the trip may start.
+/// Every booking on [trip] that holds it, empty when the trip may start. Those waiting to be accepted come
+/// first, as in the server's list.
 List<EwayBillStartHold> ewayBillStartHolds(
     Map<String, dynamic> trip, List<Map<String, dynamic>> bookings,
     {required DateTime now}) {
   final tripTruck = trip['assignedTruckNumber'];
-  return [
+  final holds = [
     for (final booking in bookings)
       if (ewayBillStartBlock(
               booking, tripTruck is String ? tripTruck : null, now)
@@ -98,9 +126,13 @@ List<EwayBillStartHold> ewayBillStartHolds(
           block: block
         ),
   ];
+  bool waiting(EwayBillStartHold hold) =>
+      hold.block == EwayBillStartBlock.waitingForAccept;
+  return [...holds.where(waiting), ...holds.where((hold) => !waiting(hold))];
 }
 
 const _blockByServerReason = {
+  'waiting_for_accept': EwayBillStartBlock.waitingForAccept,
   'no_bill': EwayBillStartBlock.noBill,
   'truck_missing': EwayBillStartBlock.truckMissing,
   'truck_differs': EwayBillStartBlock.truckDiffers,

@@ -157,6 +157,44 @@ void main() {
     });
 
     testWidgets(
+        'does not offer to start a trip while a booking on it waits to be accepted',
+        (tester) async {
+      final today = DateTime.now().toUtc().toIso8601String();
+      final readyTrip = {
+        ...trip(id: 'trip-today', truck: 'KA01AB1234', driverName: 'Prakash Naidu'),
+        'windowStart': today,
+      };
+      final accepted = {
+        ...shipmentOnTripA(),
+        'anchorTripId': 'trip-today',
+        'ewayBill': finalBill()
+      };
+      Map<String, dynamic> waiting({required bool ready}) => {
+            ...shipmentOnTripA(status: 'PENDING_CARRIER_ACCEPT'),
+            'id': 'shipment-p',
+            'anchorTripId': 'trip-today',
+            'readyToAccept': ready,
+          };
+
+      signInAsCarrierOwner(
+          alsoAllowed: ['load.status_update', 'carrier.offer_accept']);
+      answer(bookings: [accepted, waiting(ready: true)], trips: [readyTrip]);
+      await mountRouted(tester, const DriverWelcomeScreen());
+      expect(find.text('Accept a booking'), findsOneWidget,
+          reason: 'accepting it is the next step');
+      expect(find.text('Start a trip'), findsNothing,
+          reason: 'owner, 23 Oct 2026: a trip cannot start while a booking on it waits');
+      expect(find.textContaining('Waiting for'), findsNothing);
+
+      signInAsCarrierOwner(
+          alsoAllowed: ['load.status_update', 'carrier.offer_accept']);
+      answer(bookings: [accepted, waiting(ready: false)], trips: [readyTrip]);
+      await mountRouted(tester, const DriverWelcomeScreen(key: ValueKey(2)));
+      expect(find.text('Start a trip'), findsOneWidget,
+          reason: 'a booking the server says cannot be accepted yet does not hold the trip');
+    });
+
+    testWidgets(
         'a trip waiting on a shipper is not under Needs you unless the office can change the truck',
         (tester) async {
       final today = DateTime.now().toUtc().toIso8601String();

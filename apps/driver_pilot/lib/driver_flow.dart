@@ -1137,8 +1137,8 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
       ));
     }
   }
-  // What the trip screen's Start trip takes (an approved carrier, an accepted booking, a driver, final e-way
-  // bills) and also a truck and a trip whose first day has come, which Start trip itself does not check.
+  // What the trip screen's Start trip takes (an approved carrier, an accepted booking, a driver, no booking
+  // waiting to be accepted, final e-way bills) and also a truck and a trip whose first day has come, which Start trip itself does not check.
   // A trip held only by its e-way bills says so instead of asking the office to start it. Only a truck that differs
   // from a bill is the office's to fix, by changing the trip's truck; the rest wait for the shipper.
   if (AuthorizationSession.can("load.status_update") &&
@@ -1157,6 +1157,11 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
           onTrip.any((booking) => booking["status"] == "BOOKED");
       if (!readyToStart) continue;
       final holds = ewayBillStartHolds(trip, onTrip, now: currentTime());
+      // A booking waiting to be accepted holds the trip; its Accept a booking task above is the next step.
+      if (holds
+          .any((hold) => hold.block == EwayBillStartBlock.waitingForAccept)) {
+        continue;
+      }
       tasks.add(_OfficeTask(
         title: switch (holds) {
           [] => "Start a trip",
@@ -1585,13 +1590,21 @@ class _DriverTodayState extends State<_DriverToday> {
         trip["status"] == "CANCEL_REQUESTED") {
       status = _tripStatusLabel(trip);
     } else if (accepted != null && accepted > 0) {
-      final waitingForBill = notDelivered != null &&
-          ewayBillStartHolds(trip, notDelivered, now: currentTime())
-              .isNotEmpty;
-      status = waitingForBill
-          ? const NvStatusLabel("Waiting for e-way bill",
+      final onTrip = _bookings
+          ?.where((booking) => booking["anchorTripId"] == trip["id"])
+          .toList();
+      final holds = onTrip == null
+          ? const <EwayBillStartHold>[]
+          : ewayBillStartHolds(trip, onTrip, now: currentTime());
+      status = holds.any(
+              (hold) => hold.block == EwayBillStartBlock.waitingForAccept)
+          ? const NvStatusLabel("Booking waiting",
               tone: NvStatusTone.attention)
-          : const NvStatusLabel("Ready to start", tone: NvStatusTone.good);
+          : holds.isNotEmpty
+              ? const NvStatusLabel("Waiting for e-way bill",
+                  tone: NvStatusTone.attention)
+              : const NvStatusLabel("Ready to start",
+                  tone: NvStatusTone.good);
     } else {
       status = null;
     }
@@ -1937,6 +1950,8 @@ class _DriverShipmentDetailScreenState
       cannotAcceptReason = "You cannot accept bookings. Ask your office.";
     } else if (cancelRequested) {
       cannotAcceptReason = officeAskedToCancel;
+    } else if (tripAlreadyStarted(_trip)) {
+      cannotAcceptReason = tripStartedAcceptSentence;
     } else {
       cannotAcceptReason = null;
     }
@@ -2203,6 +2218,8 @@ class _DriverShipmentDetailScreenState
       cannotAcceptReason = "You cannot accept bookings. Ask the owner.";
     } else if (_trip?["status"] == "CANCEL_REQUESTED") {
       cannotAcceptReason = cancelRequestedAcceptSentence;
+    } else if (tripAlreadyStarted(_trip)) {
+      cannotAcceptReason = tripStartedAcceptSentence;
     } else {
       cannotAcceptReason = null;
     }
@@ -3830,6 +3847,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         const NvStatusLabel("On the way", tone: NvStatusTone.info),
       "COMPLETED" => const NvStatusLabel("Done", tone: NvStatusTone.ended),
       "OPEN" || "FULL"
+          when _acceptedBookings.isNotEmpty && _bookingWaitsForAccept(trip!) =>
+        const NvStatusLabel("Booking waiting", tone: NvStatusTone.attention),
+      "OPEN" || "FULL"
           when _acceptedBookings.isNotEmpty &&
               _ewayBillStartHolds(trip!).isNotEmpty =>
         const NvStatusLabel("Waiting for e-way bill",
@@ -4007,6 +4027,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     if (!_forDriver && _nonEmpty(trip["assignedDriverUserId"]) == null) {
       return "Choose a driver first. Then start on loading day.";
     }
+    // Before the e-way bills, as on the server: the carrier acts on these.
+    if (_bookingWaitsForAccept(trip)) {
+      return _forDriver
+          ? "Waiting for your office to accept a booking."
+          : "Waiting for you to accept a booking.";
+    }
     // Before the e-way bills: with no truck, every bill with a truck reads as a different truck. A trip whose
     // bills are all marked not needed can start with no truck, as on the server.
     if (_truckMissingForBills(trip)) {
@@ -4026,6 +4052,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   List<EwayBillStartHold> _allEwayBillStartHolds(Map<String, dynamic> trip) =>
       _serverStartHolds ??
       ewayBillStartHolds(trip, _shipments, now: currentTime());
+
+  /// A booking on the trip waits for the carrier to accept it, so the trip cannot start (owner, 23 Oct 2026).
+  bool _bookingWaitsForAccept(Map<String, dynamic> trip) =>
+      _allEwayBillStartHolds(trip)
+          .any((hold) => hold.block == EwayBillStartBlock.waitingForAccept);
 
   /// The trip has no truck and a bill names one, so the truck is what holds the trip.
   bool _truckMissingForBills(Map<String, dynamic> trip) =>
@@ -4049,6 +4080,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   List<Widget> _ewayBillStartBlockList(Map<String, dynamic> trip) {
     final holds = _ewayBillStartHolds(trip);
     if (holds.isEmpty) return const [];
+    final footer = ewayBillStartBlockFooter(_startGateReader, holds);
     // Lines and the line under them take at most a quarter of the screen: at 200% text a few bookings' lines
     // pushed the bar taller than a 360 x 800 phone. The lines scroll on their own, so who to contact never
     // scrolls out of sight; it gets up to half the quarter, and scrolls in its own box only past that.
@@ -4082,16 +4114,16 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 ),
               ),
             ),
-            ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: maxHeight / 2),
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: NvSpace.s1),
-                  child: Text(ewayBillStartBlockFooter(_startGateReader),
-                      style: NvText.body),
+            if (footer != null)
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxHeight / 2),
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: NvSpace.s1),
+                    child: Text(footer, style: NvText.body),
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -4100,11 +4132,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   }
 
   /// The office reminds a shipper; a driver calls the office instead. With no truck on the trip, a different
-  /// truck is the office's to settle by choosing one, so the shipper is not reminded of it.
+  /// truck is the office's to settle by choosing one, so the shipper is not reminded of it. A booking waiting to
+  /// be accepted is the office's to accept, so there is nothing to remind the shipper of.
   bool _mayRemind(EwayBillStartHold hold, Map<String, dynamic> trip) =>
       !_forDriver &&
       AuthorizationSession.can("trip.assign") &&
       hold.shipmentId.isNotEmpty &&
+      hold.block != EwayBillStartBlock.waitingForAccept &&
       !(hold.block == EwayBillStartBlock.truckDiffers &&
           _nonEmpty(trip["assignedTruckNumber"]) == null);
 

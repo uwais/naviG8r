@@ -1,5 +1,5 @@
-// The app's copy of the start rule (owner, 23 Oct 2026): the same reasons as ewayBillStartGate.ts, in the same
-// order, and the server's 409 read into the same holds.
+// The app's copy of the start rule (owner, 23 Oct 2026): the same reasons as the server (ewayBillStartGate.ts,
+// and a booking waiting to be accepted from services.ts), in the same order, and its 409 read into the same holds.
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/eway_bill_start_gate.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -49,8 +49,38 @@ void main() {
     expect(
         reason(booked({'kind': 'NOT_NEEDED', 'notNeededReason': 'OTHER'}), null),
         isNull);
+    expect(
+        reason({...booked(null, status: 'PENDING_CARRIER_ACCEPT'), 'readyToAccept': true}),
+        EwayBillStartBlock.waitingForAccept,
+        reason: 'a booking waiting for the carrier holds the trip');
+    expect(
+        reason({...booked(null, status: 'PENDING_CARRIER_ACCEPT'), 'readyToAccept': false}),
+        isNull,
+        reason: 'one that cannot be accepted yet does not, as on the server');
     expect(reason(booked(null, status: 'PENDING_CARRIER_ACCEPT')), isNull,
-        reason: 'only accepted bookings hold a trip');
+        reason: 'an older server sends no readyToAccept and does not hold the trip for it');
+    expect(reason(booked(null, status: 'DELIVERED')), isNull);
+  });
+
+  test('bookings waiting to be accepted are listed first, as the server lists them', () {
+    final trip = {'assignedTruckNumber': 'KA01AB1234'};
+    expect(
+        ewayBillStartHolds(
+            trip,
+            [
+              {...booked(null), 'id': 'billless'},
+              {
+                ...booked(null, status: 'PENDING_CARRIER_ACCEPT'),
+                'id': 'waiting',
+                'customerOrgName': 'Shipper Two',
+                'readyToAccept': true
+              },
+            ],
+            now: now),
+        [
+          (shipmentId: 'waiting', shipperName: 'Shipper Two', block: EwayBillStartBlock.waitingForAccept),
+          (shipmentId: 'billless', shipperName: 'Synthetic Shipper A', block: EwayBillStartBlock.noBill),
+        ]);
   });
 
   test('holds name the shipper, and say the shipper when no name came', () {
@@ -76,6 +106,11 @@ void main() {
             reader: reader);
     const office = StartGateReader.carrierOffice;
     const driver = StartGateReader.driver;
+    expect(line(EwayBillStartBlock.waitingForAccept, office),
+        "Shipper One's booking is waiting for you to accept.");
+    expect(line(EwayBillStartBlock.waitingForAccept, driver),
+        "Shipper One's booking is waiting for your office to accept.",
+        reason: 'a driver does not accept for the office');
     expect(line(EwayBillStartBlock.noBill, office),
         'Shipper One has not added the e-way bill yet.');
     expect(line(EwayBillStartBlock.truckMissing, office),
@@ -90,13 +125,23 @@ void main() {
     expect(line(EwayBillStartBlock.problem, office),
         "NaviG8r found a problem with Shipper One's e-way bill.");
     for (final block in EwayBillStartBlock.values) {
-      if (block == EwayBillStartBlock.truckDiffers) continue;
+      if (block == EwayBillStartBlock.truckDiffers ||
+          block == EwayBillStartBlock.waitingForAccept) {
+        continue;
+      }
       expect(line(block, driver), line(block, office),
-          reason: 'only the truck line differs by reader');
+          reason: 'only the truck and accept lines differ by reader');
     }
-    expect(ewayBillStartBlockFooter(office),
+    EwayBillStartHold hold(EwayBillStartBlock block) =>
+        (shipmentId: 'a', shipperName: 'Shipper One', block: block);
+    final waiting = [hold(EwayBillStartBlock.waitingForAccept)];
+    final both = [...waiting, hold(EwayBillStartBlock.noBill)];
+    expect(ewayBillStartBlockFooter(office, both),
         'You can message the shipper from the booking.');
-    expect(ewayBillStartBlockFooter(driver), 'Call your office.');
+    expect(ewayBillStartBlockFooter(office, waiting), isNull,
+        reason: 'the office accepts it; there is no shipper to message');
+    expect(ewayBillStartBlockFooter(driver, waiting), 'Call your office.');
+    expect(ewayBillStartBlockFooter(driver, both), 'Call your office.');
   });
 
   DioException refusal(int status, Object body) => DioException(
@@ -111,6 +156,7 @@ void main() {
         ewayBillNotReadyHolds(refusal(409, {
           'error': 'eway_bill_not_ready',
           'shipments': [
+            {'shipmentId': 'w', 'shipperName': 'Shipper Zero', 'reason': 'waiting_for_accept'},
             {'shipmentId': 'a', 'shipperName': 'Shipper One', 'reason': 'no_bill'},
             {'shipmentId': 'b', 'shipperName': 'Shipper Two', 'reason': 'truck_missing'},
             {'shipmentId': 'c', 'shipperName': 'Shipper Three', 'reason': 'truck_differs'},
@@ -120,6 +166,7 @@ void main() {
           ],
         })),
         [
+          (shipmentId: 'w', shipperName: 'Shipper Zero', block: EwayBillStartBlock.waitingForAccept),
           (shipmentId: 'a', shipperName: 'Shipper One', block: EwayBillStartBlock.noBill),
           (shipmentId: 'b', shipperName: 'Shipper Two', block: EwayBillStartBlock.truckMissing),
           (shipmentId: 'c', shipperName: 'Shipper Three', block: EwayBillStartBlock.truckDiffers),
