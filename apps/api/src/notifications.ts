@@ -9,6 +9,7 @@ import { authorizationContext, effectivePermissions, legacyRoles, principalFor, 
 import { isActiveEntity } from "./softDelete.ts";
 import { assignedDriverMaySee } from "./tripAssignmentRules.ts";
 import type { Store } from "./store.ts";
+import type { EwayBillStartBlockReason } from "./ewayBillStartGate.ts";
 import { enqueuePushIntentForNotification } from "./features/push/push.ts";
 import type { AnchorTrip, Conversation, ConversationEscalationGrant, ConversationMessage, Notification, Shipment } from "./types.ts";
 
@@ -274,6 +275,55 @@ function createTripAssignedNotice(store: Store, trip: AnchorTrip, actorUserId?: 
   };
   store.notifications.set(notification.id, notification);
   enqueuePushIntentForNotification(store, notification);
+}
+
+export const EWAY_BILL_HOLDS_START_EVENT = "eway_bill.blocking_start";
+export const EWAY_BILL_TRUCK_CHANGED_EVENT = "eway_bill.truck_changed";
+
+// Shipper words for each reason the start gate gives (ewayBillStartGate.ts).
+const HOLDS_START_SHIPPER_BODY: Record<EwayBillStartBlockReason, string> = {
+  no_bill: "Add the e-way bill for this shipment, or say none is needed.",
+  truck_missing: "Add the truck on the portal, then here.",
+  truck_differs: "The truck on your e-way bill is not the truck on this trip. Check the truck on the portal, then here.",
+  expired: "The valid-until time you entered has passed. Check the bill on the portal, then enter the new time here.",
+  problem: "NaviG8r found a problem with your e-way bill. Check the details here and on the portal.",
+};
+
+/** One notice to each shipper login on the shipment that may read notices. Never the carrier: it is the one acting. */
+function notifyShipper(store: Store, shipment: Shipment, eventKey: string, title: string, body: string, skipRecipient: (userId: string) => boolean = () => false): void {
+  const now = Date.now();
+  getOrCreateConversation(store, shipment);
+  for (const recipient of notificationRecipients(store, shipment, eventKey)) {
+    if (recipient.role !== "SHIPPER" || skipRecipient(recipient.userId)) continue;
+    const notification: Notification = {
+      id: randomUUID(), recipientSequence: ++store.notificationSequence,
+      eventId: `${eventKey}:${shipment.id}:${recipient.userId}:${now}`, eventKey,
+      recipientUserId: recipient.userId, recipientOrgId: recipient.orgId,
+      shipmentId: shipment.id, conversationId: shipment.id, createdAtUtcMs: now,
+      data: { shipmentId: shipment.id, audience: "SHIPPER", title, body },
+    };
+    store.notifications.set(notification.id, notification);
+    enqueuePushIntentForNotification(store, notification);
+  }
+}
+
+/**
+ * After a refused start: each shipper whose bill holds the trip is told why. A shipper login that has not read the
+ * last such notice for that shipment gets no new one, so tapping Start again and again sends nothing more.
+ */
+export function notifyShippersBillsHoldStart(store: Store, blocking: Array<{ shipmentId: string; reason: EwayBillStartBlockReason }>): void {
+  for (const { shipmentId, reason } of blocking) {
+    const shipment = store.shipments.get(shipmentId);
+    if (!shipment || !isActiveEntity(shipment)) continue;
+    const hasUnreadNotice = (userId: string) => [...store.notifications.values()].some((n) =>
+      n.eventKey === EWAY_BILL_HOLDS_START_EVENT && n.shipmentId === shipmentId && n.recipientUserId === userId && n.readAtUtcMs == null);
+    notifyShipper(store, shipment, EWAY_BILL_HOLDS_START_EVENT, "The trip is waiting for your e-way bill", HOLDS_START_SHIPPER_BODY[reason], hasUnreadNotice);
+  }
+}
+
+/** The office changed the trip's truck, and this shipment's bill names a different one. */
+export function notifyShipperTruckChanged(store: Store, shipment: Shipment, carrierName: string, truckNumber: string): void {
+  notifyShipper(store, shipment, EWAY_BILL_TRUCK_CHANGED_EVENT, "The truck changed", `${carrierName} changed the truck to ${truckNumber}. Update your e-way bill.`);
 }
 
 /** A trip notice is shown, opened or pushed only while its trip is still the recipient's to drive. */

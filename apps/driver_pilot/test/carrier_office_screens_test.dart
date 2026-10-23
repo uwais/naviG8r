@@ -68,8 +68,8 @@ void main() {
     await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
         textScale: 2);
     expect(tester.takeException(), isNull);
-    expect(find.text('Mehta Hardware: no e-way bill yet.'), findsOneWidget);
-    expect(find.text('Sharma Textiles: truck on the bill differs from the trip.'),
+    expect(find.text('Mehta Hardware has not added the e-way bill yet.'), findsOneWidget);
+    expect(find.text("Sharma Textiles's e-way bill has a different truck from this trip. Change the trip's truck, or ask Sharma Textiles to fix the bill."),
         findsOneWidget);
   });
 

@@ -69,7 +69,7 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>The seeded shipment load-a-with-bill already has a bill (1234 5678 9012) that names Synthetic Carrier A as transporter and has no vehicle yet.</li>
 <li>The seeded shipment load-a-with-truck has a bill (2345 6789 0123) whose supplier already added vehicle KA01AB1234, valid up to 20 hours after the demo server started.</li>
 <li>The shipment load-a-booked has no bill yet. It is the one that follows this whole guide.</li>
-<li>The seeded shipment load-a2-booked, on the Hoskote to Kolar trip, has a bill (3456 7890 1234) with truck KA02XY9999, valid for three days after the demo server started. A trip starts only once every accepted booking on it has a final bill, so Synthetic Driver B (8000000013) can start that trip and confirm delivery with photos. The Synthetic Origin to Synthetic Destination trip cannot start yet: its trip screen names each booking whose bill is not final.</li>
+<li>The seeded shipment load-a2-booked, on the Hoskote to Kolar trip, has a bill (3456 7890 1234) with truck KA02XY9999, valid for 30 days after the demo server started. A trip starts only once every accepted booking on it has a final bill, so Synthetic Driver B (8000000013) can start that trip and confirm delivery with photos. The Synthetic Origin to Synthetic Destination trip cannot start yet: its trip screen names each booking whose bill is not final.</li>
 </ul>
 <h2>Step 1. Shipper generates the bill</h2>
 <ol>

@@ -317,8 +317,12 @@ void main() {
       await mountCarrierApp(tester, '/driver/trip/trip-today/active');
       final start = find.widgetWithText(FilledButton, 'Start trip');
       expect(tester.widget<FilledButton>(start).onPressed, isNull);
-      expect(find.text('Mehta Hardware: truck not on the e-way bill.'),
+      expect(find.text('Mehta Hardware has not added the truck to the e-way bill yet.'),
           findsOneWidget);
+      expect(find.text('Call your office.'), findsOneWidget,
+          reason: 'a driver is told who to contact');
+      expect(find.text('You can message the shipper from the booking.'),
+          findsNothing);
       expect(find.text('Waiting for e-way bill.'), findsOneWidget);
       expect(find.textContaining('Sharma Textiles:'), findsNothing);
       expect(find.text('Waiting for e-way bill'), findsOneWidget,

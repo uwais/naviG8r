@@ -51,6 +51,7 @@ import { emitIntegrationEvent } from "./integrationWebhooks.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
 import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
 import { shipmentsBlockingStart } from "./ewayBillStartGate.ts";
+import { notifyShippersBillsHoldStart } from "./notifications.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -1894,7 +1895,9 @@ export function startAnchorTripAsPilot(
   const principal = requirePermission(store, "load.status_update", trip, params.userId);
   requireAssistance(store, principal, trip.carrierId);
   assertDispatchReady(store, trip.carrierId);
-  for (const sh of shipmentsOnAnchorTrip(store, trip.id).filter(s => s.status === "BOOKED")) {
+  // A deleted booking neither holds nor counts toward the start.
+  const activeOnTrip = shipmentsOnAnchorTrip(store, trip.id).filter(isActiveEntity);
+  for (const sh of activeOnTrip.filter(s => s.status === "BOOKED")) {
     const pay = store.payments.get(sh.paymentId);
     if (!pay || !paymentAuthorizedForCarrierAccept(pay)) throw new AuthorizationError("payment_not_ready", 409);
   }
@@ -1902,17 +1905,19 @@ export function startAnchorTripAsPilot(
   if (trip.status !== "OPEN" && trip.status !== "FULL") {
     throw new ApiError("trip_not_startable", { status: trip.status });
   }
-  const hasAccepted = [...store.shipments.values()].some(
-    (s) => s.anchorTripId === trip.id && s.status === "BOOKED",
-  );
+  const hasAccepted = activeOnTrip.some((s) => s.status === "BOOKED");
   if (!hasAccepted) {
     throw new ApiError("no_accepted_shipments", {
       detail: "Accept at least one customer booking before starting the trip.",
     });
   }
   const now = nowUtcMs();
-  const notReady = shipmentsBlockingStart(store, trip, shipmentsOnAnchorTrip(store, trip.id), now);
-  if (notReady.length > 0) throw new ApiError("eway_bill_not_ready", { shipments: notReady }, 409);
+  const notReady = shipmentsBlockingStart(store, trip, activeOnTrip, now);
+  if (notReady.length > 0) {
+    // The route saves these notices with the refusal; the trip itself is unchanged.
+    notifyShippersBillsHoldStart(store, notReady);
+    throw new ApiError("eway_bill_not_ready", { shipments: notReady }, 409);
+  }
   const updated: AnchorTrip = {
     ...trip,
     status: "IN_PROGRESS",

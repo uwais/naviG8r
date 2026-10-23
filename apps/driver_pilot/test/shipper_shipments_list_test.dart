@@ -93,6 +93,51 @@ void main() {
     });
 
     testWidgets(
+        'a bill whose truck is not the trip truck is a Home task and a Next: line, since it holds the trip',
+        (tester) async {
+      final ahead = DateTime.now().add(const Duration(days: 2));
+      final holdsTheTrip = booking(ewayBill: {
+        ...billWithTruck,
+        'validUntilUtcMs': ahead.millisecondsSinceEpoch
+      }, extra: {
+        'assignedTruckNumber': 'KA02XY9999'
+      });
+      final server = await showShipperApp(tester, '/customer');
+      server.answers['/shipments'] = {
+        'shipments': [holdsTheTrip]
+      };
+      server.answers['/anchor-trips'] = {
+        'trips': [lane()]
+      };
+      await tester.pumpAndSettle();
+      expect(find.text('Fix the e-way bill'), findsOneWidget,
+          reason: 'the shipper was never told their bill holds the trip');
+      expect(
+          find.text(
+              'Bengaluru to Chennai, ${formatDate(laneStart)}. The trip cannot start until the truck and valid-until time on the bill are right.'),
+          findsOneWidget);
+      expect(find.textContaining('NaviG8r found a problem'), findsNothing,
+          reason: 'nobody at NaviG8r flagged this bill');
+
+      await leave(tester);
+      final list = await showShipperApp(tester, '/customer/shipments');
+      list.answers['/shipments'] = {
+        'shipments': [holdsTheTrip]
+      };
+      list.answers['/anchor-trips'] = {
+        'trips': [lane()]
+      };
+      await tester.pumpAndSettle();
+      expect(
+          find.text(
+              'Next: You check the truck and valid-until time on the e-way bill.'),
+          findsOneWidget);
+      expect(find.text('Needs you'), findsOneWidget,
+          reason: 'the list marks the shipper task; the status word is on the shipment screen');
+      await leave(tester);
+    });
+
+    testWidgets(
         'a delivery waiting for acceptance is the Home task, ahead of an older e-way bill task',
         (tester) async {
       final delivered = booking(

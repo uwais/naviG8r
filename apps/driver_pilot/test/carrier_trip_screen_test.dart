@@ -206,11 +206,11 @@ void main() {
       expect(tester.widget<FilledButton>(start).onPressed, isNull);
       expect(find.text('Waiting for e-way bill.'), findsOneWidget);
       for (final line in [
-        'Shipper One: no e-way bill yet.',
-        'Shipper Two: truck not on the e-way bill.',
-        'Shipper Three: truck on the bill differs from the trip.',
-        'Shipper Four: valid-until time on the e-way bill has passed.',
-        'Shipper Five: e-way bill has a problem.',
+        'Shipper One has not added the e-way bill yet.',
+        'Shipper Two has not added the truck to the e-way bill yet.',
+        "Shipper Three's e-way bill has a different truck from this trip. Change the trip's truck, or ask Shipper Three to fix the bill.",
+        'Shipper Four: the valid-until time entered here has passed.',
+        "NaviG8r found a problem with Shipper Five's e-way bill.",
       ]) {
         expect(find.text(line), findsOneWidget, reason: line);
       }
@@ -218,7 +218,11 @@ void main() {
         expect(find.textContaining(ready), findsNothing,
             reason: 'a final bill, a bill not needed, and a booking not yet accepted hold nothing');
       }
-      expect(find.textContaining("'s e-way bill"), findsNothing,
+      expect(find.text('You can message the shipper from the booking.'),
+          findsOneWidget,
+          reason: 'one line under the list for the office');
+      expect(find.text('Call your office.'), findsNothing);
+      expect(find.textContaining("Truck not on Shipper"), findsNothing,
           reason: 'the old start sheet warning is gone');
       await tester.tap(start);
       await tester.pumpAndSettle();
@@ -251,13 +255,135 @@ void main() {
       await tester
           .tap(inSheet(find.widgetWithText(FilledButton, 'Start trip')));
       await tester.pumpAndSettle();
-      expect(find.text('Sharma Textiles: valid-until time on the e-way bill has passed.'), findsOneWidget);
-      expect(find.text('Shipper Two: truck on the bill differs from the trip.'),
+      expect(find.text('Sharma Textiles: the valid-until time entered here has passed.'), findsOneWidget);
+      expect(find.text("Shipper Two's e-way bill has a different truck from this trip. Change the trip's truck, or ask Shipper Two to fix the bill."),
           findsOneWidget);
       expect(find.text('Waiting for e-way bill.'), findsOneWidget);
       expect(tester.widget<FilledButton>(start).onPressed, isNull);
       expect(find.text('Something went wrong. Please try again.'), findsNothing);
       expect(find.textContaining('eway_bill_not_ready'), findsNothing);
+    });
+
+    testWidgets(
+        'a refusal for the e-way bills loads the trip and its bookings again, so a truck changed elsewhere shows',
+        (tester) async {
+      final trips = [tripAt('trip-a', assigned: truckAndDriver)];
+      final bookings = [sharma];
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: trips,
+          bookings: bookings,
+          refusesWrites: true,
+          refusal: {
+            'error': 'eway_bill_not_ready',
+            'shipments': [
+              {'shipmentId': 'sharma', 'shipperName': 'Sharma Textiles', 'reason': 'truck_differs'},
+            ],
+          }));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      // Another office phone changed the truck, and a booking was added, after this screen loaded.
+      trips[0] = tripAt('trip-a', assigned: {
+        ...truckAndDriver,
+        'assignedVehicleId': 'vehicle-3',
+        'assignedTruckNumber': 'KA05CD9012'
+      });
+      bookings.add(bookingOn('trip-a', 'lakshmi',
+          shipper: 'Lakshmi Foods', weightKg: 20, status: 'PENDING_CARRIER_ACCEPT'));
+      expect(find.textContaining('KA05CD9012'), findsNothing);
+      await tester.tap(find.widgetWithText(FilledButton, 'Start trip'));
+      await tester.pumpAndSettle();
+      await tester
+          .tap(inSheet(find.widgetWithText(FilledButton, 'Start trip')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('KA05CD9012'), findsWidgets,
+          reason: 'the trip loaded again after the refusal');
+      expect(find.textContaining('Lakshmi Foods'), findsWidgets,
+          reason: 'the bookings loaded again after the refusal');
+      expect(
+          find.text(
+              "Sharma Textiles's e-way bill has a different truck from this trip. Change the trip's truck, or ask Sharma Textiles to fix the bill."),
+          findsOneWidget,
+          reason: 'the server line is shown after the reload');
+      expect(find.text('You can message the shipper from the booking.'),
+          findsOneWidget);
+    });
+
+    testWidgets(
+        'the 15-second check loads the trip too, so a truck changed elsewhere holds Start',
+        (tester) async {
+      final trips = [tripAt('trip-a', assigned: truckAndDriver)];
+      signInWith(Server(
+          allowed: ownerAllowed, trips: trips, bookings: [sharma]));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      final start = find.widgetWithText(FilledButton, 'Start trip');
+      expect(tester.widget<FilledButton>(start).onPressed, isNotNull);
+      trips[0] = tripAt('trip-a', assigned: {
+        ...truckAndDriver,
+        'assignedVehicleId': 'vehicle-3',
+        'assignedTruckNumber': 'KA05CD9012'
+      });
+      await tester.pump(const Duration(seconds: 15));
+      await tester.pumpAndSettle();
+      expect(tester.widget<FilledButton>(start).onPressed, isNull);
+      expect(
+          find.text(
+              "Sharma Textiles's e-way bill has a different truck from this trip. Change the trip's truck, or ask Sharma Textiles to fix the bill."),
+          findsOneWidget);
+    });
+
+    testWidgets(
+        'a trip with no truck says Choose a truck first, not that the truck differs',
+        (tester) async {
+      final noTruck = {
+        'assignedDriverUserId': 'driver-1',
+        'assignedDriverName': 'Synthetic Driver One',
+      };
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: noTruck)],
+          bookings: [
+            sharma,
+            bookingOn('trip-a', 'mehta', shipper: 'Mehta Hardware', weightKg: 40),
+          ]));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      final start = find.widgetWithText(FilledButton, 'Start trip');
+      expect(tester.widget<FilledButton>(start).onPressed, isNull);
+      expect(find.text('Choose a truck first.'), findsOneWidget);
+      expect(find.textContaining('different truck'), findsNothing,
+          reason: 'with no truck every bill would read as a different truck');
+      expect(find.text('Mehta Hardware has not added the e-way bill yet.'),
+          findsOneWidget,
+          reason: 'what the shipper still has to do is still listed');
+    });
+
+    testWidgets(
+        'a trip with no truck and every bill marked not needed can start, as on the server',
+        (tester) async {
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [
+            tripAt('trip-a', assigned: {
+              'assignedDriverUserId': 'driver-1',
+              'assignedDriverName': 'Synthetic Driver One',
+            })
+          ],
+          bookings: [
+            bookingOn('trip-a', 'sharma',
+                shipper: 'Sharma Textiles',
+                weightKg: 80,
+                bill: {'kind': 'NOT_NEEDED', 'notNeededReason': 'BELOW_THRESHOLD'}),
+          ]));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      expect(
+          tester
+              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Start trip'))
+              .onPressed,
+          isNotNull);
+      expect(find.text('Choose a truck first.'), findsNothing);
     });
   });
 }

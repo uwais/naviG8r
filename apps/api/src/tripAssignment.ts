@@ -3,8 +3,10 @@
  * What the assignment means for who sees what is in tripAssignmentRules.ts.
  */
 import { AuthorizationError, recordAudit, requirePermission } from "./rbac.ts";
-import { ApiError, tripWithCarrierDisplay } from "./services.ts";
+import { ApiError, carrierDisplayName, tripWithCarrierDisplay } from "./services.ts";
+import { notifyShipperTruckChanged } from "./notifications.ts";
 import { isActiveEntity } from "./softDelete.ts";
+import { assignedTruckNumber, portalTruckNumber } from "./tripAssignmentRules.ts";
 import type { Store } from "./store.ts";
 import type { AnchorTrip } from "./types.ts";
 
@@ -43,9 +45,21 @@ export function assignTrip(store: Store, tripId: string, input: Record<string, u
   store.anchorTrips.set(updated.id, updated);
   // State words only: the audit log never names the truck or the person.
   recordAudit(store, "TRIP_ASSIGNED", "trip", updated.id, trip.assignedVehicleId || trip.assignedDriverUserId ? "ASSIGNED" : "UNASSIGNED", "ASSIGNED");
+  if (vehicle.id !== trip.assignedVehicleId) tellShippersWhoseBillNamesAnotherTruck(store, updated);
   const driverBusy = [...store.anchorTrips.values()].some((other) =>
     other.id !== updated.id && isActiveEntity(other) && other.status === "IN_PROGRESS" && other.assignedDriverUserId === driverUserId);
   return { trip: tripWithCarrierDisplay(store, updated), driverBusy };
+}
+
+/** Tells the shipper of each accepted booking whose bill names a truck, in the portal form, other than the trip's new one. */
+function tellShippersWhoseBillNamesAnotherTruck(store: Store, trip: AnchorTrip): void {
+  const truckNumber = assignedTruckNumber(store, trip);
+  if (!truckNumber) return;
+  for (const shipment of store.shipments.values()) {
+    if (shipment.anchorTripId !== trip.id || shipment.status !== "BOOKED" || !isActiveEntity(shipment)) continue;
+    const onBill = shipment.ewayBill?.kind === "BILL" ? shipment.ewayBill.truckNumber : undefined;
+    if (onBill && portalTruckNumber(onBill) !== truckNumber) notifyShipperTruckChanged(store, shipment, carrierDisplayName(store, trip.carrierId), truckNumber);
+  }
 }
 
 /** The pickers' choices for the caller's own carrier. Names only: no phone numbers leave the server here. */

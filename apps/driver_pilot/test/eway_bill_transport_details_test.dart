@@ -244,6 +244,9 @@ void main() {
         find.text(
             'Make the bill on loading day, in your billing software or on the portal. Copy in these details:'),
         findsOneWidget);
+    expect(find.text('The trip cannot start until the bill is here.'),
+        findsOneWidget,
+        reason: 'the shipper is told what waits on their bill');
     expect(
         find.text(
             'NaviG8r does not make or change e-way bills.'),
@@ -261,7 +264,7 @@ void main() {
         tester, EwayBillCard(shipment: carriedBy(shipment(bill: savedBill))));
     expect(
         find.text(
-            'Add the truck on the portal before the goods move, then here.'),
+            'Add the truck on the portal, then here. The trip cannot start until you do.'),
         findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, 'Add truck'));
     await tester.pump();

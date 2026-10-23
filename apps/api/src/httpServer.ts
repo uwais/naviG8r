@@ -865,6 +865,8 @@ export async function createApp(options: {
             return json(res, 200, { trip: tripWithCarrierDisplay(store, trip) });
           } catch (e) {
             if (e instanceof ApiError) {
+              // This refusal told the shippers whose bills hold the trip; their notices are saved.
+              if (e.message === "eway_bill_not_ready") await persist();
               const status = e.httpStatus ?? 400;
               return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
             }

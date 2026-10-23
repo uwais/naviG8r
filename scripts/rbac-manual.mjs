@@ -155,7 +155,7 @@ store.shipments.get("load-a-with-truck").ewayBill = {
   truckNumber: "KA01AB1234", validUntilUtcMs: SEEDED_TRUCK_VALID_UNTIL_UTC_MS, truckEnteredByUserId: "user-shipper-a",
 };
 // A trip starts only once every accepted booking's bill is final (owner, 23 Oct 2026). This bill has the Hoskote to
-// Kolar trip's truck and three days left, so that trip can start and take delivery photos; the other trip stays held.
+// Kolar trip's truck and 30 days left from server start, so that trip can start and take delivery photos; the other trip stays held.
 store.shipments.get("load-a2-booked").ewayBill = {
   kind: "BILL", billNumber: "345678901234", billDate: "2026-10-03", makerGstin: "29ABCDE1234F1Z5",
   invoiceNumber: "SYN/2026/003", enteredAtUtcMs: now, enteredByUserId: "user-shipper-a",

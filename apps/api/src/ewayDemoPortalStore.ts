@@ -13,8 +13,8 @@ const SEEDED_STARTABLE_BILL_NUMBER = "345678901234";
 const SEEDED_BILL_NUMBERS = new Set([SEEDED_BILL_NUMBER, SEEDED_TRUCK_BILL_NUMBER, SEEDED_STARTABLE_BILL_NUMBER]);
 /** Fixed when the server starts; the demo seed reads it so the shipment and this site show the same valid-until. */
 export const SEEDED_TRUCK_VALID_UNTIL_UTC_MS = Date.now() + 20 * 60 * 60 * 1000;
-/** Three days, so the Hoskote to Kolar trip can still start and finish days after the demo server started. */
-export const SEEDED_STARTABLE_VALID_UNTIL_UTC_MS = Date.now() + 3 * 24 * 60 * 60 * 1000;
+/** 30 days, so a hosted demo server can still start and finish the Hoskote to Kolar trip weeks after it started. */
+export const SEEDED_STARTABLE_VALID_UNTIL_UTC_MS = Date.now() + 30 * 24 * 60 * 60 * 1000;
 const SUPPLIER_GSTIN = PERSONAS[0].id;
 const TRANSPORTER_ID = PERSONAS[1].id;
 

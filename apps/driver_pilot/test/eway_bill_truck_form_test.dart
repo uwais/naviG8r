@@ -100,6 +100,12 @@ void main() {
     expect(linesAt(const Duration(hours: -3)).last,
         'The valid-until time has passed. Check the bill on the portal.',
         reason: 'past the valid-until time');
+    expect(
+        ewayBillTruckLines(bill(),
+                now: validUntil.add(const Duration(hours: 3)), forShipper: true)
+            .last,
+        'The valid-until time you entered has passed, so the trip cannot start. Check the bill on the portal, then enter the new time here.',
+        reason: 'the shipper is told the consequence and where the new time goes');
     expect(ewayBillTruckLines({'kind': 'BILL', 'billNumber': '123456789012'}),
         isEmpty,
         reason: 'no truck, no lines');
@@ -312,7 +318,7 @@ void main() {
           reason: 'copy.md step 3: the bill is saved, the truck is not on it');
       expect(
           find.text(
-              'Add the truck on the portal before the goods move, then here.'),
+              'Add the truck on the portal, then here. The trip cannot start until you do.'),
           findsOneWidget,
           reason: 'copy.md step 3: what to do, and when');
       expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget,

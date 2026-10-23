@@ -15,7 +15,12 @@ String? taskFor(Map<String, dynamic> shipment,
         canAcceptDelivery: canAcceptDelivery);
 
 const bill = {'kind': 'BILL', 'billNumber': '341200987654'};
-const billWithTruck = {...bill, 'truckNumber': 'KA01AB1234'};
+// The truck and its valid-until time are saved together; this one is far ahead.
+const billWithTruck = {
+  ...bill,
+  'truckNumber': 'KA01AB1234',
+  'validUntilUtcMs': 4102444800000
+};
 const notNeeded = {'kind': 'NOT_NEEDED', 'notNeededReason': 'GOODS_EXEMPT'};
 
 Map<String, dynamic> shipment(String status,
@@ -215,6 +220,61 @@ void main() {
       expect(shipmentProgress({'status': 'PENDING_CARRIER_ACCEPT'}).next,
           'The carrier accepts and names the truck');
     });
+
+    // The start gate holds the trip on these, so the shipper is told it is theirs to check.
+    test('a bill with a different truck or a passed valid-until time: the shipper checks it', () {
+      final now = DateTime.utc(2026, 10, 23, 6);
+      final passed = {
+        ...billWithTruck,
+        'validUntilUtcMs': now.millisecondsSinceEpoch
+      };
+      for (final (label, onTrip, onBill) in [
+        ('truck differs', 'KA02XY9999', billWithTruck),
+        ('time passed', 'KA01AB1234', passed),
+      ]) {
+        final progress = shipmentProgress(
+            {...shipment('BOOKED', onBill), 'assignedTruckNumber': onTrip},
+            now: now);
+        expect(progress.ewayBill, EwayBillStage.truckOrTimeWrong, reason: label);
+        expect(progress.current, ShipmentStepName.ewayBill, reason: label);
+        expect(progress.actor, ShipmentActor.shipper, reason: label);
+        expect(progress.next,
+            'You check the truck and valid-until time on the e-way bill',
+            reason: label);
+        expect(progress.task, 'Fix the e-way bill', reason: label);
+        expect(progress.statusWord, 'E-way bill needs a fix', reason: label);
+        expect(progress.statusTone, NvStatusTone.problem, reason: label);
+        expect(stateOf(progress, ShipmentStepName.ewayBill), NvStepState.problem,
+            reason: label);
+      }
+      expect(
+          shipmentProgress({
+            ...shipment('BOOKED', billWithTruck),
+            'assignedTruckNumber': 'ka 01 ab 1234'
+          }, now: now)
+              .ewayBill,
+          EwayBillStage.billWithTruck,
+          reason: 'compared in the portal form, as the start gate does');
+      expect(shipmentProgress(shipment('BOOKED', billWithTruck), now: now).ewayBill,
+          EwayBillStage.billWithTruck,
+          reason: 'a trip with no truck yet is the carrier to act, not the shipper');
+      final onTheWay = shipmentProgress(
+          {...shipment('BOOKED', passed), 'assignedTruckNumber': 'KA01AB1234'},
+          tripStatus: 'IN_PROGRESS',
+          now: now);
+      expect(onTheWay.statusWord, 'On the way',
+          reason: 'once the trip has started, the start no longer waits on it');
+      expect(onTheWay.task, isNull);
+    });
+
+    test('a truck with no valid-until time counts as not added, as the start gate does', () {
+      final progress = shipmentProgress(shipment('BOOKED', {
+        ...bill,
+        'truckNumber': 'KA01AB1234',
+      }));
+      expect(progress.ewayBill, EwayBillStage.billWithoutTruck);
+      expect(progress.next, 'You add the truck to the e-way bill');
+    });
   });
 
   group('the Home task', () {
@@ -268,6 +328,14 @@ void main() {
           taskFor({'status': 'BOOKED', 'ewayBill': bill}, canAddTruck: false),
           isNull,
           reason: 'no eway_bill.add_truck, no truck task');
+      final truckDiffers = {
+        ...shipment('BOOKED', billWithTruck),
+        'assignedTruckNumber': 'KA02XY9999'
+      };
+      expect(taskFor(truckDiffers), 'Fix the e-way bill',
+          reason: 'a bill with another truck holds the trip, so Home asks for it');
+      expect(taskFor(truckDiffers, canAddTruck: false), isNull,
+          reason: 'the truck and its time are fixed in the truck form, which needs eway_bill.add_truck');
       expect(taskFor(awaitingAcceptance, canAcceptDelivery: false), isNull,
           reason: 'no pod.accept, no delivery to accept');
     });

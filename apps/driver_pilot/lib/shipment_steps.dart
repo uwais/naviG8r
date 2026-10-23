@@ -1,3 +1,5 @@
+import "eway_bill_words.dart"
+    show TruckMismatchReader, ewayBillTruckMismatchSentence;
 import "shipper/shipper_words.dart" show carrierOf;
 import "ui/nv_status_label.dart" show NvStatusTone;
 import "ui/nv_step_list.dart" show NvStepState;
@@ -13,7 +15,16 @@ enum ShipmentActor { shipper, carrier, nobody }
 /// Where the shipper's e-way bill stands. There is no stored "yes, it needs one" answer, so
 /// no bill at all is [none] (RECON gap 1). NaviG8r does not check a bill before the trip
 /// (owner, 22 Oct 2026); [problem] is only for a bill ops happened to look up and flag.
-enum EwayBillStage { none, notNeeded, billWithoutTruck, billWithTruck, problem }
+/// [truckOrTimeWrong] is a bill whose truck is not the trip's or whose valid-until time has passed:
+/// the trip cannot start on it (eway_bill_start_gate.dart).
+enum EwayBillStage {
+  none,
+  notNeeded,
+  billWithoutTruck,
+  billWithTruck,
+  truckOrTimeWrong,
+  problem
+}
 
 enum ShipmentStepName { booked, carrierAccepts, ewayBill, onTheWay, delivered }
 
@@ -60,7 +71,10 @@ class ShipmentProgress {
   bool get delivered => current == ShipmentStepName.delivered;
 }
 
-EwayBillStage ewayBillStageOf(Map<String, dynamic> shipment) {
+/// The same tests as the start gate: trucks compared in the portal form, and a truck with no
+/// valid-until time counts as not added. [now] is the phone's clock, which can be minutes off the
+/// server's; the server decides when the carrier taps Start.
+EwayBillStage ewayBillStageOf(Map<String, dynamic> shipment, {DateTime? now}) {
   final bill = shipment["ewayBill"];
   if (bill is! Map) return EwayBillStage.none;
   if (bill["kind"] == "NOT_NEEDED") return EwayBillStage.notNeeded;
@@ -71,8 +85,17 @@ EwayBillStage ewayBillStageOf(Map<String, dynamic> shipment) {
     return EwayBillStage.problem;
   }
   final truck = bill["truckNumber"];
-  if (truck is! String || truck.trim().isEmpty) {
+  final validUntil = bill["validUntilUtcMs"];
+  if (truck is! String || truck.trim().isEmpty || validUntil is! num) {
     return EwayBillStage.billWithoutTruck;
+  }
+  final truckDiffers = ewayBillTruckMismatchSentence(
+          shipment, Map<String, dynamic>.from(bill),
+          reader: TruckMismatchReader.shipper) !=
+      null;
+  if (truckDiffers ||
+      validUntil <= (now ?? DateTime.now()).millisecondsSinceEpoch) {
+    return EwayBillStage.truckOrTimeWrong;
   }
   return EwayBillStage.billWithTruck;
 }
@@ -85,11 +108,11 @@ bool paymentNotTaken(String? paymentStatus) =>
 /// reads as not started yet. [paymentStatus] is the payment's status where the screen has it; the
 /// list cards do not (RECON gap 16).
 ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
-    {String? tripStatus, String? paymentStatus}) {
+    {String? tripStatus, String? paymentStatus, DateTime? now}) {
   final status = shipment["status"]?.toString() ?? "";
   final carrier = carrierOf(shipment);
   final unpaid = paymentNotTaken(paymentStatus);
-  final stage = ewayBillStageOf(shipment);
+  final stage = ewayBillStageOf(shipment, now: now);
   final waitingForCarrier = status == "PENDING_CARRIER_ACCEPT";
   // A trip can name its truck before the carrier accepts (owner, 22 Oct 2026); then accepting is all that is left.
   final truckKnown =
@@ -157,6 +180,11 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
         ShipmentActor.shipper,
         "You fix the e-way bill"
       ),
+    EwayBillStage.truckOrTimeWrong => (
+        ShipmentStepName.ewayBill,
+        ShipmentActor.shipper,
+        "You check the truck and valid-until time on the e-way bill"
+      ),
     EwayBillStage.billWithTruck || EwayBillStage.notNeeded => (
         ShipmentStepName.onTheWay,
         ShipmentActor.carrier,
@@ -169,7 +197,9 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
           _ when awaitingAcceptance => "Accept delivery",
           EwayBillStage.none => "Make the e-way bill",
           EwayBillStage.billWithoutTruck => "Add the truck to the e-way bill",
-          EwayBillStage.problem => "Fix the e-way bill",
+          EwayBillStage.problem ||
+          EwayBillStage.truckOrTimeWrong =>
+            "Fix the e-way bill",
           _ => null,
         }
       : null;
@@ -182,6 +212,9 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
         NvStatusTone.problem
       ),
     _ when inTransit => ("On the way", NvStatusTone.info),
+    _ when actor == ShipmentActor.shipper &&
+        stage == EwayBillStage.truckOrTimeWrong =>
+      ("E-way bill needs a fix", NvStatusTone.problem),
     "PENDING_CARRIER_ACCEPT" => ("Waiting for carrier", NvStatusTone.attention),
     "BOOKED" => ("Accepted", NvStatusTone.info),
     // A status this app does not know yet still reads as a word, never as its code.
@@ -196,6 +229,9 @@ ShipmentProgress shipmentProgress(Map<String, dynamic> shipment,
     _ when delivered => NvStepState.done,
     EwayBillStage.notNeeded || EwayBillStage.billWithTruck => NvStepState.done,
     EwayBillStage.problem => NvStepState.problem,
+    // Once the trip is on the way, the start no longer waits on this bill.
+    EwayBillStage.truckOrTimeWrong =>
+      inTransit ? NvStepState.done : NvStepState.problem,
     EwayBillStage.none ||
     EwayBillStage.billWithoutTruck =>
       waitingForCarrier ? NvStepState.later : NvStepState.yours,
@@ -247,12 +283,16 @@ String? shipperTaskFor(Map<String, dynamic> shipment,
     {required bool canWriteBill,
     required bool canAddTruck,
     required bool canAcceptDelivery,
-    String? tripStatus}) {
-  final task = shipmentProgress(shipment, tripStatus: tripStatus).task;
+    String? tripStatus,
+    DateTime? now}) {
+  final progress = shipmentProgress(shipment, tripStatus: tripStatus, now: now);
+  final task = progress.task;
   if (task == "Accept delivery") {
     return canAcceptDelivery ? task : null;
   }
-  if (task == "Add the truck to the e-way bill") {
+  // A wrong truck or a passed valid-until time is fixed in the truck form, like adding the truck.
+  if (task == "Add the truck to the e-way bill" ||
+      (task != null && progress.ewayBill == EwayBillStage.truckOrTimeWrong)) {
     return canAddTruck ? task : null;
   }
   return canWriteBill ? task : null;

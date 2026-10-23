@@ -256,7 +256,11 @@ class _NeedsYouCard extends StatelessWidget {
           isUtc: true));
       return "$carrier confirmed delivery on $date. Check the goods. Accepting is optional.";
     }
-    if (task == "Fix the e-way bill") return "NaviG8r found a problem with the e-way bill.";
+    if (task == "Fix the e-way bill") {
+      return ewayBillStageOf(shipment) == EwayBillStage.truckOrTimeWrong
+          ? "The trip cannot start until the truck and valid-until time on the bill are right."
+          : "NaviG8r found a problem with the e-way bill.";
+    }
     if (bill is Map && bill["billNumber"] is String) {
       return "Bill ${formatBillNumber(bill["billNumber"] as String)} saved. The truck is not on it yet.";
     }

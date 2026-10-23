@@ -114,7 +114,8 @@ void main() {
           reason: 'owner run: Home said this while a trip was ready to start');
       expect(find.text('Start a trip'), findsOneWidget,
           reason: 'only the trip whose day has come and has an accepted booking');
-      expect(find.text('Waiting for e-way bill'), findsOneWidget,
+      expect(find.text("Waiting for Synthetic Shipper A's e-way bill"),
+          findsOneWidget,
           reason: 'owner, 23 Oct 2026: a trip held by its e-way bills is not offered to start');
       expect(
           find.text(
@@ -144,7 +145,7 @@ void main() {
       await mountRouted(tester, const DriverWelcomeScreen(key: ValueKey(3)));
       expect(find.text('Start a trip'), findsNothing,
           reason: 'no task for a login that may not start trips');
-      expect(find.text('Waiting for e-way bill'), findsNothing);
+      expect(find.textContaining('Waiting for'), findsNothing);
 
       signInAsCarrierOwner(alsoAllowed: ['load.status_update']);
       answer(bookings: bookings, trips: trips);
@@ -153,6 +154,71 @@ void main() {
       expect(find.text('Start a trip'), findsOneWidget);
       expect(tester.takeException(), isNull,
           reason: 'spec: works at 360 dp and 200% text');
+    });
+
+    testWidgets(
+        'a trip waiting on a shipper is not under Needs you unless the office can change the truck',
+        (tester) async {
+      final today = DateTime.now().toUtc().toIso8601String();
+      Map<String, dynamic> readyTrip(String id, String to) => {
+            ...trip(
+                id: id, to: to, truck: 'KA01AB1234', driverName: 'Prakash Naidu'),
+            'windowStart': today,
+          };
+      Map<String, dynamic> booking(String id, String tripId,
+              Map<String, dynamic>? bill, {String shipper = 'Synthetic Shipper A'}) =>
+          {
+            ...shipmentOnTripA(),
+            'id': id,
+            'anchorTripId': tripId,
+            'customerOrgName': shipper,
+            if (bill != null) 'ewayBill': bill,
+          };
+      Finder underNeedsYou(String title) => find.descendant(
+          of: find.ancestor(
+              of: find.text('NEEDS YOU'), matching: find.byType(Column)),
+          matching: find.text(title));
+
+      // Only the shipper can act: no bill yet.
+      signInAsCarrierOwner(alsoAllowed: ['load.status_update', 'trip.assign']);
+      answer(
+          bookings: [booking('b1', 'trip-salem', null)],
+          trips: [readyTrip('trip-salem', 'Salem')]);
+      await mountRouted(tester, const DriverWelcomeScreen());
+      expect(find.text('NEEDS YOU'), findsNothing);
+      expect(find.text('Nothing needs you right now.'), findsOneWidget);
+      expect(find.text("Waiting for Synthetic Shipper A's e-way bill"),
+          findsOneWidget,
+          reason: 'listed with the other trips');
+
+      // The bill names a different truck: the office can change the trip's truck.
+      signInAsCarrierOwner(alsoAllowed: ['load.status_update', 'trip.assign']);
+      answer(
+          bookings: [booking('b2', 'trip-salem', finalBill(truck: 'KA02XY9999'))],
+          trips: [readyTrip('trip-salem', 'Salem')]);
+      await mountRouted(tester, const DriverWelcomeScreen(key: ValueKey(2)));
+      expect(underNeedsYou("Waiting for Synthetic Shipper A's e-way bill"),
+          findsOneWidget);
+
+      // The same, for a login that may not change the truck.
+      signInAsCarrierOwner(alsoAllowed: ['load.status_update']);
+      answer(
+          bookings: [booking('b2', 'trip-salem', finalBill(truck: 'KA02XY9999'))],
+          trips: [readyTrip('trip-salem', 'Salem')]);
+      await mountRouted(tester, const DriverWelcomeScreen(key: ValueKey(3)));
+      expect(find.text('NEEDS YOU'), findsNothing);
+
+      // Several bookings hold one trip.
+      signInAsCarrierOwner(alsoAllowed: ['load.status_update', 'trip.assign']);
+      answer(bookings: [
+        booking('b3', 'trip-salem', null),
+        booking('b4', 'trip-salem', null, shipper: 'Synthetic Shipper B'),
+      ], trips: [
+        readyTrip('trip-salem', 'Salem')
+      ]);
+      await mountRouted(tester, const DriverWelcomeScreen(key: ValueKey(4)));
+      expect(find.text('Waiting for e-way bills'), findsOneWidget);
+      expect(find.textContaining("'s e-way bill"), findsNothing);
     });
 
     testWidgets('says when nothing needs the office', (tester) async {

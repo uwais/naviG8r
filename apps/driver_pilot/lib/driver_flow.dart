@@ -1079,11 +1079,16 @@ class _OfficeTask {
       {required this.title,
       required this.detail,
       required this.actionLabel,
-      required this.path});
+      required this.path,
+      this.officeCanAct = true});
   final String title;
   final String detail;
   final String actionLabel;
   final String path;
+
+  /// False for a trip waiting on a shipper's e-way bill that the office can do nothing about: it is listed with
+  /// the other trips, never under Needs you.
+  final bool officeCanAct;
 }
 
 /// In the order they block the work: accept, then a driver for a booked trip, then start a trip that is ready.
@@ -1134,7 +1139,8 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
   }
   // What the trip screen's Start trip takes (an approved carrier, an accepted booking, a driver, final e-way
   // bills) and also a truck and a trip whose first day has come, which Start trip itself does not check.
-  // A trip held only by its e-way bills says so instead of asking the office to start it.
+  // A trip held only by its e-way bills says so instead of asking the office to start it. Only a truck that differs
+  // from a bill is the office's to fix, by changing the trip's truck; the rest wait for the shipper.
   if (AuthorizationSession.can("load.status_update") &&
       DriverSession.complianceApproved) {
     for (final trip in loaded.tripsById.values) {
@@ -1150,13 +1156,20 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
           !_dayInIndia(start).isAfter(_todayInIndia()) &&
           onTrip.any((booking) => booking["status"] == "BOOKED");
       if (!readyToStart) continue;
+      final holds = ewayBillStartHolds(trip, onTrip, now: currentTime());
       tasks.add(_OfficeTask(
-        title: ewayBillStartBlockLines(trip, onTrip, now: currentTime()).isEmpty
-            ? "Start a trip"
-            : "Waiting for e-way bill",
+        title: switch (holds) {
+          [] => "Start a trip",
+          [final only] => "Waiting for ${only.shipperName}'s e-way bill",
+          _ => "Waiting for e-way bills",
+        },
         detail: [_tripRoute(trip) ?? "Trip", _tripLeaves(trip)!].join(" · "),
         actionLabel: "Open trip",
         path: "/driver/trip/${trip["id"]}/active",
+        officeCanAct: holds.isEmpty ||
+            (AuthorizationSession.can("trip.assign") &&
+                holds.any(
+                    (hold) => hold.block == EwayBillStartBlock.truckDiffers)),
       ));
     }
   }
@@ -1307,7 +1320,10 @@ class _OfficeHomeState extends State<_OfficeHome> {
         NvListError(title: _error ?? "Could not load bookings.", onRetry: _load)
       ];
     } else {
-      final tasks = _officeTasks(loaded);
+      final allTasks = _officeTasks(loaded);
+      final tasks = allTasks.where((task) => task.officeCanAct).toList();
+      final waitingOnShippers =
+          allTasks.where((task) => !task.officeCanAct).toList();
       final onTheRoad = loaded.tripsById.values
           .where((trip) => trip["status"] == "IN_PROGRESS")
           .toList();
@@ -1323,6 +1339,13 @@ class _OfficeHomeState extends State<_OfficeHome> {
                 subtitle: task.detail,
                 onOpen: () => _open(task.path)),
           ],
+        ],
+        for (final task in waitingOnShippers) ...[
+          const SizedBox(height: NvSpace.s3),
+          NvListCard(
+              title: task.title,
+              subtitle: task.detail,
+              onOpen: () => _open(task.path)),
         ],
         if (onTheRoad.isNotEmpty) ...[
           const SizedBox(height: NvSpace.s6),
@@ -1557,7 +1580,7 @@ class _DriverTodayState extends State<_DriverToday> {
       status = _tripStatusLabel(trip);
     } else if (accepted != null && accepted > 0) {
       final waitingForBill = notDelivered != null &&
-          ewayBillStartBlockLines(trip, notDelivered, now: currentTime())
+          ewayBillStartHolds(trip, notDelivered, now: currentTime())
               .isNotEmpty;
       status = waitingForBill
           ? const NvStatusLabel("Waiting for e-way bill",
@@ -3184,13 +3207,15 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   bool _sendingLocationNow = false;
   // When Send my location now last reached the server, shown under the button.
   DateTime? _locationSentNowAt;
-  // The server's lines when it refused Start for the e-way bills, kept until the bookings load again.
-  List<String>? _serverStartBlockLines;
+  // The bookings the server named when it refused Start for the e-way bills, kept until the bookings load again.
+  List<EwayBillStartHold>? _serverStartHolds;
   // The stop the driver has just confirmed, shown at the top until the screen loads again (dr-done).
   Map<String, dynamic>? _justDelivered;
   Timer? _poll;
   // Each bookings request's number. The timed check can answer after a newer load; only the newest is used.
   int _newestBookingsRequest = 0;
+  // The same for the trip: a load, a saved assignment or the timed check, newest wins.
+  int _newestTripRequest = 0;
   // True while a timed check is out, so coming back to the app just before a tick sends one, not two.
   bool _checkingBookingsQuietly = false;
   late final AppLifecycleListener _lifecycle;
@@ -3422,9 +3447,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         await _load();
         return;
       }
-      final notReady = ewayBillNotReadyLines(e);
+      final notReady = ewayBillNotReadyHolds(e);
       if (notReady != null) {
-        setState(() => _serverStartBlockLines = notReady);
+        // A bill or the trip's truck changed since this screen loaded, so both load again. The server's answer
+        // is shown after, since it is the one that decides.
+        await _load();
+        if (mounted) setState(() => _serverStartHolds = notReady);
         return;
       }
       ScaffoldMessenger.of(context)
@@ -3492,6 +3520,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       _tripNoLongerAssigned = false;
       _justDelivered = null;
     });
+    _newestTripRequest++;
     try {
       final r = await api
           .get<Map<String, dynamic>>("/v1/pilot/anchor-trips/${widget.tripId}");
@@ -3525,7 +3554,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       if (mounted && ships != null) {
         setState(() {
           _shipments = ships;
-          _serverStartBlockLines = null;
+          _serverStartHolds = null;
         });
       }
     } catch (e) {
@@ -3563,9 +3592,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     return ships;
   }
 
-  /// The 15 s check: only the bookings, which the shippers change (a new booking, payment, the
-  /// e-way bill). Not [_load], which blanks the screen to a spinner and clears the delivery just
-  /// confirmed. A failed check keeps what is shown and says nothing.
+  /// The 15 s check: the bookings, which the shippers change (a new booking, payment, the e-way
+  /// bill), and the trip, whose truck another office phone can change. Not [_load], which blanks
+  /// the screen to a spinner and clears the delivery just confirmed. A failed check keeps what is
+  /// shown and says nothing.
   Future<void> _checkBookingsQuietly() async {
     if (_loading ||
         _starting ||
@@ -3576,11 +3606,22 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     }
     _checkingBookingsQuietly = true;
     try {
+      final tripRequest = ++_newestTripRequest;
+      final r = await api
+          .get<Map<String, dynamic>>("/v1/pilot/anchor-trips/${widget.tripId}");
+      final t = r.data?["trip"];
+      if (mounted &&
+          !_loading &&
+          tripRequest == _newestTripRequest &&
+          t is Map<String, dynamic>) {
+        setState(() => _trip = t);
+        _stopSharingIfNotInTheTruck();
+      }
       final ships = await _fetchTripBookings();
       if (mounted && !_loading && ships != null) {
         setState(() {
           _shipments = ships;
-          _serverStartBlockLines = null;
+          _serverStartHolds = null;
         });
       }
     } catch (_) {
@@ -3773,10 +3814,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       "COMPLETED" => const NvStatusLabel("Done", tone: NvStatusTone.ended),
       "OPEN" || "FULL"
           when _acceptedBookings.isNotEmpty &&
-              _ewayBillStartBlockLines(trip!).isNotEmpty =>
+              _ewayBillStartHolds(trip!).isNotEmpty =>
         const NvStatusLabel("Waiting for e-way bill",
             tone: NvStatusTone.attention),
-      "OPEN" || "FULL" when _acceptedBookings.isNotEmpty =>
+      "OPEN" || "FULL"
+          when _acceptedBookings.isNotEmpty && !_truckMissingForBills(trip!) =>
         const NvStatusLabel("Ready to start", tone: NvStatusTone.good),
       "CANCEL_REQUESTED" || "CANCELLED" => _tripStatusLabel(trip),
       _ => null,
@@ -3948,34 +3990,73 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     if (!_forDriver && _nonEmpty(trip["assignedDriverUserId"]) == null) {
       return "Choose a driver first. Then start on loading day.";
     }
-    if (_ewayBillStartBlockLines(trip).isNotEmpty) {
+    // Before the e-way bills: with no truck, every bill with a truck reads as a different truck. A trip whose
+    // bills are all marked not needed can start with no truck, as on the server.
+    if (_truckMissingForBills(trip)) {
+      return _forDriver
+          ? "Your office has not chosen a truck yet."
+          : "Choose a truck first.";
+    }
+    if (_ewayBillStartHolds(trip).isNotEmpty) {
       return "Waiting for e-way bill.";
     }
     return null;
   }
 
-  /// One line per accepted booking whose e-way bill is not final: the server's after it refused Start, else
-  /// the same rule worked out here.
-  List<String> _ewayBillStartBlockLines(Map<String, dynamic> trip) =>
-      _serverStartBlockLines ??
-      ewayBillStartBlockLines(trip, _shipments, now: currentTime());
+  StartGateReader get _startGateReader =>
+      _forDriver ? StartGateReader.driver : StartGateReader.carrierOffice;
 
-  /// Above Start trip. A live region, so a screen reader hears the lines that appear after a refused Start.
-  List<Widget> _ewayBillStartBlockList(Map<String, dynamic> trip) {
-    final lines = _ewayBillStartBlockLines(trip);
-    if (lines.isEmpty) return const [];
+  List<EwayBillStartHold> _allEwayBillStartHolds(Map<String, dynamic> trip) =>
+      _serverStartHolds ??
+      ewayBillStartHolds(trip, _shipments, now: currentTime());
+
+  /// The trip has no truck and a bill names one, so the truck is what holds the trip.
+  bool _truckMissingForBills(Map<String, dynamic> trip) =>
+      _nonEmpty(trip["assignedTruckNumber"]) == null &&
+      _allEwayBillStartHolds(trip)
+          .any((hold) => hold.block == EwayBillStartBlock.truckDiffers);
+
+  /// Each accepted booking whose e-way bill is not final: the server's after it refused Start, else the same
+  /// rule worked out here. A trip with no truck leaves out the different-truck ones; Choose a truck first says it.
+  List<EwayBillStartHold> _ewayBillStartHolds(Map<String, dynamic> trip) {
+    final holds = _allEwayBillStartHolds(trip);
+    if (_nonEmpty(trip["assignedTruckNumber"]) != null) return holds;
     return [
-      Semantics(
-        liveRegion: true,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final line in lines)
-              Padding(
-                padding: const EdgeInsets.only(bottom: NvSpace.s1),
-                child: Text(line, style: NvText.body),
-              ),
-          ],
+      for (final hold in holds)
+        if (hold.block != EwayBillStartBlock.truckDiffers) hold
+    ];
+  }
+
+  /// Above Start trip, with one line under it saying who to contact. A live region, so a screen reader hears
+  /// the lines that appear after a refused Start.
+  List<Widget> _ewayBillStartBlockList(Map<String, dynamic> trip) {
+    final holds = _ewayBillStartHolds(trip);
+    if (holds.isEmpty) return const [];
+    final lines = [
+      for (final hold in holds)
+        ewayBillStartBlockLine(hold, reader: _startGateReader),
+      ewayBillStartBlockFooter(_startGateReader),
+    ];
+    return [
+      // At most a quarter of the screen, scrolling past that: at 200% text a few bookings' lines pushed the
+      // bar taller than a 360 x 800 phone.
+      ConstrainedBox(
+        constraints:
+            BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height / 4),
+        child: SingleChildScrollView(
+          child: Semantics(
+            liveRegion: true,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final line in lines)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: NvSpace.s1),
+                    child: Text(line, style: NvText.body),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
       const SizedBox(height: NvSpace.s2),
@@ -4092,7 +4173,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   trip: trip,
                   tripInWords: _tripInWords(trip),
                   onAssigned: (saved) {
-                    setState(() => _trip = saved);
+                    // A new truck may settle what the server last refused, so its lines go too.
+                    _newestTripRequest++;
+                    setState(() {
+                      _trip = saved;
+                      _serverStartHolds = null;
+                    });
                     _stopSharingIfNotInTheTruck();
                     // Given back to this phone, it shares again as a reload would.
                     if (_phoneIsInTheTruck &&

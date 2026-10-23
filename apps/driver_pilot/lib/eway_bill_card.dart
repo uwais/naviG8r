@@ -385,6 +385,9 @@ class _EwayBillCardState extends State<EwayBillCard> {
           carrierAccepted: true,
           transporterId: _transporterId,
           truckNumber: _tripTruck),
+      const SizedBox(height: NvSpace.s3),
+      const Text('The trip cannot start until the bill is here.',
+          style: NvText.body),
       if (canEdit && widget.portalButtonInPanel) ...[
         const SizedBox(height: NvSpace.s3),
         const EwayBillPortalButton(
@@ -462,7 +465,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
         Text(
             waitingForCarrier
                 ? 'Add the truck after ${_carrierName ?? "the carrier"} accepts.'
-                : 'Add the truck on the portal before the goods move, then here.',
+                : 'Add the truck on the portal, then here. The trip cannot start until you do.',
             style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
       ],
       if (accepted || waitingForCarrier) ...[
@@ -546,7 +549,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       _fact('Truck', bill['truckNumber'] as String, identifier: true),
       if (validUntil != null) _fact('Valid until', validUntil),
       // The countdown and the has-passed reminder, after the truck and valid-until lines.
-      for (final line in ewayBillTruckLines(bill).skip(2))
+      for (final line in ewayBillTruckLines(bill, forShipper: true).skip(2))
         Text(line, style: NvText.caption),
       if (mismatch != null) ...[
         const SizedBox(height: NvSpace.s2),
