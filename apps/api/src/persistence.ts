@@ -29,6 +29,7 @@ import type {
   Shipment,
   User,
   Vehicle,
+  FirebaseIdentity,
 } from "./types.ts";
 
 function normalizeHydratedPayment(raw: Payment): Payment {
@@ -90,7 +91,7 @@ type StoreJsonV4 = Omit<StoreJsonV3, "version"> & {
   integrationWebhookDeliveries: IntegrationWebhookDelivery[];
 };
 
-type StoreJsonV5 = Omit<StoreJsonV4, "version"> & { version: 5; membershipRoles: [string, Role[]][]; auditEvents: AuditEvent[] };
+type StoreJsonV5 = Omit<StoreJsonV4, "version"> & { version: 5; membershipRoles: [string, Role[]][]; auditEvents: AuditEvent[]; firebaseIdentities?: FirebaseIdentity[] };
 type LegacyNotification = Omit<Notification, "recipientSequence"> & { recipientSequence?: number };
 type StoreJsonV6 = Omit<StoreJsonV5, "version"> & {
   version: 6;
@@ -109,6 +110,7 @@ type StoreJsonV7 = Omit<StoreJsonV6, "version" | "notifications"> & {
   pushIntents?: PushIntent[];
   pushDeliveries?: PushDelivery[];
 };
+type HydratableStoreJsonV4 = StoreJsonV4 & { firebaseIdentities?: FirebaseIdentity[] };
 
 export function dumpStore(store: Store): StoreJsonV7 {
   return {
@@ -119,6 +121,7 @@ export function dumpStore(store: Store): StoreJsonV7 {
     carriers: [...store.carriers.values()],
     organizations: [...store.organizations.values()],
     users: [...store.users.values()],
+    firebaseIdentities: [...store.firebaseIdentities.values()],
     memberships: [...store.memberships.values()],
     vehicles: [...store.vehicles.values()],
     driverProfiles: [...store.driverProfiles.values()],
@@ -166,11 +169,12 @@ function hydrateIntegrationMaps(
   for (const d of json.integrationWebhookDeliveries ?? []) store.integrationWebhookDeliveries.set(d.id, d);
 }
 
-function hydrateStoreV4(json: StoreJsonV4): Store {
+function hydrateStoreV4(json: HydratableStoreJsonV4): Store {
   const store = createStore();
   for (const c of json.carriers ?? []) store.carriers.set(c.id, c);
   for (const o of json.organizations ?? []) store.organizations.set(o.id, o);
   for (const u of json.users ?? []) store.users.set(u.id, u);
+  for (const i of json.firebaseIdentities ?? []) store.firebaseIdentities.set(i.uid, i);
   for (const m of json.memberships ?? []) store.memberships.set(membershipKey(m.userId, m.orgId), m);
   for (const v of json.vehicles ?? []) store.vehicles.set(v.id, v);
   for (const d of json.driverProfiles ?? []) store.driverProfiles.set(d.userId, d);

@@ -18,10 +18,18 @@ import "driver_theme.dart";
 import "location_editor.dart";
 import "pilot_api.dart";
 import "notification_center.dart";
+import "firebase_phone_auth.dart";
 
 String? lastBookedShipmentId;
 
 Future<void> signOutCustomer(BuildContext context, {String? redirectTo}) async {
+  if (firebasePhoneAuthAvailable) {
+    try {
+      await FirebasePhoneAuthClient().signOut();
+    } catch (_) {
+      // The server session is still cleared below if Firebase is unavailable.
+    }
+  }
   await CustomerSession.signOut();
   if (!context.mounted) return;
   ScaffoldMessenger.of(context)
@@ -388,6 +396,9 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   Timer? _otpCooldownTimer;
   int _otpCooldownSeconds = 0;
   String? _error;
+  PhoneAuthClient? _firebase;
+  bool _useFirebase = firebasePhoneAuthAvailable && !kIsWeb;
+  bool _firebaseCodeSent = false;
 
   void _startOtpCooldown(dynamic rawMs) {
     _otpCooldownTimer?.cancel();
@@ -410,6 +421,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
     setState(() {
       _challengeId = null;
       _challengePhone = null;
+      _firebaseCodeSent = false;
       _debugCode = null;
       _code.clear();
       _otpCooldownSeconds = 0;
@@ -421,6 +433,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   @override
   void initState() {
     super.initState();
+    if (_useFirebase) _firebase = FirebasePhoneAuthClient();
     CustomerSession.refresh().then((_) {
       if (mounted) setState(() {});
     });
@@ -447,8 +460,38 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
       });
       return;
     }
+    var preserveFirebaseChallenge = false;
     try {
       final previousChallengeId = _challengeId;
+      if (_useFirebase) {
+        preserveFirebaseChallenge =
+            _firebaseCodeSent && _challengePhone == phone;
+        setState(() {
+          _challengePhone = phone;
+          _firebaseCodeSent = false;
+        });
+        await _firebase!.requestCode(
+          firebasePhoneNumber(phone),
+          onCodeSent: (_) {
+            if (mounted) setState(() => _firebaseCodeSent = true);
+          },
+          onAutoVerified: () {
+            if (mounted) setState(() => _firebaseCodeSent = true);
+          },
+        );
+        _startOtpCooldown(firebaseResendCooldownMs);
+        if (mounted) {
+          setState(() {
+            _code.clear();
+            _debugCode = null;
+          });
+        }
+        return;
+      }
+      if (!legacyOtpFallbackEnabled) {
+        throw StateError(firebasePhoneAuthDiagnostic ??
+            "Firebase phone sign-in is unavailable.");
+      }
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": phone});
       if (!mounted) return;
@@ -464,9 +507,19 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
         _code.clear();
       }
     } catch (e) {
+      if (_useFirebase) {
+        if (mounted) {
+          setState(() => _firebaseCodeSent = preserveFirebaseChallenge);
+        }
+        final retry = firebaseAuthRetryAfterMs(e);
+        if (retry != null) _startOtpCooldown(retry);
+      }
       final retry = otpRetryAfterMs(e);
       if (retry != null) _startOtpCooldown(retry);
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error =
+            _useFirebase ? formatFirebaseAuthError(e) : formatApiError(e));
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -479,6 +532,23 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
     });
     final phone = digitsOnly(_phone.text.trim());
     try {
+      if (_useFirebase) {
+        if (!_firebaseCodeSent || phone != _challengePhone) {
+          throw Exception("Request a code for this phone number first.");
+        }
+        await _firebase!.verifyCode(_code.text.trim());
+        await exchangeFirebaseToken(await _firebase!.idToken());
+        await CustomerSession.refresh();
+        if (mounted)
+          context.go(AuthorizationSession.hasRole("SHIPPER")
+              ? "/customer/shipments"
+              : AuthorizationSession.home);
+        return;
+      }
+      if (!legacyOtpFallbackEnabled) {
+        throw StateError(firebasePhoneAuthDiagnostic ??
+            "Firebase phone sign-in is unavailable.");
+      }
       final challengeId = _challengeId;
       if (challengeId == null || phone != _challengePhone)
         throw Exception("Request a code for this phone number first.");
@@ -540,6 +610,31 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
             ],
             const Text("Use the phone number you registered with.",
                 style: TextStyle(color: DriverTheme.muted)),
+            if (firebasePhoneAuthAvailable &&
+                !kIsWeb &&
+                legacyOtpFallbackEnabled)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text("Use Firebase phone verification"),
+                subtitle:
+                    const Text("Turn off only if Firebase is unavailable."),
+                value: _useFirebase,
+                onChanged: _sending || _verifying
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _useFirebase = value;
+                          if (value) _firebase ??= FirebasePhoneAuthClient();
+                          _firebaseCodeSent = false;
+                          _challengePhone = null;
+                          _challengeId = null;
+                          _code.clear();
+                        });
+                      },
+              ),
+            if (firebasePhoneAuthDiagnostic != null)
+              Text(firebasePhoneAuthDiagnostic!,
+                  style: const TextStyle(color: Colors.red)),
             if (_debugCode != null) ...[
               const SizedBox(height: 8),
               Text("Debug OTP: $_debugCode",

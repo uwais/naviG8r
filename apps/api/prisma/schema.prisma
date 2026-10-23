@@ -39,6 +39,14 @@ model UserRow {
   inactiveReason   String?
 }
 
+model FirebaseIdentityRow {
+  uid            String @id
+  userId         String
+  createdAtUtcMs BigInt
+
+  @@index([userId])
+}
+
 model Membership {
   userId           String
   orgId            String
@@ -88,6 +96,8 @@ model AuthSessionRow {
   createdAtUtcMs   BigInt
   expiresAtUtcMs   BigInt
   revokedAtUtcMs   BigInt?
+  authProvider     String?
+  providerSessionKey String?
 }
 
 model AnchorTripRow {

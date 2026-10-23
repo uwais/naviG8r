@@ -59,6 +59,8 @@ projects:
             envVars:
               - key: NODE_ENV
                 value: alpha
+              - key: FIREBASE_PROJECT_ID
+                value: navig8r-beta
               - key: OTP_DEBUG
                 value: "1"
               - key: DATA_FILE
@@ -138,6 +140,8 @@ projects:
             envVars:
               - key: NODE_ENV
                 value: beta
+              - key: FIREBASE_PROJECT_ID
+                value: navig8r-beta
               - key: OTP_DEBUG
                 value: "0"
               - key: DATA_FILE
@@ -224,6 +228,8 @@ projects:
             envVars:
               - key: NODE_ENV
                 value: production
+              - key: FIREBASE_PROJECT_ID
+                value: project-e8131904-7071-4f79-89c
               # Keep Production FILE-based FCM opt-in explicit and disabled by default.
               - key: PUSH_ALLOW_FILE_PRODUCTION
                 value: "0"

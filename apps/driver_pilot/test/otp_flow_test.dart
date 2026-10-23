@@ -66,7 +66,10 @@ void main() {
           builder: (_, __) => const CustomerLoginScreen())
     ]);
     addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '8000000001');
     await tester.tap(find.text('Send code'));
@@ -112,7 +115,10 @@ void main() {
           builder: (_, __) => const CustomerLoginScreen())
     ]);
     addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '8000000001');
     await tester.tap(find.text('Send code'));
@@ -152,7 +158,10 @@ void main() {
           builder: (_, __) => const CustomerLoginScreen()),
     ]);
     addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '8000000001');
     await tester.tap(find.text('Send code'));
@@ -185,7 +194,10 @@ void main() {
       return jsonResponse({});
     });
     final router = testRouter();
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
     router.go('/driver/onboarding/otp?phone=9876543210');
     await tester.pumpAndSettle();
     expect(starts, 1);
@@ -214,7 +226,10 @@ void main() {
               builder: (_, __) => const DriverOtpScreen()),
         ]);
     addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
     for (var i = 0; i < 10; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
@@ -249,7 +264,10 @@ void main() {
               builder: (_, __) => const DriverOtpScreen()),
         ]);
     addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).at(1), '123456');
     await tester.tap(find.text('Resend code'));
@@ -278,7 +296,10 @@ void main() {
       return jsonResponse({});
     });
     final router = testRouter();
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
     router.go('/driver/onboarding/otp?phone=9876543210');
     await tester.pumpAndSettle();
     expect(find.text('Debug OTP: 001122'), findsOneWidget);
@@ -311,7 +332,9 @@ void main() {
     });
     AuthorizationSession.clear();
     AuthorizationSession.initialized = false;
-    await tester.pumpWidget(const DriverPilotApp());
+    await tester.pumpWidget(DriverPilotApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+    ));
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }

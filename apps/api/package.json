@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.8.2",
+    "firebase-admin": "^13.10.0",
     "prisma": "^6.8.2",
     "razorpay": "^2.9.6"
   }
