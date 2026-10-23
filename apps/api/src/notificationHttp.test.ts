@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { httpFixture } from "../test/httpFixtures.ts";
-import { loadStoreFromDisk } from "./persistence.ts";
+import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
+import { createApp } from "./httpServer.ts";
 
 test("shipment messages notify all active shipper and carrier actors, including sender, with idempotent retries", async t => {
   const f = await httpFixture(t);
@@ -320,11 +321,70 @@ test("accepting proof of delivery makes the conversation read-only at once, for 
 test("a conversation first opened after acceptance is read-only too", async t => {
   const f = await httpFixture(t);
   const shipmentId = (await f.book()).body.shipment.id as string;
-  f.store.shipments.set(shipmentId, { ...f.store.shipments.get(shipmentId)!, status: "PENDING_RELEASE", podAtUtcMs: Date.now() - 1000, podAcceptedAtUtcMs: Date.now() });
+  const acceptedAt = Date.now() - 500;
+  f.store.shipments.set(shipmentId, { ...f.store.shipments.get(shipmentId)!, status: "PENDING_RELEASE", podAtUtcMs: Date.now() - 1000, podAcceptedAtUtcMs: acceptedAt });
   f.store.conversations.delete(shipmentId);
   const timeline = await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, f.tokens.shipperA);
   assert.equal(timeline.status, 200);
   assert.equal(timeline.body.canSend, false);
+  assert.deepEqual(
+    [timeline.body.conversation.replyPolicyVersion, timeline.body.conversation.replyUntilUtcMs, timeline.body.conversation.terminalAtUtcMs],
+    ["delivery-accepted-v1", acceptedAt, acceptedAt],
+    "it carries the acceptance, so the app can say when messages closed",
+  );
+});
+
+test("after acceptance NaviG8r support with an approved grant can still reply; the shipper and carrier cannot", async t => {
+  const f = await httpFixture(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  const messagesPath = `/v1/shipments/${shipmentId}/conversation/messages`;
+  const timelinePath = `/v1/shipments/${shipmentId}/conversation/timeline`;
+  f.store.shipments.set(shipmentId, { ...f.store.shipments.get(shipmentId)!, status: "PENDING_RELEASE", podAtUtcMs: Date.now() - 1000 });
+  await f.persist();
+  assert.equal((await f.request(`/shipments/${shipmentId}/accept-pod`, "POST", {}, f.tokens.shipperA)).status, 200);
+  assert.equal(f.store.conversations.get(shipmentId)!.replyPolicyVersion, "delivery-accepted-v1");
+
+  // The shipper reports damage found after accepting, and asks NaviG8r to step in.
+  const request = await f.request(`/v1/shipments/${shipmentId}/conversation/escalations`, "POST", {
+    granteeUserId: f.ops.userId, reason: "Damage found after accepting delivery", canRead: true, canSend: true, expiresAtUtcMs: Date.now() + 60_000,
+  }, f.tokens.shipperA);
+  assert.equal(request.status, 201);
+  const opsBeforeApproval = await f.request(messagesPath, "POST", { body: "Too early", clientRequestId: "ops-early" }, f.tokens.ops);
+  assert.equal(opsBeforeApproval.status, 404, "no grant, no reply");
+  assert.equal((await f.request(`/v1/conversation-escalations/${request.body.grant.id}/approve`, "POST", {}, f.tokens.admin)).status, 200);
+
+  assert.equal((await f.request(timelinePath, "GET", undefined, f.tokens.ops)).body.canSend, true);
+  assert.equal((await f.request(messagesPath, "POST", { body: "We are looking into the damage.", clientRequestId: "ops-after-accept" }, f.tokens.ops)).status, 201);
+  for (const token of [f.tokens.shipperA, f.tokens.carrierA]) {
+    assert.equal((await f.request(timelinePath, "GET", undefined, token)).body.canSend, false);
+    const late = await f.request(messagesPath, "POST", { body: "Reply", clientRequestId: `late-${token.slice(-6)}` }, token);
+    assert.deepEqual([late.status, late.body.error], [409, "conversation_read_only"]);
+  }
+});
+
+test("a chat recorded before the acceptance rule is locked at server start", async t => {
+  const f = await httpFixture(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  const acceptedAt = Date.now() - 60_000;
+  f.store.shipments.set(shipmentId, { ...f.store.shipments.get(shipmentId)!, status: "DELIVERED", podAtUtcMs: acceptedAt - 1000, podAcceptedAtUtcMs: acceptedAt });
+  // As an older server saved it: released, with a 14-day support window running past the acceptance.
+  f.store.conversations.set(shipmentId, { ...f.store.conversations.get(shipmentId)!, terminalAtUtcMs: acceptedAt + 1000, replyUntilUtcMs: acceptedAt + 14 * 24 * 60 * 60 * 1000, replyPolicyVersion: "support-window-v1" });
+  saveStoreToDisk(f.dataFilePath!, f.store);
+
+  const restarted = await createApp({ dataFilePath: f.dataFilePath! });
+  const locked = restarted.store.conversations.get(shipmentId)!;
+  assert.deepEqual([locked.replyPolicyVersion, locked.replyUntilUtcMs, locked.terminalAtUtcMs], ["delivery-accepted-v1", acceptedAt, acceptedAt]);
+});
+
+test("a chat that closed before the shipper accepted keeps its own closing time", async t => {
+  const f = await httpFixture(t);
+  const shipmentId = (await f.book()).body.shipment.id as string;
+  const closedAt = Date.now() - 60_000;
+  f.store.conversations.set(shipmentId, { ...f.store.conversations.get(shipmentId)!, terminalAtUtcMs: closedAt - 1000, replyUntilUtcMs: closedAt, replyPolicyVersion: "support-window-v1" });
+  f.store.shipments.set(shipmentId, { ...f.store.shipments.get(shipmentId)!, status: "DELIVERED", podAtUtcMs: closedAt - 2000, podAcceptedAtUtcMs: closedAt + 1000 });
+  await f.persist();
+  assert.equal(f.store.conversations.get(shipmentId)!.replyUntilUtcMs, closedAt);
+  assert.equal(f.store.conversations.get(shipmentId)!.replyPolicyVersion, "support-window-v1");
 });
 
 test("a shipment released without acceptance keeps the configured support window", async t => {

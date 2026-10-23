@@ -11,7 +11,8 @@ import { assignTrip, carrierFleet } from "./tripAssignment.ts";
 import { cancelTrip, listPaymentsCollectedAfterCancelForOps, listTripCancelRequestsForOps, markRefundedInRazorpay, requestTripCancel, withdrawTripCancelRequest } from "./tripCancel.ts";
 import { setCarrierTransporterId } from "./carrierTransporterId.ts";
 import { serializeResponse } from "./rbacResponses.ts";
-import { addPodPhoto, isPodPhotoUploadPath, podPhotosRoot, readPodPhoto, readPodPhotoUpload, removePodPhoto, removePodPhotoFile, type PodPhotoUpload } from "./podPhotos.ts";
+import { isPodPhotoUploadPath, podPhotosRoot, type PodPhotoUpload } from "./podPhotos.ts";
+import { handlePodPhotoRoute, receivePodPhotoUpload } from "./podPhotoRoutes.ts";
 import http from "node:http";
 import { URL } from "node:url";
 import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
@@ -314,6 +315,8 @@ export async function createApp(options: {
       saveStoreToDisk(dataFilePath!, store);
     };
   }
+  // Once at start as well as before each save, so a chat recorded before the acceptance rule is locked before anyone reads it.
+  captureTerminalConversationWindows(store);
   eventSnapshot = workflowSnapshot(store);
 
   type MutationSnapshot = {
@@ -1341,34 +1344,7 @@ export async function createApp(options: {
         }
       }
 
-      const podPhotoRoute = /^\/v1\/shipments\/([^/]+)\/pod-photos(?:\/([^/]+))?$/.exec(url.pathname);
-      if (podPhotoRoute && !podPhotoRoute[2] && method === "POST" && podPhotoUpload) {
-        const added = addPodPhoto(store, podPhotoRoot, podPhotoRoute[1]!, podPhotoUpload, header(req, "content-type") ?? undefined);
-        try {
-          await persist();
-        } catch (error) {
-          removePodPhotoFile(added.file);
-          throw error;
-        }
-        const { id, contentType, uploadedAtUtcMs } = added.photo;
-        return json(res, 201, { photo: { id, contentType, uploadedAtUtcMs } });
-      }
-      if (podPhotoRoute?.[2] && method === "DELETE") {
-        const removed = removePodPhoto(store, podPhotoRoot, podPhotoRoute[1]!, podPhotoRoute[2]);
-        await persist();
-        removePodPhotoFile(removed.file);
-        return json(res, 200, { removed: true });
-      }
-      if (podPhotoRoute?.[2] && method === "GET") {
-        const photo = readPodPhoto(store, podPhotoRoot, podPhotoRoute[1]!, podPhotoRoute[2]);
-        res.statusCode = 200;
-        res.setHeader("content-type", photo.contentType);
-        res.setHeader("content-length", photo.bytes.length);
-        res.setHeader("cache-control", "private, no-store");
-        res.setHeader("x-content-type-options", "nosniff");
-        res.end(photo.bytes);
-        return;
-      }
+      if (await handlePodPhotoRoute(req, res, url, podPhotoUpload, { store, root: podPhotoRoot, persist, json })) return;
 
       if (method === "POST" && /^\/shipments\/[^/]+\/eway-bill$/.test(url.pathname)) {
         const shipment = saveEwayBill(store, url.pathname.split("/")[2]!, (await readJson(req, 8 * 1024)) ?? {});
@@ -1544,8 +1520,9 @@ export async function createApp(options: {
     }
   }), capturesState).catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
     if (method === "POST" && isPodPhotoUploadPath(urlPath)) {
-      // Read the upload before taking the queue, so a slow phone does not hold up others.
-      void readPodPhotoUpload(req).then(handleRequest, () => res.destroy());
+      // Before any refusal, so the app in a browser can read why.
+      applyCors(req, res);
+      receivePodPhotoUpload(req, res, store, json, handleRequest);
       return;
     }
     void handleRequest(null);

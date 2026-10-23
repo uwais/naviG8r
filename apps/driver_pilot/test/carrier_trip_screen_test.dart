@@ -96,11 +96,16 @@ void main() {
         expect(location.permissionChecks > 0, shares,
             reason:
                 "only the phone in the truck sends its position as the truck's");
+        // This phone has location refused, so the phone in the truck reads the off line in place of the shared one.
         expect(
             find.text(
-                'Shippers see your location while this trip is on the way.'),
+                'Location is off, so shippers cannot see the truck. Turn it on in your phone settings.'),
             shares ? findsOneWidget : findsNothing,
-            reason: 'whoever shares is told so, and nobody else is');
+            reason: 'whoever shares is told about it, and nobody else is');
+        expect(
+            find.text(
+                'Shippers see your location while this trip is on the way and this app is open.'),
+            findsNothing);
       });
     }
 

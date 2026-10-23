@@ -267,7 +267,7 @@ void main() {
       });
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
       const gpsLine =
-          'Shippers see your location while this trip is on the way.';
+          'Shippers see your location while this trip is on the way and this app is open.';
       expect(find.text('On the way'), findsOneWidget);
       expect(find.text(gpsLine), findsOneWidget);
       expect(location.sharing, isTrue);
@@ -353,7 +353,7 @@ void main() {
 
   group('An owner driving a trip in transit', () {
     const sharedLine =
-        'Shippers see your location while this trip is on the way.';
+        'Shippers see your location while this trip is on the way and this app is open.';
     const stoppedLine =
         "Location sharing has stopped on this phone. You are no longer this trip's driver.";
     Map<String, dynamic> tripDrivenBy(String driver) => {

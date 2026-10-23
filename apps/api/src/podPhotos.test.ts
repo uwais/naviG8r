@@ -2,12 +2,13 @@ import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import http from "node:http";
 import { join } from "node:path";
 import { httpFixture } from "../test/httpFixtures.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
 import { inviteCarrierDriver, registerCustomerUser } from "./services.ts";
 import { getIntegrationShipmentSnapshot, getIntegrationShipmentTracking } from "./integrationServices.ts";
-import { POD_PHOTO_MAX_BYTES } from "./podPhotos.ts";
+import { POD_PHOTO_MAX_BYTES, podPhotoDisk } from "./podPhotos.ts";
 import { FakePage, inlineScript } from "../test/fakePage.ts";
 
 type Fixture = Awaited<ReturnType<typeof httpFixture>>;
@@ -43,6 +44,28 @@ async function upload(f: Fixture, shipmentId: string, body: Buffer | ReadableStr
   return { status: response.status, body: await response.json() };
 }
 
+/**
+ * An upload that declares its length and sends only [first] of the body until finish is called, as a phone on a
+ * weak signal does. The answer can come before the body is done.
+ */
+function partialUpload(f: Fixture, shipmentId: string, token: string | null, declaredLength: number, first: Buffer) {
+  const { hostname, port } = new URL(f.base);
+  const request = http.request({
+    hostname, port, method: "POST", path: `/v1/shipments/${shipmentId}/pod-photos`,
+    headers: { "content-type": "image/jpeg", "content-length": declaredLength, ...(token ? { authorization: `Bearer ${token}` } : {}) },
+  });
+  const answered = new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
+    request.on("response", (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk: Buffer) => chunks.push(chunk));
+      response.on("end", () => resolve({ status: response.statusCode!, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) }));
+    });
+    request.on("error", reject);
+  });
+  const written = new Promise<void>((resolve) => request.write(first, () => resolve()));
+  return { answered, written, finish: (rest: Buffer) => request.end(rest), close: () => request.destroy() };
+}
+
 async function photo(f: Fixture, shipmentId: string, photoId: string, token: string) {
   const response = await fetch(`${f.base}/v1/shipments/${shipmentId}/pod-photos/${photoId}`, { headers: { authorization: `Bearer ${token}` } });
   return { status: response.status, headers: response.headers, bytes: Buffer.from(await response.arrayBuffer()) };
@@ -64,7 +87,9 @@ test("the trip's driver sends a photo: the file goes on disk beside the data fil
   assert.deepEqual(saved.map(({ id: savedId, contentType, bytes, uploadedByUserId }) => ({ savedId, contentType, bytes, uploadedByUserId })), [{ savedId: photoId, contentType: "image/jpeg", bytes: 16, uploadedByUserId: driver.userId }]);
   assert.match(saved[0]!.sha256, /^[0-9a-f]{64}$/);
   assert.equal(readFileSync(f.dataFilePath!, "utf8").includes(jpeg().toString("base64")), false, "the data file holds no photo");
-  assert.equal([...f.store.auditEvents.values()].filter((event) => event.action === "POD_PHOTO_ADDED").length, 1);
+  const added = [...f.store.auditEvents.values()].filter((event) => event.action === "POD_PHOTO_ADDED");
+  assert.equal(added.length, 1);
+  assert.equal(added[0]!.newState, `photo ${photoId} sha256 ${saved[0]!.sha256}`, "the audit row names the photo and its checksum");
 });
 
 test("too large is 413, not a photo is 415, and a fourth photo is 409", async t => {
@@ -121,8 +146,8 @@ test("who sees a photo: its shipper, its carrier, the trip's driver and NaviG8r 
 
   const seen = await photo(f, id, photoId, f.tokens.shipperA);
   assert.deepEqual(
-    [seen.headers.get("content-type"), seen.headers.get("cache-control"), seen.headers.get("x-content-type-options"), seen.headers.get("content-length")],
-    ["image/jpeg", "private, no-store", "nosniff", "16"],
+    [seen.headers.get("content-type"), seen.headers.get("cache-control"), seen.headers.get("x-content-type-options"), seen.headers.get("content-length"), seen.headers.get("content-security-policy"), seen.headers.get("cross-origin-resource-policy")],
+    ["image/jpeg", "private, no-store", "nosniff", "16", "default-src 'none'", "same-origin"],
   );
 });
 
@@ -150,6 +175,8 @@ test("a photo can be removed before delivery is confirmed, not after; a driver c
   const first = (await upload(f, id, jpeg(1), driver.token)).body.photo.id as string;
   const removed = await f.request(`/v1/shipments/${id}/pod-photos/${first}`, "DELETE", undefined, driver.token);
   assert.deepEqual([removed.status, removed.body], [200, { removed: true }]);
+  const removal = [...f.store.auditEvents.values()].find((event) => event.action === "POD_PHOTO_REMOVED")!;
+  assert.match(removal.previousState ?? "", new RegExp(`^photo ${first} sha256 [0-9a-f]{64}$`), "the audit row names the photo and its checksum");
   assert.equal(existsSync(join(f.dir, "pod-photos", id, `${first}.jpg`)), false);
   assert.equal((await photo(f, id, first, driver.token)).status, 404);
   assert.equal((await f.request(`/v1/shipments/${id}/pod-photos/${first}`, "DELETE", undefined, driver.token)).status, 404);
@@ -198,4 +225,65 @@ test("/ops/beta offers View photo on a shipment waiting for release, and its pol
   const row = page.byId("paymentsBody").querySelectorAll("tr").find((candidate) => candidate.textContent.includes(id));
   assert.ok(row, "the shipment is listed");
   assert.ok(page.visibleButton("View photo 1", row) && page.visibleButton("View photo 2", row), row.textContent);
+});
+
+test("an upload with no sign-in, or from someone who may not add photos, is answered before its body is read", async t => {
+  const { f, id, otherDriver } = await deliveryWaitingForPhotos(t);
+  // Under the 1.5 MB limit, so only the checks made before reading can answer while the body is still coming.
+  for (const [token, status, error] of [[null, 401, "unauthorized"], ["not-a-token", 401, "unauthorized"], [otherDriver.token, 404, "not_found"], [f.tokens.shipperA, 403, "forbidden"]] as const) {
+    const sending = partialUpload(f, id, token, 1_000_000, jpeg().subarray(0, 8));
+    const answer = await Promise.race([sending.answered, new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000))]);
+    sending.close();
+    assert.ok(answer, `${status} answered while 999,992 bytes were still to come`);
+    assert.deepEqual([answer.status, answer.body.error], [status, error]);
+  }
+  const missing = partialUpload(f, "no-such-shipment", f.tokens.carrierA, 1_000_000, jpeg().subarray(0, 8));
+  assert.equal((await missing.answered).status, 404);
+  missing.close();
+  assert.equal(f.store.shipments.get(id)!.podPhotos, undefined);
+});
+
+test("a fifth upload while four are still being read is told to try again, and the four finish", async t => {
+  const { f, id, driver } = await deliveryWaitingForPhotos(t);
+  const slow = [1, 2, 3, 4].map(() => partialUpload(f, id, driver.token, jpeg().length, jpeg().subarray(0, 8)));
+  await Promise.all(slow.map((sending) => sending.written));
+  // The four are on the wire; a moment more and the server has read their headers.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const fifth = await upload(f, id, jpeg(), driver.token);
+  assert.deepEqual([fifth.status, fifth.body.error], [503, "busy_try_again"]);
+  for (const sending of slow) sending.finish(jpeg().subarray(8));
+  const statuses = (await Promise.all(slow.map((sending) => sending.answered))).map((answer) => answer.status).sort();
+  assert.deepEqual(statuses, [201, 201, 201, 409], "three photos is the most; the fourth is refused for that, not for being busy");
+  assert.equal((await f.request(`/v1/shipments/${id}/pod-photos/${f.store.shipments.get(id)!.podPhotos![0]!.id}`, "DELETE", undefined, driver.token)).status, 200);
+  assert.equal((await upload(f, id, jpeg(9), driver.token)).status, 201, "the slots were given back");
+});
+
+test("with under 200 MB free the photo is refused with 507 and nothing is written", async t => {
+  const { f, id, driver } = await deliveryWaitingForPhotos(t);
+  const realFreeBytes = podPhotoDisk.freeBytes;
+  podPhotoDisk.freeBytes = () => 200 * 1024 * 1024 - 1;
+  t.after(() => { podPhotoDisk.freeBytes = realFreeBytes; });
+  const refused = await upload(f, id, jpeg(), driver.token);
+  assert.deepEqual([refused.status, refused.body.error, refused.body.detail], [507, "storage_full", "The server cannot take photos right now. Try again later."]);
+  assert.deepEqual(readdirSync(join(f.dir, "pod-photos", id)), []);
+  assert.equal(f.store.shipments.get(id)!.podPhotos, undefined);
+});
+
+test("a write that fails part way leaves no temporary file and no photo", async t => {
+  const { f, id, driver } = await deliveryWaitingForPhotos(t);
+  const realRename = podPhotoDisk.rename;
+  podPhotoDisk.rename = () => { throw new Error("synthetic_rename_failed"); };
+  t.after(() => { podPhotoDisk.rename = realRename; });
+  const failed = await upload(f, id, jpeg(), driver.token);
+  assert.notEqual(failed.status, 201);
+  assert.deepEqual(readdirSync(join(f.dir, "pod-photos", id)), [], "the .tmp file is removed");
+  assert.equal(f.store.shipments.get(id)!.podPhotos, undefined);
+  assert.equal([...f.store.auditEvents.values()].some((event) => event.action === "POD_PHOTO_ADDED"), false);
+});
+
+test("a refused upload still carries the CORS answer, so the app in a browser can read why", async t => {
+  const { f, id } = await deliveryWaitingForPhotos(t);
+  const response = await fetch(`${f.base}/v1/shipments/${id}/pod-photos`, { method: "POST", headers: { "content-type": "image/jpeg", origin: "http://localhost:5555" }, body: jpeg() });
+  assert.equal(response.status, 401);
+  assert.equal(response.headers.get("access-control-allow-origin"), "http://localhost:5555");
 });

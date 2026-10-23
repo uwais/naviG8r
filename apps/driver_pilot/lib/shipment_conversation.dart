@@ -12,6 +12,7 @@ import 'notice_words.dart';
 import 'pilot_api.dart';
 import 'plain_error_sentence.dart';
 import 'shipper/shipper_words.dart';
+import 'ui/format.dart';
 
 const _navy = Color(0xFF122C53);
 const _background = Color(0xFFF4F7FA);
@@ -50,6 +51,8 @@ class _ShipmentConversationScreenState
   String? _error;
   // "Hoskote to Kolar, 18 Oct", so the screen says which shipment it is.
   String? _shipmentName;
+  // The day the shipper accepted delivery, when that is what closed replies (policy delivery-accepted-v1).
+  String? _acceptedOn;
   String _clientRequestId = _newClientRequestId();
   String? _lastFailedBody;
   Timer? _poll;
@@ -69,6 +72,11 @@ class _ShipmentConversationScreenState
       final raw = response.data?['items'];
       final watermark = response.data?['readWatermark'];
       final summary = response.data?['shipmentSummary'];
+      final conversation = response.data?['conversation'];
+      final acceptedAt = conversation is Map &&
+              conversation['replyPolicyVersion'] == 'delivery-accepted-v1'
+          ? conversation['replyUntilUtcMs']
+          : null;
       final roles = AuthorizationSession.principal?['roles'];
       final isOps = roles is List && roles.contains('OPS');
       setState(() {
@@ -84,6 +92,10 @@ class _ShipmentConversationScreenState
         _shipmentName = summary is Map
             ? shipmentRouteName(const {},
                 lane: Map<String, dynamic>.from(summary))
+            : null;
+        _acceptedOn = acceptedAt is num
+            ? formatDate(DateTime.fromMillisecondsSinceEpoch(acceptedAt.toInt(),
+                isUtc: true))
             : null;
         _error = null;
         _loading = false;
@@ -232,6 +244,17 @@ class _ShipmentConversationScreenState
     super.dispose();
   }
 
+  String get _readOnlyLine {
+    final date = _acceptedOn;
+    if (date != null && AuthorizationSession.hasRole('SHIPPER')) {
+      return 'Messages closed when you accepted delivery on $date. You can still read them.';
+    }
+    if (date != null && AuthorizationSession.hasRole('CARRIER')) {
+      return 'Messages closed when the shipper accepted delivery on $date. You can still read them.';
+    }
+    return 'You can read this conversation, but not reply.';
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: _background,
@@ -249,9 +272,9 @@ class _ShipmentConversationScreenState
             ])),
         body: Column(children: [
           if (!_canSend && !_loading)
-            const MaterialBanner(
-                content: Text('You can read this conversation, but not reply.'),
-                actions: [SizedBox.shrink()]),
+            MaterialBanner(
+                content: Text(_readOnlyLine),
+                actions: const [SizedBox.shrink()]),
           if (_error != null)
             Padding(
                 padding: const EdgeInsets.all(8),
@@ -309,8 +332,10 @@ class _ShipmentConversationScreenState
                               ),
                             );
                           }
-                          final mine = message['senderUserId'] ==
-                              AuthorizationSession.user?['id'];
+                          // Another company's message carries no senderUserId, so it is never "You".
+                          final mine = message['senderUserId'] != null &&
+                              message['senderUserId'] ==
+                                  AuthorizationSession.user?['id'];
                           return Align(
                             alignment: mine
                                 ? Alignment.centerRight

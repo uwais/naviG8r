@@ -56,22 +56,29 @@ test("a JPEG with no EXIF gets none added, and one cut off before its end marker
   assert.equal(withoutPhotoMetadata(Buffer.concat([soi, Buffer.from([0xff, 0xdb, 0x00, 0x50, 1, 2])]), "image/jpeg"), null, "a segment longer than the file");
 });
 
-test("a PNG loses its EXIF, text and time chunks, and keeps the rest in order", () => {
+test("a PNG keeps only its image and colour chunks, in order; EXIF, text, time and unknown chunks go", () => {
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   const header = pngChunk("IHDR", Buffer.alloc(13, 1)), data = pngChunk("IDAT", Buffer.alloc(20, 2)), end = pngChunk("IEND", Buffer.alloc(0));
-  const photo = Buffer.concat([signature, header, pngChunk("eXIf", exifWithLocation(1).subarray(6)), pngChunk("tEXt", text("Comment\0SYNTHETIC-TEXT")),
-    pngChunk("iTXt", text("XML:com.adobe.xmp\0\0\0\0\0SYNTHETIC-XMP")), pngChunk("tIME", Buffer.alloc(7)), data, end]);
+  const colour = pngChunk("sRGB", Buffer.from([0])), density = pngChunk("pHYs", Buffer.alloc(9, 3));
+  const photo = Buffer.concat([signature, header, colour, pngChunk("eXIf", exifWithLocation(1).subarray(6)), pngChunk("tEXt", text("Comment\0SYNTHETIC-TEXT")),
+    pngChunk("iTXt", text("XML:com.adobe.xmp\0\0\0\0\0SYNTHETIC-XMP")), pngChunk("tIME", Buffer.alloc(7)), pngChunk("caNv", text("SYNTHETIC-UNKNOWN")), density, data, end]);
   assert.equal(photoContentType(photo), "image/png");
-  assert.deepEqual(withoutPhotoMetadata(photo, "image/png"), Buffer.concat([signature, header, data, end]));
+  const cleaned = withoutPhotoMetadata(photo, "image/png")!;
+  assert.deepEqual(cleaned, Buffer.concat([signature, header, colour, density, data, end]));
+  assert.equal(cleaned.includes("SYNTHETIC"), false);
   assert.equal(withoutPhotoMetadata(Buffer.concat([signature, header, data]), "image/png"), null, "no end chunk");
 });
 
-test("a WebP loses its EXIF and XMP chunks and the flags that announce them", () => {
+test("a WebP keeps its image, alpha and colour profile chunks; EXIF, XMP, unknown chunks and the flags for them go", () => {
   const extended = (flags: number) => webpChunk("VP8X", Buffer.from([flags, 0, 0, 0, 9, 0, 0, 9, 0, 0]));
+  const profile = webpChunk("ICCP", Buffer.alloc(6, 4)), alpha = webpChunk("ALPH", Buffer.from([0, 5, 6]));
   const image = webpChunk("VP8L", Buffer.from([0x2f, 1, 2, 3, 4]));
-  const photo = webp(extended(0x1c), image, webpChunk("EXIF", exifWithLocation(1).subarray(6)), webpChunk("XMP ", text("SYNTHETIC-XMP")));
+  const photo = webp(extended(0x3c), profile, alpha, image, webpChunk("EXIF", exifWithLocation(1).subarray(6)), webpChunk("XMP ", text("SYNTHETIC-XMP")), webpChunk("SYNT", text("SYNTHETIC-UNKNOWN")));
   assert.equal(photoContentType(photo), "image/webp");
-  assert.deepEqual(withoutPhotoMetadata(photo, "image/webp"), webp(extended(0x10), image));
+  const cleaned = withoutPhotoMetadata(photo, "image/webp")!;
+  assert.deepEqual(cleaned, webp(extended(0x30), profile, alpha, image));
+  assert.equal(cleaned.includes("SYNTHETIC"), false);
+  assert.equal(withoutPhotoMetadata(webp(webpChunk("SYNT", text("SYNTHETIC-UNKNOWN"))), "image/webp"), null, "no image chunk left");
 });
 
 test("anything that is not a JPEG, PNG or WebP has no type", () => {

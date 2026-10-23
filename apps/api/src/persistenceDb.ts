@@ -770,7 +770,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
       create: { id: c.id, shipmentId: c.shipmentId, createdAtUtcMs: BigInt(c.createdAtUtcMs), updatedAtUtcMs: BigInt(c.updatedAtUtcMs), terminalAtUtcMs: c.terminalAtUtcMs == null ? null : BigInt(c.terminalAtUtcMs), replyUntilUtcMs: c.replyUntilUtcMs == null ? null : BigInt(c.replyUntilUtcMs), replyPolicyVersion: c.replyPolicyVersion ?? null },
       update: { updatedAtUtcMs: BigInt(c.updatedAtUtcMs), terminalAtUtcMs: c.terminalAtUtcMs == null ? null : BigInt(c.terminalAtUtcMs), replyUntilUtcMs: c.replyUntilUtcMs == null ? null : BigInt(c.replyUntilUtcMs), replyPolicyVersion: c.replyPolicyVersion ?? null },
     });
-    for (const m of store.conversationMessages.values()) await tx.conversationMessageRow.upsert({
+    // The table has no column for the role label; a message read back without it works the label out as before.
+    for (const { senderRoleLabel: _noColumn, ...m } of store.conversationMessages.values()) await tx.conversationMessageRow.upsert({
       where: { id: m.id }, create: { ...m, sequence: BigInt(m.sequence), createdAtUtcMs: BigInt(m.createdAtUtcMs) }, update: {},
     });
     for (const n of store.notifications.values()) await tx.notificationRow.upsert({

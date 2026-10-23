@@ -14,8 +14,10 @@ import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
 const sendNow = 'Send my location now';
+const sharedLine =
+    'Shippers see your location while this trip is on the way and this app is open.';
 const locationOff =
-    'Location is off. Turn it on in your phone settings to share it.';
+    'Location is off, so shippers cannot see the truck. Turn it on in your phone settings.';
 
 final somewhere = Position(
     latitude: 12.97,
@@ -60,8 +62,10 @@ class PhoneLocation extends GeolocatorPlatform {
   }
 }
 
-/// The server as a trip in transit driven by [driver], keeping every position the phone sends.
-List<Object?> answerWithTripInTransit({String driver = 'carrier-person'}) {
+/// The server as a trip in transit driven by [driver], keeping every position the phone sends. The first
+/// [refuseFirst] sends are kept too but answered with a 503, as a server that cannot take them.
+List<Object?> answerWithTripInTransit(
+    {String driver = 'carrier-person', int refuseFirst = 0}) {
   final positionsSent = <Object?>[];
   api.dio.httpClientAdapter = MockApiAdapter((request) {
     switch (request.path) {
@@ -77,6 +81,9 @@ List<Object?> answerWithTripInTransit({String driver = 'carrier-person'}) {
         });
       case '/v1/pilot/anchor-trips/trip-a/location':
         positionsSent.add(request.data);
+        if (positionsSent.length <= refuseFirst) {
+          return jsonResponse({'error': 'busy'}, 503);
+        }
         return jsonResponse(<String, Object>{});
     }
     return jsonResponse({
@@ -115,9 +122,7 @@ void main() {
     signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
     answerWithTripInTransit();
     await mountTripScreen(tester);
-    expect(
-        find.text('Shippers see your location while this trip is on the way.'),
-        findsOneWidget);
+    expect(find.text(sharedLine), findsOneWidget);
     expect(find.text(sendNow), findsOneWidget);
     expect(find.text(locationOff), findsNothing);
   });
@@ -171,6 +176,8 @@ void main() {
     await mountTripScreen(tester);
     expect(find.text(locationOff), findsOneWidget,
         reason: 'the automatic sharing says so instead of failing silently');
+    expect(find.text(sharedLine), findsNothing,
+        reason: 'the off sentence takes its place');
 
     await tester.tap(find.text(sendNow));
     await tester.pumpAndSettle();
@@ -212,5 +219,43 @@ void main() {
     expect(find.text('Location sent at 15:40 IST'), findsOneWidget);
     expect(location.streams, hasLength(1),
         reason: 'the sentence says shippers see the location, so it is sent');
+  });
+
+  testWidgets(
+      'location switched off mid-trip: the line replaces the sentence, and a tap later listens again',
+      (tester) async {
+    signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
+    final positionsSent = answerWithTripInTransit();
+    await mountTripScreen(tester);
+    expect(location.streams, hasLength(1));
+
+    location.streams.single.addError(const LocationServiceDisabledException());
+    await tester.pumpAndSettle();
+    expect(find.text(locationOff), findsOneWidget);
+    expect(find.text(sharedLine), findsNothing);
+
+    await tester.tap(find.text(sendNow));
+    await tester.pumpAndSettle();
+    expect(positionsSent, hasLength(1));
+    expect(find.text(sharedLine), findsOneWidget);
+    expect(location.streams, hasLength(2),
+        reason: 'the stopped stream is replaced, so automatic sharing runs again');
+  });
+
+  testWidgets('an automatic send the server refused is tried again with the next position',
+      (tester) async {
+    signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
+    final positionsSent = answerWithTripInTransit(refuseFirst: 1);
+    await mountTripScreen(tester);
+    location.streams.single.add(somewhere);
+    await tester.pumpAndSettle();
+    location.streams.single.add(somewhere);
+    await tester.pumpAndSettle();
+    expect(positionsSent, hasLength(2),
+        reason: 'the 30 seconds count from a send that reached the server');
+    location.streams.single.add(somewhere);
+    await tester.pumpAndSettle();
+    expect(positionsSent, hasLength(2),
+        reason: 'inside 30 seconds of the one that worked');
   });
 }

@@ -245,7 +245,7 @@ void main() {
       expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull,
           reason:
               'the photo is added on the next screen, which holds its own Confirm delivery until one is sent');
-      expect(find.text('Add the proof of delivery first.'), findsNothing);
+      expect(find.text('Add a photo first.'), findsNothing);
     });
 
     testWidgets('before the trip starts, the trip step opens the trip instead',

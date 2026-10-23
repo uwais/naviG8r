@@ -3124,13 +3124,13 @@ class _TruckSheetState extends State<_TruckSheet> {
 const _tripNoLongerAssignedSentence =
     "This trip is no longer yours. Go back to Trips and tap Refresh.";
 
-/// While a trip is in transit the driver's phone sends its position, and shippers see it.
+/// While a trip is in transit and this screen is open, the driver's phone sends its position, and shippers see it.
 const _locationSharedSentence =
-    "Shippers see your location while this trip is on the way.";
+    "Shippers see your location while this trip is on the way and this app is open.";
 
-/// What the phone in the truck reads when location is refused or switched off, so nothing is being sent.
+/// In place of the sentence above when location is refused or switched off, so nothing is being sent.
 const _locationOffSentence =
-    "Location is off. Turn it on in your phone settings to share it.";
+    "Location is off, so shippers cannot see the truck. Turn it on in your phone settings.";
 
 /// The phone's answer when location is switched off, or refused when the app asks for a position.
 bool _isLocationOffError(Object error) =>
@@ -3161,6 +3161,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   LatLng? _driverPos;
   StreamSubscription<Position>? _posSub;
   DateTime? _lastLocationPostAt;
+  bool _postingLocation = false;
   LatLng? _geocodedOrigin;
   LatLng? _geocodedDest;
   String? _error;
@@ -3260,8 +3261,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         });
         _maybePostLocation(p);
       }, onError: (Object error) {
-        // Location switched off mid-trip arrives here; other errors leave the screen as it is.
+        // Location switched off mid-trip arrives here; other errors leave the screen as it is. The stream is
+        // stopped, so the next _startLocation (Send my location now, or a reload) listens again.
         if (mounted && _isLocationOffError(error)) {
+          _stopLocationSharing();
           setState(() => _locationOff = true);
         }
       });
@@ -3307,9 +3310,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       }
       if (!_mayShareLocation) return;
       setState(() => _driverPos = LatLng(p.latitude, p.longitude));
+      await _postLocation(p);
       // The next automatic send waits 30 seconds from this one.
       _lastLocationPostAt = DateTime.now();
-      await _postLocation(p);
       if (!mounted) return;
       setState(() {
         _locationOff = false;
@@ -3440,15 +3443,21 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       return;
     }
     final now = DateTime.now();
-    if (_lastLocationPostAt != null &&
-        now.difference(_lastLocationPostAt!) < const Duration(seconds: 30)) {
+    if (_postingLocation ||
+        (_lastLocationPostAt != null &&
+            now.difference(_lastLocationPostAt!) <
+                const Duration(seconds: 30))) {
       return;
     }
-    _lastLocationPostAt = now;
+    // One send at a time: the time is kept only after a send succeeds, so a failed one is tried with the next position.
+    _postingLocation = true;
     try {
       await _postLocation(p);
+      _lastLocationPostAt = now;
     } catch (_) {
       // Best-effort; map still works locally if API is unreachable.
+    } finally {
+      _postingLocation = false;
     }
   }
 
@@ -3814,7 +3823,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               ],
               if (started) ...[
                 const SizedBox(height: NvSpace.s2),
-                const Text(_locationSharedSentence, style: NvText.caption),
+                _locationSentence(),
                 ..._sendLocationNowControls(),
               ],
               if (hasMap) ...[
@@ -3870,8 +3879,14 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     ]);
   }
 
-  /// Under the location sentence on the phone in the truck: Send my location now, then the off sentence or
-  /// the time of the last send. Both are live regions, so a screen reader hears the answer to the tap.
+  /// On the phone in the truck: that shippers see its location, or, when location is off, that they cannot.
+  /// The off sentence is a live region, so a screen reader hears it after a tap on Send my location now.
+  Widget _locationSentence() => _locationOff
+      ? const NvMessage(_locationOffSentence, tone: NvMessageTone.attention)
+      : const Text(_locationSharedSentence, style: NvText.caption);
+
+  /// Under the location sentence on the phone in the truck: Send my location now, then, while location is on,
+  /// the time of the last send. That is a live region, so a screen reader hears the answer to the tap.
   List<Widget> _sendLocationNowControls() => [
         const SizedBox(height: NvSpace.s2),
         NvButton(
@@ -3883,10 +3898,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           forDriver: true,
           fullWidth: true,
         ),
-        if (_locationOff) ...[
-          const SizedBox(height: NvSpace.s2),
-          const NvMessage(_locationOffSentence, tone: NvMessageTone.attention),
-        ] else if (_locationSentNowAt != null) ...[
+        if (!_locationOff && _locationSentNowAt != null) ...[
           const SizedBox(height: NvSpace.s2),
           NvMessage("Location sent at ${formatTimeIst(_locationSentNowAt!)}",
               tone: NvMessageTone.good),
@@ -4060,7 +4072,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                     tone: NvMessageTone.good),
               // An owner driving the trip shares this phone's location, and is told so as a driver is.
               if (status == "IN_PROGRESS" && _phoneIsInTheTruck) ...[
-                const Text(_locationSharedSentence, style: NvText.caption),
+                _locationSentence(),
                 ..._sendLocationNowControls(),
               ] else if (status == "IN_PROGRESS" && _sharingStoppedOnThisPhone)
                 const NvMessage(
@@ -4183,6 +4195,8 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
       PodPhotoDraft(widget.shipmentId, refusalSentence: _driverRefusalSentence);
   // Null until found: the stop's place, shipper and weight only name the drop, so the screen works without them.
   Map<String, dynamic>? _shipment;
+  // The photos already sent come with the shipment, so a failed load says so rather than showing none.
+  bool _loadFailed = false;
   bool _busy = false;
   String? _error;
 
@@ -4206,6 +4220,7 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
   }
 
   Future<void> _loadShipment() async {
+    if (_loadFailed) setState(() => _loadFailed = false);
     try {
       final response =
           await api.get<Map<String, dynamic>>("/v1/pilot/carrier/shipments");
@@ -4219,7 +4234,9 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
           return;
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) setState(() => _loadFailed = true);
+    }
   }
 
   Future<void> _confirm() async {
@@ -4275,6 +4292,17 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
           padding: const EdgeInsets.fromLTRB(
               NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
           children: [
+            if (_loadFailed) ...[
+              const Text(
+                  "Could not load this delivery. Check your connection, then try again.",
+                  style: NvText.body),
+              NvButton(
+                  label: "Try again",
+                  kind: NvButtonKind.quiet,
+                  onPressed: _loadShipment,
+                  forDriver: _forDriver),
+              const SizedBox(height: NvSpace.s4),
+            ],
             if (drop.isNotEmpty) ...[
               Text(drop.join(" · "), style: NvText.body),
               const SizedBox(height: NvSpace.s4),
@@ -4291,7 +4319,7 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
                 Text(_whatHappensNext, style: NvText.body),
                 const SizedBox(height: NvSpace.s2),
                 Text(
-                    "${shipment == null ? "The shipper" : _shipperName(shipment)} gets the photo as proof of delivery.",
+                    "${shipment == null ? "The shipper" : _shipperName(shipment)}, your company and NaviG8r see the photo as proof of delivery.",
                     style: NvText.body),
                 const SizedBox(height: NvSpace.s3),
                 NvField(label: "Notes", optional: true, controller: _notes),
@@ -4316,7 +4344,7 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
               disabledReason: _photos.sending
                   ? "Wait for the photo to finish sending."
                   : _photos.photos.isEmpty
-                      ? "Add the proof of delivery first."
+                      ? "Add a photo first."
                       : null,
               loading: _busy,
               loadingLabel: "Confirming",

@@ -38,6 +38,9 @@ class PhotoServer {
       ],
     ));
     api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.path == '/v1/pilot/carrier/shipments' && shipmentListFails) {
+        throw const SocketException('no signal');
+      }
       if (!request.path.contains('/pod-photos')) return carrier.answer(request);
       photoRequests.add(request);
       final refusal = nextRefusal;
@@ -59,6 +62,13 @@ class PhotoServer {
 
   /// Answers the next photo request instead of the server; it may throw, as a dropped connection does.
   ResponseBody Function()? nextRefusal;
+
+  /// While true, every shipment list request fails as if there were no signal.
+  bool shipmentListFails = false;
+
+  /// The server now lists [ids] on the delivery, as when it kept photos the screen did not hear about.
+  void serverHasPhotos(List<String> ids) =>
+      carrier.bookings.single['podPhotos'] = podPhotos(ids);
 }
 
 FilledButton confirmButton(WidgetTester tester) => tester.widget<FilledButton>(
@@ -89,7 +99,7 @@ void main() {
           size: const Size(400, 1600));
       expect(find.text('Choose from gallery'), findsOneWidget);
       expect(confirmButton(tester).onPressed, isNull);
-      expect(find.text('Add the proof of delivery first.'), findsOneWidget);
+      expect(find.text('Add a photo first.'), findsOneWidget);
 
       await tester.tap(find.text('Take photo'));
       await tester.pumpAndSettle();
@@ -101,7 +111,7 @@ void main() {
       expect(sent.data, jpeg, reason: 'the picture itself, not JSON');
       expect(find.text('Photo added'), findsOneWidget);
       expect(confirmButton(tester).onPressed, isNotNull);
-      expect(find.text('Add the proof of delivery first.'), findsNothing);
+      expect(find.text('Add a photo first.'), findsNothing);
 
       await tester.tap(find.text('Remove'));
       await tester.pumpAndSettle();
@@ -157,6 +167,15 @@ void main() {
       expect(find.text('This photo is too large to send. Take it again.'),
           findsOneWidget);
 
+      server.nextRefusal = () => jsonResponse({
+            'error': 'storage_full',
+            'detail': 'The server cannot take photos right now. Try again later.'
+          }, 507);
+      await takePhoto();
+      expect(
+          find.text('The server cannot take photos right now. Try again later.'),
+          findsOneWidget);
+
       server.nextRefusal = () => throw const SocketException('no signal');
       await takePhoto();
       expect(
@@ -168,10 +187,71 @@ void main() {
       await takePhoto();
       expect(
           find.text(
-              'Could not open the camera. Allow NaviG8r to use it in your phone settings.'),
+              'Could not open the camera. If NaviG8r is not allowed to use it, allow it in your phone settings.'),
           findsOneWidget);
       expect(find.text('Photo added'), findsNothing);
       expect(confirmButton(tester).onPressed, isNull);
+    });
+
+    testWidgets(
+        'a photo the server kept when its answer was lost still shows, with Remove',
+        (tester) async {
+      final server = PhotoServer();
+      await mountCarrierApp(tester, '/driver/shipment/guindy/pod',
+          size: const Size(400, 1600));
+      server.nextRefusal = () {
+        server.serverHasPhotos(['photo-kept']);
+        throw const SocketException('no signal');
+      };
+      await tester.tap(find.text('Take photo'));
+      await tester.pumpAndSettle();
+      expect(
+          find.text(
+              'Could not send the photo: no signal. Try again when you have one.'),
+          findsOneWidget);
+      expect(find.text('Photo added'), findsOneWidget);
+      expect(find.text('Remove'), findsOneWidget);
+      expect(confirmButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets(
+        'at the 3-photo limit the photos the server has are shown, so one can be removed',
+        (tester) async {
+      final server = PhotoServer();
+      await mountCarrierApp(tester, '/driver/shipment/guindy/pod',
+          size: const Size(400, 1600));
+      server.nextRefusal = () {
+        server.serverHasPhotos(['photo-a', 'photo-b', 'photo-c']);
+        return jsonResponse({'error': 'pod_photo_limit'}, 409);
+      };
+      await tester.tap(find.text('Take photo'));
+      await tester.pumpAndSettle();
+      expect(
+          find.text(
+              'This delivery already has 3 photos. Remove one to add another.'),
+          findsOneWidget);
+      expect(find.text('3 photos added'), findsOneWidget);
+      expect(find.text('Take photo'), findsNothing);
+    });
+
+    testWidgets(
+        'when the delivery cannot be loaded, a plain line and Try again; a retry shows the photos sent earlier',
+        (tester) async {
+      final server = PhotoServer(sentEarlier: ['photo-earlier'])
+        ..shipmentListFails = true;
+      await mountCarrierApp(tester, '/driver/shipment/guindy/pod',
+          size: const Size(400, 1600));
+      const line =
+          'Could not load this delivery. Check your connection, then try again.';
+      expect(find.text(line), findsOneWidget);
+      expect(find.text('Photo added'), findsNothing);
+
+      server.shipmentListFails = false;
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+      expect(find.text(line), findsNothing);
+      expect(find.text('Photo added'), findsOneWidget);
+      expect(server.photoRequests, isEmpty);
     });
 
     testWidgets('a photo sent on an earlier visit counts', (tester) async {

@@ -90,3 +90,39 @@ test("an owner the carrier named as the trip's driver reads as Driver to the shi
   const shipperView = await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, f.tokens.shipperA);
   assert.equal(labelOf(shipperView.body.items, "Driving this one myself."), "Synthetic Carrier A · Driver");
 });
+
+test("a message keeps the Driver or Office it was sent as when the trip is given to someone else", async t => {
+  const { f, driver, shipmentId } = await shipmentWithDriver(t);
+  const messagesPath = `/v1/shipments/${shipmentId}/conversation/messages`;
+  assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/assignment`, "POST", { vehicleId: driver.vehicle.id, driverUserId: f.carrierA.user.id }, f.tokens.carrierA)).status, 200);
+  assert.equal((await f.request(messagesPath, "POST", { body: "Driving this one myself.", clientRequestId: "owner-drives-2" }, f.tokens.carrierA)).status, 201);
+  assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/assignment`, "POST", { vehicleId: driver.vehicle.id, driverUserId: driver.user.id }, f.tokens.carrierA)).status, 200);
+  assert.equal((await f.request(messagesPath, "POST", { body: "Ravi drives from here.", clientRequestId: "owner-office-1" }, f.tokens.carrierA)).status, 201);
+
+  const items = (await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, f.tokens.shipperA)).body.items;
+  assert.equal(labelOf(items, "Driving this one myself."), "Synthetic Carrier A · Driver", "sent while the owner drove");
+  assert.equal(labelOf(items, "Ravi drives from here."), "Synthetic Carrier A · Office");
+
+  // A message kept before the role was stored is worked out from today's trip, as before.
+  const older = [...f.store.conversationMessages.values()].find((message) => message.body === "Driving this one myself.")!;
+  const { senderRoleLabel: _dropped, ...withoutRole } = older;
+  f.store.conversationMessages.set(older.id, withoutRole);
+  const recomputed = (await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, f.tokens.shipperA)).body.items;
+  assert.equal(labelOf(recomputed, "Driving this one myself."), "Synthetic Carrier A · Office");
+});
+
+test("a message from another company carries no sender id; one from your own company does", async t => {
+  const { f, driverToken, shipmentId } = await shipmentWithDriver(t);
+  const messagesPath = `/v1/shipments/${shipmentId}/conversation/messages`;
+  assert.equal((await f.request(messagesPath, "POST", { body: "Reached the pickup.", clientRequestId: "driver-ids" }, driverToken)).status, 201);
+  assert.equal((await f.request(messagesPath, "POST", { body: "Gate 2, please.", clientRequestId: "shipper-ids" }, f.tokens.shipperA)).status, 201);
+  const byBody = (items: Array<{ body: string; senderUserId?: string }>, body: string) => items.find((item) => item.body === body)!;
+
+  const shipperItems = (await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, f.tokens.shipperA)).body.items;
+  assert.equal("senderUserId" in byBody(shipperItems, "Reached the pickup."), false, "the label is enough");
+  assert.equal(byBody(shipperItems, "Gate 2, please.").senderUserId, f.shipperA.user.id, "the app marks your own messages by it");
+
+  const ownerItems = (await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, f.tokens.carrierA)).body.items;
+  assert.ok(byBody(ownerItems, "Reached the pickup.").senderUserId, "same company");
+  assert.equal("senderUserId" in byBody(ownerItems, "Gate 2, please."), false);
+});

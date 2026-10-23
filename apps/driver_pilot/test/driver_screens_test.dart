@@ -383,7 +383,8 @@ void main() {
         'names the drop, asks for the photo first, and holds Confirm delivery in a 56 dp bar until one is sent',
         (tester) async {
       signInAsDriver(todayStatus: 'IN_PROGRESS');
-      await mountCarrierApp(tester, '/driver/shipment/guindy/pod');
+      await mountCarrierApp(tester, '/driver/shipment/guindy/pod',
+          size: const Size(360, 1200));
       expect(find.text('Guindy, Chennai · Sharma Textiles · 80 kg'),
           findsOneWidget,
           reason: 'dr-confirm: which drop this is');
@@ -391,9 +392,9 @@ void main() {
           reason: 'copy.md Confirm, step 1');
       expect(find.text('Confirm the goods are handed over'), findsOneWidget,
           reason: 'copy.md Confirm, step 2');
-      expect(find.text('Sharma Textiles gets the photo as proof of delivery.'),
+      expect(find.text('Sharma Textiles, your company and NaviG8r see the photo as proof of delivery.'),
           findsOneWidget);
-      expect(find.text('Add the proof of delivery first.'), findsOneWidget,
+      expect(find.text('Add a photo first.'), findsOneWidget,
           reason: 'copy.md: Confirm delivery says why it waits');
       final confirm = find.widgetWithText(FilledButton, 'Confirm delivery');
       expect(tester.widget<FilledButton>(confirm).onPressed, isNull);

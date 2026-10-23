@@ -298,7 +298,7 @@ void paymentHoldTests() {
         trip: lane(status: 'COMPLETED', started: leftAt));
     expect(
         find.text(
-            'Payment on hold until ${formatDate(holdEnds)}, ${formatTimeIst(holdEnds)}. If you accept delivery, the hold can end sooner.'),
+            'Payment on hold until ${formatDate(holdEnds)}, ${formatTimeIst(holdEnds)}. If you accept delivery, the hold can end sooner and messages on this shipment close.'),
         findsOneWidget,
         reason: 'copy.md formats: 24-hour IST, never a raw timestamp');
     expect(find.textContaining('.000'), findsNothing);

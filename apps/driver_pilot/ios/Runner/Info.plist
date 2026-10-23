@@ -46,8 +46,10 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>To take a photo of the signed delivery note when you confirm a delivery.</string>
+	<string>To take a photo of the signed delivery note or the goods when you confirm a delivery. The shipper sees it.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>To choose a photo of the signed delivery note when you confirm a delivery.</string>
+	<string>To choose a photo of the signed delivery note or the goods when you confirm a delivery. The shipper sees it.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>To show the shipper where the truck is while a trip is on the way.</string>
 </dict>
 </plist>

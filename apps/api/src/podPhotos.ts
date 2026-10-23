@@ -20,7 +20,9 @@ import type { Store } from "./store.ts";
 import type { PodPhoto, PodPhotoContentType, Shipment } from "./types.ts";
 
 export const POD_PHOTO_MAX_BYTES = 1.5 * 1024 * 1024;
-export const POD_PHOTOS_PER_SHIPMENT = 3;
+const POD_PHOTOS_PER_SHIPMENT = 3;
+// Below this, photos are refused so the data file beside them still has room to be saved.
+const MIN_FREE_BYTES = 200 * 1024 * 1024;
 const extensions: Record<PodPhotoContentType, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 const photoIdShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Every id the server makes fits this; a folder name never comes from anything else.
@@ -56,6 +58,17 @@ export function readPodPhotoUpload(req: http.IncomingMessage): Promise<PodPhotoU
   });
 }
 
+/** The disk calls whose failure has nothing to do with the upload. A test swaps one in for a full disk or a failed write. */
+export const podPhotoDisk = {
+  freeBytes(folder: string): number {
+    const stats = fs.statfsSync(folder);
+    return stats.bavail * stats.bsize;
+  },
+  rename(from: string, to: string): void {
+    fs.renameSync(from, to);
+  },
+};
+
 export function podPhotosRoot(dataFilePath: string): string {
   return path.join(path.dirname(dataFilePath), "pod-photos");
 }
@@ -88,7 +101,7 @@ function findPhoto(shipment: Shipment, photoId: string): PodPhoto {
 }
 
 /**
- * Checks the upload, writes the file (to a temporary name, then renamed, so a half-written file is never served)
+ * Checks the upload and the free space, writes the file (to a temporary name, then renamed, so a half-written file is never served)
  * and records the photo. The caller saves the store; if that fails it calls removePodPhotoFile.
  */
 export function addPodPhoto(store: Store, root: string, shipmentId: string, upload: PodPhotoUpload, declaredType: string | undefined): { shipment: Shipment; photo: PodPhoto; file: string } {
@@ -112,11 +125,20 @@ export function addPodPhoto(store: Store, root: string, shipmentId: string, uplo
   };
   const file = photoFile(root, shipment.id, photo);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(`${file}.tmp`, cleaned);
-  fs.renameSync(`${file}.tmp`, file);
+  if (podPhotoDisk.freeBytes(path.dirname(file)) < MIN_FREE_BYTES) {
+    throw new ApiError("storage_full", { detail: "The server cannot take photos right now. Try again later." }, 507);
+  }
+  const temporary = `${file}.tmp`;
+  try {
+    fs.writeFileSync(temporary, cleaned);
+    podPhotoDisk.rename(temporary, file);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
   const updated: Shipment = { ...shipment, podPhotos: [...(shipment.podPhotos ?? []), photo], updatedAtUtcMs: photo.uploadedAtUtcMs };
   store.shipments.set(updated.id, updated);
-  recordAudit(store, "POD_PHOTO_ADDED", "shipment", shipment.id);
+  recordAudit(store, "POD_PHOTO_ADDED", "shipment", shipment.id, "ABSENT", photoAuditState(photo));
   return { shipment: updated, photo, file };
 }
 
@@ -128,8 +150,13 @@ export function removePodPhoto(store: Store, root: string, shipmentId: string, p
   const file = photoFile(root, shipment.id, photo);
   const updated: Shipment = { ...shipment, podPhotos: shipment.podPhotos!.filter((candidate) => candidate.id !== photo.id), updatedAtUtcMs: Date.now() };
   store.shipments.set(updated.id, updated);
-  recordAudit(store, "POD_PHOTO_REMOVED", "shipment", shipment.id);
+  recordAudit(store, "POD_PHOTO_REMOVED", "shipment", shipment.id, photoAuditState(photo), "REMOVED");
   return { shipment: updated, file };
+}
+
+/** Which photo an audit row is about, and its checksum, so the file on disk can be matched to the row. */
+function photoAuditState(photo: PodPhoto): string {
+  return `photo ${photo.id} sha256 ${photo.sha256}`;
 }
 
 export function removePodPhotoFile(file: string): void {

@@ -116,26 +116,35 @@ function getOrCreateConversation(store: Store, shipment: Shipment): Conversation
   const current = store.conversations.get(shipment.id);
   if (current) return current;
   const now = Date.now();
-  const terminal = shipment.status === "DELIVERED" || shipment.status === "FAILED_CARRIER_REFUNDED" || shipment.podAcceptedAtUtcMs != null;
+  const acceptedAt = shipment.podAcceptedAtUtcMs;
+  const terminal = shipment.status === "DELIVERED" || shipment.status === "FAILED_CARRIER_REFUNDED";
   const conversation: Conversation = {
     id: shipment.id, shipmentId: shipment.id, createdAtUtcMs: now, updatedAtUtcMs: now,
-    ...(terminal ? { replyUntilUtcMs: now, replyPolicyVersion: "legacy-terminal-read-only" } : {}),
+    ...(acceptedAt != null ? { terminalAtUtcMs: acceptedAt, replyUntilUtcMs: acceptedAt, replyPolicyVersion: ACCEPTED_POLICY_VERSION }
+      : terminal ? { replyUntilUtcMs: now, replyPolicyVersion: "legacy-terminal-read-only" } : {}),
   };
   store.conversations.set(conversation.id, conversation);
   return conversation;
 }
 
+/** Runs at server start and before every save, so chats recorded before the acceptance rule are locked too. */
 export function captureTerminalConversationWindows(store: Store, now = Date.now()): void {
   for (const [id, conversation] of store.conversations) {
-    if (conversation.terminalAtUtcMs != null || conversation.replyPolicyVersion === "legacy-terminal-read-only") continue;
     const shipment = store.shipments.get(conversation.shipmentId);
     if (!shipment) continue;
     // Accepted delivery locks at once, whatever the status (it stays PENDING_RELEASE until NaviG8r releases payment).
+    // An older chat whose recorded window runs past the acceptance (a support window, or a read-only chat first
+    // opened after it) is moved to the acceptance time as well.
     const acceptedAt = shipment.podAcceptedAtUtcMs;
     if (acceptedAt != null) {
-      store.conversations.set(id, { ...conversation, updatedAtUtcMs: now, terminalAtUtcMs: acceptedAt, replyUntilUtcMs: acceptedAt, replyPolicyVersion: ACCEPTED_POLICY_VERSION });
+      const lockedByAcceptance = conversation.replyPolicyVersion === ACCEPTED_POLICY_VERSION;
+      const closedBeforeAcceptance = conversation.replyUntilUtcMs != null && conversation.replyUntilUtcMs <= acceptedAt;
+      if (!lockedByAcceptance && !closedBeforeAcceptance) {
+        store.conversations.set(id, { ...conversation, updatedAtUtcMs: now, terminalAtUtcMs: acceptedAt, replyUntilUtcMs: acceptedAt, replyPolicyVersion: ACCEPTED_POLICY_VERSION });
+      }
       continue;
     }
+    if (conversation.terminalAtUtcMs != null || conversation.replyPolicyVersion === "legacy-terminal-read-only") continue;
     // Released or cancelled without the shipper accepting: the support window below still applies.
     if (!["DELIVERED", "FAILED_CARRIER_REFUNDED"].includes(shipment.status)) continue;
     const configuredDays = Number(process.env.CONVERSATION_REPLY_WINDOW_DAYS ?? DEFAULT_REPLY_WINDOW_DAYS);
@@ -320,7 +329,7 @@ export function resolveNotificationOpenRoute(store: Store, notificationId: strin
 }
 
 type TimelineItem =
-  | { type: "message"; id: string; createdAtUtcMs: number; sequence: number; senderUserId: string; senderOrgId: string; senderLabel: string; body: string }
+  | { type: "message"; id: string; createdAtUtcMs: number; sequence: number; senderUserId?: string; senderOrgId: string; senderLabel: string; body: string }
   | { type: "event"; id: string; createdAtUtcMs: number; recipientSequence: number; eventKey: string; title: string; body: string; readAtUtcMs?: number };
 type TimelineKey = { createdAtUtcMs: number; priority: number; id: string };
 type TimelineCursor = {
@@ -389,11 +398,19 @@ function senderLabel(store: Store, viewer: Principal, message: ConversationMessa
   if (org?.kind === "PLATFORM") return "NaviG8r";
   if (message.senderOrgId === viewer.organizationId) return store.users.get(message.senderUserId)?.fullName?.trim() || "Your team";
   const company = org?.displayName?.trim() || "Shipment participant";
-  if (org?.kind !== "CARRIER_SOLO" && org?.kind !== "CARRIER_FLEET" && org?.kind !== "CARRIER_LEGACY") return company;
-  // A DRIVER member, or whoever the carrier named as this trip's driver (an owner who drives), reads as Driver.
-  const memberRole = store.memberships.get(`${message.senderUserId}:${message.senderOrgId}`)?.role;
-  const drives = memberRole === "DRIVER" || message.senderUserId === tripDriverUserId;
-  return `${company} · ${drives ? "Driver" : "Office"}`;
+  if (!isCarrierOrg(org?.kind)) return company;
+  // The role kept when the message was sent; a message from before that was kept is worked out from today's trip.
+  return `${company} · ${message.senderRoleLabel ?? carrierSenderRole(store, message.senderUserId, message.senderOrgId, tripDriverUserId)}`;
+}
+
+function isCarrierOrg(kind: string | undefined): boolean {
+  return kind === "CARRIER_SOLO" || kind === "CARRIER_FLEET" || kind === "CARRIER_LEGACY";
+}
+
+/** A DRIVER member, or whoever the carrier named as this trip's driver (an owner who drives), is the Driver. */
+function carrierSenderRole(store: Store, userId: string, orgId: string, tripDriverUserId: string | undefined): "Driver" | "Office" {
+  const memberRole = store.memberships.get(`${userId}:${orgId}`)?.role;
+  return memberRole === "DRIVER" || userId === tripDriverUserId ? "Driver" : "Office";
 }
 
 /**
@@ -405,8 +422,17 @@ function shipmentSummary(store: Store, shipment: Shipment): { originCity?: strin
   return trip ? { originCity: trip.originCity, destCity: trip.destCity, windowStart: trip.windowStart } : {};
 }
 
+/**
+ * Acceptance closes replies for the shipper and the carrier, but NaviG8r staff with an approved support grant can still
+ * answer, so a damage complaint raised after accepting gets a reply. Every other closed chat is closed to everyone.
+ */
+function repliesClosedFor(conversation: Conversation, principal: Principal): boolean {
+  if (conversation.replyUntilUtcMs == null || Date.now() < conversation.replyUntilUtcMs) return false;
+  return !(conversation.replyPolicyVersion === ACCEPTED_POLICY_VERSION && principal.roles.includes("OPS"));
+}
+
 function canPrincipalSend(store: Store, shipment: Shipment, conversation: Conversation, principal: Principal): boolean {
-  if (conversation.replyUntilUtcMs != null && Date.now() >= conversation.replyUntilUtcMs) return false;
+  if (repliesClosedFor(conversation, principal)) return false;
   if (principal.roles.includes("OPS")) {
     return principal.permissions.includes("conversation.support_send") && [...store.conversationEscalationGrants.values()].some(g => g.conversationId === shipment.id && g.granteeUserId === principal.userId && g.approvedAtUtcMs != null && g.revokedAtUtcMs == null && g.expiresAtUtcMs > Date.now() && g.canSend);
   }
@@ -433,7 +459,7 @@ export async function listConversationTimeline(store: Store, shipmentId: string,
   const tripDriverUserId = store.anchorTrips.get(shipment.anchorTripId)?.assignedDriverUserId;
   const messages: TimelineItem[] = snapshot.messages
     .filter(m => m.conversationId === conversation.id && m.sequence <= messageSequence)
-    .map(m => ({ type: "message", id: m.id, createdAtUtcMs: m.createdAtUtcMs, sequence: m.sequence, senderUserId: m.senderUserId, senderOrgId: m.senderOrgId, senderLabel: senderLabel(store, principal, m, tripDriverUserId), body: m.body }));
+    .map(m => ({ type: "message", id: m.id, createdAtUtcMs: m.createdAtUtcMs, sequence: m.sequence, ...(m.senderOrgId === principal.organizationId ? { senderUserId: m.senderUserId } : {}), senderOrgId: m.senderOrgId, senderLabel: senderLabel(store, principal, m, tripDriverUserId), body: m.body }));
   const events: TimelineItem[] = principal.roles.includes("OPS") ? [] : snapshot.notifications
     .filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && n.shipmentId === shipmentId && (n.conversationId === conversation.id || n.conversationId == null) && n.recipientSequence <= notificationSequence && n.eventKey !== "conversation.message" && !mustNotHearPaymentEvent(principal.subrole, n.eventKey))
     .map(n => ({ type: "event", id: n.id, createdAtUtcMs: n.createdAtUtcMs, recipientSequence: n.recipientSequence, eventKey: n.eventKey, title: String(n.data?.title ?? "Shipment update"), body: String(n.data?.body ?? "There is an update for this shipment."), ...(n.readAtUtcMs == null ? {} : { readAtUtcMs: n.readAtUtcMs }) }));
@@ -601,14 +627,18 @@ export function sendConversationMessage(store: Store, shipmentId: string, input:
     if (existing.body !== body) throw new CommunicationError("idempotency_conflict", 409);
     return { message: existing, created: false };
   }
-  if (conversation.replyUntilUtcMs != null && Date.now() >= conversation.replyUntilUtcMs) throw new CommunicationError("conversation_read_only", 409);
+  if (repliesClosedFor(conversation, principal)) throw new CommunicationError("conversation_read_only", 409);
   const recent = [...store.conversationMessages.values()].filter(m => m.conversationId === conversation.id && m.senderUserId === principal.userId && m.createdAtUtcMs > Date.now() - 60_000);
   const configuredLimit = Number(process.env.CONVERSATION_SENDS_PER_MINUTE ?? DEFAULT_MESSAGES_PER_MINUTE);
   const limit = Number.isFinite(configuredLimit) && configuredLimit > 0 ? Math.min(120, Math.trunc(configuredLimit)) : DEFAULT_MESSAGES_PER_MINUTE;
   if (recent.length >= limit) throw new CommunicationError("conversation_rate_limited", 429, Math.max(1000, recent[0]!.createdAtUtcMs + 60_000 - Date.now()));
   const now = Date.now();
   const sequence = Math.max(0, ...[...store.conversationMessages.values()].filter(m => m.conversationId === conversation.id).map(m => m.sequence)) + 1;
-  const message: ConversationMessage = { id: randomUUID(), conversationId: conversation.id, sequence, senderUserId: principal.userId, senderOrgId: principal.organizationId, body, clientRequestId: requestId, createdAtUtcMs: now };
+  // Kept on the message, so giving the trip to another driver later does not change who an old message says sent it.
+  const senderRoleLabel = isCarrierOrg(store.organizations.get(principal.organizationId)?.kind)
+    ? carrierSenderRole(store, principal.userId, principal.organizationId, store.anchorTrips.get(shipment.anchorTripId)?.assignedDriverUserId)
+    : undefined;
+  const message: ConversationMessage = { id: randomUUID(), conversationId: conversation.id, sequence, senderUserId: principal.userId, senderOrgId: principal.organizationId, ...(senderRoleLabel ? { senderRoleLabel } : {}), body, clientRequestId: requestId, createdAtUtcMs: now };
   store.conversationMessages.set(message.id, message);
   store.conversations.set(conversation.id, { ...conversation, updatedAtUtcMs: now });
   createNotifications(store, shipment, message.id, "conversation.message", now, message.id);

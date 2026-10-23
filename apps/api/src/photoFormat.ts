@@ -103,8 +103,11 @@ function orientationOnlyExif(orientation: number): Buffer {
   return segment;
 }
 
-/** EXIF, the text chunks (which hold XMP) and the last-modified time. */
-const pngMetadataChunks = ["eXIf", "tEXt", "zTXt", "iTXt", "tIME"];
+/**
+ * The PNG chunks kept: the image itself and how to show its colours. Anything else is dropped, EXIF, text (which
+ * holds XMP), times and any chunk a phone or editor invents, since a chunk not on this list could hold a place.
+ */
+const pngKeptChunks = ["IHDR", "PLTE", "IDAT", "IEND", "tRNS", "gAMA", "cHRM", "sRGB", "iCCP", "sBIT", "pHYs", "bKGD"];
 
 function pngWithoutMetadata(bytes: Buffer): Buffer | null {
   const kept: Buffer[] = [pngSignature];
@@ -113,14 +116,17 @@ function pngWithoutMetadata(bytes: Buffer): Buffer | null {
     const type = bytes.toString("latin1", at + 4, at + 8);
     const end = at + 12 + bytes.readUInt32BE(at);
     if (end > bytes.length) return null;
-    if (!pngMetadataChunks.includes(type)) kept.push(bytes.subarray(at, end));
+    if (pngKeptChunks.includes(type)) kept.push(bytes.subarray(at, end));
     at = end;
     if (type === "IEND") return Buffer.concat(kept);
   }
   return null;
 }
 
-/** Drops the EXIF and XMP chunks, and clears the two flags in VP8X that say they are there. */
+/** The WebP chunks kept: the image, its alpha, colour profile and animation frames. EXIF, XMP and any other go. */
+const webpKeptChunks = ["VP8 ", "VP8L", "VP8X", "ALPH", "ICCP", "ANIM", "ANMF"];
+
+/** Keeps only webpKeptChunks, and clears the two flags in VP8X that say EXIF and XMP are there. */
 function webpWithoutMetadata(bytes: Buffer): Buffer | null {
   const riffEnd = 8 + bytes.readUInt32LE(4);
   if (riffEnd > bytes.length) return null;
@@ -131,7 +137,7 @@ function webpWithoutMetadata(bytes: Buffer): Buffer | null {
     const size = bytes.readUInt32LE(at + 4);
     if (at + 8 + size > riffEnd) return null;
     const end = Math.min(at + 8 + size + (size % 2), riffEnd);
-    if (type !== "EXIF" && type !== "XMP ") kept.push(Buffer.from(bytes.subarray(at, end)));
+    if (webpKeptChunks.includes(type)) kept.push(Buffer.from(bytes.subarray(at, end)));
     at = end;
   }
   if (!kept.length) return null;

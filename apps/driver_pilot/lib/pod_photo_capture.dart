@@ -4,6 +4,7 @@ import "package:flutter/material.dart";
 import "package:image_picker/image_picker.dart";
 
 import "pilot_api.dart";
+import "pod_photo_view.dart";
 import "ui/nv_button.dart";
 import "ui/nv_message.dart";
 import "ui/tokens.dart";
@@ -25,7 +26,7 @@ const podPhotoLimit = 3;
 const _podPhotoMaxBytes = 1572864;
 
 /// The type the server takes, read from the picture's first bytes as the server reads it; null for any other.
-String? podPhotoContentType(Uint8List bytes) {
+String? _podPhotoContentType(Uint8List bytes) {
   if (bytes.length >= 3 &&
       bytes[0] == 0xff &&
       bytes[1] == 0xd8 &&
@@ -83,10 +84,10 @@ class PodPhotoDraft extends ChangeNotifier {
       bytes = await pickPodPhoto(source);
     } catch (_) {
       error = source == ImageSource.camera
-          ? "Could not open the camera. Allow NaviG8r to use it in your phone settings."
-          : "Could not open your photos. Allow NaviG8r to use them in your phone settings.";
+          ? "Could not open the camera. If NaviG8r is not allowed to use it, allow it in your phone settings."
+          : "Could not open your photos. If NaviG8r is not allowed to use them, allow it in your phone settings.";
     }
-    final contentType = bytes == null ? null : podPhotoContentType(bytes);
+    final contentType = bytes == null ? null : _podPhotoContentType(bytes);
     if (bytes != null && contentType == null) {
       error =
           "This file is not a photo the app can send. Take a photo instead.";
@@ -99,23 +100,44 @@ class PodPhotoDraft extends ChangeNotifier {
     }
     sending = true;
     _changed();
+    var sent = false;
     try {
-      final response = await api.dio.post<Map<String, dynamic>>(
-          "/v1/shipments/$shipmentId/pod-photos",
-          data: bytes,
-          options: Options(contentType: contentType));
-      final photo = response.data?["photo"];
-      final id = photo is Map ? photo["id"] : null;
-      if (id is String) {
-        photos.add(SentPodPhoto(id, bytes));
-      } else {
-        error = "Could not send the photo. Try again.";
+      try {
+        final response = await api.dio.post<Map<String, dynamic>>(
+            "/v1/shipments/$shipmentId/pod-photos",
+            data: bytes,
+            options: Options(contentType: contentType));
+        final photo = response.data?["photo"];
+        final id = photo is Map ? photo["id"] : null;
+        if (id is String) {
+          photos.add(SentPodPhoto(id, bytes));
+          sent = true;
+        } else {
+          error = "Could not send the photo. Try again.";
+        }
+      } catch (e) {
+        error = _sendRefusal(e);
       }
-    } catch (e) {
-      error = _sendRefusal(e);
+      // The server may have kept a photo whose answer was lost, or hold photos this screen never saw (the 3-photo
+      // limit). Each one it has is shown, so the driver can remove it.
+      if (!sent) await _addPhotosTheServerHas();
     } finally {
       sending = false;
       _changed();
+    }
+  }
+
+  Future<void> _addPhotosTheServerHas() async {
+    try {
+      final response =
+          await api.get<Map<String, dynamic>>("/v1/pilot/carrier/shipments");
+      final raw = response.data?["shipments"];
+      if (raw is! List) return;
+      for (final shipment in raw.whereType<Map<String, dynamic>>()) {
+        if (shipment["id"] == shipmentId) addAlreadySent(podPhotoIds(shipment));
+      }
+    } catch (_) {
+      // No signal again: the refusal already on screen says to try again.
     }
   }
 
@@ -150,7 +172,9 @@ class PodPhotoDraft extends ChangeNotifier {
       "pod_photo_limit" =>
         "This delivery already has 3 photos. Remove one to add another.",
       "pod_photos_closed" =>
-        "Delivery is already confirmed, so the photos cannot change.",
+        "This delivery can no longer change its photos.",
+      "storage_full" =>
+        "The server cannot take photos right now. Try again later.",
       _ => refusalSentence(e),
     };
   }
@@ -216,7 +240,7 @@ class PodPhotoCapture extends StatelessWidget {
         const SizedBox(height: NvSpace.s2),
         if (photos.isEmpty)
           const Text(
-              "Take a photo of the signed delivery note or the goods. Up to 3 photos.",
+              "Take a photo of the signed delivery note or the goods. Up to 3 photos. Keep people's faces out of the photo.",
               style: NvText.body)
         else ...[
           Text(

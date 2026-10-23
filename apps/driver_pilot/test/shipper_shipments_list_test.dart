@@ -125,7 +125,7 @@ void main() {
       expect(
           find.text(
               'Bengaluru to Mysuru, ${formatDate(laneStart)}. Ravi Roadways confirmed delivery on ${formatDate(deliveredAt)}. '
-              'Check the goods, then accept.'),
+              'Check the goods. Accepting is optional.'),
           findsOneWidget,
           reason:
               "owner's 22 Oct call: Home says it in one line; the hold rule lives on the shipment screen and the Accept confirmation, not on Home");

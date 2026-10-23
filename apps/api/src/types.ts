@@ -1,3 +1,5 @@
+// The shared domain types, in one file past 500 lines: Shipment is built from the types beside it (e-way bill,
+// photos, payment and ledger states), so split files would mostly import each other back.
 export type VehicleClass = "SMALL" | "MEDIUM" | "LARGE";
 
 export type OrgKind = "CARRIER_SOLO" | "CARRIER_FLEET" | "CUSTOMER" | "CARRIER_LEGACY" | "PLATFORM";
@@ -43,6 +45,8 @@ export type ConversationMessage = {
   sequence: number;
   senderUserId: string;
   senderOrgId: string;
+  /** A carrier sender's role when the message was sent, so reassigning the trip later does not relabel it. */
+  senderRoleLabel?: "Driver" | "Office";
   body: string;
   clientRequestId: string;
   createdAtUtcMs: number;
