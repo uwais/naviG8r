@@ -312,7 +312,7 @@ void main() {
           reason: 'copy.md step 3: the bill is saved, the truck is not on it');
       expect(
           find.text(
-              'Before the goods move, add the truck in your billing software or on the e-way bill portal. Then enter it here.'),
+              'Add the truck on the portal before the goods move, then here.'),
           findsOneWidget,
           reason: 'copy.md step 3: what to do, and when');
       expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget,

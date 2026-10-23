@@ -161,7 +161,7 @@ class _CustomerRegisterUserScreenState
         padding: const EdgeInsets.all(16),
         children: [
           const Text(
-            "Create your own account. Your company admin then invites your phone number, so you can book and track your company's shipments.",
+            "Create your account. Then ask your company admin to invite your phone number.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),

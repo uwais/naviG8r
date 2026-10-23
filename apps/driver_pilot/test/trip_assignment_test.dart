@@ -32,10 +32,10 @@ const completedSentence =
 const staleChoiceSentence =
     'Choose a truck from your own fleet. Tap Refresh to load your trucks and drivers again.';
 const onTheRoadSentence =
-    'This trip is on the road with no driver. If a driver started it, they stop seeing it when you choose someone else.';
+    'A driver who started it stops seeing it.';
 const sheetTitle = 'Who drives this trip?';
 const driverSees =
-    'The driver sees the trip and the e-way bill, never the payment.';
+    'The driver never sees payments.';
 
 const fleet = {
   'vehicles': [
@@ -604,7 +604,7 @@ void main() {
       signInAsCarrierStaff(subrole: 'DRIVER', canAssign: false);
       final forDriver = tripPublishedMessage();
       expect((forDriver.content as Text).data,
-          'Trip added. Your office must choose a driver for it. You see it under Trips only if they choose you.');
+          'Trip added. It shows under Trips if your office makes you its driver.');
       expect(forDriver.duration, const Duration(seconds: 10));
       expect(forDriver.action?.label, 'Close');
 
@@ -653,10 +653,10 @@ void main() {
     Map<String, dynamic> onTrip(String truck) =>
         {...shipment(bill: billWithTruck), 'assignedTruckNumber': truck};
     final forCarrierOffice =
-        'The e-way bill shows KA01AB1234. The truck on this trip is KA02XY9999. Check which one is right. If the e-way bill is wrong, ask the shipper to change it. If you changed the truck on the e-way bill portal yourself, change it there and tell the shipper.';
+        'The bill shows KA01AB1234. The trip has KA02XY9999. If the bill is wrong, ask the shipper to fix it.';
 
     testWidgets(
-        'the carrier office is asked to check which truck is right and to ask the shipper about the bill',
+        'the carrier office is told to ask the shipper if the bill is wrong',
         (tester) async {
       signInAsCarrier(office: true);
       await mountCard(
@@ -685,7 +685,7 @@ void main() {
       await mountCard(tester, EwayBillCard(shipment: onTrip('KA02XY9999')));
       expect(
           find.text(
-              'The e-way bill shows KA01AB1234. The carrier put KA02XY9999 on this trip. Ask the carrier which truck is right. If the e-way bill is wrong, change it in your billing software or on the e-way bill portal, then here. If the portal refuses, the carrier may have changed it. Ask them to change it.'),
+              'The bill shows KA01AB1234. The trip has KA02XY9999. Ask the carrier which is right. If the bill is wrong, fix it on the portal, then here.'),
           findsOneWidget);
     });
 

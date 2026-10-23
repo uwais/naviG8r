@@ -65,7 +65,7 @@ void main() {
           reason: 'sh-ewb-portal: whose step, and which part');
       expect(
           find.text(
-              'Make the bill in your billing software or on the e-way bill portal. Copy in these details:'),
+              'Make the bill on loading day, in your billing software or on the portal. Copy in these details:'),
           findsOneWidget);
       expect(find.text('Portal field: Vehicle No. (Part B)'), findsOneWidget,
           reason: 'testers could not tell where each value goes on the portal');
@@ -74,10 +74,6 @@ void main() {
           reason: 'testers could not tell GSTIN from transporter ID');
       expect(find.text('KA01AB1234'), findsOneWidget,
           reason: 'the truck in the portal form');
-      expect(
-          find.text(
-              "Make it on loading day, before the goods move. The bill's time starts when the truck is added."),
-          findsOneWidget);
       await tester.tap(find.bySemanticsLabel('Copy truck number KA01AB1234'));
       await tester.pump();
       await tester.tap(find
@@ -226,7 +222,7 @@ void main() {
           reason: 'copy.md step 3: where the truck goes');
       expect(
           find.text(
-              "The bill's time starts when the truck is added. It lasts one day for each 200 km and ends at midnight, India time."),
+              'The bill runs one day per 200 km from when the truck is added, to midnight India time.'),
           findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Add truck'), findsOneWidget,
           reason: 'sh-ewb-truck primary');

@@ -129,7 +129,7 @@ void main() {
           reason: 'copy.md: lanes sub');
       expect(
           find.text(
-              'All trips, open or not. Not sorted by distance. To see the closest to your route first, use Search by route.'),
+              'All trips, not by distance. For the closest, use Search by route.'),
           findsOneWidget,
           reason:
               'copy.md: Browse is not ranked and says so; it lists full and finished lanes too (RECON gap 19), so it never says "open"');

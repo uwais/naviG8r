@@ -6,9 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/shipper_shipment_app.dart';
 
 const _collectedAfterCancel =
-    'Your payment came through after this shipment was cancelled. NaviG8r is refunding it; your bank may take 5-7 working days after the refund.';
+    'Your payment came in after the cancel. NaviG8r is refunding it. Your bank may take 5-7 working days.';
 const _cancelTheBill =
-    'If you made an e-way bill for this load, cancel it on the e-way bill portal. The portal allows this only within 24 hours of making the bill.';
+    'Made an e-way bill? Cancel it on the portal within 24 hours of making it.';
 const _billTooOld =
     'If you made an e-way bill for this load, it is over 24 hours old, so the portal no longer lets you cancel it.';
 
@@ -20,13 +20,13 @@ void indiaClockAt(DateTime moment) {
 
 void main() {
   group('Waiting on a trip its carrier asked NaviG8r to cancel', () {
-    testWidgets('says the carrier asked, that NaviG8r reviews it, and that the payment is on hold',
+    testWidgets('says the carrier asked, that NaviG8r will tell the shipper, and that the payment is on hold',
         (tester) async {
       await showShipment(tester, booking(status: 'PENDING_CARRIER_ACCEPT'),
           trip: lane(status: 'CANCEL_REQUESTED'));
       expect(
           find.text(
-              'Ravi Roadways asked NaviG8r to cancel this trip. NaviG8r reviews it, and you are told if your shipment is cancelled. Your payment is on hold.'),
+              'Ravi Roadways asked to cancel this trip. NaviG8r will tell you if your shipment is cancelled. Your payment is on hold.'),
           findsOneWidget);
       expect(find.textContaining('Waiting for Ravi Roadways to accept'),
           findsNothing,

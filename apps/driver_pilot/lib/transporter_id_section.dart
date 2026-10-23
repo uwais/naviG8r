@@ -11,7 +11,7 @@ import 'ui/tokens.dart';
 
 /// Under the transporter ID field at sign-up and on Profile (spec/copy.md, Profile).
 const transporterIdHelperText =
-    "Your GSTIN, or a TRANSIN if you have no GST registration. Shippers copy it into their e-way bills. It is not the shipper's GSTIN.";
+    "Your GSTIN, or TRANSIN if you have no GST. Shippers put it on their e-way bills.";
 
 /// The carrier's transporter ID on Profile. The owner and owner-driver add, change or clear it; a dispatcher
 /// reads it; a driver does not see it, and the server does not send it to one. Shippers put it on the e-way

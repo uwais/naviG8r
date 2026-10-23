@@ -9,9 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/shipper_shipment_app.dart';
 
 const _held =
-    'NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that.';
+    'NaviG8r never collected this payment. It comes back within 3 days. Your bank may take 5-7 more working days.';
 const _cancelTheBill =
-    'If you made an e-way bill for this load, cancel it on the e-way bill portal. The portal allows this only within 24 hours of making the bill.';
+    'Made an e-way bill? Cancel it on the portal within 24 hours of making it.';
 
 /// Noon in India on 18 Oct 2026, the day billNoTruck is dated, so the bill can still be cancelled.
 void _onTheBillsDay() {

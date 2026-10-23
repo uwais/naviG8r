@@ -145,13 +145,14 @@ void main() {
           reason: 'the delivery step is done');
       expect(
           find.text(
-              'NaviG8r checks the delivery, then pays you in batches.'),
+              'NaviG8r releases your payment after it checks the delivery.'),
           findsOneWidget,
           reason:
               'copy.md payment (owner only), without the bank digits the API does not send');
       expect(find.text('Waiting for NaviG8r to check the delivery'), findsOneWidget,
           reason: 'review: payouts are not live, so the step says what NaviG8r does, not that money moves');
-      expect(find.textContaining('release'), findsNothing);
+      expect(find.textContaining('released'), findsNothing,
+          reason: 'nothing says money has moved; "releases your payment" is the owner-approved promise (22 Oct 2026)');
       expect(find.text('Payment being released'), findsNothing);
     });
 
@@ -287,7 +288,7 @@ void main() {
         final words = screenWords(tester);
         if (office) {
           expect(words, contains('Waiting for payment'));
-          expect(words, contains('pays you in batches'));
+          expect(words, contains('releases your payment after it checks the delivery'));
         } else {
           expect(words, contains('Delivery confirmed'));
           expect(paymentWords.hasMatch(words), isFalse, reason: words);
@@ -341,23 +342,23 @@ void main() {
     });
 
     testWidgets('on the proof of delivery screen', (tester) async {
-      // PR 8 words them as copy.md does: the owner is told about the payment, a dispatcher that the owner sees
-      // it, a driver neither.
+      // The owner is told about the payment, a dispatcher only that NaviG8r checks the delivery, and a driver
+      // only who sees the photos (copy trims, 22 Oct 2026).
       for (final (reader, signIn, expected) in [
         (
           'owner',
           () => signInAsCarrierOwner(),
-          'NaviG8r checks the delivery, then pays you in batches.'
+          'NaviG8r releases your payment after it checks the delivery.'
         ),
         (
           'dispatcher',
           () => signInAsCarrierLogin(office: true),
-          'NaviG8r checks the delivery. The owner sees the payment.'
+          'NaviG8r checks the delivery.'
         ),
         (
           'driver',
           () => signInAsCarrierLogin(office: false),
-          'This tells NaviG8r the goods are handed over.'
+          'your company and NaviG8r see the photos.'
         ),
       ]) {
         signIn();
@@ -370,6 +371,7 @@ void main() {
         expect(words, contains(expected), reason: reader);
         if (reader == 'driver') {
           expect(paymentWords.hasMatch(words), isFalse, reason: words);
+          expect(words, isNot(contains('checks the delivery')), reason: words);
         }
       }
     });
@@ -428,7 +430,7 @@ void main() {
       expect(
           words,
           contains(
-              'Delivery confirmed. NaviG8r checks the delivery, then pays you in batches.'),
+              'Delivery confirmed. NaviG8r releases your payment after it checks the delivery.'),
           reason: 'owners only since PR 8; dispatchers are not told about payments');
     });
   });

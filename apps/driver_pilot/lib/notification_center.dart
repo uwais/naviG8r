@@ -126,7 +126,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Shipment alerts'),
         content: const Text(
-            'Get alerts on this phone when something new happens on your shipments. Alerts do not show message text or shipment details.'),
+            'Get alerts when your shipments change. Alerts never show messages or shipment details.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),

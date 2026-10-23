@@ -23,7 +23,7 @@ import 'ui/tokens.dart';
 enum _Mode { viewing, addingBill, statingNotNeeded, addingTruck }
 
 const ewayBillFootnote =
-    'NaviG8r never makes or changes an e-way bill. You make it in your billing software or on the e-way bill portal.';
+    'NaviG8r does not make or change e-way bills.';
 
 /// True for the shipper who booked this shipment, holding eway_bill.write, while the server
 /// still takes changes to its bill.
@@ -355,9 +355,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       final truck = _tripTruck;
       return [
         Text(
-            truck == null
-                ? 'You can make the bill once the carrier accepts and names the truck. We will send you an update.'
-                : 'You can make the bill once the carrier accepts. We will send you an update.',
+            'Make the bill after ${_carrierName ?? "the carrier"} accepts. We will tell you.',
             style: NvText.body),
         const SizedBox(height: NvSpace.s3),
         EwayBillTransportDetails(
@@ -379,7 +377,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
     }
     return [
       Text(
-          'Make the bill in your billing software or on the e-way bill portal. Copy in these details:',
+          'Make the bill on loading day, in your billing software or on the portal. Copy in these details:',
           style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
       const SizedBox(height: NvSpace.s3),
       EwayBillTransportDetails(
@@ -387,16 +385,11 @@ class _EwayBillCardState extends State<EwayBillCard> {
           carrierAccepted: true,
           transporterId: _transporterId,
           truckNumber: _tripTruck),
-      // Above the loading-day line so a 900 dp tall desktop still shows it without scrolling.
       if (canEdit && widget.portalButtonInPanel) ...[
         const SizedBox(height: NvSpace.s3),
         const EwayBillPortalButton(
             label: 'Open the e-way bill portal', kind: NvButtonKind.primary),
       ],
-      const SizedBox(height: NvSpace.s3),
-      const Text(
-          "Make it on loading day, before the goods move. The bill's time starts when the truck is added.",
-          style: NvText.body),
       ...actions,
     ];
   }
@@ -468,8 +461,8 @@ class _EwayBillCardState extends State<EwayBillCard> {
         const SizedBox(height: NvSpace.s3),
         Text(
             waitingForCarrier
-                ? 'Add the truck to the bill once ${_carrierName ?? "the carrier"} accepts. ${_carrierName ?? "The carrier"} can still change the truck until then.'
-                : 'Before the goods move, add the truck in your billing software or on the e-way bill portal. Then enter it here.',
+                ? 'Add the truck after ${_carrierName ?? "the carrier"} accepts. ${_carrierName ?? "The carrier"} can change it until then.'
+                : 'Add the truck on the portal before the goods move, then here.',
             style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
       ],
       if (accepted || waitingForCarrier) ...[
@@ -483,7 +476,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
       ],
       const SizedBox(height: NvSpace.s3),
       const Text(
-          "The bill's time starts when the truck is added. It lasts one day for each 200 km and ends at midnight, India time.",
+          'The bill runs one day per 200 km from when the truck is added, to midnight India time.',
           style: NvText.caption),
       if (bill['check'] is Map) ...[
         const SizedBox(height: NvSpace.s2),
@@ -508,7 +501,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
         Text(ewayBillCheckLine(bill, forShipper: true), style: NvText.body),
         const SizedBox(height: NvSpace.s2),
         const Text(
-            'If the portal is right, fix it here. If the bill itself is wrong, change it in your billing software or on the e-way bill portal first.',
+            'If the bill is wrong, fix it on the portal first. Then fix it here.',
             style: NvText.body),
         if (_canEdit) ...[
           const SizedBox(height: NvSpace.s3),
@@ -755,7 +748,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
               current: bill,
               assignedTruckNumber: _tripTruck,
               lead:
-                  'First add the truck to the bill in your billing software or on the e-way bill portal. Then copy the truck number and the valid-until time from it.',
+                  'Add the truck on the portal first. Then copy the truck number and valid-until time here.',
               clearsCheck: bill?['check'] is Map,
               onSaved: _showSaved,
               onCancel: _cancel),

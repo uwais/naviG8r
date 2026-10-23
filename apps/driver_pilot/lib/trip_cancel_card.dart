@@ -38,7 +38,7 @@ class TripCancelCard extends StatefulWidget {
 enum _Asking { nothing, cancel, withdraw }
 
 const cancelRequestedSentence =
-    'You asked NaviG8r to cancel this trip. Shippers cannot book it now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled.';
+    'You asked NaviG8r to cancel. Shippers cannot book this trip now. NaviG8r tells booked shippers what happens.';
 
 /// The office's words on Accept on such a trip, before it is tapped: the office asked, so it can withdraw. The
 /// server's refusal is worded for drivers too and tells nobody to withdraw.
@@ -179,7 +179,7 @@ class _TripCancelCardState extends State<TripCancelCard> {
           _question(
               title: 'Cancel this trip?',
               text:
-                  'Shippers will no longer see or book it. You can publish a new trip any time. This cannot be undone.',
+                  'Shippers will no longer see it. This cannot be undone.',
               keepLabel: 'Keep trip',
               goLabel: 'Cancel trip',
               goKind: NvButtonKind.destructive,
@@ -345,7 +345,7 @@ class _AskSheetState extends State<_AskSheet> {
     return NvSheet(
       title: 'Why do you want to cancel this trip?',
       message:
-          'Shippers cannot book the trip now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled.',
+          'Once you send this, shippers cannot book the trip. NaviG8r reviews it.',
       errorText: _error,
       choices: [
         NvChoiceRows<String>(

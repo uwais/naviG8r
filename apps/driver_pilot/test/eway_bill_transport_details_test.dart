@@ -32,7 +32,6 @@ Map<String, dynamic> carriedBy(Map<String, dynamic> shipment,
         [Map<String, dynamic> extra = const {}]) =>
     {...shipment, 'carrierDisplayName': 'Ravi Roadways', ...extra};
 
-const softwareOrSite = 'your billing software or on the e-way bill portal';
 
 void main() {
   setUp(signInAsShipper);
@@ -82,7 +81,7 @@ void main() {
         reason: 'only the transporter ID still waits for acceptance');
     expect(
         find.text(
-            'You can make the bill once the carrier accepts. We will send you an update.'),
+            'Make the bill after Ravi Roadways accepts. We will tell you.'),
         findsOneWidget,
         reason: 'the carrier no longer has to name the truck');
     await tester.tap(find.bySemanticsLabel('Copy truck number KA01AB1234'));
@@ -120,9 +119,9 @@ void main() {
     await mountCard(tester, EwayBillCard(shipment: waiting));
     expect(
         find.text(
-            'Add the truck to the bill once Ravi Roadways accepts. Ravi Roadways can still change the truck until then.'),
+            'Add the truck after Ravi Roadways accepts. Ravi Roadways can change it until then.'),
         findsOneWidget);
-    expect(find.textContaining('Before the goods move'), findsNothing);
+    expect(find.textContaining('before the goods move'), findsNothing);
     expect(find.text('Add truck'), findsNothing,
         reason: 'the server refuses a truck before acceptance');
     expect(find.text('KA01AB1234'), findsNothing);
@@ -153,7 +152,7 @@ void main() {
                 shipment(bill: savedBill, status: 'PENDING_CARRIER_ACCEPT')));
     expect(
         find.text(
-            'Add the truck to the bill once the carrier accepts. The carrier can still change the truck until then.'),
+            'Add the truck after the carrier accepts. The carrier can change it until then.'),
         findsOneWidget);
   });
 
@@ -235,7 +234,7 @@ void main() {
   });
 
   testWidgets(
-      'the words name billing software and the e-way bill portal, and the portal button stays',
+      'the lead names billing software and the portal, and the portal button stays',
       (tester) async {
     await mountCard(
         tester,
@@ -243,32 +242,32 @@ void main() {
             shipment: carriedBy(shipment()), portalButtonInPanel: true));
     expect(
         find.text(
-            'Make the bill in your billing software or on the e-way bill portal. Copy in these details:'),
+            'Make the bill on loading day, in your billing software or on the portal. Copy in these details:'),
         findsOneWidget);
     expect(
         find.text(
-            'NaviG8r never makes or changes an e-way bill. You make it in $softwareOrSite.'),
+            'NaviG8r does not make or change e-way bills.'),
         findsOneWidget,
-        reason: 'the footnote no longer says the portal is the only place');
+        reason: 'the footnote says only that NaviG8r does not make the bill');
     expect(find.text('Open the e-way bill portal'), findsOneWidget,
         reason: 'the site is still one way to make it');
     expect(find.textContaining('You make it on the portal'), findsNothing);
   });
 
-  testWidgets('adding the truck says it can be added in billing software too',
+  testWidgets('adding the truck says to add it on the portal first, then here',
       (tester) async {
     signInAsShipper(permissions: ['eway_bill.write', 'eway_bill.add_truck']);
     await mountCard(
         tester, EwayBillCard(shipment: carriedBy(shipment(bill: savedBill))));
     expect(
         find.text(
-            'Before the goods move, add the truck in $softwareOrSite. Then enter it here.'),
+            'Add the truck on the portal before the goods move, then here.'),
         findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, 'Add truck'));
     await tester.pump();
     expect(
         find.text(
-            'First add the truck to the bill in $softwareOrSite. Then copy the truck number and the valid-until time from it.'),
+            'Add the truck on the portal first. Then copy the truck number and valid-until time here.'),
         findsOneWidget);
   });
 

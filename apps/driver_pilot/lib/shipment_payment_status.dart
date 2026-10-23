@@ -41,7 +41,7 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
         builder: (context) => AlertDialog(
               title: const Text('Accept delivery?'),
               content: const Text(
-                  'Check that the goods arrived. If you accept, NaviG8r can release your payment before the 48-hour hold ends, and messages on this shipment close. If you do nothing, NaviG8r can release it when the hold ends.'),
+                  'Check the goods first. Accepting lets NaviG8r release your payment sooner and closes messages. Otherwise NaviG8r can release it after the 48-hour hold.'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(context, false),
@@ -107,7 +107,7 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
                       ? 'NaviG8r released your payment.'
                       : ready
                           ? 'NaviG8r checks it, then releases your payment.'
-                          : 'Payment on hold${until == null ? '' : ' until $until'}. If you accept delivery, the hold can end sooner and messages on this shipment close.'),
+                          : 'Payment on hold${until == null ? '' : ' until $until'}. Accept delivery to release it sooner.'),
                 ],
                 if (photoIds.isNotEmpty) ...[
                   const SizedBox(height: 8),

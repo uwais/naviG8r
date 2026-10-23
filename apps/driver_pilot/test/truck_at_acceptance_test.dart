@@ -16,7 +16,7 @@ const acceptWithTruck = 'Accept with this truck';
 const acceptWithoutTruck = 'Accept without a truck';
 const chooseFirst = 'Choose a truck first.';
 const keptTruckSentence =
-    'This trip already has truck KA01AB1234, so we accepted the booking with it. To change the truck, open the trip and use Truck and driver.';
+    "Accepted with KA01AB1234, the trip's truck. To change it, open the trip.";
 
 String acceptedWith(String truck) =>
     'Accepted with $truck. Synthetic Shipper A can make the e-way bill now.';
@@ -228,7 +228,7 @@ void main() {
       await tapAcceptOnBooking(tester);
       expect(
           find.text(
-              'You have no trucks yet. You can accept now. The shipper sees no truck until you name one on the trip screen. To add a truck, invite its driver from Profile.'),
+              'No trucks yet. You can accept now and name the truck later on the trip. To add a truck, invite its driver from Profile.'),
           findsOneWidget);
       expect(find.text(acceptWithTruck), findsNothing);
       await tester.tap(find.text(acceptWithoutTruck));

@@ -357,7 +357,7 @@ class _AssignSheetState extends State<_AssignSheet> {
       if (vehicle != null) 'truck ${_truckNumber(vehicle)}',
     ].join(', ');
     const driverSees =
-        'The driver sees the trip and the e-way bill, never the payment.';
+        'The driver never sees payments.';
     return what.isEmpty ? driverSees : '$what. $driverSees';
   }
 
@@ -391,7 +391,7 @@ class _AssignSheetState extends State<_AssignSheet> {
               style: NvText.body),
         if (onTheRoadWithNoDriverAssigned)
           const Text(
-              'This trip is on the road with no driver. If a driver started it, they stop seeing it when you choose someone else.',
+              'A driver who started it stops seeing it.',
               style: NvText.body),
         const SizedBox(height: NvSpace.s2),
         NvChoiceRows<String>(

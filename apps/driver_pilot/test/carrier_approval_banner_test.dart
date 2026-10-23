@@ -57,7 +57,7 @@ void main() {
       (tester) async {
     signInCarrier(kycStatus: 'NOT_STARTED', owner: true);
     final router = await showBanner(tester);
-    expect(find.textContaining('Add your bank details'), findsOneWidget);
+    expect(find.textContaining('so NaviG8r can approve your company'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, 'Add bank details'));
     await tester.pumpAndSettle();
     // The form shows the banner without its button, so no button means the form is open.
@@ -82,7 +82,7 @@ void main() {
   testWidgets('no button to the bank form while already on it', (tester) async {
     signInCarrier(kycStatus: 'NOT_STARTED', owner: true);
     await showBanner(tester, at: '/driver/payout-setup');
-    expect(find.textContaining('Add your bank details'), findsOneWidget);
+    expect(find.textContaining('so NaviG8r can approve your company'), findsOneWidget);
     expect(find.byType(FilledButton), findsNothing);
   });
 
@@ -150,9 +150,9 @@ void main() {
       'DOCUMENTS_MISSING': 'NaviG8r needs documents from your company.',
       'BANK_DETAILS_MISMATCH':
           "The bank account holder's name does not match your company name.",
-      'DUPLICATE_ACCOUNT': 'NaviG8r already has an account for your company.',
       'NOT_A_CARRIER': 'NaviG8r decided this is not a carrier business.',
     };
+    // A duplicate reads its own short line, checked in the next test.
     for (final MapEntry(key: code, value: words) in reasons.entries) {
       signInCarrier(kycStatus: 'REJECTED', owner: true, rejectionReasonCode: code);
       await showBanner(tester);
@@ -181,7 +181,8 @@ void main() {
         kycStatus: 'REJECTED', owner: true, rejectionReasonCode: 'DUPLICATE_ACCOUNT');
     await showBanner(tester);
     expect(bannerMessage(tester),
-        contains('choose it in the company menu at the top of the screen'));
+        'NaviG8r did not approve this company: it already has an account. Choose that account in the company menu, or ask its owner to invite you.');
+    expect(find.byType(FilledButton), findsNothing);
     expect(bannerMessage(tester), isNot(contains("You can't send documents")));
   });
 
@@ -228,7 +229,7 @@ void main() {
       (tester) async {
     signInCarrier(kycStatus: 'NOT_STARTED', owner: true);
     await showBanner(tester);
-    expect(find.textContaining('Add your bank details'), findsOneWidget);
+    expect(find.textContaining('so NaviG8r can approve your company'), findsOneWidget);
 
     AuthorizationSession.organizations.first['kycStatus'] = 'SUBMITTED';
     AuthorizationSession.revision.value++;

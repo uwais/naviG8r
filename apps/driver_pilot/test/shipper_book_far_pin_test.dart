@@ -62,9 +62,9 @@ Future<void> movePin(WidgetTester tester, String title, LatLng to) async {
 }
 
 String dropLine(int km) =>
-    'This pin is about ${formatKm(km)} from Kolar. This trip drops within 15 km of Kolar.';
+    'About ${formatKm(km)} from Kolar.';
 String pickupLine(int km) =>
-    'This pin is about ${formatKm(km)} from Hoskote. This trip picks up within 15 km of Hoskote.';
+    'About ${formatKm(km)} from Hoskote.';
 const moveDropHelp = 'Move the drop pin, or choose another trip.';
 const movePickupHelp = 'Move the pickup pin, or choose another trip.';
 
@@ -97,25 +97,25 @@ void main() {
     ({String sentence, String help}) refusal(Map<String, Object> body) =>
         farPinsRefusal(body, startTown: 'Hoskote', endTown: 'Kolar');
 
-    test("the server's refusal names the pin it refused, how far, and its limit", () {
+    test("the server's refusal names the pin it refused and how far", () {
       expect(
           refusal({'pickupDistanceKm': 15.3, 'dropDistanceKm': 2, 'maxPickupKm': 15, 'maxDropKm': 15}),
           (
             sentence:
-                'This trip picks up within 15 km of Hoskote. Your pickup pin is about 16 km away. Move it or choose another trip.',
+                'Pickup pin is 16 km from Hoskote.',
             help: 'Move the pickup pin, or choose another trip.',
           ));
       expect(
           refusal({'pickupDistanceKm': 20.1, 'dropDistanceKm': 30, 'maxPickupKm': 12.5, 'maxDropKm': 15})
               .sentence,
-          'This trip picks up within 12 km of Hoskote and drops within 15 km of Kolar. Your pickup pin is about 21 km away and your drop pin about 30 km. Move them or choose another trip.',
-          reason: 'distance rounded up, limit rounded down');
+          'Pickup pin is 21 km from Hoskote, drop pin 30 km from Kolar.',
+          reason: 'distance rounded up');
     });
 
-    test("without the server's numbers, both pins and 15 km", () {
+    test("without the server's numbers, both pins", () {
       expect(refusal({'error': 'phase_a_not_eligible'}), (
         sentence:
-            'This trip picks up within 15 km of Hoskote and drops within 15 km of Kolar. Move the pins or choose another trip.',
+            'A pin is too far from Hoskote or Kolar.',
         help: 'Move the pickup and drop pins, or choose another trip.',
       ));
     });
@@ -166,7 +166,7 @@ void main() {
     await fillBook(tester, hoskoteToKolar());
     await tester.enterText(placeField('Drop'), '');
     await tester.pumpAndSettle();
-    expect(find.textContaining('This pin is about'), findsNothing,
+    expect(find.textContaining(RegExp(r'^About \d')), findsNothing,
         reason: 'review: an empty box is no place, so there is no far pin');
     expect(bookButton(tester).disabledReason, 'To see the price, search for the drop.');
   });
@@ -205,7 +205,7 @@ void main() {
       (tester) async {
     final server = await fillBook(
         tester, hoskoteToKolar()..remove('origin')..remove('destination'));
-    expect(find.textContaining('This pin is about'), findsNothing);
+    expect(find.textContaining(RegExp(r'^About \d')), findsNothing);
     expect(server.countOf('/shipments/quote'), 1);
     expect(bookButton(tester).label, 'Book and pay ₹2,640');
   });
@@ -226,7 +226,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
         find.text(
-            'This trip drops within 12 km of Kolar. Your drop pin is about 14 km away. Move it or choose another trip.'),
+            'Drop pin is 14 km from Kolar.'),
         findsOneWidget,
         reason: 'not "Could not book. Check your connection"');
     expectNoPrice(tester);

@@ -240,7 +240,7 @@ class PodPhotoCapture extends StatelessWidget {
         const SizedBox(height: NvSpace.s2),
         if (photos.isEmpty)
           const Text(
-              "Take a photo of the signed delivery note or the goods. Up to 3 photos. Keep people's faces out of the photo.",
+              "Up to 3 photos. Keep faces out.",
               style: NvText.body)
         else ...[
           Text(

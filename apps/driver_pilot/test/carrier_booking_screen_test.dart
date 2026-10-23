@@ -282,7 +282,7 @@ void main() {
           reason: 'never NaviG8r\'s cut, not even as a rate (owner hard rule, 21 Oct 2026)');
       expect(
           find.text(
-              'Only owners see payment amounts. Dispatchers and drivers do not.'),
+              'Only owners see this.'),
           findsOneWidget);
       for (final missing in ['Shipper paid', 'NaviG8r commission']) {
         expect(find.text(missing), findsNothing,
@@ -299,11 +299,11 @@ void main() {
       await mountBooking(tester);
       expect(find.text('Delivery confirmed'), findsNWidgets(2),
           reason: 'ca-booking-dispatcher: the status and the done step');
-      expect(find.text('Nothing more for you to do on this booking.'),
+      expect(find.text('Nothing more to do.'),
           findsOneWidget);
       expect(
           find.text(
-              'NaviG8r checks the delivery. The owner sees the payment.'),
+              'NaviG8r checks the delivery.'),
           findsOneWidget);
       expect(screenWords(tester), isNot(contains('₹')),
           reason: 'PR 6: no amount anywhere in a dispatcher\'s tree');

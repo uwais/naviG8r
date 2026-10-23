@@ -298,8 +298,8 @@ class _CustomerShipmentDetailScreenState
 
   String _notPaidSentence(String carrier) =>
       "${_paymentStatus == "FAILED" ? "Payment did not go through. " : ""}"
-      "This shipment is not paid. $carrier cannot accept it until it is. "
-      "To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.";
+      "$carrier cannot accept until you pay. "
+      "To pay or cancel, email ${PendingCopy.changeOrCancelContact}.";
 
   NvStep _step(ShipmentStep step, Map<String, dynamic> shipment,
       ShipmentProgress progress) {
@@ -311,7 +311,7 @@ class _CustomerShipmentDetailScreenState
         final facts = [
           if (booked != null) formatDate(booked),
           if (amount != null && _paymentHeld && !progress.delivered)
-            "${formatRupees(amount)} held by NaviG8r",
+            "${formatRupees(amount)} held by NaviG8r until after delivery",
         ];
         return NvStep(
             title: step.title,
@@ -326,11 +326,8 @@ class _CustomerShipmentDetailScreenState
         // The server refuses Accept on such a trip, so "waiting to accept" would promise what cannot happen.
         if (_trip?["status"] == "CANCEL_REQUESTED") {
           waiting =
-              "$carrier asked NaviG8r to cancel this trip. NaviG8r reviews it, and you are told if your shipment is cancelled."
+              "$carrier asked to cancel this trip. NaviG8r will tell you if your shipment is cancelled."
               "${_paymentHeld ? " Your payment is on hold." : ""}";
-        } else if (_paymentHeld) {
-          waiting =
-              "Waiting for $carrier to accept. NaviG8r holds your payment and releases it after delivery.";
         } else if (paymentNotTaken(_paymentStatus)) {
           waiting = "$carrier can accept once this shipment is paid.";
         } else {
@@ -421,7 +418,7 @@ class _CustomerShipmentDetailScreenState
           if (open) ...[
             const SizedBox(height: NvSpace.s3),
             const Text(
-                "You cannot cancel a booked shipment in the app. To change or cancel it, contact ${PendingCopy.changeOrCancelContact}.",
+                "To change or cancel, email ${PendingCopy.changeOrCancelContact}.",
                 style: NvText.caption),
           ],
         ],
@@ -432,6 +429,8 @@ class _CustomerShipmentDetailScreenState
   Widget _delivered(Map<String, dynamic> shipment) {
     final paid = _paymentHeld ? _amountPaise : null;
     final released = shipment["status"] == "DELIVERED";
+    // While the payment is on hold the payment card below already says the carrier confirmed delivery.
+    final paymentCardSaysDelivered = shipment["podAtUtcMs"] != null && !released;
     return Container(
       padding: const EdgeInsets.all(NvSpace.s4),
       decoration: BoxDecoration(
@@ -441,12 +440,13 @@ class _CustomerShipmentDetailScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-              "${carrierOf(shipment)} confirmed delivery."
-              // Until the payment is released the hold line below says what happens to it.
-              "${released && paid != null ? " NaviG8r released your payment of ${formatRupees(paid)}." : ""}",
-              style: NvText.body),
-          const SizedBox(height: NvSpace.s3),
+          if (!paymentCardSaysDelivered) ...[
+            Text(
+                "${carrierOf(shipment)} confirmed delivery."
+                "${released && paid != null ? " NaviG8r released your payment of ${formatRupees(paid)}." : ""}",
+                style: NvText.body),
+            const SizedBox(height: NvSpace.s3),
+          ],
           NvButton(
               label: "Book another trip",
               kind: NvButtonKind.secondary,
@@ -511,11 +511,11 @@ class _CustomerShipmentDetailScreenState
                     style: NvText.body)
               else if (holdReleased)
                 const Text(
-                    "NaviG8r never collected this payment. Razorpay returns it within 3 days of when you paid; your bank may take 5-7 working days after that.",
+                    "NaviG8r never collected this payment. It comes back within 3 days. Your bank may take 5-7 more working days.",
                     style: NvText.body)
               else if (collectedAfterCancel)
                 const Text(
-                    "Your payment came through after this shipment was cancelled. NaviG8r is refunding it; your bank may take 5-7 working days after the refund.",
+                    "Your payment came in after the cancel. NaviG8r is refunding it. Your bank may take 5-7 working days.",
                     style: NvText.body)
               else ...[
                 if (_paymentHeld && amount != null)
@@ -535,7 +535,7 @@ class _CustomerShipmentDetailScreenState
                 const SizedBox(height: NvSpace.s2),
                 Text(
                     billMayStillCancel
-                        ? "If you made an e-way bill for this load, cancel it on the e-way bill portal. The portal allows this only within 24 hours of making the bill."
+                        ? "Made an e-way bill? Cancel it on the portal within 24 hours of making it."
                         : "If you made an e-way bill for this load, it is over 24 hours old, so the portal no longer lets you cancel it.",
                     style: NvText.body),
               ],

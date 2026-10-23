@@ -589,7 +589,7 @@ class _CustomerBookShipmentScreenState
       ),
       const SizedBox(height: NvSpace.s4),
       // Each map shows once its place has a pin; a place from the match search arrives with one.
-      withFarPinLine(pickup: true, farKm: _pickupFarKm, town: _startTown, LocationEndpointEditor(
+      withFarPinLine(farKm: _pickupFarKm, town: _startTown, LocationEndpointEditor(
         title: "Pickup",
         hint: "Address for the driver",
         example: "House or plot, street, area",
@@ -616,7 +616,7 @@ class _CustomerBookShipmentScreenState
         staysAliveOffScreen: true,
       )),
       const SizedBox(height: NvSpace.s4),
-      withFarPinLine(pickup: false, farKm: _dropFarKm, town: _endTown, LocationEndpointEditor(
+      withFarPinLine(farKm: _dropFarKm, town: _endTown, LocationEndpointEditor(
         title: "Drop",
         hint: "Address for the driver",
         example: "House or plot, street, area",

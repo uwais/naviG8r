@@ -13,7 +13,7 @@ import 'support/carrier_office_screens.dart';
 import 'support/mock_api.dart';
 
 const _requested =
-    'You asked NaviG8r to cancel this trip. Shippers cannot book it now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled.';
+    'You asked NaviG8r to cancel. Shippers cannot book this trip now. NaviG8r tells booked shippers what happens.';
 const _cancelled = 'Trip cancelled. Shippers can no longer see or book it.';
 
 /// One trip and its bookings; the cancel routes change the trip as the server would.
@@ -134,7 +134,7 @@ void main() {
       expect(find.text('Cancel this trip?'), findsOneWidget);
       expect(
           find.text(
-              'Shippers will no longer see or book it. You can publish a new trip any time. This cannot be undone.'),
+              'Shippers will no longer see it. This cannot be undone.'),
           findsOneWidget);
       expect(find.byType(Dialog), findsNothing,
           reason: 'in the page, never a dialog');
@@ -193,7 +193,7 @@ void main() {
           findsOneWidget);
       expect(
           inSheet(find.text(
-              'Shippers cannot book the trip now. NaviG8r reviews your request. Shippers already booked are told if their shipment is cancelled.')),
+              'Once you send this, shippers cannot book the trip. NaviG8r reviews it.')),
           findsOneWidget,
           reason: 'no promise that NaviG8r contacts anyone');
       for (final reason in [

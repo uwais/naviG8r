@@ -22,7 +22,7 @@ double? farPinKm(LatLng? pin, LatLng? townPin) {
 /// A Book place box, with a line under it while its pin is [farKm] from [town]. Always a Column, so
 /// each box keeps its place in the list, and its search state, as the line comes and goes.
 Widget withFarPinLine(Widget placeBox,
-        {required bool pickup, required double? farKm, required String town}) =>
+        {required double? farKm, required String town}) =>
     Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -33,7 +33,7 @@ Widget withFarPinLine(Widget placeBox,
               liveRegion: true,
               // Rounded up: a pin refused at 15.3 km must not read "about 15 km".
               child: Text(
-                  "This pin is about ${formatKm(farKm.ceil())} from $town. This trip ${pickup ? "picks up" : "drops"} within $farPinLimitKm km of $town.",
+                  "About ${formatKm(farKm.ceil())} from $town.",
                   style: NvText.caption.copyWith(color: NvColors.problem))),
         ],
       ],
@@ -55,8 +55,8 @@ String farPinRule({required String startTown, required String endTown}) =>
     "Picks up within $farPinLimitKm km of $startTown and drops within $farPinLimitKm km of $endTown.";
 
 /// What Book says when the server refuses a booking for its pins (phase_a_not_eligible): the [sentence]
-/// above Book and pay and the [help] under it. Which pin, how far and the limits come from the server's
-/// answer [body]; without them, both pins and [farPinLimitKm].
+/// above Book and pay and the [help] under it. Which pin is too far, and how far, comes from the server's
+/// answer [body]; without it, both pins. The rule itself is said once, in [farPinRule] above the pins.
 ({String sentence, String help}) farPinsRefusal(Object? body,
     {required String startTown, required String endTown}) {
   num? number(String field) {
@@ -66,22 +66,16 @@ String farPinRule({required String startTown, required String endTown}) =>
 
   final (pickupKm, dropKm) = (number("pickupDistanceKm"), number("dropDistanceKm"));
   final (maxPickupKm, maxDropKm) = (number("maxPickupKm"), number("maxDropKm"));
-  // Rounded down, the limit shown is never more than the server allows; rounded up, a distance is never
-  // shown as within it.
-  String limit(num? km) => formatKm(km != null && km > 0 ? km.floor() : farPinLimitKm);
+  // Rounded up, a distance is never shown as within the limit.
   String away(num km) => formatKm(km.ceil());
   final pickupFar = pickupKm != null && maxPickupKm != null && pickupKm > maxPickupKm;
   final dropFar = dropKm != null && maxDropKm != null && dropKm > maxDropKm;
-  final picksUp = "This trip picks up within ${limit(maxPickupKm)} of $startTown";
-  final drops = "drops within ${limit(maxDropKm)} of $endTown";
   final sentence = switch ((pickupFar, dropFar)) {
-    (true, false) =>
-      "$picksUp. Your pickup pin is about ${away(pickupKm!)} away. Move it or choose another trip.",
-    (false, true) =>
-      "This trip $drops. Your drop pin is about ${away(dropKm!)} away. Move it or choose another trip.",
+    (true, false) => "Pickup pin is ${away(pickupKm!)} from $startTown.",
+    (false, true) => "Drop pin is ${away(dropKm!)} from $endTown.",
     (true, true) =>
-      "$picksUp and $drops. Your pickup pin is about ${away(pickupKm!)} away and your drop pin about ${away(dropKm!)}. Move them or choose another trip.",
-    (false, false) => "$picksUp and $drops. Move the pins or choose another trip.",
+      "Pickup pin is ${away(pickupKm!)} from $startTown, drop pin ${away(dropKm!)} from $endTown.",
+    (false, false) => "A pin is too far from $startTown or $endTown.",
   };
   final named = pickupFar || dropFar;
   return (

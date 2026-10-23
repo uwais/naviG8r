@@ -38,28 +38,28 @@ void main() {
     });
 
     testWidgets(
-        'waiting for the carrier: the payment hold sentence, and no way to cancel but the contact',
+        'waiting for the carrier: the payment hold on the Booked step, and no way to cancel but the contact',
         (tester) async {
       await showShipment(tester, booking(status: 'PENDING_CARRIER_ACCEPT'),
           trip: lane());
       expect(
           find.text(
-              'Waiting for Ravi Roadways to accept. NaviG8r holds your payment and releases it after delivery.'),
+              'Waiting for Ravi Roadways to accept.'),
           findsOneWidget,
-          reason: 'brief A.3: the shipper is told the money is held');
+          reason: 'copy trim 22 Oct 2026: the hold is said once, on the Booked step');
       expect(find.text('Waiting for carrier'), findsOneWidget,
           reason: 'copy.md status word');
       expect(
           find.text(
-              'You cannot cancel a booked shipment in the app. To change or cancel it, contact ${PendingCopy.changeOrCancelContact}.'),
+              'To change or cancel, email ${PendingCopy.changeOrCancelContact}.'),
           findsOneWidget,
           reason:
               'owner decision: shippers cannot cancel; the contact is shown');
       expect(find.textContaining('Cancel booking'), findsNothing,
           reason: 'no cancel action exists');
-      expect(find.text('${formatDate(bookedAt)} · ₹2,640 held by NaviG8r'),
+      expect(find.text('${formatDate(bookedAt)} · ₹2,640 held by NaviG8r until after delivery'),
           findsOneWidget,
-          reason: 'sh-ship-waiting: when it was booked and what is held');
+          reason: 'brief A.3 and sh-ship-waiting: when it was booked and what is held');
       expect(find.text('Messages'), findsOneWidget,
           reason: 'copy.md summary: Messages');
       expect(find.textContaining('· $laneLeaves ·'), findsOneWidget,
@@ -74,7 +74,7 @@ void main() {
           trip: lane());
       expect(
           find.text(
-              'You can make the bill once the carrier accepts and names the truck. We will send you an update.'),
+              'Make the bill after Ravi Roadways accepts. We will tell you.'),
           findsOneWidget,
           reason: 'copy.md before acceptance');
       expect(find.text('Does this load need an e-way bill?'), findsNothing,
@@ -234,8 +234,8 @@ void main() {
             reason: 'the status word says what is wrong');
         expect(
             find.text(
-                '${opening}This shipment is not paid. Ravi Roadways cannot accept it until it is. '
-                'To pay or cancel it, contact ${PendingCopy.changeOrCancelContact}.'),
+                '${opening}Ravi Roadways cannot accept until you pay. '
+                'To pay or cancel, email ${PendingCopy.changeOrCancelContact}.'),
             findsOneWidget,
             reason:
                 'what it means and who to contact; there is no way to pay again in the app');
@@ -298,16 +298,14 @@ void paymentHoldTests() {
         trip: lane(status: 'COMPLETED', started: leftAt));
     expect(
         find.text(
-            'Payment on hold until ${formatDate(holdEnds)}, ${formatTimeIst(holdEnds)}. If you accept delivery, the hold can end sooner and messages on this shipment close.'),
+            'Payment on hold until ${formatDate(holdEnds)}, ${formatTimeIst(holdEnds)}. Accept delivery to release it sooner.'),
         findsOneWidget,
         reason: 'copy.md formats: 24-hour IST, never a raw timestamp');
     expect(find.textContaining('.000'), findsNothing);
-    expect(
-        find.text(
-            'Ravi Roadways confirmed delivery.'),
-        findsOneWidget,
-        reason:
-            'until the payment is released, the hold line says what happens to it');
+    expect(find.text('Carrier confirmed delivery'), findsOneWidget,
+        reason: 'the payment card says it once');
+    expect(find.text('Ravi Roadways confirmed delivery.'), findsNothing,
+        reason: 'copy trim 22 Oct 2026: not said twice while the payment is on hold');
     expect(find.text('Accept delivery'), findsOneWidget,
         reason: 'the existing accept-delivery action stays');
     await leave(tester);

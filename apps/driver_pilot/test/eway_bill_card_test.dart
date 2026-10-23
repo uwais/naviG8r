@@ -21,7 +21,7 @@ Finder entry(String label) => find.descendant(
     of: find.widgetWithText(NvField, label), matching: find.byType(TextField));
 
 const partOneLead =
-    'Make the bill in your billing software or on the e-way bill portal. Copy in these details:';
+    'Make the bill on loading day, in your billing software or on the portal. Copy in these details:';
 
 void main() {
   setUp(signInAsShipper);
@@ -247,7 +247,7 @@ void main() {
             'no stored note or difference (RECON gap 7), so the reason sentence stands in');
     expect(
         find.text(
-            'If the portal is right, fix it here. If the bill itself is wrong, change it in your billing software or on the e-way bill portal first.'),
+            'If the bill is wrong, fix it on the portal first. Then fix it here.'),
         findsOneWidget,
         reason: 'copy.md step 4 problem: which side to fix');
     await tester.tap(find.widgetWithText(FilledButton, 'Fix the details'));

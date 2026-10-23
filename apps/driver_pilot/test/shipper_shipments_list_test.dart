@@ -65,7 +65,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
           find.text(
-              'Waiting for Deccan Movers to accept. NaviG8r holds your payment and releases it after delivery.'),
+              'Waiting for Deccan Movers to accept.'),
           findsOneWidget,
           reason: 'the whole card opens the shipment');
       await leave(tester);

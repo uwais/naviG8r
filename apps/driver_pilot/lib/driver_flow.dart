@@ -365,7 +365,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            "Set up your carrier company and owner profile. Next, sign in with your mobile number. Then you can add trips and accept bookings.",
+            "Set up your company. Then sign in to add trips and accept bookings.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
@@ -616,7 +616,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
         ),
         const SizedBox(height: 8),
         const Text(
-          "Invite a driver who has already registered their mobile number, or used Join a carrier company.",
+          "The driver must register their mobile number first.",
           style: TextStyle(color: DriverTheme.muted, height: 1.4),
         ),
         if (!DriverSession.canInviteDrivers) ...[
@@ -643,7 +643,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
           if (_role == "DISPATCHER") ...[
             const SizedBox(height: 8),
             const Text(
-              "A dispatcher is linked to your company's main truck. You do not need to add another truck.",
+              "Dispatchers use your main truck.",
               style: TextStyle(
                   fontSize: 12, color: DriverTheme.muted, height: 1.35),
             ),
@@ -1978,7 +1978,7 @@ class _DriverShipmentDetailScreenState
       // Owners only: dispatchers and drivers are not told about payments (ca-booking-dispatcher).
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(_seesPaymentAmounts
-              ? "Delivery confirmed. NaviG8r checks the delivery, then pays you in batches."
+              ? "Delivery confirmed. NaviG8r releases your payment after it checks the delivery."
               : "Delivery confirmed.")));
     }
     // Confirming delivery changes the status, so the button must not stay on offer.
@@ -2129,7 +2129,7 @@ class _DriverShipmentDetailScreenState
               who: "NaviG8r",
               state: NvStepState.later),
         }
-      // After delivery a dispatcher reads "Nothing more for you to do" instead of the payment step.
+      // After delivery a dispatcher reads "Nothing more to do" instead of the payment step.
       else if (!delivered)
         const NvStep(
             title: "Delivery checked by NaviG8r",
@@ -2345,22 +2345,20 @@ class _DriverShipmentDetailScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (awaitingRelease)
-              const Text(
-                  "NaviG8r checks the delivery, then pays you in batches.",
-                  style: NvText.body),
-            if (awaitingRelease && amount is num)
-              const SizedBox(height: NvSpace.s3),
             if (amount is num)
               Text("You receive ${formatRupees(amount)}",
                   style: NvText.bodyStrong),
+            if (awaitingRelease && amount is num)
+              const SizedBox(height: NvSpace.s3),
+            if (awaitingRelease)
+              const Text(
+                  "NaviG8r releases your payment after it checks the delivery.",
+                  style: NvText.body),
           ],
         ),
       ),
       const SizedBox(height: NvSpace.s2),
-      const Text(
-          "Only owners see payment amounts. Dispatchers and drivers do not.",
-          style: NvText.caption),
+      const Text("Only owners see this.", style: NvText.caption),
     ];
   }
 
@@ -2374,12 +2372,12 @@ class _DriverShipmentDetailScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text("Nothing more for you to do on this booking.",
+            const Text("Nothing more to do.",
                 style: NvText.bodyStrong),
             if (status == "PENDING_RELEASE") ...[
               const SizedBox(height: NvSpace.s1),
               const Text(
-                  "NaviG8r checks the delivery. The owner sees the payment.",
+                  "NaviG8r checks the delivery.",
                   style: NvText.body),
             ],
           ],
@@ -2997,7 +2995,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             ),
             gap,
             const Text(
-                "Your office gives you your trips. If something about a trip is wrong, ask your office.",
+                "Your office gives you trips. Ask them if one is wrong.",
                 style: NvText.caption),
           ],
         ],
@@ -3126,7 +3124,7 @@ const _tripNoLongerAssignedSentence =
 
 /// While a trip is in transit and this screen is open, the driver's phone sends its position, and shippers see it.
 const _locationSharedSentence =
-    "Shippers see your location while this trip is on the way and this app is open.";
+    "Shippers see your location while this app is open.";
 
 /// In place of the sentence above when location is refused or switched off, so nothing is being sent.
 const _locationOffSentence =
@@ -3812,13 +3810,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               if (status == "COMPLETED") ...[
                 gap,
                 const NvMessage(
-                    "All deliveries confirmed. Location sharing has stopped.",
+                    "All delivered. Location sharing stopped.",
                     tone: NvMessageTone.good),
               ],
               if (canComplete) ...[
                 gap,
                 const NvMessage(
-                    "All deliveries are confirmed. Complete the trip to stop sharing your location.",
+                    "All delivered. Complete the trip to stop sharing location.",
                     tone: NvMessageTone.info),
               ],
               if (started) ...[
@@ -4068,7 +4066,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               ],
               if (status == "COMPLETED")
                 const NvMessage(
-                    "All deliveries confirmed. Location sharing has stopped.",
+                    "All delivered. Location sharing stopped.",
                     tone: NvMessageTone.good),
               // An owner driving the trip shares this phone's location, and is told so as a driver is.
               if (status == "IN_PROGRESS" && _phoneIsInTheTruck) ...[
@@ -4076,7 +4074,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 ..._sendLocationNowControls(),
               ] else if (status == "IN_PROGRESS" && _sharingStoppedOnThisPhone)
                 const NvMessage(
-                    "Location sharing has stopped on this phone. You are no longer this trip's driver.",
+                    "You are no longer this trip's driver. Location sharing stopped.",
                     tone: NvMessageTone.info),
             ],
           ),
@@ -4164,9 +4162,9 @@ class _StartTripSheet extends StatelessWidget {
         _fact("Bookings", "${accepted.length} · ${formatKg(totalKg)}"),
         for (final booking in missingTruck)
           NvMessage(
-              "${_shipperName(booking)} adds it. Without the truck, the bill is not valid for moving the goods.",
+              "The goods cannot move until ${_shipperName(booking)} adds it.",
               title:
-                  "${_shipperName(booking)}'s e-way bill does not have the truck yet.",
+                  "Truck not on ${_shipperName(booking)}'s e-way bill.",
               tone: NvMessageTone.attention),
       ],
       primaryLabel: "Start trip",
@@ -4178,7 +4176,7 @@ class _StartTripSheet extends StatelessWidget {
   }
 }
 
-/// dr-confirm: which drop this is, the photo of the signed delivery note (one to three, each sent as it is taken),
+/// dr-confirm: which drop this is, photos of the signed note or the goods (one to three, each sent as it is taken),
 /// the optional notes, then Confirm delivery at the bottom, held until a photo is sent. Closes with true once
 /// confirmed, and the screen underneath says so.
 class DriverPodScreen extends StatefulWidget {
@@ -4263,15 +4261,16 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
     }
   }
 
-  /// What confirming leads to, for each reader. Only the owner is told about the payment (ca-booking-owner).
-  String get _whatHappensNext {
+  /// What confirming leads to, for the office; null for a driver, whose heading already says it.
+  /// Only the owner is told about the payment (ca-booking-owner).
+  String? get _whatHappensNext {
     if (_seesPaymentAmounts) {
-      return "NaviG8r checks the delivery, then pays you in batches.";
+      return "NaviG8r releases your payment after it checks the delivery.";
     }
     if (AuthorizationSession.can("payment.read")) {
-      return "NaviG8r checks the delivery. The owner sees the payment.";
+      return "NaviG8r checks the delivery.";
     }
-    return "This tells NaviG8r the goods are handed over.";
+    return null;
   }
 
   @override
@@ -4308,7 +4307,7 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
               const SizedBox(height: NvSpace.s4),
             ],
             NvSectionCard(
-              title: "Photo of the signed delivery note",
+              title: "Photo of the signed note or goods",
               children: [PodPhotoCapture(draft: _photos, forDriver: _forDriver)],
             ),
             const SizedBox(height: NvSpace.s4),
@@ -4316,10 +4315,12 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
               title: "Confirm the goods are handed over",
               children: [
                 const SizedBox(height: NvSpace.s2),
-                Text(_whatHappensNext, style: NvText.body),
-                const SizedBox(height: NvSpace.s2),
+                if (_whatHappensNext case final next?) ...[
+                  Text(next, style: NvText.body),
+                  const SizedBox(height: NvSpace.s2),
+                ],
                 Text(
-                    "${shipment == null ? "The shipper" : _shipperName(shipment)}, your company and NaviG8r see the photo as proof of delivery.",
+                    "${shipment == null ? "The shipper" : _shipperName(shipment)}, your company and NaviG8r see the photos.",
                     style: NvText.body),
                 const SizedBox(height: NvSpace.s3),
                 NvField(label: "Notes", optional: true, controller: _notes),
@@ -4418,7 +4419,7 @@ class _DriverTripEwayBillsScreenState extends State<DriverTripEwayBillsScreen> {
   String? _problem(Map<String, dynamic> booking, Map<String, dynamic> bill) {
     final onBill = bill["truckNumber"];
     if (onBill is! String || onBill.isEmpty) {
-      return "This truck is not on this bill. Call your office now. The shipper must add it to the bill.";
+      return "Your truck is not on this bill yet. Call your office.";
     }
     final mismatch = ewayBillTruckMismatchSentence(booking, bill,
         reader: TruckMismatchReader.driver);
@@ -4642,7 +4643,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                   child: ListenableBuilder(
                     listenable: AuthorizationSession.revision,
                     builder: (context, _) => Text(
-                      "Approval status: ${approvalStatusInWords(DriverSession.kycStatus ?? kyc)}. Settlement remains subject to payment readiness.",
+                      "Approval: ${approvalStatusInWords(DriverSession.kycStatus ?? kyc)}.",
                       style: const TextStyle(color: DriverTheme.muted),
                     ),
                   ),
@@ -4876,7 +4877,7 @@ class _DriverPayoutHistoryScreenState extends State<DriverPayoutHistoryScreen> {
             children: [
               if (_batches.isEmpty)
                 const Text(
-                    "No payments yet. Confirm delivery on your bookings. NaviG8r then pays you in batches."),
+                    "No payments yet. NaviG8r releases your payment after delivery."),
               ..._batches.map((b) {
                 final cutoff = b["cutoffUtcMs"];
                 final moment = cutoff is num
@@ -4909,7 +4910,7 @@ SnackBar tripPublishedMessage() => DriverSession.carrierRole == "DRIVER"
         duration: const Duration(seconds: 10),
         action: SnackBarAction(label: "Close", onPressed: () {}),
         content: const Text(
-            "Trip added. Your office must choose a driver for it. You see it under Trips only if they choose you."))
+            "Trip added. It shows under Trips if your office makes you its driver."))
     : const SnackBar(content: Text("Trip added."));
 
 /// The calendar day in India at [moment], held as midnight UTC so days compare directly.

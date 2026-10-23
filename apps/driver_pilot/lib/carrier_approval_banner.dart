@@ -38,6 +38,13 @@ String? rejectionReasonInWords(String? code) => switch (code) {
     );
   }
   final code = DriverSession.rejectionReasonCode;
+  // A duplicate is fixed by switching to the other account, so the owner reads one short line.
+  if (code == "DUPLICATE_ACCOUNT" && !DriverSession.approvalTakenBack) {
+    return (
+      "NaviG8r did not approve this company: it already has an account. Choose that account in the company menu, or ask its owner to invite you.",
+      null,
+    );
+  }
   final reason = rejectionReasonInWords(code);
   final (nextStep, action) = switch (code) {
     "DOCUMENTS_MISSING" || "NOT_A_CARRIER" => (
@@ -45,7 +52,7 @@ String? rejectionReasonInWords(String? code) => switch (code) {
         null
       ),
     "DUPLICATE_ACCOUNT" => (
-        "If you are part of that account, choose it in the company menu at the top of the screen. If not, ask the person who runs it to invite your phone number.",
+        "Choose that account in the company menu, or ask its owner to invite you.",
         null
       ),
     // The bank reason, or none the app knows: new bank details are the one step that can help.
@@ -88,11 +95,11 @@ class CarrierApprovalBanner extends StatelessWidget {
       "REJECTED" => _rejectedMessage(owner: owner),
       _ => owner
           ? (
-              "Add your bank details so NaviG8r can check your company. Until it is approved, you cannot accept bookings or start trips.",
+              "Add bank details so NaviG8r can approve your company. Until then, you cannot accept bookings or start trips.",
               "Add bank details"
             )
           : (
-              "Your company is not approved yet. Ask the owner to add bank details. Until then, you cannot accept bookings or start trips.",
+              "Your company is not approved yet. Ask the owner to add bank details.",
               null
             ),
     };

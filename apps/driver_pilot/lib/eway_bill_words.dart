@@ -57,8 +57,7 @@ String portalTruckNumber(String truck) {
 }
 
 /// Who reads the sentence about an e-way bill and a trip that name different trucks. Each is told only what they
-/// can do: the shipper changes the bill, the carrier office changes the trip's truck. Once the transporter named on
-/// a bill has updated its truck on the portal, the shipper may be refused there, so both are told that case.
+/// can do: the shipper changes the bill, the carrier office changes the trip's truck.
 enum TruckMismatchReader { carrierOffice, shipper, driver }
 
 /// One plain sentence when the truck on the bill is not the truck the carrier assigned to the trip, or null
@@ -75,11 +74,13 @@ String? ewayBillTruckMismatchSentence(
     return null;
   }
   if (portalTruckNumber(onBill) == portalTruckNumber(onTrip)) return null;
+  final carrierName = shipment['carrierDisplayName']?.toString().trim() ?? '';
+  final carrier = carrierName.isEmpty ? 'the carrier' : carrierName;
   return switch (reader) {
     TruckMismatchReader.carrierOffice =>
-      'The e-way bill shows $onBill. The truck on this trip is $onTrip. Check which one is right. If the e-way bill is wrong, ask the shipper to change it. If you changed the truck on the e-way bill portal yourself, change it there and tell the shipper.',
+      'The bill shows $onBill. The trip has $onTrip. If the bill is wrong, ask the shipper to fix it.',
     TruckMismatchReader.shipper =>
-      'The e-way bill shows $onBill. The carrier put $onTrip on this trip. Ask the carrier which truck is right. If the e-way bill is wrong, change it in your billing software or on the e-way bill portal, then here. If the portal refuses, the carrier may have changed it. Ask them to change it.',
+      'The bill shows $onBill. The trip has $onTrip. Ask $carrier which is right. If the bill is wrong, fix it on the portal, then here.',
     TruckMismatchReader.driver =>
       'The e-way bill shows $onBill. The truck on this trip is $onTrip. Tell your office.',
   };
@@ -126,5 +127,5 @@ String ewayBillCheckLine(Map<String, dynamic> bill,
   };
   return forShipper
       ? '$problem Check the details here and on the portal.'
-      : '$problem The shipper can see this on their shipment.';
+      : '$problem The shipper sees this too.';
 }

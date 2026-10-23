@@ -104,7 +104,7 @@ void main() {
             reason: 'whoever shares is told about it, and nobody else is');
         expect(
             find.text(
-                'Shippers see your location while this trip is on the way and this app is open.'),
+                'Shippers see your location while this app is open.'),
             findsNothing);
       });
     }
@@ -191,13 +191,13 @@ void main() {
         await tester.tap(find.widgetWithText(FilledButton, 'Start trip'));
         await tester.pumpAndSettle();
         const warning =
-            "Mehta Hardware's e-way bill does not have the truck yet.";
+            "Truck not on Mehta Hardware's e-way bill.";
         expect(find.text(warning),
             withMissingTruck ? findsOneWidget : findsNothing,
             reason: 'decisions.md: warning only when true');
         expect(
             find.text(
-                'Mehta Hardware adds it. Without the truck, the bill is not valid for moving the goods.'),
+                'The goods cannot move until Mehta Hardware adds it.'),
             withMissingTruck ? findsOneWidget : findsNothing,
             reason: 'the carrier is told who adds it, not asked to');
         expect(find.text('Add the truck first'), findsNothing,

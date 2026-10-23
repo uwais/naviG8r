@@ -31,9 +31,9 @@ void main() {
           size: const Size(800, 3000));
       expect(find.text('Approved by NaviG8r'), findsOneWidget);
       expect(find.text(transporterIdHelperText), findsOneWidget,
-          reason: 'copy.md: tells the transporter ID from the shipper GSTIN');
+          reason: 'copy.md: says what the transporter ID is and where shippers use it');
       expect(
-          transporterIdHelperText, contains("It is not the shipper's GSTIN."));
+          transporterIdHelperText, contains('Shippers put it on their e-way bills.'));
       expect(find.text('Trucks (2)'), findsOneWidget);
       expect(find.text('KA05CD9012'), findsOneWidget);
       expect(find.text('Large truck'), findsOneWidget, reason: 'size in words');

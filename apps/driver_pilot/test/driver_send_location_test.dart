@@ -15,7 +15,7 @@ import 'support/mock_api.dart';
 
 const sendNow = 'Send my location now';
 const sharedLine =
-    'Shippers see your location while this trip is on the way and this app is open.';
+    'Shippers see your location while this app is open.';
 const locationOff =
     'Location is off, so shippers cannot see the truck. Turn it on in your phone settings.';
 

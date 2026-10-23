@@ -360,7 +360,7 @@ void main() {
       expect(find.text('SHARMA TEXTILES'), findsOneWidget);
       expect(
           find.text(
-              'This truck is not on this bill. Call your office now. The shipper must add it to the bill.'),
+              'Your truck is not on this bill yet. Call your office.'),
           findsOneWidget,
           reason: 'dr-ewb: a missing truck is shown as a problem');
       expect(
@@ -388,11 +388,11 @@ void main() {
       expect(find.text('Guindy, Chennai · Sharma Textiles · 80 kg'),
           findsOneWidget,
           reason: 'dr-confirm: which drop this is');
-      expect(find.text('Photo of the signed delivery note'), findsOneWidget,
+      expect(find.text('Photo of the signed note or goods'), findsOneWidget,
           reason: 'copy.md Confirm, step 1');
       expect(find.text('Confirm the goods are handed over'), findsOneWidget,
           reason: 'copy.md Confirm, step 2');
-      expect(find.text('Sharma Textiles, your company and NaviG8r see the photo as proof of delivery.'),
+      expect(find.text('Sharma Textiles, your company and NaviG8r see the photos.'),
           findsOneWidget);
       expect(find.text('Add a photo first.'), findsOneWidget,
           reason: 'copy.md: Confirm delivery says why it waits');
@@ -420,7 +420,7 @@ void main() {
           findsOneWidget,
           reason: 'copy.md Offline');
       // The top of the screen: the photo step now pushes step 2 below a 360 x 800 phone's first screenful.
-      expect(find.text('Photo of the signed delivery note'), findsOneWidget,
+      expect(find.text('Photo of the signed note or goods'), findsOneWidget,
           reason: 'the screen stays so the driver can try again');
     });
   });
