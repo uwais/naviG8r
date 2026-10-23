@@ -20,7 +20,7 @@ import {
 import type { DemoBill, Persona } from "./ewayDemoPortalRules.ts";
 import { addBill, findBill, newBillNumber } from "./ewayDemoPortalStore.ts";
 
-export { SEEDED_TRUCK_VALID_UNTIL_UTC_MS } from "./ewayDemoPortalStore.ts";
+export { SEEDED_STARTABLE_VALID_UNTIL_UTC_MS, SEEDED_TRUCK_VALID_UNTIL_UTC_MS } from "./ewayDemoPortalStore.ts";
 
 const PERSONA_COOKIE = "eway_demo_persona";
 

@@ -258,6 +258,8 @@ Body:
 #### `POST /v1/pilot/anchor-trips/:tripId/start`
 Carrier explicitly starts a load (`OPEN`/`FULL` → `IN_PROGRESS`). Requires at least one **`BOOKED`** shipment on the trip (carrier must accept bookings first). Enables GPS pings and customer live tracking.
 
+Every `BOOKED` shipment on the trip must have a final e-way bill (owner, 23 Oct 2026): `kind: "NOT_NEEDED"`, or `kind: "BILL"` with a truck number equal to the trip's truck (both in the portal form), a `validUntilUtcMs` still ahead, and no ops `check.result` of `PROBLEM`. Nobody at NaviG8r checks bills by hand; this reads only what was entered. Otherwise `409 { "error": "eway_bill_not_ready", "shipments": [{ "shipmentId", "shipperName", "reason" }] }`, one entry per blocking shipment, `reason` one of `no_bill`, `truck_missing`, `truck_differs` (also when the trip has no truck), `expired`, `problem`, checked in that order. Shipper names only, which every carrier login already sees; no money. The trip is unchanged. Rule in `apps/api/src/ewayBillStartGate.ts`; the app mirrors it in `eway_bill_start_gate.dart`.
+
 #### `POST /v1/pilot/anchor-trips/:tripId/complete`
 Carrier marks the load done (`IN_PROGRESS` → `COMPLETED`). Requires every shipment on the trip to be **`PENDING_RELEASE`** or **`DELIVERED`** (no remaining **`BOOKED`** or **`PENDING_CARRIER_ACCEPT`**). Clears `lastLiveLocation` and stops live tracking. Submitting driver POD on the last active booking **auto-completes** the trip when these conditions are met.
 

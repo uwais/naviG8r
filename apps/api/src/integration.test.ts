@@ -1,4 +1,4 @@
-import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { addFinalTestEwayBill, bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
@@ -141,6 +141,7 @@ test("integration webhook payload includes trip start and carrier ops fields", (
   });
 
   acceptCarrierShipment(store, { shipmentId: shipment.id, userId: driver.user.id });
+  addFinalTestEwayBill(store, shipment.id);
   startAnchorTripAsPilot(store, { userId: driver.user.id, tripId: trip.id });
 
   const updated = store.shipments.get(shipment.id)!;
@@ -189,6 +190,7 @@ test("integration webhook names the truck the trip is assigned, not the starter'
   });
 
   acceptCarrierShipment(store, { shipmentId: shipment.id, userId: driver.user.id });
+  addFinalTestEwayBill(store, shipment.id);
   startAnchorTripAsPilot(store, { userId: driver.user.id, tripId: trip.id });
 
   const updated = store.shipments.get(shipment.id)!;

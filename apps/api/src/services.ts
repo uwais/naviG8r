@@ -50,6 +50,7 @@ import {
 import { emitIntegrationEvent } from "./integrationWebhooks.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
 import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
+import { shipmentsBlockingStart } from "./ewayBillStartGate.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -1910,6 +1911,8 @@ export function startAnchorTripAsPilot(
     });
   }
   const now = nowUtcMs();
+  const notReady = shipmentsBlockingStart(store, trip, shipmentsOnAnchorTrip(store, trip.id), now);
+  if (notReady.length > 0) throw new ApiError("eway_bill_not_ready", { shipments: notReady }, 409);
   const updated: AnchorTrip = {
     ...trip,
     status: "IN_PROGRESS",

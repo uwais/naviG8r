@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'support/carrier_office_screens.dart';
+import 'support/eway_bill_fixtures.dart' show finalBill;
 
 void main() {
   setUp(() => GeolocatorPlatform.instance = NoLocation());
@@ -20,7 +21,7 @@ void main() {
       bookingOn('trip-a', 'mehta',
           shipper: 'Mehta Hardware',
           weightKg: 400,
-          bill: {'kind': 'BILL', 'billNumber': '123456789012'})
+          bill: finalBill())
     ]));
     Future<void> expectNoOverflow(String where) async {
       expect(tester.takeException(), isNull,
@@ -51,6 +52,25 @@ void main() {
     await mount(tester, const DriverProfileScreen(key: ValueKey('profile')),
         textScale: 2);
     await expectNoOverflow('Profile');
+  });
+
+  testWidgets('the trip held by its e-way bills fits 360 dp at 200% text',
+      (tester) async {
+    signInWith(Server(allowed: ownerAllowed, trips: [
+      tripAt('trip-a', assigned: truckAndDriver)
+    ], bookings: [
+      bookingOn('trip-a', 'mehta', shipper: 'Mehta Hardware', weightKg: 400),
+      bookingOn('trip-a', 'sharma',
+          shipper: 'Sharma Textiles',
+          weightKg: 80,
+          bill: finalBill(truck: 'KA02XY9999')),
+    ]));
+    await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+        textScale: 2);
+    expect(tester.takeException(), isNull);
+    expect(find.text('Mehta Hardware: no e-way bill yet.'), findsOneWidget);
+    expect(find.text('Sharma Textiles: truck on the bill differs from the trip.'),
+        findsOneWidget);
   });
 
   test(

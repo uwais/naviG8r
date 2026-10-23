@@ -94,8 +94,10 @@ void main() {
           reason: 'copy.md: [weekday] [date] under the title');
       expect(find.text('Bengaluru to Chennai'), findsOneWidget,
           reason: "dr-today: today's trip by its route");
-      expect(find.text('Ready to start'), findsOneWidget,
-          reason: 'dr-today: a trip with accepted bookings, not started yet');
+      expect(find.text('Waiting for e-way bill'), findsOneWidget,
+          reason:
+              'dr-today: accepted bookings, not started, and the bill for Mehta Hardware has no truck yet (owner, 23 Oct 2026)');
+      expect(find.text('Ready to start'), findsNothing);
       expect(find.text('KA01AB1234'), findsOneWidget,
           reason: 'dr-today: the truck, in the mono face');
       expect(find.text('3 pickups, all in Bengaluru'), findsOneWidget,
@@ -286,7 +288,13 @@ void main() {
     testWidgets(
         'before the trip starts: Start trip in a 56 dp bar above the tabs, behind the confirm sheet',
         (tester) async {
-      final server = signInAsDriver();
+      // Every bill final, so Start can be tapped (owner, 23 Oct 2026).
+      final ready = threeDrops();
+      ready[2] = {
+        ...ready[2],
+        'ewayBill': billWith('190477315520', truck: 'KA01AB1234')
+      };
+      final server = signInAsDriver(bookings: ready);
       await mountCarrierApp(tester, '/driver/trip/trip-today/active');
       expect(find.text('Ready to start'), findsOneWidget);
       final start = find.widgetWithText(FilledButton, 'Start trip');
@@ -299,6 +307,27 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Start Bengaluru to Chennai now?'), findsOneWidget,
           reason: 'screens.md: the driver Start opens the same confirm sheet');
+      expect(server.sent, isEmpty);
+    });
+
+    testWidgets(
+        'before the trip starts with a bill missing its truck: Start waits, and one line says which booking',
+        (tester) async {
+      final server = signInAsDriver();
+      await mountCarrierApp(tester, '/driver/trip/trip-today/active');
+      final start = find.widgetWithText(FilledButton, 'Start trip');
+      expect(tester.widget<FilledButton>(start).onPressed, isNull);
+      expect(find.text('Mehta Hardware: truck not on the e-way bill.'),
+          findsOneWidget);
+      expect(find.text('Waiting for e-way bill.'), findsOneWidget);
+      expect(find.textContaining('Sharma Textiles:'), findsNothing);
+      expect(find.text('Waiting for e-way bill'), findsOneWidget,
+          reason: 'the status label agrees with the held Start');
+      expect(find.text('Ready to start'), findsNothing);
+      expect(tester.getRect(start).bottom, lessThanOrEqualTo(tabsTop(tester)),
+          reason: 'the line sits above Start, which stays above the tabs');
+      await tester.tap(start);
+      await tester.pumpAndSettle();
       expect(server.sent, isEmpty);
     });
 

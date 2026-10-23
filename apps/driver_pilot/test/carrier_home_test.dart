@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/carrier_fixtures.dart';
 import 'support/carrier_office_bookings.dart';
+import 'support/eway_bill_fixtures.dart' show finalBill;
 
 void main() {
   group('The office Home', () {
@@ -90,7 +91,8 @@ void main() {
             'windowStart': start,
           };
       final bookings = [
-        {...shipmentOnTripA(), 'anchorTripId': 'trip-today'},
+        {...shipmentOnTripA(), 'anchorTripId': 'trip-today', 'ewayBill': finalBill()},
+        {...shipmentOnTripA(), 'id': 'shipment-w', 'anchorTripId': 'trip-waiting'},
         {...shipmentOnTripA(), 'id': 'shipment-t', 'anchorTripId': 'trip-later'},
         {
           ...shipmentOnTripA(status: 'PENDING_CARRIER_ACCEPT'),
@@ -102,6 +104,7 @@ void main() {
         readyTrip('trip-today', 'Chennai', today),
         readyTrip('trip-later', 'Mysuru', tomorrow),
         readyTrip('trip-unaccepted', 'Hosur', today),
+        readyTrip('trip-waiting', 'Salem', today),
       ];
 
       signInAsCarrierOwner(alsoAllowed: ['load.status_update']);
@@ -111,6 +114,8 @@ void main() {
           reason: 'owner run: Home said this while a trip was ready to start');
       expect(find.text('Start a trip'), findsOneWidget,
           reason: 'only the trip whose day has come and has an accepted booking');
+      expect(find.text('Waiting for e-way bill'), findsOneWidget,
+          reason: 'owner, 23 Oct 2026: a trip held by its e-way bills is not offered to start');
       expect(
           find.text(
               'Bengaluru to Chennai · Leaves ${formatDateRange(DateTime.parse(today), DateTime.parse(tripWindowEnd))}'),
@@ -139,6 +144,7 @@ void main() {
       await mountRouted(tester, const DriverWelcomeScreen(key: ValueKey(3)));
       expect(find.text('Start a trip'), findsNothing,
           reason: 'no task for a login that may not start trips');
+      expect(find.text('Waiting for e-way bill'), findsNothing);
 
       signInAsCarrierOwner(alsoAllowed: ['load.status_update']);
       answer(bookings: bookings, trips: trips);

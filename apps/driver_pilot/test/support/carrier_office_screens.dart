@@ -93,6 +93,7 @@ class Server {
       this.bookings = const [],
       this.ownTruck = true,
       this.refusesWrites = false,
+      this.refusal = const {'error': 'trip_not_startable'},
       this.fleetFails = false,
       this.emptyFleet = false});
   final List<String> allowed;
@@ -101,8 +102,9 @@ class Server {
   final List<Map<String, dynamic>> bookings;
   final bool ownTruck;
 
-  /// Every write is answered with a 409 and a code the app has no sentence for.
+  /// Every write is answered with a 409 and [refusal], by default a code the app has no sentence for.
   final bool refusesWrites;
+  final Map<String, dynamic> refusal;
 
   /// The fleet request is answered with a 500, as when the server is down.
   final bool fleetFails;
@@ -116,7 +118,7 @@ class Server {
       if (request.method != 'GET') {
         sent.add(request);
         if (refusesWrites) {
-          return jsonResponse({'error': 'trip_not_startable'}, 409);
+          return jsonResponse(refusal, 409);
         }
         return jsonResponse({
           'trip':

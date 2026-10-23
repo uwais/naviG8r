@@ -225,3 +225,32 @@ test("practice server takes payments through Razorpay with test keys, and stays 
     withKeyIdOnly.stop();
   }
 });
+
+// Owner, 23 Oct 2026: a trip starts only once its bills are final, and the demo keeps one trip that can start.
+test("practice server seeds the Hoskote to Kolar trip ready to start, and holds the other trip on its e-way bills", async () => {
+  const server = await startPracticeServer({});
+  try {
+    const call = async (path: string, token: string, method = "GET") => {
+      const response = await fetch(`${server.apiBaseUrl}${path}`, { method, headers: { authorization: `Bearer ${token}` } });
+      return { status: response.status, body: await response.json() };
+    };
+    const driverB = await signIn(server.apiBaseUrl, "8000000013");
+    const bookings = (await call("/v1/pilot/carrier/shipments?anchorTripId=trip-carrier-a-2", driverB)).body.shipments;
+    assert.equal(bookings.length, 1);
+    assert.equal(bookings[0].ewayBill.truckNumber, "KA02XY9999");
+    assert.ok(bookings[0].ewayBill.validUntilUtcMs > Date.now() + 2 * 86400000, "several days left");
+    const started = await call("/v1/pilot/anchor-trips/trip-carrier-a-2/start", driverB, "POST");
+    assert.equal(started.status, 200);
+    assert.equal(started.body.trip.status, "IN_PROGRESS");
+
+    const owner = await signIn(server.apiBaseUrl, "8000000003");
+    const held = await call("/v1/pilot/anchor-trips/trip-carrier-a/start", owner, "POST");
+    assert.equal(held.status, 409);
+    assert.deepEqual(held.body.shipments, [
+      { shipmentId: "load-a-booked", shipperName: "Synthetic Shipper A", reason: "no_bill" },
+      { shipmentId: "load-a-with-bill", shipperName: "Synthetic Shipper A", reason: "truck_missing" },
+    ]);
+  } finally {
+    server.stop();
+  }
+});

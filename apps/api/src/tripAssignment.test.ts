@@ -2,7 +2,7 @@ import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { httpFixture } from "../test/httpFixtures.ts";
-import { addTestPodPhoto } from "../test/fixtures.ts";
+import { addFinalTestEwayBill, addTestPodPhoto } from "../test/fixtures.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
 import { inviteCarrierDriver, publishAnchorTrip, registerCustomerUser } from "./services.ts";
 import { getIntegrationShipmentSnapshot, getIntegrationShipmentTracking } from "./integrationServices.ts";
@@ -178,6 +178,7 @@ test("a driver sees only the trips naming them and their shipments, on every rou
   const rows = grouped.body.shipments as Array<{ shipmentId: string; tripId?: string }>;
   assert.deepEqual(rows.filter((group) => !group.tripId).map((group) => group.shipmentId), [mine]);
 
+  addFinalTestEwayBill(f.store, mine);
   assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/start`, "POST", {}, first.token)).status, 200, "a driver starts their own trip");
   addTestPodPhoto(f.store, mine);
   assert.equal((await f.request(`/shipments/${mine}/driver-pod`, "POST", {}, first.token)).status, 200, "and confirms delivery on it");

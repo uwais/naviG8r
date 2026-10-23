@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { authorizationContext, resolvePrincipal, acceptPod, type Role } from "../src/rbac.ts";
 import type { Store } from "../src/store.ts";
 import { bookShipment, registerSoloOwnerOperatorDriver, registerCustomerOrgAdmin, submitDriverPod, releasePaymentAndDeliver, runPayoutBatch } from "../src/services.ts";
+import { assignedTruckNumber } from "../src/tripAssignmentRules.ts";
 
 export function internalUser(store: Store, role: Role, id = `test-${role}`) {
   const orgId = "test-platform";
@@ -43,6 +44,19 @@ export function bookTestShipment(store: Store, params: Parameters<typeof bookShi
 export function addTestPodPhoto(store: Store, shipmentId: string): void {
   const shipment = store.shipments.get(shipmentId)!;
   store.shipments.set(shipmentId, { ...shipment, podPhotos: [{ id: randomUUID(), contentType: "image/jpeg", bytes: 1, sha256: "synthetic", uploadedAtUtcMs: 1, uploadedByUserId: "synthetic" }] });
+}
+/**
+ * A final e-way bill, so the trip can start: the trip's truck, valid for three more days, or a statement that none
+ * is needed when the trip has no truck. Tests about the start rule itself write their own bills.
+ */
+export function addFinalTestEwayBill(store: Store, shipmentId: string): void {
+  const shipment = store.shipments.get(shipmentId)!;
+  const truckNumber = assignedTruckNumber(store, store.anchorTrips.get(shipment.anchorTripId));
+  const entered = { enteredAtUtcMs: 1, enteredByUserId: "synthetic" };
+  const ewayBill = truckNumber
+    ? { kind: "BILL" as const, billNumber: "123456789012", truckNumber, validUntilUtcMs: Date.now() + 3 * 86400000, ...entered }
+    : { kind: "NOT_NEEDED" as const, notNeededReason: "BELOW_THRESHOLD" as const, ...entered };
+  store.shipments.set(shipmentId, { ...shipment, ewayBill });
 }
 export async function deliverTestShipment(store: Store, params: { shipmentId: string; podAtUtcMs?: number }) {
   const shipment = store.shipments.get(params.shipmentId)!;

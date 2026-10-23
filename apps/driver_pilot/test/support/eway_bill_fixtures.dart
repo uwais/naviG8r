@@ -122,3 +122,15 @@ Future<void> chooseTodayAtLastMinute(WidgetTester tester) async {
   await tester.tap(find.text('OK'));
   await tester.pumpAndSettle();
 }
+
+/// A final e-way bill, so a trip can start (owner, 23 Oct 2026): the trip's truck and a valid-until time three
+/// days from now. Tests about the start rule itself write their own bills.
+Map<String, dynamic> finalBill(
+        {String billNumber = '123456789012', String truck = 'KA01AB1234'}) =>
+    {
+      'kind': 'BILL',
+      'billNumber': billNumber,
+      'truckNumber': truck,
+      'validUntilUtcMs':
+          DateTime.now().add(const Duration(days: 3)).millisecondsSinceEpoch,
+    };

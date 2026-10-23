@@ -17,6 +17,7 @@ import "authorization_session.dart";
 import "carrier_approval_banner.dart";
 import "eway_bill_carrier_card.dart";
 import "eway_bill_closed.dart";
+import "eway_bill_start_gate.dart";
 import "eway_bill_words.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
@@ -1131,24 +1132,28 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
       ));
     }
   }
-  // What the trip screen's Start trip takes (an approved carrier, an accepted booking, a driver) and also a
-  // truck and a trip whose first day has come, which Start trip itself does not check.
+  // What the trip screen's Start trip takes (an approved carrier, an accepted booking, a driver, final e-way
+  // bills) and also a truck and a trip whose first day has come, which Start trip itself does not check.
+  // A trip held only by its e-way bills says so instead of asking the office to start it.
   if (AuthorizationSession.can("load.status_update") &&
       DriverSession.complianceApproved) {
     for (final trip in loaded.tripsById.values) {
       final start = _tripStart(trip);
+      final onTrip = loaded.bookings
+          .where((booking) => booking["anchorTripId"] == trip["id"])
+          .toList();
       final readyToStart = (trip["status"] == "OPEN" ||
               trip["status"] == "FULL") &&
           _nonEmpty(trip["assignedDriverUserId"]) != null &&
           _nonEmpty(trip["assignedTruckNumber"]) != null &&
           start != null &&
           !_dayInIndia(start).isAfter(_todayInIndia()) &&
-          loaded.bookings.any((booking) =>
-              booking["anchorTripId"] == trip["id"] &&
-              booking["status"] == "BOOKED");
+          onTrip.any((booking) => booking["status"] == "BOOKED");
       if (!readyToStart) continue;
       tasks.add(_OfficeTask(
-        title: "Start a trip",
+        title: ewayBillStartBlockLines(trip, onTrip, now: currentTime()).isEmpty
+            ? "Start a trip"
+            : "Waiting for e-way bill",
         detail: [_tripRoute(trip) ?? "Trip", _tripLeaves(trip)!].join(" · "),
         actionLabel: "Open trip",
         path: "/driver/trip/${trip["id"]}/active",
@@ -1551,7 +1556,13 @@ class _DriverTodayState extends State<_DriverToday> {
         trip["status"] == "CANCEL_REQUESTED") {
       status = _tripStatusLabel(trip);
     } else if (accepted != null && accepted > 0) {
-      status = const NvStatusLabel("Ready to start", tone: NvStatusTone.good);
+      final waitingForBill = notDelivered != null &&
+          ewayBillStartBlockLines(trip, notDelivered, now: currentTime())
+              .isNotEmpty;
+      status = waitingForBill
+          ? const NvStatusLabel("Waiting for e-way bill",
+              tone: NvStatusTone.attention)
+          : const NvStatusLabel("Ready to start", tone: NvStatusTone.good);
     } else {
       status = null;
     }
@@ -3173,6 +3184,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   bool _sendingLocationNow = false;
   // When Send my location now last reached the server, shown under the button.
   DateTime? _locationSentNowAt;
+  // The server's lines when it refused Start for the e-way bills, kept until the bookings load again.
+  List<String>? _serverStartBlockLines;
   // The stop the driver has just confirmed, shown at the top until the screen loads again (dr-done).
   Map<String, dynamic>? _justDelivered;
   Timer? _poll;
@@ -3409,6 +3422,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         await _load();
         return;
       }
+      final notReady = ewayBillNotReadyLines(e);
+      if (notReady != null) {
+        setState(() => _serverStartBlockLines = notReady);
+        return;
+      }
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(plainErrorSentence(e))));
     } finally {
@@ -3424,13 +3442,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   Future<void> _confirmStart() async {
     final trip = _trip;
     if (trip == null) return;
-    final missingTruck = _acceptedBookings.where(_truckMissingFromBill).toList();
     final start = await showNvSheet<bool>(
         context: context,
-        builder: (_) => _StartTripSheet(
-            trip: trip,
-            accepted: _acceptedBookings,
-            missingTruck: missingTruck));
+        builder: (_) =>
+            _StartTripSheet(trip: trip, accepted: _acceptedBookings));
     if (!mounted || start != true) return;
     await _startTrip();
   }
@@ -3507,7 +3522,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
     try {
       final ships = await _fetchTripBookings();
-      if (mounted && ships != null) setState(() => _shipments = ships);
+      if (mounted && ships != null) {
+        setState(() {
+          _shipments = ships;
+          _serverStartBlockLines = null;
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -3558,7 +3578,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     try {
       final ships = await _fetchTripBookings();
       if (mounted && !_loading && ships != null) {
-        setState(() => _shipments = ships);
+        setState(() {
+          _shipments = ships;
+          _serverStartBlockLines = null;
+        });
       }
     } catch (_) {
     } finally {
@@ -3748,6 +3771,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       "IN_PROGRESS" =>
         const NvStatusLabel("On the way", tone: NvStatusTone.info),
       "COMPLETED" => const NvStatusLabel("Done", tone: NvStatusTone.ended),
+      "OPEN" || "FULL"
+          when _acceptedBookings.isNotEmpty &&
+              _ewayBillStartBlockLines(trip!).isNotEmpty =>
+        const NvStatusLabel("Waiting for e-way bill",
+            tone: NvStatusTone.attention),
       "OPEN" || "FULL" when _acceptedBookings.isNotEmpty =>
         const NvStatusLabel("Ready to start", tone: NvStatusTone.good),
       "CANCEL_REQUESTED" || "CANCELLED" => _tripStatusLabel(trip),
@@ -3853,14 +3881,21 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       ),
       if (mayStart)
         NvActionBar(
-          child: NvButton(
-            label: "Start trip",
-            onPressed: startBlocked == null ? _confirmStart : null,
-            disabledReason: startBlocked,
-            loading: _starting,
-            loadingLabel: "Starting",
-            forDriver: true,
-            fullWidth: true,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ..._ewayBillStartBlockList(trip),
+              NvButton(
+                label: "Start trip",
+                onPressed: startBlocked == null ? _confirmStart : null,
+                disabledReason: startBlocked,
+                loading: _starting,
+                loadingLabel: "Starting",
+                forDriver: true,
+                fullWidth: true,
+              ),
+            ],
           ),
         )
       else if (canComplete && AuthorizationSession.can("load.status_update"))
@@ -3913,7 +3948,38 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     if (!_forDriver && _nonEmpty(trip["assignedDriverUserId"]) == null) {
       return "Choose a driver first. Then start on loading day.";
     }
+    if (_ewayBillStartBlockLines(trip).isNotEmpty) {
+      return "Waiting for e-way bill.";
+    }
     return null;
+  }
+
+  /// One line per accepted booking whose e-way bill is not final: the server's after it refused Start, else
+  /// the same rule worked out here.
+  List<String> _ewayBillStartBlockLines(Map<String, dynamic> trip) =>
+      _serverStartBlockLines ??
+      ewayBillStartBlockLines(trip, _shipments, now: currentTime());
+
+  /// Above Start trip. A live region, so a screen reader hears the lines that appear after a refused Start.
+  List<Widget> _ewayBillStartBlockList(Map<String, dynamic> trip) {
+    final lines = _ewayBillStartBlockLines(trip);
+    if (lines.isEmpty) return const [];
+    return [
+      Semantics(
+        liveRegion: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final line in lines)
+              Padding(
+                padding: const EdgeInsets.only(bottom: NvSpace.s1),
+                child: Text(line, style: NvText.body),
+              ),
+          ],
+        ),
+      ),
+      const SizedBox(height: NvSpace.s2),
+    ];
   }
 
   Widget _tripSummary(Map<String, dynamic> trip) {
@@ -4093,6 +4159,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                         const Text("Start the trip", style: NvText.bodyStrong)),
                 const SizedBox(height: NvSpace.s2),
               ],
+              ..._ewayBillStartBlockList(trip),
               NvButton(
                 label: "Start trip",
                 onPressed: startBlocked == null ? _confirmStart : null,
@@ -4118,14 +4185,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   }
 }
 
-/// "Start [route] now?": what starting the trip takes on the road, and a warning for each accepted booking whose
-/// e-way bill does not have the truck yet. Closes with true to start; the screen then starts the trip.
+/// "Start [route] now?": what starting the trip takes on the road. It opens only once every e-way bill is final,
+/// so it warns of none. Closes with true to start; the screen then starts the trip.
 class _StartTripSheet extends StatelessWidget {
-  const _StartTripSheet(
-      {required this.trip, required this.accepted, required this.missingTruck});
+  const _StartTripSheet({required this.trip, required this.accepted});
   final Map<String, dynamic> trip;
   final List<Map<String, dynamic>> accepted;
-  final List<Map<String, dynamic>> missingTruck;
 
   Widget _fact(String label, String value, {bool identifier = false}) =>
       MergeSemantics(
@@ -4160,12 +4225,6 @@ class _StartTripSheet extends StatelessWidget {
         _fact("Driver", _nonEmpty(trip["assignedDriverName"]) ?? "Not chosen yet"),
         const Divider(height: 1, color: NvColors.line),
         _fact("Bookings", "${accepted.length} · ${formatKg(totalKg)}"),
-        for (final booking in missingTruck)
-          NvMessage(
-              "The goods cannot move until ${_shipperName(booking)} adds it.",
-              title:
-                  "Truck not on ${_shipperName(booking)}'s e-way bill.",
-              tone: NvMessageTone.attention),
       ],
       primaryLabel: "Start trip",
       onPrimary: () => Navigator.of(context).pop(true),

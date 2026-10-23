@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/carrier_app.dart';
+import 'support/eway_bill_fixtures.dart' show finalBill;
 
 final bills = {
   'kind': 'BILL',
@@ -23,7 +24,9 @@ List<Map<String, dynamic>> bookingsOnTwoTrips() => [
           drop: 'Ambattur, Chennai',
           status: 'PENDING_CARRIER_ACCEPT'),
       carrierBooking('trip-open', 'accepted',
-          shipper: 'Ravi Traders', drop: 'Hosur', bill: bills),
+          shipper: 'Ravi Traders',
+          drop: 'Hosur',
+          bill: finalBill(billNumber: '341200987655')),
       {
         ...carrierBooking('trip-open', 'delivered',
             shipper: 'Kumar Stores', drop: 'Vellore', status: 'PENDING_RELEASE'),

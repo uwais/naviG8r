@@ -66,7 +66,7 @@ void main() {
   });
 
   testWidgets(
-      'before acceptance on a trip that names its truck: the truck shows, can be copied, and may change',
+      'before acceptance on a trip that names its truck: the truck shows and can be copied',
       (tester) async {
     final copied = watchClipboard(tester);
     await mountCard(
@@ -76,7 +76,8 @@ void main() {
                 {'assignedTruckNumber': 'KA 01 AB 1234'})));
     expect(find.text('KA01AB1234'), findsOneWidget,
         reason: 'the trip truck, in the portal form');
-    expect(find.text('Ravi Roadways can still change it.'), findsOneWidget);
+    expect(find.textContaining('can still change'), findsNothing,
+        reason: 'the change note is gone (owner, 23 Oct 2026)');
     expect(find.text('After Ravi Roadways accepts'), findsOneWidget,
         reason: 'only the transporter ID still waits for acceptance');
     expect(
@@ -95,7 +96,7 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
   });
 
-  testWidgets('after acceptance the truck still shows with the note',
+  testWidgets('after acceptance the truck still shows, with no change note',
       (tester) async {
     await mountCard(
         tester,
@@ -103,8 +104,7 @@ void main() {
             shipment: carriedBy(
                 shipment(), {'assignedTruckNumber': 'KA01AB1234'})));
     expect(find.text('KA01AB1234'), findsOneWidget);
-    expect(find.text('Ravi Roadways can still change it.'), findsOneWidget,
-        reason: 'the carrier can change the truck until the trip is finished');
+    expect(find.textContaining('can still change'), findsNothing);
   });
 
   testWidgets(
@@ -119,7 +119,7 @@ void main() {
     await mountCard(tester, EwayBillCard(shipment: waiting));
     expect(
         find.text(
-            'Add the truck after Ravi Roadways accepts. Ravi Roadways can change it until then.'),
+            'Add the truck after Ravi Roadways accepts.'),
         findsOneWidget);
     expect(find.textContaining('before the goods move'), findsNothing);
     expect(find.text('Add truck'), findsNothing,
@@ -142,7 +142,7 @@ void main() {
   });
 
   testWidgets(
-      'with no carrier name the waiting line says the carrier, capitalised at the start',
+      'with no carrier name the waiting line says the carrier',
       (tester) async {
     signInAsShipper(permissions: ['eway_bill.write', 'eway_bill.add_truck']);
     await mountCard(
@@ -152,7 +152,7 @@ void main() {
                 shipment(bill: savedBill, status: 'PENDING_CARRIER_ACCEPT')));
     expect(
         find.text(
-            'Add the truck after the carrier accepts. The carrier can change it until then.'),
+            'Add the truck after the carrier accepts.'),
         findsOneWidget);
   });
 

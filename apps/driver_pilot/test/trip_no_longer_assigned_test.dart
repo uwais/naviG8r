@@ -194,8 +194,14 @@ void main() {
                   'trip': {'id': 'trip-a', 'status': 'OPEN'}
                 });
         }
+        // No bill needed, so Start can be tapped (owner, 23 Oct 2026).
         return jsonResponse({
-          'shipments': [shipmentOnTripA()]
+          'shipments': [
+            {
+              ...shipmentOnTripA(),
+              'ewayBill': {'kind': 'NOT_NEEDED', 'notNeededReason': 'BELOW_THRESHOLD'}
+            }
+          ]
         });
       });
       await mountScreen(tester, const DriverActiveTripScreen(tripId: 'trip-a'));

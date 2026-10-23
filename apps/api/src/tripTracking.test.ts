@@ -1,4 +1,4 @@
-import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { addFinalTestEwayBill, bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TRIP_TRACKING_STALE_MS } from "./config.ts";
@@ -25,6 +25,7 @@ function acceptAndStartTrip(
   shipmentId: string,
 ) {
   acceptCarrierShipment(store, { shipmentId, userId: driverUserId });
+  addFinalTestEwayBill(store, shipmentId);
   startAnchorTripAsPilot(store, { userId: driverUserId, tripId });
 }
 

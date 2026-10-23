@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import 'support/carrier_app.dart';
 import 'support/carrier_fixtures.dart' show podPhotos;
+import 'support/eway_bill_fixtures.dart' show finalBill;
 
 final moneyWords =
     RegExp(r'₹|paid|commission|receive|payout|\bnet\b|your payment|releases? the payment', caseSensitive: false);
@@ -55,7 +56,11 @@ void main() {
           'podPhotos': podPhotos(['photo-2'])
         },
         bookingWithAmounts('delivered', 'DELIVERED'),
-        bookingWithAmounts('open-booked', 'BOOKED', tripId: 'trip-open'),
+        // A final bill, so the start sheet opens.
+        {
+          ...bookingWithAmounts('open-booked', 'BOOKED', tripId: 'trip-open'),
+          'ewayBill': finalBill()
+        },
         bookingWithAmounts('done-delivered', 'DELIVERED', tripId: 'trip-done'),
       ],
       extraAnswers: {

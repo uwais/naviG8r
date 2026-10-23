@@ -39,7 +39,8 @@ from distance; the guide page lists which rules come from the notifications and 
 ## Known limits
 
 - The carrier on a phone returns to the app by switching apps and pasting. There is no automatic return.
-- A restart wipes the practice portal's bills. Only the two seeded bills, on load-a-with-bill and load-a-with-truck, come back.
+- A restart wipes the practice portal's bills. Only the three seeded bills, on load-a-with-bill, load-a-with-truck and
+  load-a2-booked, come back.
 - The practice portal holds 500 bills; past that, each new bill drops the oldest one (never a seeded bill).
 - A practice-portal form whose body has not fully arrived within 5 seconds is dropped.
 

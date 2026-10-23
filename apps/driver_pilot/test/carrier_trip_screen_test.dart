@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'support/carrier_office_screens.dart';
+import 'support/eway_bill_fixtures.dart' show finalBill;
 
 void main() {
   setUp(() => GeolocatorPlatform.instance = NoLocation());
@@ -20,11 +21,8 @@ void main() {
     final sharma = bookingOn('trip-a', 'sharma',
         shipper: 'Sharma Textiles',
         weightKg: 80,
-        bill: {
-          'kind': 'BILL',
-          'billNumber': '123456789013',
-          'truckNumber': 'KA01AB1234'
-        });
+        bill: finalBill(billNumber: '123456789013'));
+    final mehtaReady = {...mehta, 'ewayBill': finalBill()};
 
     testWidgets('names the trip, its room and its bookings as the mockup does',
         (tester) async {
@@ -114,7 +112,7 @@ void main() {
       final server = signInWith(Server(
           allowed: ownerAllowed,
           trips: [tripAt('trip-a', assigned: truckAndDriver)],
-          bookings: [sharma, mehta]));
+          bookings: [sharma, mehtaReady]));
       await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'));
       final start = find.widgetWithText(FilledButton, 'Start trip');
       final view = tester.view.physicalSize / tester.view.devicePixelRatio;
@@ -135,6 +133,8 @@ void main() {
           inSheet(find
               .text('Starting tells each shipper their goods are on the way.')),
           findsOneWidget);
+      expect(inSheet(find.textContaining('e-way bill')), findsNothing,
+          reason: 'every bill is final, so the sheet warns of none');
 
       await tester.tap(inSheet(find.text('Not yet')));
       await tester.pumpAndSettle();
@@ -177,36 +177,87 @@ void main() {
     });
 
     testWidgets(
-        "the missing-truck warning shows only when a booking's bill lacks the truck",
+        'Start waits for final e-way bills, with one line per booking that holds it',
         (tester) async {
-      for (final withMissingTruck in [true, false]) {
-        signInWith(Server(
-            allowed: ownerAllowed,
-            trips: [tripAt('trip-a', assigned: truckAndDriver)],
-            bookings: [sharma, if (withMissingTruck) mehta]));
-        await mount(
-            tester,
-            DriverActiveTripScreen(
-                key: ValueKey(withMissingTruck), tripId: 'trip-a'));
-        await tester.tap(find.widgetWithText(FilledButton, 'Start trip'));
-        await tester.pumpAndSettle();
-        const warning =
-            "Truck not on Mehta Hardware's e-way bill.";
-        expect(find.text(warning),
-            withMissingTruck ? findsOneWidget : findsNothing,
-            reason: 'decisions.md: warning only when true');
-        expect(
-            find.text(
-                'The goods cannot move until Mehta Hardware adds it.'),
-            withMissingTruck ? findsOneWidget : findsNothing,
-            reason: 'the carrier is told who adds it, not asked to');
-        expect(find.text('Add the truck first'), findsNothing,
-            reason: 'owner decision 18 Oct 2026: the shipper adds the truck');
-        expect(inSheet(find.textContaining('Sharma Textiles')), findsNothing,
-            reason: "Sharma's bill has the truck");
-        await tester.tap(find.text('Not yet'));
-        await tester.pumpAndSettle();
+      Map<String, dynamic> booked(String shipper, Map<String, dynamic>? bill) =>
+          bookingOn('trip-a', shipper, shipper: shipper, weightKg: 10, bill: bill);
+      final past = DateTime.now()
+          .subtract(const Duration(minutes: 1))
+          .millisecondsSinceEpoch;
+      final server = signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [
+            sharma,
+            booked('Shipper One', null),
+            booked('Shipper Two', {'kind': 'BILL', 'billNumber': '123456789014'}),
+            booked('Shipper Three', finalBill(truck: 'KA02XY9999')),
+            booked('Shipper Four', {...finalBill(), 'validUntilUtcMs': past}),
+            booked('Shipper Five', {
+              ...finalBill(),
+              'check': {'result': 'PROBLEM', 'problemReason': 'NOT_FOUND', 'checkedAtUtcMs': 1}
+            }),
+            booked('Shipper Six', {'kind': 'NOT_NEEDED', 'notNeededReason': 'BELOW_THRESHOLD'}),
+            {...booked('Shipper Seven', null), 'status': 'PENDING_CARRIER_ACCEPT'},
+          ]));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2400));
+      final start = find.widgetWithText(FilledButton, 'Start trip');
+      expect(tester.widget<FilledButton>(start).onPressed, isNull);
+      expect(find.text('Waiting for e-way bill.'), findsOneWidget);
+      for (final line in [
+        'Shipper One: no e-way bill yet.',
+        'Shipper Two: truck not on the e-way bill.',
+        'Shipper Three: truck on the bill differs from the trip.',
+        'Shipper Four: valid-until time on the e-way bill has passed.',
+        'Shipper Five: e-way bill has a problem.',
+      ]) {
+        expect(find.text(line), findsOneWidget, reason: line);
       }
+      for (final ready in ['Sharma Textiles:', 'Shipper Six:', 'Shipper Seven:']) {
+        expect(find.textContaining(ready), findsNothing,
+            reason: 'a final bill, a bill not needed, and a booking not yet accepted hold nothing');
+      }
+      expect(find.textContaining("'s e-way bill"), findsNothing,
+          reason: 'the old start sheet warning is gone');
+      await tester.tap(start);
+      await tester.pumpAndSettle();
+      expect(server.sent, isEmpty);
+      expect(find.text('Start Bengaluru to Chennai now?'), findsNothing);
+    });
+
+    testWidgets(
+        'a server refusal for the e-way bills shows the same lines and holds Start',
+        (tester) async {
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [tripAt('trip-a', assigned: truckAndDriver)],
+          bookings: [sharma],
+          refusesWrites: true,
+          refusal: {
+            'error': 'eway_bill_not_ready',
+            'shipments': [
+              {'shipmentId': 'sharma', 'shipperName': 'Sharma Textiles', 'reason': 'expired'},
+              {'shipmentId': 'other', 'shipperName': 'Shipper Two', 'reason': 'truck_differs'},
+            ],
+          }));
+      await mount(tester, const DriverActiveTripScreen(tripId: 'trip-a'),
+          size: const Size(800, 2000));
+      final start = find.widgetWithText(FilledButton, 'Start trip');
+      expect(tester.widget<FilledButton>(start).onPressed, isNotNull,
+          reason: 'by what the screen has, every bill is final');
+      await tester.tap(start);
+      await tester.pumpAndSettle();
+      await tester
+          .tap(inSheet(find.widgetWithText(FilledButton, 'Start trip')));
+      await tester.pumpAndSettle();
+      expect(find.text('Sharma Textiles: valid-until time on the e-way bill has passed.'), findsOneWidget);
+      expect(find.text('Shipper Two: truck on the bill differs from the trip.'),
+          findsOneWidget);
+      expect(find.text('Waiting for e-way bill.'), findsOneWidget);
+      expect(tester.widget<FilledButton>(start).onPressed, isNull);
+      expect(find.text('Something went wrong. Please try again.'), findsNothing);
+      expect(find.textContaining('eway_bill_not_ready'), findsNothing);
     });
   });
 }

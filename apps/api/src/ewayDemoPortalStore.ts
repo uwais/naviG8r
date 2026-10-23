@@ -1,5 +1,5 @@
 /**
- * The practice e-way bill site's bills: held in memory, lost on restart, at most 500, with two seeded bills that
+ * The practice e-way bill site's bills: held in memory, lost on restart, at most 500, with three seeded bills that
  * are never dropped.
  */
 import { randomInt } from "node:crypto";
@@ -9,18 +9,21 @@ import type { DemoBill } from "./ewayDemoPortalRules.ts";
 const MAX_BILLS = 500;
 const SEEDED_BILL_NUMBER = "123456789012";
 const SEEDED_TRUCK_BILL_NUMBER = "234567890123";
-const SEEDED_BILL_NUMBERS = new Set([SEEDED_BILL_NUMBER, SEEDED_TRUCK_BILL_NUMBER]);
+const SEEDED_STARTABLE_BILL_NUMBER = "345678901234";
+const SEEDED_BILL_NUMBERS = new Set([SEEDED_BILL_NUMBER, SEEDED_TRUCK_BILL_NUMBER, SEEDED_STARTABLE_BILL_NUMBER]);
 /** Fixed when the server starts; the demo seed reads it so the shipment and this site show the same valid-until. */
 export const SEEDED_TRUCK_VALID_UNTIL_UTC_MS = Date.now() + 20 * 60 * 60 * 1000;
+/** Three days, so the Hoskote to Kolar trip can still start and finish days after the demo server started. */
+export const SEEDED_STARTABLE_VALID_UNTIL_UTC_MS = Date.now() + 3 * 24 * 60 * 60 * 1000;
 const SUPPLIER_GSTIN = PERSONAS[0].id;
 const TRANSPORTER_ID = PERSONAS[1].id;
 
 const billsByNumber = new Map<string, DemoBill>();
 
 /**
- * The demo seed (scripts/rbac-manual.mjs) gives shipments load-a-with-bill and load-a-with-truck these exact
- * bills, so this site must know them too or ops' look-up would say no match. Change both together.
- * The truck bill's valid-until comes from server start, not from its distance: the seed only knows that time.
+ * The demo seed (scripts/rbac-manual.mjs) gives shipments load-a-with-bill, load-a-with-truck and load-a2-booked
+ * these exact bills, so this site must know them too or ops' look-up would say no match. Change both together.
+ * The truck bills' valid-until comes from server start, not from their distance: the seed only knows that time.
  */
 function addSeededBills(): void {
   billsByNumber.set(SEEDED_BILL_NUMBER, {
@@ -63,6 +66,27 @@ function addSeededBills(): void {
     vehicleUpdates: [{ vehicleNumber: "KA01AB1234", reasonCode: "4", remark: "", byPersonaKey: "supplier", atUtcMs: Date.now() }],
     extensions: [],
     validUpToUtcMs: SEEDED_TRUCK_VALID_UNTIL_UTC_MS,
+    cancelledAtUtcMs: null,
+  });
+  billsByNumber.set(SEEDED_STARTABLE_BILL_NUMBER, {
+    billNumber: SEEDED_STARTABLE_BILL_NUMBER,
+    billDate: "2026-10-03",
+    generatedAtUtcMs: Date.UTC(2026, 9, 3) - INDIA_OFFSET_MS,
+    generatorId: SUPPLIER_GSTIN,
+    supplierGstin: SUPPLIER_GSTIN,
+    recipientGstin: "29AAACS1234K1Z1",
+    dispatchPin: "562114",
+    deliveryPin: "563101",
+    documentNumber: "SYN/2026/003",
+    documentDate: "2026-10-03",
+    goodsValueRupees: "90000",
+    hsnCode: "8471",
+    transportReason: "Supply",
+    transporterId: TRANSPORTER_ID,
+    distanceKm: 70,
+    vehicleUpdates: [{ vehicleNumber: "KA02XY9999", reasonCode: "4", remark: "", byPersonaKey: "supplier", atUtcMs: Date.now() }],
+    extensions: [],
+    validUpToUtcMs: SEEDED_STARTABLE_VALID_UNTIL_UTC_MS,
     cancelledAtUtcMs: null,
   });
 }

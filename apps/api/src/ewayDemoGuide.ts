@@ -69,6 +69,7 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>The seeded shipment load-a-with-bill already has a bill (1234 5678 9012) that names Synthetic Carrier A as transporter and has no vehicle yet.</li>
 <li>The seeded shipment load-a-with-truck has a bill (2345 6789 0123) whose supplier already added vehicle KA01AB1234, valid up to 20 hours after the demo server started.</li>
 <li>The shipment load-a-booked has no bill yet. It is the one that follows this whole guide.</li>
+<li>The seeded shipment load-a2-booked, on the Hoskote to Kolar trip, has a bill (3456 7890 1234) with truck KA02XY9999, valid for three days after the demo server started. A trip starts only once every accepted booking on it has a final bill, so Synthetic Driver B (8000000013) can start that trip and confirm delivery with photos. The Synthetic Origin to Synthetic Destination trip cannot start yet: its trip screen names each booking whose bill is not final.</li>
 </ul>
 <h2>Step 1. Shipper generates the bill</h2>
 <ol>
@@ -121,7 +122,7 @@ export function showGuide(req: IncomingMessage, res: ServerResponse, persona: Pe
 <li>The real rules also let the transporter named on a bill update its vehicle. Generate a second bill as the Supplier naming Transporter ID 29TRNSP1234A1Z7 and no vehicle. Switch user to Transporter and update its vehicle, then switch back to Supplier and try Update vehicle: it is refused, because the transporter already updated it. naviG8r does not use this; the shipper adds the truck.</li>
 <li>As the Supplier, generate a third bill and cancel it on <a href="/demo/eway-portal/cancel">Cancel an e-way bill</a>. Verify then says Cancelled.</li>
 <li>As the Transporter, try <a href="/demo/eway-portal/extend">Extend validity</a> on the second bill, the one the Transporter updated: it is refused until it expires, and works only in the eight hours after.</li>
-<li>Verify the seeded bills: 123456789012, 1 Oct 2026, 29ABCDE1234F1Z5, SYN/2026/001 (Part B not entered), and 234567890123, 2 Oct 2026, 29ABCDE1234F1Z5, SYN/2026/002 (vehicle KA01AB1234).</li>
+<li>Verify the seeded bills: 123456789012, 1 Oct 2026, 29ABCDE1234F1Z5, SYN/2026/001 (Part B not entered), 234567890123, 2 Oct 2026, 29ABCDE1234F1Z5, SYN/2026/002 (vehicle KA01AB1234), and 345678901234, 3 Oct 2026, 29ABCDE1234F1Z5, SYN/2026/003 (vehicle KA02XY9999).</li>
 </ol>
 ${RULES_MODELLED}
 <div class="box"><strong>What is real:</strong> the app, its checks and who sees what, and the e-way bill rules listed above with their sources.

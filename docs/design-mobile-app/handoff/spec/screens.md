@@ -67,7 +67,7 @@ Header on every signed-in screen: one button = company name (title) + "Person ·
 | `ca-trips` | Trips tab | (cards) | No View/Start buttons on cards; whole card opens |
 | `ca-trip` | Trip opened | Assign driver (or Start trip once a driver exists) | "Room left: N kg of C kg". Start lives only here |
 | `ca-assign` | Tap Assign driver | Assign [name] | Nothing preselected (mockup shows a choice made) |
-| `ca-start` | Tap Start trip | Start trip | New confirm sheet. Warning only if a booking's bill lacks the truck |
+| `ca-start` | Tap Start trip | Start trip | New confirm sheet. Opens only once every e-way bill is final (owner, 23 Oct 2026), so no bill warning |
 | `ca-publish` | Publish tab | Publish trip | Fields start empty (mockup shows them filled). Truck size is a chip choice |
 | `ca-profile` | Profile tab (owner) | (rows) | Bank details owner only. Transporter ID help text distinguishes it from the shipper GSTIN |
 | `ca-vehicle-sheet` | Truck row opened | Save truck | Replaces typed "Vehicle class (SMALL\|MEDIUM\|LARGE)" with a choice. Remove truck is here, not on lists |

@@ -44,7 +44,8 @@ test("guide has the new steps, the rules box with sources, and only local links"
     "8000000013", "Each driver sees only their own trip", "The driver sees no money", "Ask your carrier to assign one",
     "Choose who you are: Supplier", "Switch user to Transporter", "reason First Time", "Verify an e-way bill", "Rules I modelled", "Notification 94/2020",
     "Notification 31/2019", "Rule 138(5) and 138(5A)", "Assumed, my reading", "What is real", "What is pretend", "no password, no captcha", "from the PIN codes",
-    "This public look-up is a practice-site convenience. Who may look a bill up on the real portal is an open question.", "Tap Open the practice portal"]) {
+    "This public look-up is a practice-site convenience. Who may look a bill up on the real portal is an open question.", "Tap Open the practice portal",
+    "load-a2-booked", "3456 7890 1234", "345678901234, 3 Oct 2026"]) {
     assert.ok(guide.text.includes(phrase), phrase);
   }
   const links = [...guide.text.matchAll(/href="([^"]*)"/g)].map((match) => match[1]);

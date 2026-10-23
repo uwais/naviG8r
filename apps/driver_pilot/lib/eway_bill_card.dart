@@ -444,7 +444,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
 
   List<Widget> _billWithoutTruck(Map<String, dynamic> bill) {
     final number = bill['billNumber'];
-    // The carrier can still change the truck until it accepts, and the server refuses a truck before then.
+    // The server refuses a truck before the carrier accepts.
     final accepted = widget.shipment['status'] == 'BOOKED';
     final waitingForCarrier =
         widget.shipment['status'] == 'PENDING_CARRIER_ACCEPT';
@@ -461,7 +461,7 @@ class _EwayBillCardState extends State<EwayBillCard> {
         const SizedBox(height: NvSpace.s3),
         Text(
             waitingForCarrier
-                ? 'Add the truck after ${_carrierName ?? "the carrier"} accepts. ${_carrierName ?? "The carrier"} can change it until then.'
+                ? 'Add the truck after ${_carrierName ?? "the carrier"} accepts.'
                 : 'Add the truck on the portal before the goods move, then here.',
             style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
       ],
