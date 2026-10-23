@@ -3119,6 +3119,15 @@ const _tripNoLongerAssignedSentence =
 const _locationSharedSentence =
     "Shippers see your location while this trip is on the way.";
 
+/// What the phone in the truck reads when location is refused or switched off, so nothing is being sent.
+const _locationOffSentence =
+    "Location is off. Turn it on in your phone settings to share it.";
+
+/// The phone's answer when location is switched off, or refused when the app asks for a position.
+bool _isLocationOffError(Object error) =>
+    error is LocationServiceDisabledException ||
+    error is PermissionDeniedException;
+
 /// A 404 to a driver: the trip, or the shipment's trip, is no longer assigned to them.
 bool _answeredTripNoLongerAssigned(Object error) =>
     DriverSession.carrierRole == "DRIVER" && serverAnsweredNotFound(error);
@@ -3152,6 +3161,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   bool _tripNoLongerAssigned = false;
   bool _startingLocationSharing = false;
   bool _sharingStoppedOnThisPhone = false;
+  bool _locationOff = false;
+  bool _sendingLocationNow = false;
+  // When Send my location now last reached the server, shown under the button.
+  DateTime? _locationSentNowAt;
   // The stop the driver has just confirmed, shown at the top until the screen loads again (dr-done).
   Map<String, dynamic>? _justDelivered;
   Timer? _poll;
@@ -3218,28 +3231,94 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     }
     _startingLocationSharing = true;
     try {
-      // Each answer can arrive after the trip was given away or finished, so a check follows each one.
-      var perm = await Geolocator.checkPermission();
-      if (!_mayShareLocation) return;
-      if (perm == LocationPermission.denied)
-        perm = await Geolocator.requestPermission();
-      if (!_mayShareLocation) return;
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) return;
+      if (!await _locationAllowed()) return;
       try {
         final p = await Geolocator.getCurrentPosition();
         if (mounted) setState(() => _driverPos = LatLng(p.latitude, p.longitude));
-      } catch (_) {}
+      } catch (error) {
+        if (mounted && _isLocationOffError(error)) {
+          setState(() => _locationOff = true);
+        }
+      }
       if (!_mayShareLocation) return;
       _posSub = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(distanceFilter: 25),
       ).listen((p) {
         if (!mounted) return;
-        setState(() => _driverPos = LatLng(p.latitude, p.longitude));
+        setState(() {
+          _driverPos = LatLng(p.latitude, p.longitude);
+          _locationOff = false;
+        });
         _maybePostLocation(p);
+      }, onError: (Object error) {
+        // Location switched off mid-trip arrives here; other errors leave the screen as it is.
+        if (mounted && _isLocationOffError(error)) {
+          setState(() => _locationOff = true);
+        }
       });
     } finally {
       _startingLocationSharing = false;
+    }
+  }
+
+  /// Asks for location if the phone has not been asked yet. When it is refused, the off sentence shows.
+  /// False also when the trip stopped being this phone's to share while the phone answered.
+  Future<bool> _locationAllowed() async {
+    // Each answer can arrive after the trip was given away or finished, so a check follows each one.
+    var perm = await Geolocator.checkPermission();
+    if (!_mayShareLocation) return false;
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+    }
+    if (!_mayShareLocation) return false;
+    final allowed = perm != LocationPermission.denied &&
+        perm != LocationPermission.deniedForever;
+    setState(() => _locationOff = !allowed);
+    return allowed;
+  }
+
+  /// Send my location now: one fresh position, sent at once without waiting out the 30 seconds between
+  /// automatic sends. Foreground only, like the automatic sharing.
+  Future<void> _sendLocationNow() async {
+    setState(() => _sendingLocationNow = true);
+    try {
+      if (!await _locationAllowed()) return;
+      final Position p;
+      try {
+        p = await Geolocator.getCurrentPosition();
+      } catch (error) {
+        if (!mounted) return;
+        if (_isLocationOffError(error)) {
+          setState(() => _locationOff = true);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text("Could not find where the phone is. Try again.")));
+        }
+        return;
+      }
+      if (!_mayShareLocation) return;
+      setState(() => _driverPos = LatLng(p.latitude, p.longitude));
+      // The next automatic send waits 30 seconds from this one.
+      _lastLocationPostAt = DateTime.now();
+      await _postLocation(p);
+      if (!mounted) return;
+      setState(() {
+        _locationOff = false;
+        _locationSentNowAt = currentTime();
+      });
+      // Location turned on since the screen loaded: automatic sharing starts now. It does nothing when running.
+      _startLocation();
+    } catch (e) {
+      if (!mounted) return;
+      if (_answeredTripNoLongerAssigned(e)) {
+        // The reload's own 404 branch stops location sharing and leaves only the sentence on screen.
+        await _load();
+        return;
+      }
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(plainErrorSentence(e))));
+    } finally {
+      if (mounted) setState(() => _sendingLocationNow = false);
     }
   }
 
@@ -3358,7 +3437,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     }
     _lastLocationPostAt = now;
     try {
-      await api.post<Map<String, dynamic>>(
+      await _postLocation(p);
+    } catch (_) {
+      // Best-effort; map still works locally if API is unreachable.
+    }
+  }
+
+  Future<void> _postLocation(Position p) => api.post<Map<String, dynamic>>(
         "/v1/pilot/anchor-trips/${widget.tripId}/location",
         data: {
           "lat": p.latitude,
@@ -3368,10 +3453,6 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           if (p.heading >= 0) "headingDeg": p.heading,
         },
       );
-    } catch (_) {
-      // Best-effort; map still works locally if API is unreachable.
-    }
-  }
 
   Future<void> _load() async {
     setState(() {
@@ -3725,6 +3806,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               if (started) ...[
                 const SizedBox(height: NvSpace.s2),
                 const Text(_locationSharedSentence, style: NvText.caption),
+                ..._sendLocationNowControls(),
               ],
               if (hasMap) ...[
                 gap,
@@ -3778,6 +3860,29 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         ),
     ]);
   }
+
+  /// Under the location sentence on the phone in the truck: Send my location now, then the off sentence or
+  /// the time of the last send. Both are live regions, so a screen reader hears the answer to the tap.
+  List<Widget> _sendLocationNowControls() => [
+        const SizedBox(height: NvSpace.s2),
+        NvButton(
+          label: "Send my location now",
+          kind: NvButtonKind.secondary,
+          onPressed: _sendLocationNow,
+          loading: _sendingLocationNow,
+          loadingLabel: "Sending",
+          forDriver: true,
+          fullWidth: true,
+        ),
+        if (_locationOff) ...[
+          const SizedBox(height: NvSpace.s2),
+          const NvMessage(_locationOffSentence, tone: NvMessageTone.attention),
+        ] else if (_locationSentNowAt != null) ...[
+          const SizedBox(height: NvSpace.s2),
+          NvMessage("Location sent at ${formatTimeIst(_locationSentNowAt!)}",
+              tone: NvMessageTone.good),
+        ],
+      ];
 
   /// Why the office cannot start the trip yet, or null when it can (copy.md, "Start (disabled)").
   String? _startBlockedReason(Map<String, dynamic> trip) {
@@ -3945,9 +4050,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                     "All deliveries confirmed. Location sharing has stopped.",
                     tone: NvMessageTone.good),
               // An owner driving the trip shares this phone's location, and is told so as a driver is.
-              if (status == "IN_PROGRESS" && _phoneIsInTheTruck)
-                const Text(_locationSharedSentence, style: NvText.caption)
-              else if (status == "IN_PROGRESS" && _sharingStoppedOnThisPhone)
+              if (status == "IN_PROGRESS" && _phoneIsInTheTruck) ...[
+                const Text(_locationSharedSentence, style: NvText.caption),
+                ..._sendLocationNowControls(),
+              ] else if (status == "IN_PROGRESS" && _sharingStoppedOnThisPhone)
                 const NvMessage(
                     "Location sharing has stopped on this phone. You are no longer this trip's driver.",
                     tone: NvMessageTone.info),
