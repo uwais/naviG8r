@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { httpFixture } from "../test/httpFixtures.ts";
-import { addTestPodPhoto } from "../test/fixtures.ts";
+import { addTestPodPhoto, startTestTrip } from "../test/fixtures.ts";
+import { publishAnchorTrip } from "./services.ts";
 import { FakePage, inlineScript } from "../test/fakePage.ts";
 import type { FakeElement } from "../test/fakePage.ts";
 
 const rupees = (paise: number) => "₹" + (paise / 100).toLocaleString("en-IN", { minimumFractionDigits: paise % 100 ? 2 : 0, maximumFractionDigits: 2 });
 
-/** A shipment whose proof of delivery the shipper accepted, so FINANCE may release it now. */
+/**
+ * A shipment whose proof of delivery the shipper accepted, so FINANCE may release it now. Each is on a trip of its
+ * own: delivery waits for the trip to start, and a started trip takes no more bookings.
+ */
 async function readyToRelease(f: Awaited<ReturnType<typeof httpFixture>>) {
-  const id = (await f.book()).body.shipment.id as string;
+  const trip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2026-09-16", windowEnd: "2026-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
+  const id = (await f.book(f.tokens.shipperA, { anchorTripId: trip.id })).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  startTestTrip(f.store, id);
   addTestPodPhoto(f.store, id);
   assert.equal((await f.request(`/shipments/${id}/driver-pod`, "POST", {}, f.tokens.carrierA)).status, 200);
   assert.equal((await f.request(`/shipments/${id}/accept-pod`, "POST", {}, f.tokens.shipperA)).status, 200);
@@ -124,6 +130,7 @@ test("/ops/v1: a shipment that is not ready, or already released, gets a plain s
   const f = await httpFixture(t);
   const held = (await f.book()).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${held}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  startTestTrip(f.store, held);
   addTestPodPhoto(f.store, held);
   assert.equal((await f.request(`/shipments/${held}/driver-pod`, "POST", {}, f.tokens.carrierA)).status, 200);
   const { id: released } = await readyToRelease(f);

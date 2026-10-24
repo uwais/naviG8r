@@ -116,7 +116,7 @@ class _PodPhotoState extends State<_PodPhoto> {
                         semanticLabel: widget.name,
                         fit: BoxFit.contain,
                         errorBuilder: (_, __, ___) => const Text(
-                            "Could not show this photo.",
+                            "This photo cannot be shown.",
                             style: NvText.body))),
               ),
             )));

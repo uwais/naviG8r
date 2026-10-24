@@ -1,6 +1,6 @@
 import { asFinance, asUser } from "../test/fixtures.ts";
 import { acceptPod } from "./rbac.ts";
-import { addTestPodPhoto, bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { addTestPodPhoto, bookTestShipment, registerCompliantCarrier, startTestTrip } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
@@ -51,6 +51,7 @@ test("submitDriverPod: driver on carrier org moves BOOKED to PENDING_RELEASE", (
   const store = createStore();
   const { driver, shipment } = seedBookedShipment(store);
 
+  startTestTrip(store, shipment.id);
   addTestPodPhoto(store, shipment.id);
   const out = submitDriverPod(store, {
     shipmentId: shipment.id,
@@ -80,6 +81,7 @@ test("releasePaymentAndDeliver: requires PENDING_RELEASE then DELIVERED", async 
   const store = createStore();
   const { driver, shipment } = seedBookedShipment(store);
 
+  startTestTrip(store, shipment.id);
   addTestPodPhoto(store, shipment.id);
   submitDriverPod(store, { shipmentId: shipment.id, userId: driver.user.id });
 

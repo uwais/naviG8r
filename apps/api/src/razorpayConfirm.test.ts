@@ -1,4 +1,4 @@
-import { addTestPodPhoto, bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { addTestPodPhoto, bookTestShipment, registerCompliantCarrier, startTestTrip } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
@@ -73,6 +73,7 @@ test("confirmRazorpayCheckoutAuthorization moves CREATED to AUTHORIZED for drive
 
   acceptCarrierShipment(store, { shipmentId: shipment.id, userId: onboard.user.id });
 
+  startTestTrip(store, shipment.id);
   addTestPodPhoto(store, shipment.id);
   const updated = submitDriverPod(store, { shipmentId: shipment.id, userId: onboard.user.id });
   assert.equal(updated.status, "PENDING_RELEASE");

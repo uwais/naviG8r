@@ -1736,6 +1736,17 @@ function finalizeDeliveredShipment(
   return { shipment: updated, ledgerLine: line };
 }
 
+/**
+ * Proof of delivery, its photos included, waits for the trip to start (owner, 23 Oct 2026). A finished trip still
+ * takes one, so a retry after the last delivery closed the trip goes through.
+ */
+export function requireTripStartedForPod(store: Store, s: Shipment): void {
+  const tripStatus = store.anchorTrips.get(s.anchorTripId)?.status;
+  if (tripStatus !== "IN_PROGRESS" && tripStatus !== "COMPLETED") {
+    throw new ApiError("trip_not_started", { detail: "Start the trip first." }, 409);
+  }
+}
+
 /** Driver confirms delivery; payment capture and ledger wait for ops release. */
 export function submitDriverPod(
   store: Store,
@@ -1752,6 +1763,7 @@ export function submitDriverPod(
   if (store.anchorTrips.get(s.anchorTripId)?.status === "CANCEL_REQUESTED") {
     throw new ApiError("trip_cancel_requested", { detail: "This trip's carrier asked NaviG8r to cancel it, so delivery cannot be confirmed now." }, 409);
   }
+  requireTripStartedForPod(store, s);
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
   const payOk =

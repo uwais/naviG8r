@@ -5,8 +5,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import http from "node:http";
 import { join } from "node:path";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { startTestTrip } from "../test/fixtures.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
-import { inviteCarrierDriver, registerCustomerUser } from "./services.ts";
+import { inviteCarrierDriver, publishAnchorTrip, registerCustomerUser } from "./services.ts";
 import { getIntegrationShipmentSnapshot, getIntegrationShipmentTracking } from "./integrationServices.ts";
 import { POD_PHOTO_MAX_BYTES, podPhotoDisk } from "./podPhotos.ts";
 import { FakePage, inlineScript } from "../test/fakePage.ts";
@@ -23,7 +24,10 @@ async function hireDriver(f: Fixture, phone: string, fullName: string, registrat
   return { userId: hired.user.id, vehicleId: hired.vehicle.id, token: await f.login(phone) };
 }
 
-/** Shipper A's booking on carrier A's trip, accepted, with the trip's driver named and a second driver who is not. */
+/**
+ * Shipper A's booking on carrier A's trip, accepted, with the trip's driver named and a second driver who is not.
+ * The trip is on the way, since photos wait for the start.
+ */
 async function deliveryWaitingForPhotos(t: TestContext) {
   const f = await httpFixture(t);
   const driver = await hireDriver(f, "8000000013", "Synthetic Driver One", "KA01AB1234");
@@ -34,6 +38,7 @@ async function deliveryWaitingForPhotos(t: TestContext) {
   assert.equal(booking.status, 201);
   const id = booking.body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  startTestTrip(f.store, id);
   return { f, id, driver, otherDriver };
 }
 
@@ -188,8 +193,11 @@ test("a photo can be removed before delivery is confirmed, not after; a driver c
   assert.equal((await upload(f, id, jpeg(3), driver.token)).status, 409, "no photo is added after delivery is confirmed");
   assert.equal((await photo(f, id, second, f.tokens.shipperA)).status, 200, "the shipper sees it once delivery is confirmed");
 
-  const assisted = (await f.book()).body.shipment.id as string;
+  // On a trip of its own: the first trip has started, so it takes no more bookings.
+  const secondTrip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2026-09-16", windowEnd: "2026-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
+  const assisted = (await f.book(f.tokens.shipperA, { anchorTripId: secondTrip.id })).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${assisted}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  startTestTrip(f.store, assisted);
   const byOps = await f.request(`/shipments/${assisted}/driver-pod`, "POST", {}, f.tokens.ops, { "x-reason-code": "DRIVER_NO_SIGNAL", "x-effective-actor-id": f.carrierA.user.id });
   assert.equal(byOps.status, 200, "ops confirming for the carrier needs no photo; the owner has not decided that");
 });

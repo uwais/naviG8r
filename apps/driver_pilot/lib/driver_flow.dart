@@ -1016,7 +1016,11 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
 
   Widget _card(Map<String, dynamic> booking) {
     final trip = _tripsById[booking["anchorTripId"]];
-    final status = _bookingStatus(booking, trip);
+    // A waiting booking the shipper has not finished is not the office's to accept yet.
+    final status = booking["status"] == "PENDING_CARRIER_ACCEPT" &&
+            booking["readyToAccept"] == false
+        ? ("Waiting for the shipper", NvStatusTone.info)
+        : _bookingStatus(booking, trip);
     final pickup = townOfAddress(booking["pickupAddress"]?.toString() ?? "");
     final drop = townOfAddress(booking["dropAddress"]?.toString() ?? "");
     final leaves = _tripLeaves(trip);
@@ -1116,6 +1120,8 @@ List<_OfficeTask> _officeTasks(_BookingsAndTrips loaded) {
       final trip = loaded.tripsById[booking["anchorTripId"]];
       // The server refuses to accept a booking on a trip the office asked NaviG8r to cancel.
       if (trip?["status"] == "CANCEL_REQUESTED") continue;
+      // Nothing for the office to do until the shipper finishes the booking.
+      if (booking["readyToAccept"] == false) continue;
       final route = _tripRoute(trip);
       final dates = _tripDates(trip);
       final weight = _weightWords(booking);
@@ -2246,6 +2252,9 @@ class _DriverShipmentDetailScreenState
       cannotAcceptReason = cancelRequestedAcceptSentence;
     } else if (tripAlreadyStarted(_trip)) {
       cannotAcceptReason = tripStartedAcceptSentence;
+    } else if (_shipment?["readyToAccept"] == false) {
+      // The shipper has not finished the booking. A dispatcher reads this, so it says nothing of payment.
+      cannotAcceptReason = "Waiting for the shipper.";
     } else {
       cannotAcceptReason = null;
     }
@@ -3221,7 +3230,7 @@ const _tripNoLongerAssignedSentence =
 
 /// While a trip is in transit and this screen is open, the driver's phone sends its position, and shippers see it.
 const _locationSharedSentence =
-    "Shippers see your location while you are on the way and this app is open.";
+    "Shippers see your location while this screen is open.";
 
 /// In place of the sentence above when location is refused or switched off, so nothing is being sent.
 const _locationOffSentence =
@@ -3529,8 +3538,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         _newestTripRequest++;
         setState(() => _trip = t);
       }
-      // A booking still waiting and not paid for closes when the trip starts, so the list is asked again. A failed
-      // ask keeps the list shown.
+      if (_posSub == null) await _startLocation();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              "Trip started. Shippers are told their goods are on the way.")));
+      // A booking still waiting and not paid for closes when the trip starts, so the list is asked again, after
+      // sharing and the snackbar so a slow answer holds neither. A failed ask keeps the list shown.
       try {
         final ships = await _fetchTripBookings();
         if (mounted && ships != null) {
@@ -3540,12 +3554,6 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           });
         }
       } catch (_) {}
-      if (!mounted) return;
-      if (_posSub == null) await _startLocation();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              "Trip started. Shippers are told their goods are on the way.")));
     } catch (e) {
       if (!mounted) return;
       if (_answeredTripNoLongerAssigned(e)) {
@@ -3578,8 +3586,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     if (trip == null) return;
     final start = await showNvSheet<bool>(
         context: context,
-        builder: (_) =>
-            _StartTripSheet(trip: trip, accepted: _acceptedBookings));
+        builder: (_) => _StartTripSheet(
+            trip: trip,
+            accepted: _acceptedBookings,
+            waitingForShipper: _shipments.any((shipment) =>
+                shipment["status"] == "PENDING_CARRIER_ACCEPT" &&
+                shipment["readyToAccept"] == false)));
     if (!mounted || start != true) return;
     await _startTrip();
   }
@@ -4507,9 +4519,15 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 /// "Start [route] now?": what starting the trip takes on the road. It opens only once every e-way bill is final,
 /// so it warns of none. Closes with true to start; the screen then starts the trip.
 class _StartTripSheet extends StatelessWidget {
-  const _StartTripSheet({required this.trip, required this.accepted});
+  const _StartTripSheet(
+      {required this.trip,
+      required this.accepted,
+      required this.waitingForShipper});
   final Map<String, dynamic> trip;
   final List<Map<String, dynamic>> accepted;
+
+  /// A booking on the trip still waits for its shipper to finish it; the server closes it at the start.
+  final bool waitingForShipper;
 
   Widget _fact(String label, String value, {bool identifier = false}) =>
       MergeSemantics(
@@ -4548,8 +4566,14 @@ class _StartTripSheet extends StatelessWidget {
       primaryLabel: "Start trip",
       onPrimary: () => Navigator.of(context).pop(true),
       cancelLabel: "Not yet",
-      footer: const Text("Starting tells each shipper their goods are on the way.",
-          style: NvText.caption),
+      footer: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text("Starting tells each shipper their goods are on the way.",
+            style: NvText.caption),
+        if (waitingForShipper)
+          const Text(
+              "Bookings still waiting for the shipper close when you start.",
+              style: NvText.caption),
+      ]),
     );
   }
 }

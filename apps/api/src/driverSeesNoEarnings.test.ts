@@ -4,7 +4,7 @@ import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { httpFixture } from "../test/httpFixtures.ts";
-import { addTestPodPhoto } from "../test/fixtures.ts";
+import { addTestPodPhoto, startTestTrip } from "../test/fixtures.ts";
 import { authorizationContext, effectivePermissions, resolvePrincipal } from "./rbac.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import { inviteCarrierDriver, registerCustomerUser } from "./services.ts";
@@ -42,6 +42,7 @@ test("a driver gets 403 on earnings, ledger and payout batches, and no carrier m
   assert.equal(accepted.status, 200);
   const refunded = (await f.book()).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${refunded}/accept`, "POST", {}, tokens.ownerDriver)).status, 200);
+  startTestTrip(f.store, delivered);
   addTestPodPhoto(f.store, delivered);
   const delivery = await f.request(`/shipments/${delivered}/driver-pod`, "POST", {}, tokens.driver);
   assert.equal(delivery.status, 200);
@@ -95,6 +96,7 @@ test("a driver gets no payout dates or payment hold, even once delivered; the of
   const { f, tokens } = await carrierWithStaff(t);
   const id = (await f.book()).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, tokens.driver)).status, 200);
+  startTestTrip(f.store, id);
   addTestPodPhoto(f.store, id);
   assert.equal((await f.request(`/shipments/${id}/driver-pod`, "POST", {}, tokens.driver)).status, 200);
   assert.equal((await f.request(`/shipments/${id}/accept-pod`, "POST", {}, f.tokens.shipperA)).status, 200);
@@ -210,6 +212,7 @@ test("a driver's refused delivery confirmation says nothing of the payment's sta
   const payment = f.store.payments.get(shipment.paymentId)!;
   f.store.payments.set(payment.id, { ...payment, provider: "RAZORPAY", status: "CREATED" });
 
+  startTestTrip(f.store, shipmentId);
   const refused = await f.request(`/shipments/${shipmentId}/driver-pod`, "POST", {}, tokens.driver);
   assert.equal(refused.status, 400);
   assert.equal(refused.body.error, "checkout_not_completed_for_pod");

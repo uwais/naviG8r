@@ -38,7 +38,8 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
     await tester.pumpAndSettle();
     expect(find.byType(InteractiveViewer), findsOneWidget);
-    expect(find.text('Could not show this photo.'), findsOneWidget);
+    expect(find.text('This photo cannot be shown.'), findsOneWidget,
+        reason: 'the same words as the small view');
     await leave(tester);
   });
 }

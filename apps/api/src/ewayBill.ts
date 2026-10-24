@@ -94,6 +94,11 @@ export function removeEwayBill(store: Store, shipmentId: string): Shipment {
   const shipment = findShipment(store, shipmentId);
   requirePermission(store, "eway_bill.write", shipment);
   if (lockedForChanges(shipment)) throw lockedError();
+  // The truck is on the road with the bill once the trip starts (owner, 23 Oct 2026); editing it stays allowed.
+  const tripStatus = store.anchorTrips.get(shipment.anchorTripId)?.status;
+  if (tripStatus === "IN_PROGRESS" || tripStatus === "COMPLETED") {
+    throw new ApiError("trip_started", { detail: "The trip has started, so the e-way bill cannot be removed." }, 409);
+  }
   if (!shipment.ewayBill) return shipment;
   const updated: Shipment = { ...shipment, updatedAtUtcMs: Date.now() };
   delete updated.ewayBill;

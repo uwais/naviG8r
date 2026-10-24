@@ -18,7 +18,7 @@ import 'support/carrier_fixtures.dart';
 import 'support/mock_api.dart';
 
 const sharedLine =
-    'Shippers see your location while you are on the way and this app is open.';
+    'Shippers see your location while this screen is open.';
 const locationOffLine =
     'Location is off, so shippers cannot see the truck. Turn it on in your phone settings.';
 const noLongerYours =

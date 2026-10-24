@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:dio/dio.dart' show Options;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -272,12 +273,18 @@ class PushNotifications {
     }
   }
 
-  Future<void> revokeForCurrentUser() async {
+  /// After sign-out the stored token is gone, so [bearerToken] carries the old one; [timeLimit] stops
+  /// a slow removal from holding later push work.
+  Future<void> revokeForCurrentUser(
+      {String? bearerToken, Duration? timeLimit}) async {
     _identityTransitionInProgress = true;
     _registrationEpoch++;
     try {
       await _serializeLifecycle(() async {
-        await _revokeStoredRegistration();
+        final removal = _revokeStoredRegistration(bearerToken: bearerToken);
+        await (timeLimit == null
+            ? removal
+            : removal.timeout(timeLimit, onTimeout: () {}));
         await _storage.delete(key: _consentKey);
         await _storage.delete(key: _consentOwnerKey);
         await _storage.delete(key: _pendingNotificationKey);
@@ -354,7 +361,7 @@ class PushNotifications {
     }
   }
 
-  Future<void> _revokeStoredRegistration() async {
+  Future<void> _revokeStoredRegistration({String? bearerToken}) async {
     _registered = false;
     final owner = await _storage.read(key: _deviceOwnerKey);
     final deviceId = await _storage.read(key: _deviceIdKey);
@@ -369,7 +376,8 @@ class PushNotifications {
               decoded['userId'] == owner &&
               decoded['generation'] is int &&
               (decoded['generation'] as int) >= generation) {
-            await _revokeMarker(existingMarker, expectedUserId: owner);
+            await _revokeMarker(existingMarker,
+                expectedUserId: owner, bearerToken: bearerToken);
             return;
           }
         } catch (_) {
@@ -382,7 +390,8 @@ class PushNotifications {
         'generation': generation,
       });
       await _storage.write(key: _revocationKey, value: marker);
-      await _revokeMarker(marker, expectedUserId: owner);
+      await _revokeMarker(marker,
+          expectedUserId: owner, bearerToken: bearerToken);
     }
   }
 
@@ -542,9 +551,10 @@ class PushNotifications {
     return id;
   }
 
-  Future<String?> _currentUserId() async {
+  Future<String?> _currentUserId([String? bearerToken]) async {
     try {
-      final response = await api.get<Map<String, dynamic>>('/v1/auth/me');
+      final response = await api.dio.get<Map<String, dynamic>>('/v1/auth/me',
+          options: _withBearer(bearerToken));
       return response.data?['user']?['id']?.toString();
     } catch (_) {
       return null;
@@ -573,15 +583,23 @@ class PushNotifications {
     }
   }
 
+  // The stored token, when there is one, still wins in Api's interceptor, so a newer sign-in is never
+  // sent with the old token.
+  Options? _withBearer(String? bearerToken) =>
+      bearerToken == null || bearerToken.isEmpty
+          ? null
+          : Options(headers: {'authorization': 'Bearer $bearerToken'});
+
   Future<void> _revokeMarker(String marker,
-      {required String expectedUserId}) async {
+      {required String expectedUserId, String? bearerToken}) async {
     final decoded = jsonDecode(marker) as Map<String, dynamic>;
-    final actualUserId = await _currentUserId();
+    final actualUserId = await _currentUserId(bearerToken);
     if (actualUserId != expectedUserId) return;
     try {
-      await api.delete<Map<String, dynamic>>(
+      await api.dio.delete<Map<String, dynamic>>(
         '/v1/me/push-devices/${Uri.encodeComponent(decoded['deviceId'] as String)}',
         data: {'ownershipGeneration': decoded['generation']},
+        options: _withBearer(bearerToken),
       );
       if (await _storage.read(key: _revocationKey) == marker) {
         await _storage.delete(key: _revocationKey);

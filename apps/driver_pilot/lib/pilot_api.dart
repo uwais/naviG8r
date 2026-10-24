@@ -4,6 +4,8 @@ export "pilot_api_dns.dart";
 import 'package:flutter/foundation.dart';
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
 
+import "authorization_session.dart";
+
 /// Production API. Override at run/build time:
 /// `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000` (Android emulator → host)
 /// `flutter run --dart-define=API_BASE_URL=http://192.168.x.x:3000` (physical device → LAN)
@@ -164,6 +166,11 @@ class Api {
     return token != null && token.isNotEmpty;
   }
 
+  Future<String?> bearerToken() async {
+    await _tokenWrite;
+    return _storage.read(key: "access_token");
+  }
+
   Future<Response<T>> get<T>(String path, {Map<String, dynamic>? query}) =>
       dio.get<T>(path, queryParameters: query);
   Future<Response<T>> post<T>(String path, {Object? data}) =>
@@ -251,7 +258,22 @@ String formatApiError(Object e) {
           "This booking is not ready for delivery yet. Ask your office.",
       // Confirm delivery on a booking that is no longer BOOKED, as when it was confirmed from another phone.
       "shipment_not_deliverable": "Delivery already confirmed.",
+      // Confirm delivery or a delivery photo before the trip has started.
+      "trip_not_started": "Start the trip first.",
     };
+    // An owner-driver is the office, so is not sent to ask it.
+    if (code == "checkout_not_completed_for_pod" &&
+        AuthorizationSession.principal?["subrole"] == "OWNER_DRIVER") {
+      return "This booking is not ready for delivery yet.";
+    }
+    // A shipper has shipments and a carrier has bookings; anyone else reads the plain sentence.
+    if (code == "conversation_read_only") {
+      return AuthorizationSession.hasRole("SHIPPER")
+          ? "Messages are closed for this shipment."
+          : AuthorizationSession.hasRole("CARRIER")
+              ? "Messages are closed for this booking."
+              : "Messages are closed.";
+    }
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||
         e.type == DioExceptionType.unknown) {

@@ -195,7 +195,7 @@ class _DriverPilotAppState extends State<DriverPilotApp>
         ],
         onPopPage: (route, result) => route.didPop(result),
       ),
-      title: kIsWeb ? "NaviG8r Customer" : "NaviG8r Driver",
+      title: "NaviG8r",
       theme: DriverTheme.theme(),
       themeMode: ThemeMode.light,
       routerConfig: router,
@@ -230,6 +230,15 @@ Future<void> _openPushNotification(String notificationId) async {
         .any((org) => org['id'] == organizationId)) return;
     if (AuthorizationSession.organizationId != organizationId) {
       await AuthorizationSession.selectOrganization(organizationId);
+      // The screens are rebuilt for the new company on the next frames; until then there is no navigator.
+      // One frame more puts the new company's pages in place: a screen pushed before that went with the
+      // old page, so the tap landed on Home.
+      for (var frame = 0;
+          frame < 10 && _rootNavigatorKey.currentContext == null;
+          frame++) {
+        await WidgetsBinding.instance.endOfFrame;
+      }
+      await WidgetsBinding.instance.endOfFrame;
     }
     if (!identityIsCurrent()) return;
     final context = _rootNavigatorKey.currentContext;

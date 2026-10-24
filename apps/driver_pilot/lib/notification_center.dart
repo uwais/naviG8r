@@ -79,10 +79,24 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
           await api.get<Map<String, dynamic>>('/v1/notifications/shipments');
       if (!mounted) return;
       final raw = response.data?['shipments'];
+      final newest =
+          raw is List ? raw.whereType<Map<String, dynamic>>().toList() : <Map<String, dynamic>>[];
+      // As on Messages: earlier rows the reader loaded stay after the newest page, with their cursor,
+      // unless the page shares no row with the list, when it starts over as a first load does.
+      String rowKey(Map<String, dynamic> item) =>
+          '${item['shipmentId']}:${item['tripId']}';
+      final newestKeys = {for (final item in newest) rowKey(item)};
+      final overlaps = _items.any((item) => newestKeys.contains(rowKey(item)));
+      final earlier = [
+        if (overlaps)
+          for (final item in _items)
+            if (!newestKeys.contains(rowKey(item))) item
+      ];
       setState(() {
-        _items =
-            raw is List ? raw.whereType<Map<String, dynamic>>().toList() : [];
-        _nextCursor = response.data?['nextBefore']?.toString();
+        _items = [...newest, ...earlier];
+        if (earlier.isEmpty) {
+          _nextCursor = response.data?['nextBefore']?.toString();
+        }
         _failed = false;
         _loading = false;
       });

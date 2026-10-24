@@ -47,8 +47,9 @@ class EwayBillCard extends StatefulWidget {
       super.key});
   final Map<String, dynamic> shipment;
 
-  /// The trip has left, so a passed valid-until time no longer stops it starting. The shipment alone
-  /// cannot say so while it is on the way; the screen knows from the trip.
+  /// The trip has left, so a passed valid-until time no longer stops it starting, and the bill can no
+  /// longer be removed. The shipment alone cannot say so while it is on the way; the screen knows from
+  /// the trip.
   final bool tripStarted;
 
   /// Puts part 1's "Open the e-way bill portal" in this panel, for a desktop that has no action
@@ -433,11 +434,13 @@ class _EwayBillCardState extends State<EwayBillCard> {
               label: 'Change',
               kind: NvButtonKind.quiet,
               onPressed: _openStatementForm),
-          NvButton(
-              label: 'Remove e-way bill',
-              kind: NvButtonKind.quiet,
-              onPressed: _remove,
-              loading: _busy),
+          // The server refuses removal once the trip has started.
+          if (!widget.tripStarted)
+            NvButton(
+                label: 'Remove e-way bill',
+                kind: NvButtonKind.quiet,
+                onPressed: _remove,
+                loading: _busy),
         ]),
       EwayBillErrorText(_error),
     ];
@@ -639,11 +642,13 @@ class _EwayBillCardState extends State<EwayBillCard> {
               label: 'Change truck',
               kind: NvButtonKind.quiet,
               onPressed: _openTruckForm),
-        NvButton(
-            label: 'Remove e-way bill',
-            kind: NvButtonKind.quiet,
-            onPressed: _remove,
-            loading: _busy),
+        // The server refuses removal once the trip has started.
+        if (!widget.tripStarted)
+          NvButton(
+              label: 'Remove e-way bill',
+              kind: NvButtonKind.quiet,
+              onPressed: _remove,
+              loading: _busy),
       ]),
     ];
   }

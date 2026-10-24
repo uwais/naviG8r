@@ -3,6 +3,7 @@
 // The messages screen for one shipment: its events and messages, and sending a reply.
 import 'dart:async';
 
+import 'package:dio/dio.dart' show DioException;
 import 'package:flutter/material.dart';
 
 import 'app_in_background.dart';
@@ -43,7 +44,8 @@ class _ShipmentConversationScreenState
   bool _loading = true;
   bool _loadingEarlier = false;
   bool _sending = false;
-  bool _canSend = true;
+  // Off until a load says this reader may send, and still off if the first load fails.
+  bool _canSend = false;
   String? _sendingBody;
   String? _sendingRequestId;
   String? _nextBefore;
@@ -83,10 +85,15 @@ class _ShipmentConversationScreenState
           raw is List ? raw.whereType<Map<String, dynamic>>().toList() : <Map<String, dynamic>>[];
       // This is the newest page. Earlier messages the reader loaded stay in front of it, and the cursor
       // stays theirs, so a refresh never drops them and Show earlier messages never loads them twice.
+      // A page with none of them in it means more than a page arrived; it starts over, as a first load
+      // does, so no gap sits unseen between the old messages and the new.
       final newestKeys = {for (final item in newest) '${item['type']}:${item['id']}'};
+      final overlaps = _messages
+          .any((item) => newestKeys.contains('${item['type']}:${item['id']}'));
       final earlier = [
-        for (final item in _messages)
-          if (!newestKeys.contains('${item['type']}:${item['id']}')) item
+        if (overlaps)
+          for (final item in _messages)
+            if (!newestKeys.contains('${item['type']}:${item['id']}')) item
       ];
       setState(() {
         _messages = [...earlier, ...newest];
@@ -213,6 +220,11 @@ class _ShipmentConversationScreenState
         _lastFailedBody = body;
         await ConversationDrafts.write(
             _scope, widget.shipmentId, body, requestId);
+      }
+      // Messages closed since the last load: reload, so the closed banner shows now, not at the next check.
+      final refusal = error is DioException ? error.response?.data : null;
+      if (refusal is Map && refusal['error'] == 'conversation_read_only') {
+        await _load();
       }
       if (mounted) {
         setState(() => _error = plainErrorSentence(

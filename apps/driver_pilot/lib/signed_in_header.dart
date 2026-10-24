@@ -31,7 +31,10 @@ NvHeader signedInHeader(BuildContext context,
     ],
     currentCompanyId: AuthorizationSession.organizationId,
     onSwitch: _switchCompany,
-    onSignOut: () => _signOut(router),
+    onSignOut: () => _signOut(router, {
+      Navigator.maybeOf(context),
+      router?.routerDelegate.navigatorKey.currentState
+    }),
     backLabel: backLabel,
     onBack: onBack,
     navigation: navigation,
@@ -67,7 +70,15 @@ Future<String?> _switchCompany(String companyId) async {
 
 // The router is taken before signing out: signing out rebuilds the screens under a new key,
 // so the header's own context is gone by the time the start screen should open.
-Future<void> _signOut(GoRouter? router) async {
+// Screens pushed over the router's pages, as Updates is, keep their place under the new key; they
+// are closed so the sign-in screen shows nothing from the old account.
+Future<void> _signOut(
+    GoRouter? router, Set<NavigatorState?> navigators) async {
   await AuthorizationSession.signOut();
+  for (final navigator in navigators) {
+    if (navigator != null && navigator.mounted) {
+      navigator.popUntil((route) => route.settings is Page);
+    }
+  }
   router?.go("/");
 }

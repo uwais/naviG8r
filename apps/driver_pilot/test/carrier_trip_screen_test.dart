@@ -108,7 +108,7 @@ void main() {
             reason: 'whoever shares is told about it, and nobody else is');
         expect(
             find.text(
-                'Shippers see your location while you are on the way and this app is open.'),
+                'Shippers see your location while this screen is open.'),
             findsNothing);
       });
     }

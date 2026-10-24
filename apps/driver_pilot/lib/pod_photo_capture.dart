@@ -147,23 +147,25 @@ class PodPhotoDraft extends ChangeNotifier {
     }
   }
 
-  /// The photos as the server lists them: those it no longer has go, those it has are added. Unchanged when
-  /// the list cannot be read or no longer holds this delivery.
-  Future<void> _reloadPhotosTheServerHas() async {
+  /// The photos as the server lists them: those it no longer has go, those it has are added. Returns the ids
+  /// it lists, or null, with the photos unchanged, when the list cannot be read or no longer holds this delivery.
+  Future<List<String>?> _reloadPhotosTheServerHas() async {
     try {
       final response =
           await api.get<Map<String, dynamic>>("/v1/pilot/carrier/shipments");
       final raw = response.data?["shipments"];
-      if (raw is! List) return;
+      if (raw is! List) return null;
       for (final shipment in raw.whereType<Map<String, dynamic>>()) {
         if (shipment["id"] != shipmentId) continue;
         final ids = podPhotoIds(shipment);
         photos.removeWhere((photo) => !ids.contains(photo.id));
         addAlreadySent(ids);
+        return ids;
       }
     } catch (_) {
       // No signal again: the sentence already on screen says to try again.
     }
+    return null;
   }
 
   Future<void> remove(SentPodPhoto photo) async {
@@ -175,13 +177,17 @@ class PodPhotoDraft extends ChangeNotifier {
           "/v1/shipments/$shipmentId/pod-photos/${photo.id}");
       photos.remove(photo);
     } catch (e) {
+      // The photos may have changed on another phone, so the list shows what the server has now.
+      final listed = await _reloadPhotosTheServerHas();
+      // A 404 means the photo is gone only when the delivery is still listed without it. Otherwise it is the
+      // screen's own refusal, such as the trip no longer being the driver's.
       error = serverNeverAnswered(e)
           ? "Could not remove the photo: no signal. Try again when you have one."
-          : serverAnsweredNotFound(e)
+          : serverAnsweredNotFound(e) &&
+                  listed != null &&
+                  !listed.contains(photo.id)
               ? "That photo was already removed."
               : _sendRefusal(e);
-      // The photos may have changed on another phone, so the list shows what the server has now.
-      await _reloadPhotosTheServerHas();
     } finally {
       sending = false;
       _changed();

@@ -14,7 +14,7 @@ import fs from "node:fs";
 import type http from "node:http";
 import path from "node:path";
 import { AuthorizationError, recordAudit, requireAssistance, requirePermission, type Principal } from "./rbac.ts";
-import { ApiError } from "./services.ts";
+import { ApiError, requireTripStartedForPod } from "./services.ts";
 import { photoContentType, withoutPhotoMetadata } from "./photoFormat.ts";
 import type { Store } from "./store.ts";
 import type { PodPhoto, PodPhotoContentType, Shipment } from "./types.ts";
@@ -107,6 +107,7 @@ function findPhoto(shipment: Shipment, photoId: string): PodPhoto {
 export function addPodPhoto(store: Store, root: string, shipmentId: string, upload: PodPhotoUpload, declaredType: string | undefined): { shipment: Shipment; photo: PodPhoto; file: string } {
   const shipment = findShipment(store, shipmentId);
   const principal = requirePhotoChangesOpen(store, shipment);
+  requireTripStartedForPod(store, shipment);
   if ("tooLarge" in upload) throw new ApiError("pod_photo_too_large", { detail: "This photo is too large. The limit is 1.5 MB." }, 413);
   const contentType = photoContentType(upload.bytes);
   const declared = (declaredType ?? "").split(";", 1)[0]!.trim().toLowerCase();

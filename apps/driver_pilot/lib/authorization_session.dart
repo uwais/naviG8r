@@ -77,9 +77,17 @@ abstract final class AuthorizationSession {
   static Future<void> signOut() async {
     if (!signedIn) {
       await PushNotifications.instance.onAuthorizationLost();
+      await api.clearToken();
+      clear();
+      return;
     }
-    await api.clearToken();
+    // The token goes and the sign-in screen shows first. The alert registration is removed after,
+    // with the old token: waiting on it held sign-out for about 45 seconds on a slow connection.
+    final bearerToken = await api.bearerToken();
     clear();
+    await api.clearToken();
+    unawaited(PushNotifications.instance.revokeForCurrentUser(
+        bearerToken: bearerToken, timeLimit: const Duration(seconds: 5)));
   }
 
   static Future<bool> refresh() {
