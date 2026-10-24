@@ -59,6 +59,53 @@ void main() {
       await tester.pumpAndSettle();
     });
 
+    testWidgets(
+        'while a paid checkout is being confirmed, Book and pay stays busy and a second tap books nothing',
+        (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('razorpay_flutter'), (call) async {
+        return call.method == 'open'
+            ? {
+                'type': 0,
+                'data': {
+                  'razorpay_payment_id': 'pay_synthetic',
+                  'razorpay_order_id': 'order_synthetic',
+                  'razorpay_signature': 'signature_synthetic'
+                }
+              }
+            : null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+              const MethodChannel('razorpay_flutter'), null));
+      final confirm = Completer<ResponseBody>();
+      final server = await showPricedBook(tester);
+      server.answer('/shipments/book', {
+        'shipment': {'id': 'shipment-9'},
+        'payment': {
+          'status': 'CREATED',
+          'amountPaise': 264000,
+          'razorpayOrderId': 'order_synthetic'
+        },
+        'razorpayKeyId': 'rzp_test_synthetic',
+      });
+      server.answers['/v1/payments/razorpay/confirm'] = (_) => confirm.future;
+      await tester.tap(find.text('Book and pay ₹2,640'));
+      await pumpWhileWaiting(tester);
+      expect(server.countOf('/v1/payments/razorpay/confirm'), 1,
+          reason: 'the checkout came back paid and the confirm is out');
+      expect(bookButton(tester).loading, isTrue,
+          reason: 'hunt, 23 Oct 2026: the button came back while the confirm was out');
+      await tester.tap(find.text('Book and pay ₹2,640'), warnIfMissed: false);
+      await pumpWhileWaiting(tester);
+      expect(server.countOf('/shipments/book'), 1,
+          reason: 'a second tap booked and charged a second shipment');
+      confirm.complete(jsonResponse({'payment': {'status': 'AUTHORIZED'}}));
+      await tester.pumpAndSettle();
+      expect(find.text('Shipment shipment-9'), findsOneWidget,
+          reason: 'once confirmed, the shipment opens');
+    });
+
     testWidgets('Pay opens payment in one tap, with no sheet first',
         (tester) async {
       final server = await showPricedBook(tester);

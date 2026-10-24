@@ -113,7 +113,11 @@ class _PodPhotoState extends State<_PodPhoto> {
                 maxScale: 5,
                 child: Center(
                     child: Image.memory(bytes,
-                        semanticLabel: widget.name, fit: BoxFit.contain)),
+                        semanticLabel: widget.name,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Text(
+                            "Could not show this photo.",
+                            style: NvText.body))),
               ),
             )));
   }

@@ -79,10 +79,20 @@ class _ShipmentConversationScreenState
           : null;
       final roles = AuthorizationSession.principal?['roles'];
       final isOps = roles is List && roles.contains('OPS');
+      final newest =
+          raw is List ? raw.whereType<Map<String, dynamic>>().toList() : <Map<String, dynamic>>[];
+      // This is the newest page. Earlier messages the reader loaded stay in front of it, and the cursor
+      // stays theirs, so a refresh never drops them and Show earlier messages never loads them twice.
+      final newestKeys = {for (final item in newest) '${item['type']}:${item['id']}'};
+      final earlier = [
+        for (final item in _messages)
+          if (!newestKeys.contains('${item['type']}:${item['id']}')) item
+      ];
       setState(() {
-        _messages =
-            raw is List ? raw.whereType<Map<String, dynamic>>().toList() : [];
-        _nextBefore = response.data?['nextBefore']?.toString();
+        _messages = [...earlier, ...newest];
+        if (earlier.isEmpty) {
+          _nextBefore = response.data?['nextBefore']?.toString();
+        }
         _readWatermark =
             watermark is Map ? Map<String, dynamic>.from(watermark) : null;
         _canSend = response.data?['canSend'] == true &&

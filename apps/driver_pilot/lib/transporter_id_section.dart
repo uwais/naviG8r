@@ -24,9 +24,11 @@ class TransporterIdSection extends StatefulWidget {
 }
 
 class _TransporterIdSectionState extends State<TransporterIdSection> {
-  // Read once, when Profile opens the section: a refresh started elsewhere on Profile (a pull-down, or saving
-  // the truck) empties the session's copy while it runs, and must not swap the field out mid-edit.
-  final _loadedWhenOpened = DriverSession.transporterIdLoaded;
+  // Read when Profile opens the section, and again only on its own Try again: a refresh started elsewhere on
+  // Profile (a pull-down, or saving the truck) empties the session's copy while it runs, and must not swap the
+  // field out mid-edit.
+  var _loadedWhenOpened = DriverSession.transporterIdLoaded;
+  bool _reloading = false;
   String? _savedTransporterId = DriverSession.transporterId;
   late final _transporterId =
       TextEditingController(text: _savedTransporterId ?? '');
@@ -78,6 +80,19 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
     }
   }
 
+  Future<void> _reload() async {
+    setState(() => _reloading = true);
+    await DriverSession.refresh();
+    if (!mounted) return;
+    setState(() {
+      _reloading = false;
+      _loadedWhenOpened = DriverSession.transporterIdLoaded;
+      _savedTransporterId = DriverSession.transporterId;
+      _transporterId.text = _savedTransporterId ?? '';
+      _editing = _savedTransporterId == null;
+    });
+  }
+
   void _cancel() {
     if (_saving) return;
     setState(() {
@@ -92,10 +107,16 @@ class _TransporterIdSectionState extends State<TransporterIdSection> {
     const help = Text(transporterIdHelperText, style: NvText.caption);
     // No field until the saved ID has loaded: an empty one would let Save clear it.
     if (!_loadedWhenOpened) {
-      return const [
-        Text(
-            'Could not load the transporter ID. Go back, then open this page again.',
-            style: NvText.body)
+      return [
+        const Text('Could not load the transporter ID.', style: NvText.body),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: NvButton(
+              label: 'Try again',
+              kind: NvButtonKind.quiet,
+              loading: _reloading,
+              onPressed: _reload),
+        ),
       ];
     }
     if (!AuthorizationSession.can('transporter_id.write')) {

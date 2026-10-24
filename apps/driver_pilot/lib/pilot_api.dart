@@ -249,6 +249,8 @@ String formatApiError(Object e) {
       // A driver can meet this one, so it says nothing about payment.
       "checkout_not_completed_for_pod":
           "This booking is not ready for delivery yet. Ask your office.",
+      // Confirm delivery on a booking that is no longer BOOKED, as when it was confirmed from another phone.
+      "shipment_not_deliverable": "Delivery already confirmed.",
     };
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||

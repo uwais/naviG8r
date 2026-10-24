@@ -296,5 +296,37 @@ void main() {
           reason: 'RECON gap 12: no channel known to reach staff');
       await leave(tester);
     });
+
+    // billWithTruck's valid-until time, 19 Oct 2026, has passed.
+    for (final (stage, status, trip) in [
+      ('on the way', 'BOOKED', lane(status: 'IN_PROGRESS', started: leftAt)),
+      ('awaiting release', 'PENDING_RELEASE', lane(status: 'COMPLETED', started: leftAt)),
+      ('delivered', 'DELIVERED', lane(status: 'COMPLETED', started: leftAt)),
+    ]) {
+      testWidgets('a passed valid-until time $stage does not say the trip cannot start',
+          (tester) async {
+        await showShipment(
+            tester,
+            booking(status: status, ewayBill: billWithTruck, extra: {
+              if (status != 'BOOKED') 'podAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+            }),
+            trip: trip);
+        expect(find.text('The valid-until time you entered has passed.'),
+            findsOneWidget);
+        expect(find.textContaining('so the trip cannot start'), findsNothing,
+            reason: 'hunt, 23 Oct 2026: the trip has already started');
+        await leave(tester);
+      });
+    }
+
+    testWidgets('a passed valid-until time before the trip starts still says it cannot start',
+        (tester) async {
+      await showShipment(tester, booking(ewayBill: billWithTruck), trip: lane());
+      expect(
+          find.text(
+              'The valid-until time you entered has passed, so the trip cannot start. Check the bill on the portal, then enter the new time here.'),
+          findsOneWidget);
+      await leave(tester);
+    });
   });
 }

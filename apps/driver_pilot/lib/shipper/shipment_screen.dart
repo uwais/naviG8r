@@ -234,11 +234,21 @@ class _CustomerShipmentDetailScreenState
     }
   }
 
+  /// Delivered or cancelled: nothing about the shipment changes any more, so there is nothing to check.
+  bool get _shipmentEnded {
+    final st = _shipment?["status"]?.toString() ?? "";
+    return st == "DELIVERED" || st == "FAILED_CARRIER_REFUNDED";
+  }
+
   void _schedulePoll() {
     _poll?.cancel();
-    final st = _shipment?["status"]?.toString() ?? "";
-    if (st == "DELIVERED" || st == "FAILED_CARRIER_REFUNDED") return;
-    _poll = Timer.periodic(const Duration(seconds: 15), (_) async {
+    if (_shipmentEnded) return;
+    _poll = Timer.periodic(const Duration(seconds: 15), (timer) async {
+      // It can end while the screen is open, from any refresh.
+      if (_shipmentEnded) {
+        timer.cancel();
+        return;
+      }
       if (!appIsInBackground) await _refreshAll(quietly: true);
     });
   }
@@ -323,8 +333,9 @@ class _CustomerShipmentDetailScreenState
       case ShipmentStepName.carrierAccepts:
         final truck = shipment["assignedTruckNumber"]?.toString() ?? "";
         final String waiting;
+        final cancelAsked = _trip?["status"] == "CANCEL_REQUESTED";
         // The server refuses Accept on such a trip, so "waiting to accept" would promise what cannot happen.
-        if (_trip?["status"] == "CANCEL_REQUESTED") {
+        if (cancelAsked) {
           waiting =
               "$carrier asked to cancel this trip. NaviG8r will tell you if your shipment is cancelled."
               "${_paymentHeld ? " Your payment is on hold." : ""}";
@@ -337,6 +348,8 @@ class _CustomerShipmentDetailScreenState
             title: step.title,
             state: step.state,
             who: truck.isNotEmpty ? "$carrier · Truck $truck" : step.who,
+            // Once accepted the step is done and its panel hides; the cancel request still has to show.
+            panelAlwaysShown: cancelAsked,
             panel: Text(waiting, style: NvText.body));
       case ShipmentStepName.ewayBill:
         final partOne = step.state == NvStepState.yours &&
@@ -350,6 +363,7 @@ class _CustomerShipmentDetailScreenState
                 key: const ValueKey("eway-bill-card"),
                 shipment: shipment,
                 portalButtonInPanel: customerIsDesktop(context),
+                tripStarted: progress.inTransit || progress.delivered,
                 onSaved: _takeSavedShipment));
       case ShipmentStepName.onTheWay:
         final started = _momentFromUtcMs(_trip?["startedAtUtcMs"]);
@@ -615,7 +629,13 @@ class _CustomerShipmentDetailScreenState
           _delivered(shipment),
           const SizedBox(height: NvSpace.s3),
         ],
-        ShipmentPaymentStatus(shipment: shipment, onAccepted: () => _load()),
+        ShipmentPaymentStatus(
+            shipment: shipment,
+            // The delivered line above already says the payment was released, with its amount.
+            showPaymentStatus: !(shipment["status"] == "DELIVERED" &&
+                _paymentHeld &&
+                _amountPaise != null),
+            onAccepted: () => _load()),
         if (map != null) ...[
           const SizedBox(height: NvSpace.s3),
           map,

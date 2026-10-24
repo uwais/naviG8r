@@ -9,9 +9,10 @@ import 'ui/format.dart';
 /// The truck on the bill and its valid-until time, or nothing when no truck is on it. The countdown
 /// shows only in the last 12 hours, so it reads as a reminder, not as pressure. It runs to the
 /// valid-until time as it was typed in, not as the portal holds it. [forShipper] is the shipper's
-/// card, which also says that the trip cannot start and that the new time is entered here.
+/// card, which also says that the trip cannot start and that the new time is entered here, until
+/// [tripStarted]; after that it says only that the time has passed.
 List<String> ewayBillTruckLines(Map<String, dynamic> bill,
-    {DateTime? now, bool forShipper = false}) {
+    {DateTime? now, bool forShipper = false, bool tripStarted = false}) {
   final truck = bill['truckNumber'];
   if (truck is! String || truck.isEmpty) return const [];
   final lines = ['Truck on the bill: $truck'];
@@ -24,9 +25,12 @@ List<String> ewayBillTruckLines(Map<String, dynamic> bill,
   final left = validUntilMoment.difference(now ?? DateTime.now());
   if (left <= Duration.zero) {
     // naviG8r cannot see the portal, so it says only that the typed time has passed, not that the bill expired.
-    lines.add(forShipper
-        ? 'The valid-until time you entered has passed, so the trip cannot start. Check the bill on the portal, then enter the new time here.'
-        : 'The valid-until time has passed. Check the bill on the portal.');
+    lines.add(switch ((forShipper, tripStarted)) {
+      (true, false) =>
+        'The valid-until time you entered has passed, so the trip cannot start. Check the bill on the portal, then enter the new time here.',
+      (true, true) => 'The valid-until time you entered has passed.',
+      (false, _) => 'The valid-until time has passed. Check the bill on the portal.',
+    });
   } else if (left < const Duration(hours: 12)) {
     final hours = left.inHours;
     lines.add(switch (hours) {

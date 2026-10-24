@@ -33,6 +33,17 @@ void main() {
           reason: 'the carrier cannot accept it now');
       await leave(tester);
     });
+
+    testWidgets('an accepted booking on such a trip says so too', (tester) async {
+      await showShipment(tester, booking(status: 'BOOKED'),
+          trip: lane(status: 'CANCEL_REQUESTED'));
+      expect(
+          find.text(
+              'Ravi Roadways asked to cancel this trip. NaviG8r will tell you if your shipment is cancelled. Your payment is on hold.'),
+          findsOneWidget,
+          reason: 'hunt, 23 Oct 2026: the accept step is done, so its panel and the notice were hidden');
+      await leave(tester);
+    });
   });
 
   group('Money collected after the cancel', () {

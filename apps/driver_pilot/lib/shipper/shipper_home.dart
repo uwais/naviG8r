@@ -30,6 +30,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   Map<String, Map<String, dynamic>> _lanesById = {};
   bool _shipmentsFailed = false;
   String? _loadedForAccount;
+  GoRouter? _router;
+  bool _wasAtHome = false;
 
   @override
   void initState() {
@@ -43,8 +45,30 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     });
   }
 
+  // The other shipper screens are child routes of /customer, so Home stays built under them and coming
+  // back only uncovers it. It loads again then; otherwise a task done on a shipment still showed here.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final router = GoRouter.maybeOf(context);
+    if (router == _router) return;
+    _router?.routerDelegate.removeListener(_routeChanged);
+    _router = router?..routerDelegate.addListener(_routeChanged);
+    _wasAtHome = _atHome;
+  }
+
+  bool get _atHome =>
+      _router?.routerDelegate.currentConfiguration.uri.path == "/customer";
+
+  void _routeChanged() {
+    final atHome = _atHome;
+    if (atHome && !_wasAtHome) _load();
+    _wasAtHome = atHome;
+  }
+
   @override
   void dispose() {
+    _router?.routerDelegate.removeListener(_routeChanged);
     CustomerSession.listenable.removeListener(_loadWhenTheAccountChanges);
     super.dispose();
   }

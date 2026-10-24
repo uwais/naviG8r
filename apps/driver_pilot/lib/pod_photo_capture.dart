@@ -66,6 +66,8 @@ class PodPhotoDraft extends ChangeNotifier {
   bool sending = false;
   String? error;
   bool _disposed = false;
+  // A second tap while the camera or the photos are open would make image_picker refuse it and show an error.
+  bool _picking = false;
 
   /// Photos the server already lists for this delivery, sent from an earlier visit to the screen.
   void addAlreadySent(Iterable<String> ids) {
@@ -78,14 +80,18 @@ class PodPhotoDraft extends ChangeNotifier {
   }
 
   Future<void> take(ImageSource source) async {
+    if (_picking) return;
     error = null;
     Uint8List? bytes;
+    _picking = true;
     try {
       bytes = await pickPodPhoto(source);
     } catch (_) {
       error = source == ImageSource.camera
           ? "Could not open the camera. If NaviG8r is not allowed to use it, allow it in your phone settings."
           : "Could not open your photos. If NaviG8r is not allowed to use them, allow it in your phone settings.";
+    } finally {
+      _picking = false;
     }
     final contentType = bytes == null ? null : _podPhotoContentType(bytes);
     if (bytes != null && contentType == null) {
@@ -141,6 +147,25 @@ class PodPhotoDraft extends ChangeNotifier {
     }
   }
 
+  /// The photos as the server lists them: those it no longer has go, those it has are added. Unchanged when
+  /// the list cannot be read or no longer holds this delivery.
+  Future<void> _reloadPhotosTheServerHas() async {
+    try {
+      final response =
+          await api.get<Map<String, dynamic>>("/v1/pilot/carrier/shipments");
+      final raw = response.data?["shipments"];
+      if (raw is! List) return;
+      for (final shipment in raw.whereType<Map<String, dynamic>>()) {
+        if (shipment["id"] != shipmentId) continue;
+        final ids = podPhotoIds(shipment);
+        photos.removeWhere((photo) => !ids.contains(photo.id));
+        addAlreadySent(ids);
+      }
+    } catch (_) {
+      // No signal again: the sentence already on screen says to try again.
+    }
+  }
+
   Future<void> remove(SentPodPhoto photo) async {
     error = null;
     sending = true;
@@ -152,7 +177,11 @@ class PodPhotoDraft extends ChangeNotifier {
     } catch (e) {
       error = serverNeverAnswered(e)
           ? "Could not remove the photo: no signal. Try again when you have one."
-          : _sendRefusal(e);
+          : serverAnsweredNotFound(e)
+              ? "That photo was already removed."
+              : _sendRefusal(e);
+      // The photos may have changed on another phone, so the list shows what the server has now.
+      await _reloadPhotosTheServerHas();
     } finally {
       sending = false;
       _changed();
@@ -194,9 +223,16 @@ class PodPhotoDraft extends ChangeNotifier {
 /// there are three.
 class PodPhotoCapture extends StatelessWidget {
   const PodPhotoCapture(
-      {required this.draft, this.forDriver = false, super.key});
+      {required this.draft,
+      this.forDriver = false,
+      this.confirmingDelivery = false,
+      super.key});
   final PodPhotoDraft draft;
   final bool forDriver;
+
+  /// While Confirm delivery is sending, the photos stay as they are: no Remove, Take photo or Choose from gallery,
+  /// as while a photo is sending.
+  final bool confirmingDelivery;
 
   /// For a photo sent before the screen opened, whose picture this phone no longer has.
   static const _sentEarlier = ColoredBox(
@@ -221,7 +257,7 @@ class PodPhotoCapture extends StatelessWidget {
           ),
         ),
       ),
-      if (!draft.sending)
+      if (!draft.sending && !confirmingDelivery)
         NvButton(
           label: "Remove",
           semanticsLabel: "Remove photo $number",
@@ -267,7 +303,7 @@ class PodPhotoCapture extends StatelessWidget {
             SizedBox(width: NvSpace.s2),
             Text("Sending", style: NvText.body),
           ])
-        else if (photos.length < podPhotoLimit) ...[
+        else if (photos.length < podPhotoLimit && !confirmingDelivery) ...[
           NvButton(
             label: "Take photo",
             kind: NvButtonKind.secondary,

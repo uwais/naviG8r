@@ -108,7 +108,13 @@ class CarrierApprovalBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(message),
+          // At 200% text the message took most of a 360 x 800 phone and pushed the screen under it off the bottom,
+          // so past a quarter of the phone's height it scrolls in its own box.
+          ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height / 4),
+            child: SingleChildScrollView(child: Text(message)),
+          ),
           if (action != null && !currentPath.startsWith("/driver/payout-setup"))
             Padding(
               padding: const EdgeInsets.only(top: 8),

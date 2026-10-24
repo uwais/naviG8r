@@ -359,6 +359,8 @@ class _CustomerBookShipmentScreenState
               ? null
               : refusal ??
                   "Booked. We could not confirm the payment yet. The shipment shows whether it went through.");
+    } else {
+      setState(() => _booking = false);
     }
     _pendingShipmentIdForCheckout = null;
   }
@@ -380,7 +382,11 @@ class _CustomerBookShipmentScreenState
     const sentence = "Payment did not go through. This shipment is not paid.";
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text(sentence)));
-    if (id != null) _openBookedShipment(id, announcement: sentence);
+    if (id != null) {
+      _openBookedShipment(id, announcement: sentence);
+    } else {
+      setState(() => _booking = false);
+    }
   }
 
   Future<void> _book() async {
@@ -392,6 +398,9 @@ class _CustomerBookShipmentScreenState
       _booking = true;
       _actionError = null;
     });
+    // Once checkout opens, the screen stays busy until checkout ends and the shipment opens: a tap
+    // while the payment is confirmed would book and charge a second shipment.
+    var checkoutOpened = false;
     try {
       final phone = CustomerSession.userPhone?.trim() ?? "";
       final r = await api.post<Map<String, dynamic>>(
@@ -436,6 +445,7 @@ class _CustomerBookShipmentScreenState
           amountPaise: amountPaise,
           shipmentId: shipmentId,
         );
+        checkoutOpened = true;
       } else if (shipmentId != null && mounted) {
         final held = payStatus == "AUTHORIZED" || payStatus == "CAPTURED";
         _openBookedShipment(shipmentId,
@@ -469,7 +479,7 @@ class _CustomerBookShipmentScreenState
         unawaited(_loadLane(priceAfter: code == "anchor_trip_not_open"));
       }
     } finally {
-      if (mounted) setState(() => _booking = false);
+      if (mounted && !checkoutOpened) setState(() => _booking = false);
     }
   }
 

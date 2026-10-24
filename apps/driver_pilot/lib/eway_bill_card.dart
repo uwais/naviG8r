@@ -43,8 +43,13 @@ class EwayBillCard extends StatefulWidget {
       {required this.shipment,
       this.onSaved,
       this.portalButtonInPanel = false,
+      this.tripStarted = false,
       super.key});
   final Map<String, dynamic> shipment;
+
+  /// The trip has left, so a passed valid-until time no longer stops it starting. The shipment alone
+  /// cannot say so while it is on the way; the screen knows from the trip.
+  final bool tripStarted;
 
   /// Puts part 1's "Open the e-way bill portal" in this panel, for a desktop that has no action
   /// bar to hold it.
@@ -281,8 +286,23 @@ class _EwayBillCardState extends State<EwayBillCard> {
     });
   }
 
-  Future<void> _remove() =>
-      _submit('/shipments/${widget.shipment['id']}/eway-bill/remove', null);
+  Future<void> _remove() async {
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+              title: const Text('Remove the e-way bill?'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('Keep it')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    child: const Text('Remove')),
+              ],
+            ));
+    if (!mounted || confirmed != true) return;
+    await _submit('/shipments/${widget.shipment['id']}/eway-bill/remove', null);
+  }
 
   Future<void> _submit(String path, Map<String, dynamic>? data) async {
     if (_busy) return;
@@ -551,7 +571,9 @@ class _EwayBillCardState extends State<EwayBillCard> {
       _fact('Truck', bill['truckNumber'] as String, identifier: true),
       if (validUntil != null) _fact('Valid until', validUntil),
       // The countdown and the has-passed reminder, after the truck and valid-until lines.
-      for (final line in ewayBillTruckLines(bill, forShipper: true).skip(2))
+      for (final line in ewayBillTruckLines(bill,
+              forShipper: true, tripStarted: widget.tripStarted)
+          .skip(2))
         Text(line, style: NvText.caption),
       if (mismatch != null) ...[
         const SizedBox(height: NvSpace.s2),

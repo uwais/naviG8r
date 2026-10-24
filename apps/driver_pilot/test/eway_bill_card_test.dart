@@ -306,9 +306,31 @@ void main() {
     await mountCard(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
     await tester.tap(find.text('Remove e-way bill'));
     await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+    await tester.pumpAndSettle();
     expect(path, '/shipments/shipment-a/eway-bill/remove');
     expect(find.text(partOneLead), findsOneWidget,
         reason: 'back to part 1, nothing added');
+  });
+
+  testWidgets('Remove e-way bill asks first, and Keep it sends nothing',
+      (tester) async {
+    final paths = <String>[];
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      paths.add(request.path);
+      return jsonResponse({'shipment': shipment()});
+    });
+    await mountCard(tester, EwayBillCard(shipment: shipment(bill: savedBill)));
+    await tester.tap(find.text('Remove e-way bill'));
+    await tester.pumpAndSettle();
+    expect(paths, isEmpty,
+        reason: 'hunt, 23 Oct 2026: one tap removed the bill');
+    expect(find.text('Remove the e-way bill?'), findsOneWidget);
+    await tester.tap(find.text('Keep it'));
+    await tester.pumpAndSettle();
+    expect(paths, isEmpty);
+    expect(find.text('Remove e-way bill'), findsOneWidget,
+        reason: 'the bill is still there');
   });
 
   testWidgets('the portal link opens the government address', (tester) async {

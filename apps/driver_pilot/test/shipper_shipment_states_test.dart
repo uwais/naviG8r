@@ -152,6 +152,46 @@ void main() {
       await leave(tester);
     });
 
+    testWidgets('delivered: the released payment is said once', (tester) async {
+      await showShipment(
+          tester,
+          booking(status: 'DELIVERED', extra: {
+            'podAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+            'podAcceptedAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+          }),
+          trip: lane(status: 'COMPLETED', started: leftAt),
+          payment: {'status': 'CAPTURED', 'amountPaise': 264000});
+      expect(find.textContaining('released your payment'), findsOneWidget,
+          reason: 'hunt, 23 Oct 2026: the delivered line and the payment card both said it');
+      await leave(tester);
+    });
+
+    for (final (ending, status, payment) in [
+      ('delivered', 'DELIVERED', {'status': 'CAPTURED', 'amountPaise': 264000}),
+      ('cancelled', 'FAILED_CARRIER_REFUNDED', {'status': 'REFUNDED', 'amountPaise': 264000}),
+    ]) {
+      testWidgets('the 15 second check stops once the shipment is $ending while open',
+          (tester) async {
+        final server = await showShipment(tester, booking(), trip: lane());
+        const path = '/shipments/shp_9f2c41';
+        int checks() =>
+            server.requests.where((request) => request.uri.path == path).length;
+        server.answers[path] = {
+          'shipment': booking(status: status, extra: {
+            if (status == 'DELIVERED') 'podAtUtcMs': deliveredAt.millisecondsSinceEpoch,
+          }),
+          'payment': payment,
+        };
+        await tester.pump(const Duration(seconds: 15));
+        await tester.pump(const Duration(milliseconds: 100));
+        final afterTheChange = checks();
+        await tester.pump(const Duration(seconds: 46));
+        expect(checks(), afterTheChange,
+            reason: 'hunt, 23 Oct 2026: it kept checking a shipment that can no longer change');
+        await leave(tester);
+      });
+    }
+
     testWidgets('cancelled shows words, not a code', (tester) async {
       await showShipment(tester, booking(status: 'FAILED_CARRIER_REFUNDED'),
           trip: lane(), payment: {'status': 'REFUNDED', 'amountPaise': 264000});

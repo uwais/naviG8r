@@ -22,9 +22,10 @@ CarrierServer _driverOn(String tripStatus) => signInToCarrierApp(CarrierServer(
     ));
 
 void main() {
-  for (final (path, label) in [
-    ('/driver/shipment/pending', 'Accept booking'),
-    ('/driver/shipment/booked', 'Confirm delivery'),
+  // Confirm delivery waits for the trip to start, as on the office booking screen (owner, 23 Oct 2026).
+  for (final (path, label, workingTripStatus) in [
+    ('/driver/shipment/pending', 'Accept booking', 'OPEN'),
+    ('/driver/shipment/booked', 'Confirm delivery', 'IN_PROGRESS'),
   ]) {
     testWidgets('$label is off on a requested trip, and says the office asked',
         (tester) async {
@@ -43,8 +44,9 @@ void main() {
       expect(server.sent, isEmpty, reason: 'nothing is sent');
     });
 
-    testWidgets('$label still works on an open trip', (tester) async {
-      _driverOn('OPEN');
+    testWidgets('$label still works on a trip that is not requested to cancel',
+        (tester) async {
+      _driverOn(workingTripStatus);
       await mountCarrierApp(tester, path, size: const Size(800, 3000));
       expect(
           tester

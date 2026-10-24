@@ -387,10 +387,7 @@ void main() {
           theme: DriverTheme.theme(),
           home: const Scaffold(body: DriverProfileScreen())));
       await tester.pumpAndSettle();
-      expect(
-          find.text(
-              'Could not load the transporter ID. Go back, then open this page again.'),
-          findsOneWidget);
+      expect(find.text('Could not load the transporter ID.'), findsOneWidget);
       expect(transporterIdField(), findsNothing);
       expect(find.text('Save transporter ID'), findsNothing);
     });

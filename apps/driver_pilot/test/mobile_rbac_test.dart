@@ -96,6 +96,17 @@ void main() {
     expect(find.text('Payment on hold until $holdUntil.'), findsOneWidget);
   });
 
+  testWidgets('once the 48-hour hold is over, Accept delivery is not offered',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home: ShipmentPaymentStatus(
+            shipment: {...shipment(), 'paymentReady': true})));
+    expect(find.text('Accept delivery'), findsNothing,
+        reason: 'hunt, 23 Oct 2026: accepting changes nothing once the hold is over (shipment_steps.dart)');
+    expect(find.text('NaviG8r checks it, then releases your payment.'),
+        findsOneWidget);
+  });
+
   testWidgets('driver cannot render payout form through a direct screen',
       (tester) async {
     AuthorizationSession.principal = {

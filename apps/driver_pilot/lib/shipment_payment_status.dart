@@ -16,7 +16,8 @@ class ShipmentPaymentStatus extends StatefulWidget {
   final Future<void> Function()? onAccepted;
 
   /// False leaves out the held and released payment lines and keeps the delivery line. Only the shipper's
-  /// shipment screen shows this card today, and it keeps the default.
+  /// shipment screen shows this card today; it passes false once its own delivered line says the payment
+  /// was released.
   final bool showPaymentStatus;
 
   @override
@@ -32,7 +33,9 @@ class _ShipmentPaymentStatusState extends State<ShipmentPaymentStatus> {
       widget.shipment['customerOrgId'] == AuthorizationSession.organizationId &&
       widget.shipment['status'] == 'PENDING_RELEASE' &&
       widget.shipment['podAtUtcMs'] is num &&
-      widget.shipment['podAcceptedAtUtcMs'] == null;
+      widget.shipment['podAcceptedAtUtcMs'] == null &&
+      // Once the hold is over, accepting changes nothing (the same rule as shipment_steps.dart).
+      widget.shipment['paymentReady'] != true;
 
   Future<void> _accept() async {
     final scope = AuthorizationSession.scopeKey;

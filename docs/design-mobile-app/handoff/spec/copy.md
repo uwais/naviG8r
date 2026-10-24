@@ -115,8 +115,10 @@ Open checks: "contact NaviG8r" names no phone number or email; the app has none 
 | Step 4 problem | E-way bill needs a fix · NaviG8r staff found a difference · The [field] on the portal's bill is [value]. You entered [value]. · If the bill is wrong, fix it on the portal first. Then fix it here. · Fix the details · Ask NaviG8r staff |  |
 | Footnote | NaviG8r does not make or change e-way bills. | Once per screen, small |
 | Not needed | E-way bill: not needed · You said so on [date]. [Carrier] saw this before accepting. · Change |  |
+| Remove the bill | Remove the e-way bill? · Keep it · Remove | Asked after Remove e-way bill is tapped, before anything is sent (23 Oct 2026). When removal is allowed is unchanged |
 | On the way | Left [pickup] on [date] at [time] IST. [Carrier] confirms when it is delivered. · Message [Carrier] |  |
 | Delivered | [Carrier] confirmed delivery and added proof of delivery. Your payment of ₹[amount] is collected now. · View proof of delivery · Book another shipment | Open item 8 (payment issue) |
+| Proof of delivery, full size | Could not show this photo. | When a photo opened full size cannot be shown (23 Oct 2026). In the list of photos the same case reads "This photo cannot be shown." |
 | Cancelled | This shipment was cancelled · NaviG8r operations cancelled it on [date] at your request. · You paid · Refunded · Refunds reach your account in the time your bank or payment app takes. · Questions about this refund? Contact [NaviG8r contact]. | Replaces the system code |
 | Cancelled, hold released | This shipment was cancelled · NaviG8r never collected this payment. It comes back within 3 days of when you paid. Your bank may take 5-7 more working days. · Questions about this payment? Contact [NaviG8r contact]. | Payment `HOLD_RELEASED`: no "You paid", no refund lines (Rishabh, 19 Oct 2026). Never "never taken": with UPI or netbanking the shipper's bank is debited when they pay; "held" only means NaviG8r has not collected it |
 | Cancelled, collected after cancel | This shipment was cancelled · Your payment came in after the cancel. NaviG8r is refunding it. Your bank may take 5-7 working days. · Questions about this refund? Contact [NaviG8r contact]. | Payment `CAPTURED_AFTER_CANCEL`: Razorpay collected it after the cancel and Finance refunds it in Razorpay. Once Finance marks it refunded it reads as Cancelled (`REFUNDED`) |
@@ -137,6 +139,19 @@ Findings: none. No ranking, cost, urgency, default, exit, decline button, money 
 Accepted risks: none
 Open check: Transporter name is the carrier's display name in NaviG8r; if a carrier's
   display name differs from its registered name, the bill could carry the display name.
+```
+
+```
+DARK PATTERN SCREEN — Remove the bill question and the full-size photo error — 2026-10-23
+Screened: the Remove the bill and Proof of delivery, full size rows above
+Verdict: PASS
+Findings: none. 1 actionability, 2 comparison, 3 cost, 4 urgency, 9 data, 10 money: N/A, nothing
+  ranked, priced, timed, asked for or paid. 5 defaults: no choice is preselected; closing the
+  question keeps the bill. 6 exit: Keep it and closing the question are as easy as Remove. 7 decline
+  copy: "Keep it", neutral. 8 promise: Remove removes the bill as the button did before; the photo
+  line says only that it cannot be shown. 11 reversal: "we ask once before removing your bill, and
+  say so when a photo cannot be shown" is fine to say to the shipper.
+Accepted risks: none
 ```
 
 ## Copy: carrier office and driver

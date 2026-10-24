@@ -3,9 +3,11 @@
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/customer_session.dart';
 import 'package:driver_pilot/notification_center.dart';
+import 'package:driver_pilot/shipper/shipment_screen.dart';
 import 'package:driver_pilot/ui/format.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import 'support/mock_api.dart';
 import 'support/shipper_screen_checks.dart';
@@ -356,6 +358,30 @@ void main() {
       expect(find.text('Make the e-way bill'), findsNothing,
           reason: 'the task belonged to Sharma Textiles');
       expect(find.text('Could not load your shipments.'), findsOneWidget);
+    });
+
+    testWidgets('a task done on the shipment screen is gone from Home on the way back',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer');
+      server.answers['/shipments'] = {'shipments': [needsBill]};
+      server.answers['/anchor-trips'] = {'trips': [lane()]};
+      await tester.pumpAndSettle();
+      expect(find.text('Make the e-way bill'), findsOneWidget);
+      final done = {...needsBill, 'ewayBill': notNeededBill, 'updatedAtUtcMs': 2};
+      server.answers['/shipments'] = {'shipments': [done]};
+      server.answers['/shipments/${needsBill['id']}'] = {
+        'shipment': done,
+        'payment': heldPayment
+      };
+      await tester.tap(find.text('Open shipment'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CustomerShipmentDetailScreen), findsOneWidget);
+      GoRouter.of(tester.element(find.byType(CustomerShipmentDetailScreen)))
+          .go('/customer');
+      await tester.pumpAndSettle();
+      expect(find.text('Make the e-way bill'), findsNothing,
+          reason: 'hunt, 23 Oct 2026: Home stays built under the shipment and kept the old task');
+      await leave(tester);
     });
   });
 
