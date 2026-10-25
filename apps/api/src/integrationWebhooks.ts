@@ -7,8 +7,9 @@ import type {
 import type { Store } from "./store.ts";
 import { signWebhookPayload } from "./integrationAuth.ts";
 import { randomUUID } from "node:crypto";
-import { lookup } from "node:dns/promises";
-import { BlockList, isIP } from "node:net";
+import http from "node:http";
+import https from "node:https";
+import { checkWebhookAddress, lookupOnly, WEBHOOK_ADDRESS_REFUSED_SENTENCE, type CheckedWebhookAddress } from "./integrationWebhookAddress.ts";
 
 const EVENT_VERSION = "2026-06-01";
 const WEBHOOK_RETRY_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 24 * 60 * 60_000];
@@ -251,52 +252,47 @@ export function outboundWebhooksOff(): boolean {
   return process.env.OUTBOUND_WEBHOOKS_OFF === "1";
 }
 
-export const WEBHOOK_ADDRESS_REFUSED_SENTENCE = "This webhook address is not on the public internet, so it was not called.";
 const WEBHOOK_ERROR_BODY_MAX_BYTES = 4 * 1024;
-
-// Loopback, private, shared, link-local (where cloud metadata answers), multicast and reserved ranges.
-const privateAddresses = new BlockList();
-for (const [network, prefix] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.168.0.0", 16], ["198.18.0.0", 15], ["224.0.0.0", 3]] as const) {
-  privateAddresses.addSubnet(network, prefix, "ipv4");
-}
-for (const [network, prefix] of [["::", 127], ["fc00::", 7], ["fe80::", 10], ["ff00::", 8]] as const) {
-  privateAddresses.addSubnet(network, prefix, "ipv6");
-}
-
-/** The DNS answer a webhook call checks before it is made. A test swaps it for fixed answers. */
-export const webhookAddressLookup = {
-  async addresses(hostname: string): Promise<string[]> {
-    return (await lookup(hostname, { all: true })).map((answer) => answer.address);
-  },
-};
 
 // Tests and the local practice server (NODE_ENV=test) send webhooks to a listener on this machine; no deployed API runs with test.
 function privateWebhookAddressesAllowed(): boolean {
   return process.env.NODE_ENV === "test";
 }
 
-async function webhookResolvesToPrivateAddress(webhookUrl: string): Promise<boolean> {
-  const hostname = new URL(webhookUrl).hostname.replace(/^\[(.*)\]$/, "$1");
-  const addresses = await webhookAddressLookup.addresses(hostname);
-  return addresses.length === 0 || addresses.some((address) => privateAddresses.check(address, isIP(address) === 6 ? "ipv6" : "ipv4"));
-}
-
-async function startOfBody(res: Response, maxBytes: number): Promise<string> {
-  if (!res.body) return "";
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  try {
-    while (length < maxBytes) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      length += value.length;
-    }
-  } finally {
-    await reader.cancel().catch(() => {});
-  }
-  return Buffer.concat(chunks).subarray(0, maxBytes).toString("utf8");
+/**
+ * POSTs to the addresses the check returned, never resolving the name again; the URL's host name still goes in the
+ * Host header and the TLS certificate check. A redirect is not followed, and only the start of an error answer is read.
+ */
+function postToCheckedAddress(webhookUrl: string, headers: Record<string, string>, body: string, checked: CheckedWebhookAddress[]): Promise<{ status: number; statusText: string; errorText: string }> {
+  const url = new URL(webhookUrl);
+  return new Promise((resolve, reject) => {
+    const request = (url.protocol === "https:" ? https : http).request(url, {
+      method: "POST",
+      headers: { ...headers, "content-length": String(Buffer.byteLength(body)) },
+      lookup: lookupOnly(checked),
+      signal: AbortSignal.timeout(30_000),
+    }, (res) => {
+      const status = res.statusCode ?? 0;
+      const statusText = res.statusMessage ?? "";
+      if (status >= 200 && status < 300) {
+        res.destroy();
+        return resolve({ status, statusText, errorText: "" });
+      }
+      const chunks: Buffer[] = [];
+      let length = 0;
+      const finish = () => resolve({ status, statusText, errorText: Buffer.concat(chunks).subarray(0, WEBHOOK_ERROR_BODY_MAX_BYTES).toString("utf8") });
+      res.on("data", (chunk: Buffer) => {
+        chunks.push(chunk);
+        length += chunk.length;
+        if (length >= WEBHOOK_ERROR_BODY_MAX_BYTES) res.destroy();
+      });
+      res.on("end", finish);
+      res.on("close", finish);
+      res.on("error", finish);
+    });
+    request.on("error", reject);
+    request.end(body);
+  });
 }
 
 export async function deliverIntegrationWebhook(
@@ -313,22 +309,13 @@ export async function deliverIntegrationWebhook(
   }
 
   try {
-    if (!privateWebhookAddressesAllowed() && await webhookResolvesToPrivateAddress(delivery.webhookUrl)) {
-      return { ok: false, httpStatus: 0, error: WEBHOOK_ADDRESS_REFUSED_SENTENCE };
-    }
-    const res = await fetch(delivery.webhookUrl, {
-      method: "POST",
-      headers,
-      body: delivery.payloadJson,
-      // A redirect could point anywhere, past the address check, so a 3xx is answered as a failed delivery.
-      redirect: "manual",
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (res.ok) {
+    const checked = await checkWebhookAddress(delivery.webhookUrl, privateWebhookAddressesAllowed());
+    if (!checked) return { ok: false, httpStatus: 0, error: WEBHOOK_ADDRESS_REFUSED_SENTENCE };
+    const res = await postToCheckedAddress(delivery.webhookUrl, headers, delivery.payloadJson, checked);
+    if (res.status >= 200 && res.status < 300) {
       return { ok: true, httpStatus: res.status };
     }
-    const text = await startOfBody(res, WEBHOOK_ERROR_BODY_MAX_BYTES).catch(() => "");
-    return { ok: false, httpStatus: res.status, error: text.slice(0, 500) || res.statusText };
+    return { ok: false, httpStatus: res.status, error: res.errorText.slice(0, 500) || res.statusText };
   } catch (e: any) {
     return { ok: false, httpStatus: 0, error: String(e?.message ?? e) };
   }

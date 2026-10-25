@@ -121,7 +121,7 @@ Poll responses use the same canonical JSON shape as webhook payloads.
 
 ## Outbound webhooks
 
-Configure **HTTPS** callback URL in the portal. Before each call NaviG8r resolves the host; if any address it gets is loopback, private, shared, link-local (cloud metadata), multicast or reserved, the call is not made and the delivery fails with "This webhook address is not on the public internet, so it was not called." Redirects are not followed: a `3xx` answer is a failed delivery. For a failed delivery the delivery log keeps at most the first 500 characters of the answer, and NaviG8r reads at most 4 KB of it. Only with `NODE_ENV=test` (tests and the local practice server) may a webhook go to an address on this machine or a private network.
+Configure **HTTPS** callback URL in the portal. Before each call NaviG8r resolves the host once and connects only to the addresses that answer gave, so the name is not looked up a second time; the host name still goes in the `Host` header and the TLS certificate check (`integrationWebhookAddress.ts`). If the name does not resolve, or any address it gets is loopback, private, shared, link-local (cloud metadata), multicast, documentation (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`), benchmarking (`198.18.0.0/15`), reserved (`192.0.0.0/24`, `240.0.0.0/4`), site-local (`fec0::/10`) or an IPv6 form that carries an IPv4 address (`::/96`, `64:ff9b::/96`, `2002::/16`), the call is not made and the delivery fails with the one sentence "This webhook address is not on the public internet, so it was not called." Redirects are not followed: a `3xx` answer is a failed delivery. For a failed delivery the delivery log keeps at most the first 500 characters of the answer, and NaviG8r reads at most 4 KB of it. Only with `NODE_ENV=test` (tests and the local practice server) may a webhook go to an address on this machine or a private network.
 
 NaviG8r signs the raw body:
 
@@ -242,7 +242,7 @@ node --experimental-strip-types --test \
 |-----------|----------|
 | `integration.test.ts` | Service-layer idempotency, events, auth headers, webhook payload fields |
 | `integrationHttp.test.ts` | Real HTTP: `POST /v1/integrations/loads`, portal `/v1/pilot/customer/integrations/*` |
-| `integrationWebhooks.test.ts` | Mock `fetch`: HMAC signature, retry backoff on failed delivery; addresses not on the public internet are not called, redirects are not followed, a failed answer is read only up to 4 KB |
+| `integrationWebhooks.test.ts`, `integrationWebhookAddress.test.ts` | A local listener: HMAC signature, retry backoff on failed delivery, the call goes to the checked address with no second lookup; addresses not on the public internet and names that do not resolve are not called, redirects are not followed, a failed answer is read only up to 4 KB |
 
 Flutter widget tests:
 

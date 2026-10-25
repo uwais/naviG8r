@@ -1,6 +1,7 @@
 import { bookTestShipment, internalUser, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import http from "node:http";
+import https from "node:https";
 import type { AddressInfo } from "node:net";
 import test, { mock } from "node:test";
 import { createStore } from "./store.ts";
@@ -18,15 +19,21 @@ import {
   processPendingWebhookDeliveries,
   emitIntegrationEvent,
   retryWebhookDelivery,
-  webhookAddressLookup,
-  WEBHOOK_ADDRESS_REFUSED_SENTENCE,
 } from "./integrationWebhooks.ts";
+import { webhookAddressLookup, WEBHOOK_ADDRESS_REFUSED_SENTENCE } from "./integrationWebhookAddress.ts";
 import { signWebhookPayload, verifyWebhookSignature } from "./integrationAuth.ts";
 import type { IntegrationWebhookDelivery } from "./types.ts";
 
-// No test here makes a DNS query: erp.example.com answers with a documentation address on the public internet.
-const realAddressLookup = webhookAddressLookup.addresses;
-webhookAddressLookup.addresses = async (hostname) => hostname === "erp.example.com" ? ["203.0.113.10"] : realAddressLookup(hostname);
+// No test here makes a DNS query: a name a test does not answer for itself does not resolve.
+webhookAddressLookup.addresses = async (hostname) => { throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: "ENOTFOUND" }); };
+
+/** Counts requests the webhook code starts, and starts none. */
+function noRequestsMade(t: { after(fn: () => void): void }): () => number {
+  const plain = mock.method(http, "request", () => { throw new Error("no request expected"); });
+  const secure = mock.method(https, "request", () => { throw new Error("no request expected"); });
+  t.after(() => { plain.mock.restore(); secure.mock.restore(); });
+  return () => plain.mock.callCount() + secure.mock.callCount();
+}
 
 const GURGAON = { lat: 28.4595, lng: 77.0266, label: "Gurugram" };
 const JAIPUR = { lat: 26.9124, lng: 75.7873, label: "Jaipur" };
@@ -82,50 +89,36 @@ function seedShipmentWithWebhook(store: ReturnType<typeof createStore>) {
   return { admin, conn, shipment };
 }
 
-test("deliverIntegrationWebhook attaches valid HMAC signature", async () => {
+test("deliverIntegrationWebhook attaches valid HMAC signature", async t => {
   process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  withNodeEnv(t, "test");
   const secret = "whsec_test_secret";
   const payloadJson = JSON.stringify({ eventId: "evt_1", eventType: "load.created" });
   let capturedSig: string | undefined;
   let capturedBody: string | undefined;
-
-  const fetchMock = mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
-    const headers = init?.headers as Record<string, string>;
-    capturedSig = headers["x-navig8r-signature"];
-    capturedBody = String(init?.body ?? "");
-    return new Response("ok", { status: 200 });
+  const local = await listen(t, (req, res) => {
+    capturedSig = String(req.headers["x-navig8r-signature"]);
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => { capturedBody = body; res.end("ok"); });
   });
 
-  try {
-    const delivery: IntegrationWebhookDelivery = {
-      id: "whd_1",
-      eventId: "evt_1",
-      orgId: "org_1",
-      connectionId: "conn_1",
-      webhookUrl: "https://erp.example.com/hook",
-      payloadJson,
-      status: "PENDING",
-      attempts: 0,
-      nextRetryAtUtcMs: Date.now(),
-      lastHttpStatus: null,
-      lastError: null,
-      deliveredAtUtcMs: null,
-      createdAtUtcMs: Date.now(),
-      updatedAtUtcMs: Date.now(),
-    };
-
-    const result = await deliverIntegrationWebhook(delivery, secret);
-    assert.equal(result.ok, true);
-    assert.equal(capturedBody, payloadJson);
-    assert.equal(capturedSig, signWebhookPayload(secret, payloadJson));
-    assert.equal(verifyWebhookSignature(secret, payloadJson, capturedSig), true);
-  } finally {
-    fetchMock.mock.restore();
-  }
+  const result = await deliverIntegrationWebhook({ ...deliveryTo(`${local}/hook`), payloadJson }, secret);
+  assert.equal(result.ok, true);
+  assert.equal(capturedBody, payloadJson);
+  assert.equal(capturedSig, signWebhookPayload(secret, payloadJson));
+  assert.equal(verifyWebhookSignature(secret, payloadJson, capturedSig), true);
 });
 
-test("processPendingWebhookDeliveries retries failed delivery with backoff", async () => {
+test("processPendingWebhookDeliveries retries failed delivery with backoff", async t => {
   process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  withNodeEnv(t, "test");
+  let calls = 0;
+  const local = await listen(t, (_req, res) => {
+    calls += 1;
+    res.writeHead(calls === 1 ? 500 : 200);
+    res.end(calls === 1 ? "fail" : "ok");
+  });
   const store = createStore();
   const admin = registerCustomerOrgAdmin(store, {
     fullName: "Retry Admin",
@@ -133,7 +126,7 @@ test("processPendingWebhookDeliveries retries failed delivery with backoff", asy
     orgDisplayName: "Retry Shipper",
   });
   const conn = updateIntegrationConnection(store, admin.org.id, {
-    webhookUrl: "https://erp.example.com/hook",
+    webhookUrl: `${local}/hook`,
     paymentPolicy: "erp_preauthorized",
     changedByUserId: internalUser(store, "OPS").userId,
   });
@@ -159,46 +152,34 @@ test("processPendingWebhookDeliveries retries failed delivery with backoff", asy
   };
   store.integrationWebhookDeliveries.set(delivery.id, delivery);
 
-  let calls = 0;
-  const fetchMock = mock.method(globalThis, "fetch", async () => {
-    calls += 1;
-    if (calls === 1) return new Response("fail", { status: 500 });
-    return new Response("ok", { status: 200 });
-  });
+  await processPendingWebhookDeliveries(store);
+  const afterFirst = store.integrationWebhookDeliveries.get(delivery.id)!;
+  assert.equal(afterFirst.status, "PENDING");
+  assert.equal(afterFirst.attempts, 1);
+  assert.ok(afterFirst.nextRetryAtUtcMs > Date.now());
 
-  try {
-    await processPendingWebhookDeliveries(store);
-    const afterFirst = store.integrationWebhookDeliveries.get(delivery.id)!;
-    assert.equal(afterFirst.status, "PENDING");
-    assert.equal(afterFirst.attempts, 1);
-    assert.ok(afterFirst.nextRetryAtUtcMs > Date.now());
-
-    afterFirst.nextRetryAtUtcMs = Date.now() - 1;
-    store.integrationWebhookDeliveries.set(delivery.id, afterFirst);
-    await processPendingWebhookDeliveries(store);
-    const afterSecond = store.integrationWebhookDeliveries.get(delivery.id)!;
-    assert.equal(afterSecond.status, "DELIVERED");
-    assert.equal(calls, 2);
-  } finally {
-    fetchMock.mock.restore();
-  }
+  afterFirst.nextRetryAtUtcMs = Date.now() - 1;
+  store.integrationWebhookDeliveries.set(delivery.id, afterFirst);
+  await processPendingWebhookDeliveries(store);
+  const afterSecond = store.integrationWebhookDeliveries.get(delivery.id)!;
+  assert.equal(afterSecond.status, "DELIVERED");
+  assert.equal(calls, 2);
 });
 
-test("with OUTBOUND_WEBHOOKS_OFF=1 a queued delivery fails with a sentence and nothing is sent", async () => {
+test("with OUTBOUND_WEBHOOKS_OFF=1 a queued delivery fails with a sentence and nothing is sent", async t => {
   const store = createStore();
   seedShipmentWithWebhook(store);
-  const fetchMock = mock.method(globalThis, "fetch", async () => new Response("ok", { status: 200 }));
+  const requestsMade = noRequestsMade(t);
   process.env.OUTBOUND_WEBHOOKS_OFF = "1";
   try {
     assert.ok(await processPendingWebhookDeliveries(store) > 0);
-    assert.equal(fetchMock.mock.callCount(), 0);
+    assert.equal(requestsMade(), 0);
     for (const delivery of store.integrationWebhookDeliveries.values()) {
       assert.equal(delivery.status, "PENDING");
       assert.equal(delivery.lastError, "The practice server does not send webhooks.");
     }
   } finally {
     delete process.env.OUTBOUND_WEBHOOKS_OFF;
-    fetchMock.mock.restore();
   }
 });
 
@@ -305,13 +286,39 @@ async function listen(t: { after(fn: () => void): void }, handler: http.RequestL
 
 test("a webhook address that is a private, loopback, link-local or metadata address is not called", async t => {
   withNodeEnv(t, undefined);
-  const fetchMock = mock.method(globalThis, "fetch", async () => new Response("ok", { status: 200 }));
-  t.after(() => fetchMock.mock.restore());
+  const requestsMade = noRequestsMade(t);
+  const answeredBefore = webhookAddressLookup.addresses;
+  webhookAddressLookup.addresses = async (hostname) => hostname === "localhost" ? ["127.0.0.1", "::1"] : answeredBefore(hostname);
+  t.after(() => { webhookAddressLookup.addresses = answeredBefore; });
   for (const webhookUrl of ["http://127.0.0.1:9/hook", "http://localhost/hook", "http://10.1.2.3/hook", "http://172.16.0.1/hook", "http://192.168.1.1/hook", "http://169.254.169.254/latest/meta-data", "http://100.64.0.1/hook", "http://0.0.0.0/hook", "http://[::1]/hook", "http://[fe80::1]/hook", "http://[fd00:ec2::254]/hook", "http://[::ffff:127.0.0.1]/hook", "http://2130706433/hook"]) {
     const result = await deliverIntegrationWebhook(deliveryTo(webhookUrl), undefined);
     assert.deepEqual([result.ok, result.httpStatus, result.error], [false, 0, WEBHOOK_ADDRESS_REFUSED_SENTENCE], webhookUrl);
   }
-  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.equal(requestsMade(), 0);
+});
+
+test("a webhook name that does not resolve fails with the same sentence as a private one, and nothing is sent", async t => {
+  withNodeEnv(t, undefined);
+  const requestsMade = noRequestsMade(t);
+  const result = await deliverIntegrationWebhook(deliveryTo("https://missing.example.com/hook"), undefined);
+  assert.deepEqual([result.ok, result.httpStatus, result.error], [false, 0, WEBHOOK_ADDRESS_REFUSED_SENTENCE]);
+  assert.equal(requestsMade(), 0);
+});
+
+test("a webhook is sent to the address its check resolved, with no second DNS lookup", async t => {
+  withNodeEnv(t, "test");
+  let hostHeader: string | undefined;
+  const local = await listen(t, (req, res) => { hostHeader = req.headers.host; res.end("ok"); });
+  const port = new URL(local).port;
+  const answeredBefore = webhookAddressLookup.addresses;
+  let lookups = 0;
+  // A .invalid name never resolves in DNS, so the call can only arrive through the checked answer.
+  webhookAddressLookup.addresses = async (hostname) => { lookups += 1; return hostname === "webhook.invalid" ? ["127.0.0.1"] : answeredBefore(hostname); };
+  t.after(() => { webhookAddressLookup.addresses = answeredBefore; });
+  const result = await deliverIntegrationWebhook(deliveryTo(`http://webhook.invalid:${port}/hook`), undefined);
+  assert.deepEqual([result.ok, result.httpStatus], [true, 200]);
+  assert.equal(lookups, 1);
+  assert.equal(hostHeader, `webhook.invalid:${port}`, "the request still names the webhook's host");
 });
 
 test("a webhook that answers with a redirect is a failed delivery, and the redirect is not followed", async t => {
@@ -342,22 +349,32 @@ test("a failed webhook's error text is taken from the start of its answer; the r
 
 test("a webhook host is called only when every address it resolves to is on the public internet", async t => {
   withNodeEnv(t, undefined);
-  const fetchMock = mock.method(globalThis, "fetch", async () => new Response("ok", { status: 200 }));
   const answeredBefore = webhookAddressLookup.addresses;
-  t.after(() => { fetchMock.mock.restore(); webhookAddressLookup.addresses = answeredBefore; });
+  t.after(() => { webhookAddressLookup.addresses = answeredBefore; });
   const answers: Record<string, string[]> = {
     "metadata.example.com": ["169.254.169.254"],
-    "mixed.example.com": ["203.0.113.10", "10.0.0.7"],
+    "mixed.example.com": ["93.184.216.34", "10.0.0.7"],
     "private-v6.example.com": ["fd00::7"],
-    "public.example.com": ["203.0.113.10", "2001:db8::10"],
+    "public.example.com": ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"],
   };
   webhookAddressLookup.addresses = async (hostname) => answers[hostname] ?? [];
+  const refusedRequests = noRequestsMade(t);
   for (const hostname of ["metadata.example.com", "mixed.example.com", "private-v6.example.com"]) {
     const result = await deliverIntegrationWebhook(deliveryTo(`https://${hostname}/hook`), undefined);
     assert.deepEqual([result.ok, result.error], [false, WEBHOOK_ADDRESS_REFUSED_SENTENCE], hostname);
   }
-  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.equal(refusedRequests(), 0);
+  mock.restoreAll();
+
+  // Nothing leaves this machine: the request is caught as it starts, and what it would connect to is read.
+  const started: Array<{ url: URL; options: http.RequestOptions }> = [];
+  const secure = mock.method(https, "request", (url: URL, options: http.RequestOptions) => { started.push({ url, options }); throw new Error("stopped before connecting"); });
+  t.after(() => secure.mock.restore());
   const result = await deliverIntegrationWebhook(deliveryTo("https://public.example.com/hook"), undefined);
-  assert.deepEqual([result.ok, result.httpStatus], [true, 200]);
-  assert.equal(fetchMock.mock.callCount(), 1);
+  assert.equal(result.ok, false);
+  assert.equal(started.length, 1);
+  assert.equal(started[0]!.url.hostname, "public.example.com", "TLS checks the certificate against the webhook's host name");
+  assert.equal(started[0]!.options.servername, undefined, "no other name is given for TLS");
+  const connectsTo = await new Promise((resolve) => started[0]!.options.lookup!("public.example.com", { all: true }, (_error, addresses) => resolve(addresses)));
+  assert.deepEqual(connectsTo, [{ address: "93.184.216.34", family: 4 }, { address: "2606:2800:220:1:248:1893:25c8:1946", family: 6 }]);
 });
