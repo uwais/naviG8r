@@ -117,6 +117,8 @@ All require `loads:read`.
 | `GET /v1/integrations/shipments/:id/tracking` | Live tracking payload |
 | `GET /v1/integrations/events?sinceEventId=` | Missed webhook recovery |
 
+The `trip` object in the snapshot and tracking replies never carries the trip's last live location (`lastLiveLocation`) or the user ids of whoever started or completed it. The truck's position comes only as the tracking reply's `liveLocation`, and only while the shipper's goods are on the moving truck (shipment `BOOKED`, trip `IN_PROGRESS`); otherwise it is `null`.
+
 Poll responses use the same canonical JSON shape as webhook payloads.
 
 ## Outbound webhooks
