@@ -7,7 +7,10 @@ import "package:flutter/material.dart";
 import "package:flutter_test/flutter_test.dart";
 
 void main() {
+  final savedConnections = <Object?>[];
+
   setUp(() {
+    savedConnections.clear();
     CustomerSession.clear();
     CustomerSession.skipRefreshInTests = true;
     api = Api("http://test");
@@ -15,6 +18,7 @@ void main() {
     api.dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
+          if (options.method == "PATCH") savedConnections.add(options.data);
           if (options.path.contains("/v1/pilot/customer/integrations")) {
             handler.resolve(
               Response<Map<String, dynamic>>(
@@ -91,6 +95,39 @@ void main() {
     expect(find.text("Recent webhook deliveries"), findsOneWidget);
     expect(find.text("abc123"), findsOneWidget);
     expect(find.text("evt_test"), findsOneWidget);
+  });
+
+  testWidgets(
+      "Saving settings leaves the payment policy out; it is shown as set by staff",
+      (tester) async {
+    CustomerSession.applyForTest(
+      userFullName: "ERP Admin",
+      userPhone: "9111009900",
+      customerOrgId: "org_test",
+      customerOrgName: "ERP Smoke Co",
+      customerRole: "CUSTOMER_ADMIN",
+    );
+
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: DriverTheme.theme(),
+        home: const CustomerIntegrationsScreen(),
+      ),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    expect(find.text("Set by NaviG8r staff."), findsOneWidget);
+    await tester.tap(find.text("Save settings"));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    expect(savedConnections, hasLength(1));
+    final saved = savedConnections.single as Map;
+    expect(saved["webhookUrl"], "https://erp.example.com/hook");
+    expect(saved.containsKey("paymentPolicy"), isFalse);
   });
 
   testWidgets("CustomerIntegrationsScreen shows admin required for non-admin",

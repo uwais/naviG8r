@@ -1050,7 +1050,6 @@ class _CustomerIntegrationsScreenState
         "/v1/pilot/customer/integrations/connection$_orgQuery",
         data: {
           "webhookUrl": _webhookUrl.text.trim(),
-          "paymentPolicy": _paymentPolicy,
           "regenerateWebhookSecret": regenerateWebhookSecret,
         },
       );
@@ -1880,7 +1879,14 @@ class _CustomerBookShipmentScreenState
             "razorpaySignature": signature,
           },
         );
-      } catch (_) {}
+      } catch (e) {
+        // Other confirm errors stay quiet: the Razorpay webhook can still confirm the payment.
+        final expired = bookingExpiredMessage(e);
+        if (expired != null && mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(expired)));
+        }
+      }
     }
     if (!mounted) return;
     if (id != null) {
@@ -2125,6 +2131,9 @@ class _CustomerBookShipmentScreenState
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                const Text(payWithinWindowLine,
+                    style: TextStyle(color: DriverTheme.muted)),
               ],
             ),
             secondary: Column(

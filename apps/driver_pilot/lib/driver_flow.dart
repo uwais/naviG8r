@@ -1065,7 +1065,8 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
             final id = s["id"]?.toString() ?? "";
             final st = s["status"]?.toString() ?? "";
             final stLabel = shipmentStatusLabel(st,
-                seesPayment: AuthorizationSession.can("payment.read"));
+                seesPayment: AuthorizationSession.can("payment.read"),
+                unpaidBookingExpired: s["unpaidBookingExpiredAtUtcMs"] != null);
             return Card(
               child: ListTile(
                 title: Text("${s["customerOrgName"]} · ${s["weightKg"]} kg"),
@@ -1213,7 +1214,7 @@ class _DriverShipmentDetailScreenState
                   color: DriverTheme.navy)),
           const SizedBox(height: 8),
           Text(
-              "Status: ${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"))}",
+              "Status: ${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"), unpaidBookingExpired: s["unpaidBookingExpiredAtUtcMs"] != null)}",
               style: const TextStyle(color: DriverTheme.muted)),
           const SizedBox(height: 12),
           Text("Pickup: ${s["pickupAddress"]}"),
@@ -2354,10 +2355,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                           title: Text(
                               "${s["customerOrgName"]} · ${s["weightKg"]}kg"),
                           subtitle: Text(s["netToCarrierPaise"] is num
-                              ? "${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"))} · ${formatInrFromPaise(s["netToCarrierPaise"] as num)} net"
+                              ? "${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"), unpaidBookingExpired: s["unpaidBookingExpiredAtUtcMs"] != null)} · ${formatInrFromPaise(s["netToCarrierPaise"] as num)} net"
                               : shipmentStatusLabel(st,
                                   seesPayment:
-                                      AuthorizationSession.can("payment.read"))),
+                                      AuthorizationSession.can("payment.read"),
+                                  unpaidBookingExpired:
+                                      s["unpaidBookingExpiredAtUtcMs"] !=
+                                          null)),
                           trailing: st == "PENDING_CARRIER_ACCEPT"
                               ? TextButton(
                                   onPressed: DriverSession.complianceApproved &&

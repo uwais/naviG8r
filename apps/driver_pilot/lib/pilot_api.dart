@@ -378,7 +378,13 @@ void defaultAnchorTripWindow(
 
 /// [seesPayment] is false for a driver, who never sees carrier earnings or their status (owner decision,
 /// 15 Oct 2026), so those two statuses are worded without payment.
-String shipmentStatusLabel(String status, {bool seesPayment = true}) {
+/// [unpaidBookingExpired] is true when the shipment has unpaidBookingExpiredAtUtcMs: the shipper never paid,
+/// so nothing was cancelled or refunded.
+String shipmentStatusLabel(String status,
+    {bool seesPayment = true, bool unpaidBookingExpired = false}) {
+  if (status == "FAILED_CARRIER_REFUNDED" && unpaidBookingExpired) {
+    return unpaidBookingExpiredSentence;
+  }
   switch (status) {
     case "PENDING_CARRIER_ACCEPT":
       return "Awaiting carrier acceptance";
@@ -395,12 +401,36 @@ String shipmentStatusLabel(String status, {bool seesPayment = true}) {
   }
 }
 
+const unpaidBookingExpiredSentence =
+    "This booking expired because it was not paid within 30 minutes.";
+
+/// Shown next to Book and pay. The API tells users the same 30 minutes (UNPAID_BOOKING_WINDOW_MS).
+const payWithinWindowLine = "Pay within 30 minutes, or this booking closes.";
+
+/// Razorpay Checkout closes itself after this many seconds, so a shipper cannot finish paying after the
+/// 30 minutes they are told; the API closes the booking 10 minutes after those 30.
+const razorpayCheckoutTimeoutSeconds = 25 * 60;
+
 /// The server sets unpaidBookingExpiredAtUtcMs when a booking closed because its payment window (30 minutes,
-/// UNPAID_BOOKING_WINDOW_MS in the API) passed without payment.
+/// UNPAID_BOOKING_WINDOW_MS in the API) passed without payment. The app cannot tell whether the shipper paid
+/// after that, so the shipper always gets the line on where a held payment goes.
 String? unpaidBookingExpiredLine(Map<String, dynamic> shipment) =>
     shipment["unpaidBookingExpiredAtUtcMs"] == null
         ? null
-        : "This booking expired because it was not paid within 30 minutes.";
+        : "$unpaidBookingExpiredSentence "
+            "If your bank shows a payment, it comes back within 3 days of when you paid. "
+            "Your bank may take 5-7 more working days.";
+
+/// The server sentence when a payment confirm arrives after the booking expired; null for any other error.
+String? bookingExpiredMessage(Object error) {
+  if (error is! DioException) return null;
+  final body = error.response?.data;
+  if (body is! Map || body["error"] != "booking_expired_unpaid") return null;
+  final detail = body["detail"];
+  return detail is String && detail.isNotEmpty
+      ? detail
+      : unpaidBookingExpiredSentence;
+}
 
 String tripStatusLabel(String status) {
   switch (status) {
