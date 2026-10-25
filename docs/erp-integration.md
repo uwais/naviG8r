@@ -121,7 +121,9 @@ Poll responses use the same canonical JSON shape as webhook payloads.
 
 ## Outbound webhooks
 
-Configure **HTTPS** callback URL in the portal. NaviG8r signs the raw body:
+Configure **HTTPS** callback URL in the portal. Before each call NaviG8r resolves the host; if any address it gets is loopback, private, shared, link-local (cloud metadata), multicast or reserved, the call is not made and the delivery fails with "This webhook address is not on the public internet, so it was not called." Redirects are not followed: a `3xx` answer is a failed delivery. For a failed delivery the delivery log keeps at most the first 500 characters of the answer, and NaviG8r reads at most 4 KB of it. Only with `NODE_ENV=test` (tests and the local practice server) may a webhook go to an address on this machine or a private network.
+
+NaviG8r signs the raw body:
 
 ```
 X-NaviG8r-Signature: {hex_hmac_sha256}
@@ -240,7 +242,7 @@ node --experimental-strip-types --test \
 |-----------|----------|
 | `integration.test.ts` | Service-layer idempotency, events, auth headers, webhook payload fields |
 | `integrationHttp.test.ts` | Real HTTP: `POST /v1/integrations/loads`, portal `/v1/pilot/customer/integrations/*` |
-| `integrationWebhooks.test.ts` | Mock `fetch`: HMAC signature, retry backoff on failed delivery |
+| `integrationWebhooks.test.ts` | Mock `fetch`: HMAC signature, retry backoff on failed delivery; addresses not on the public internet are not called, redirects are not followed, a failed answer is read only up to 4 KB |
 
 Flutter widget tests:
 
