@@ -15,6 +15,8 @@ type Fixture = Awaited<ReturnType<typeof httpFixture>>;
 /** Old enough to be closed: past the 30 minutes the shipper is told and the 10 minutes after. */
 const closedAgeMs = UNPAID_BOOKING_EXPIRY_MS + UNPAID_BOOKING_GRACE_MS + 1000;
 
+const moneyLine = "If your bank shows a payment, it comes back within 3 days of when you paid. Your bank may take 5-7 more working days.";
+
 async function book(f: Fixture, token: string, weightKg = 10): Promise<string> {
   const booked = await f.book(token, { weightKg });
   assert.equal(booked.status, 201, JSON.stringify(booked.body));
@@ -66,7 +68,7 @@ test("a booking not paid within 30 minutes closes on the next request: room free
 
   const told = (await inbox(f, f.tokens.shipperB)).filter((n) => n.shipmentId === expired && n.eventKey !== "payment.status_changed");
   assert.deepEqual(told.map((n) => [n.eventKey, n.data.title, n.data.body]),
-    [[BOOKING_EXPIRED_EVENT, "This booking expired", "This booking expired because it was not paid within 30 minutes."]], "no Shipment cancelled notice");
+    [[BOOKING_EXPIRED_EVENT, "This booking expired", `This booking expired because it was not paid within 30 minutes. ${moneyLine}`]], "no Shipment cancelled notice; Razorpay may hold a payment, so the money line");
   assert.deepEqual((await inbox(f, f.tokens.carrierA)).filter((n) => n.shipmentId === expired && n.eventKey === BOOKING_EXPIRED_EVENT), []);
 
   const rebooked = await f.book(f.tokens.shipperA, { weightKg: 1000 });
@@ -101,7 +103,7 @@ test("a payment confirmed after the booking expired is refused with the server's
   const refused = await f.request("/v1/payments/razorpay/confirm", "POST",
     { shipmentId: late, razorpayOrderId: "order_late", razorpayPaymentId: "pay_late", razorpaySignature: signed("order_late", "pay_late") }, f.tokens.shipperB);
   assert.equal(refused.status, 409);
-  assert.deepEqual(refused.body, { error: "booking_expired", detail: "This booking expired because it was not paid within 30 minutes. If your bank shows a payment, it comes back within 3 days." });
+  assert.deepEqual(refused.body, { error: "booking_expired", detail: `This booking expired because it was not paid within 30 minutes. ${moneyLine}` });
   assert.deepEqual([paymentOf(f, late).status, f.store.shipments.get(late)?.status], ["CREATED", "FAILED_CARRIER_REFUNDED"]);
 });
 
@@ -164,4 +166,12 @@ test("a payment Razorpay reports after the booking expired leaves it looking unp
   assert.deepEqual([...f.store.auditEvents.values()].filter((row) => row.action === "PAYMENT_AFTER_CANCEL" && row.resourceId === late).map((row) => [row.reasonCode, row.razorpayPaymentId]),
     [["AUTHORIZED", "pay_after_expiry"]], "staff can find the late payment");
   assert.equal(await paymentNotices(), noticesBefore, "no payment status notice for the late payment");
+});
+
+test("a booking that expired before Razorpay made its order is told only that it expired: nothing could be paid", async t => {
+  const f = await httpFixture(t);
+  const noOrder = await book(f, f.tokens.shipperB);
+  waitingForPayment(f, noOrder, closedAgeMs, { razorpayOrderId: undefined });
+  const told = (await inbox(f, f.tokens.shipperB)).filter((n) => n.shipmentId === noOrder && n.eventKey === BOOKING_EXPIRED_EVENT);
+  assert.deepEqual(told.map((n) => n.data.body), ["This booking expired because it was not paid within 30 minutes."]);
 });

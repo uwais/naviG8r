@@ -27,8 +27,11 @@ export const UNPAID_BOOKING_EXPIRY_MS = 30 * 60 * 1000;
 /** The booking closes only this long after UNPAID_BOOKING_EXPIRY_MS, so a payment finished just in time still lands. */
 export const UNPAID_BOOKING_GRACE_MS = 10 * 60 * 1000;
 
-/** What the shipper is told when that happens. */
+/** What the shipper is told when an unpaid booking closes. */
 export const BOOKING_EXPIRED_SENTENCE = `This booking expired because it was not paid within ${UNPAID_BOOKING_EXPIRY_MS / 60_000} minutes.`;
+
+/** Said after it when the shipper may have paid: Razorpay releases a hold it never captured, and the bank adds its own days. */
+export const BOOKING_EXPIRED_MONEY_SENTENCE = "If your bank shows a payment, it comes back within 3 days of when you paid. Your bank may take 5-7 more working days.";
 
 /** Bump when distance/weight formula or defaults change (returned on quote/estimate). */
 export const FREIGHT_MODEL_VERSION = "freight-v1";

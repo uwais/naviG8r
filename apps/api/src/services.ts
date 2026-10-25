@@ -5,6 +5,7 @@ import { assertAdminRemains, authorizationContext, AuthorizationError, principal
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
 import {
   COMMISSION_BPS,
+  BOOKING_EXPIRED_MONEY_SENTENCE,
   BOOKING_EXPIRED_SENTENCE,
   FREIGHT_MODEL_VERSION,
   MAX_WEIGHT_KG,
@@ -2296,7 +2297,7 @@ export function confirmRazorpayCheckoutAuthorization(
   }
   // Closed by expireUnpaidBookings; a payment Razorpay still reports goes through the webhook's cancelled-shipment path.
   if (s.expiredUnpaidAtUtcMs != null) {
-    throw new ApiError("booking_expired", { detail: `${BOOKING_EXPIRED_SENTENCE} If your bank shows a payment, it comes back within 3 days.` }, 409);
+    throw new ApiError("booking_expired", { detail: `${BOOKING_EXPIRED_SENTENCE} ${BOOKING_EXPIRED_MONEY_SENTENCE}` }, 409);
   }
   refuseCheckoutIfTripLeft(store, s);
   if (pay.status !== "CREATED") {

@@ -270,7 +270,11 @@ void main() {
           find.text(
               'This booking expired because it was not paid within 30 minutes.'),
           findsOneWidget);
-      expect(find.text('If your bank shows a payment, it comes back within 3 days.'), findsOneWidget);
+      expect(
+          find.text(
+              'If your bank shows a payment, it comes back within 3 days of when you paid. Your bank may take 5-7 more working days.'),
+          findsOneWidget,
+          reason: 'dark-pattern review: when the money comes back, counting the bank days');
       expect(find.text('This shipment was cancelled'), findsNothing);
       await leave(tester);
     });
@@ -309,13 +313,17 @@ void main() {
             reason: 'never claim a payment that was not taken');
         expect(find.text('Not paid'), findsOneWidget,
             reason: 'the status word says what is wrong');
+        final payBy = bookedAt.add(const Duration(minutes: 30)).toLocal();
+        final payByTime =
+            '${payBy.hour.toString().padLeft(2, '0')}:${payBy.minute.toString().padLeft(2, '0')}';
         expect(
             find.text(
                 '${opening}Ravi Roadways cannot accept until you pay. '
+                'Pay by $payByTime, or this booking closes and its space goes to others. '
                 'To pay or cancel, email ${PendingCopy.changeOrCancelContact}.'),
             findsOneWidget,
             reason:
-                'what it means and who to contact; there is no way to pay again in the app');
+                'dark-pattern review: by when, in the phone time, what happens after, and who to contact; there is no way to pay again in the app');
         expect(find.textContaining('held by NaviG8r'), findsNothing,
             reason: 'no money is held');
         expect(find.textContaining('Your payment is on hold'), findsNothing,
@@ -326,6 +334,24 @@ void main() {
         await leave(tester);
       });
     }
+
+    testWidgets(
+        'an unpaid load sent by the shipper ERP is not told it closes: the server never closes it',
+        (tester) async {
+      await showShipment(
+          tester,
+          booking(
+              status: 'PENDING_CARRIER_ACCEPT',
+              extra: const {'externalLoadId': 'ERP-001'}),
+          trip: lane(),
+          payment: {'status': 'CREATED', 'amountPaise': 264000});
+      expect(
+          find.text('Ravi Roadways cannot accept until you pay. '
+              'To pay or cancel, email ${PendingCopy.changeOrCancelContact}.'),
+          findsOneWidget);
+      expect(find.textContaining('Pay by'), findsNothing);
+      await leave(tester);
+    });
   });
 }
 

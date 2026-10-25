@@ -306,10 +306,25 @@ class _CustomerShipmentDetailScreenState
   bool get _paymentHeld =>
       _paymentStatus == "AUTHORIZED" || _paymentStatus == "CAPTURED";
 
-  String _notPaidSentence(String carrier) =>
-      "${_paymentStatus == "FAILED" ? "Payment did not go through. " : ""}"
-      "$carrier cannot accept until you pay. "
-      "To pay or cancel, email ${PendingCopy.changeOrCancelContact}.";
+  String _notPaidSentence(String carrier, Map<String, dynamic> shipment) {
+    final booked = _momentFromUtcMs(shipment["createdAtUtcMs"]);
+    // The server closes an unpaid booking 30 minutes after it was made (UNPAID_BOOKING_EXPIRY_MS), but never a
+    // load the shipper's ERP sent, which is the only kind with an external load id.
+    final closes = shipment["status"] == "PENDING_CARRIER_ACCEPT" &&
+        shipment["externalLoadId"] == null &&
+        booked != null;
+    return "${_paymentStatus == "FAILED" ? "Payment did not go through. " : ""}"
+        "$carrier cannot accept until you pay. "
+        "${closes ? "Pay by ${_phoneClockTime(booked.add(const Duration(minutes: 30)))}, or this booking closes and its space goes to others. " : ""}"
+        "To pay or cancel, email ${PendingCopy.changeOrCancelContact}.";
+  }
+
+  /// "16:40" in the phone's own zone, unlike the India times elsewhere: the dark-pattern review asked for the
+  /// deadline in the viewer's local time.
+  String _phoneClockTime(DateTime moment) {
+    final local = moment.toLocal();
+    return "${local.hour.toString().padLeft(2, "0")}:${local.minute.toString().padLeft(2, "0")}";
+  }
 
   NvStep _step(ShipmentStep step, Map<String, dynamic> shipment,
       ShipmentProgress progress) {
@@ -328,7 +343,7 @@ class _CustomerShipmentDetailScreenState
             state: step.state,
             who: facts.isEmpty ? null : facts.join(" · "),
             panel: paymentNotTaken(_paymentStatus)
-                ? Text(_notPaidSentence(carrier), style: NvText.body)
+                ? Text(_notPaidSentence(carrier, shipment), style: NvText.body)
                 : null);
       case ShipmentStepName.carrierAccepts:
         final truck = shipment["assignedTruckNumber"]?.toString() ?? "";
@@ -531,9 +546,11 @@ class _CustomerShipmentDetailScreenState
               const SizedBox(height: NvSpace.s2),
               if (nothingPaid)
                 Text(
-                    leftBehind || expiredUnpaid
-                        ? "If your bank shows a payment, it comes back within 3 days."
-                        : "Nothing was paid for this shipment.",
+                    expiredUnpaid
+                        ? "If your bank shows a payment, it comes back within 3 days of when you paid. Your bank may take 5-7 more working days."
+                        : leftBehind
+                            ? "If your bank shows a payment, it comes back within 3 days."
+                            : "Nothing was paid for this shipment.",
                     style: NvText.body)
               else if (holdReleased)
                 const Text(

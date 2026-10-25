@@ -723,6 +723,9 @@ class _CustomerBookShipmentScreenState
             style: NvText.body),
         const Text("Full price. Nothing is added at payment.",
             style: NvText.bodyStrong),
+        // The server's UNPAID_BOOKING_EXPIRY_MS; it closes the booking only after a further grace.
+        const Text("Pay within 30 minutes, or this booking closes.",
+            style: NvText.body),
       ],
     ];
     // At very large text the words above the button scroll inside the bar, so the bar never

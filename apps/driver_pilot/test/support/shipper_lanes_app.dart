@@ -220,3 +220,5 @@ NvButton bookButton(WidgetTester tester) => tester.widget<NvButton>(find
     .last);
 
 const fullPriceLine = 'Full price. Nothing is added at payment.';
+
+const payWithinLine = 'Pay within 30 minutes, or this booking closes.';

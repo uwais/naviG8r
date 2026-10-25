@@ -299,7 +299,7 @@ void main() {
     testWidgets(
         'a payment refused because the booking expired unpaid shows the server sentence, never Booked',
         (tester) async {
-      const sentence = 'This booking expired because it was not paid within 30 minutes. If your bank shows a payment, it comes back within 3 days.';
+      const sentence = 'This booking expired because it was not paid within 30 minutes. If your bank shows a payment, it comes back within 3 days of when you paid. Your bank may take 5-7 more working days.';
       final (_, announced) = await payThroughCheckout(tester,
           confirmRefusal: const {'error': 'booking_expired', 'detail': sentence},
           checkoutAnswer: {
@@ -339,7 +339,7 @@ void main() {
         'Pay, the full-price line and the contact line are on screen without scrolling at 360 x 800',
         (tester) async {
       await showPricedBook(tester, height: 800);
-      for (final words in ['Book and pay ₹2,640', fullPriceLine, contactAbovePay]) {
+      for (final words in ['Book and pay ₹2,640', fullPriceLine, contactAbovePay, payWithinLine]) {
         final shown = tester.getRect(find.text(words));
         expect(shown.top >= 0 && shown.bottom <= 800, isTrue,
             reason:
@@ -360,6 +360,8 @@ void main() {
           reason: 'first in the words, so it shows even when they scroll at large text');
       expect(fullPrice.bottom, lessThanOrEqualTo(button.top),
           reason: 'all the words sit above the button');
+      expect(tester.getRect(find.text(payWithinLine)).bottom, lessThanOrEqualTo(button.top),
+          reason: 'dark-pattern review: the shipper is told how long they have to pay before tapping');
       expect(
           find.textContaining('If you close the payment screen'), findsNothing,
           reason: 'owner, 22 Oct 2026: a failed payment is said when it happens, not before');
