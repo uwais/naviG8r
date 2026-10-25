@@ -2116,6 +2116,16 @@ export function inviteCarrierDriver(
   if (existing) {
     throw new ApiError("membership_already_exists", { role: existing.role });
   }
+  // A driver profile is kept per person, not per company: inviting someone another carrier still has would move
+  // their profile and truck away from that carrier.
+  const atAnotherCarrier = [...store.memberships.values()].some((m) => {
+    const otherOrg = store.organizations.get(m.orgId);
+    return m.userId === user.id && m.orgId !== params.orgId && isActiveEntity(m) && isActiveEntity(otherOrg) &&
+      ["CARRIER_SOLO", "CARRIER_FLEET", "CARRIER_LEGACY"].includes(otherOrg!.kind);
+  });
+  if (atAnotherCarrier) {
+    throw new ApiError("member_of_another_carrier", { detail: "This number belongs to someone at another carrier." }, 409);
+  }
   const role = params.role ?? "DRIVER";
   if (role !== "DRIVER" && role !== "DISPATCHER") throw new Error("invalid_role");
 

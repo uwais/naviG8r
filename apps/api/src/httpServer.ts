@@ -1066,7 +1066,9 @@ export async function createApp(options: {
             vehicleCapacityKg: Number(body?.vehicleCapacityKg ?? 0),
           });
           await persist();
-          return json(res, 201, out);
+          // The number may be anyone's, so the reply never says who it belongs to.
+          const { orgId, role, createdAtUtcMs } = out.membership;
+          return json(res, 201, { membership: { orgId, role, createdAtUtcMs }, vehicle: out.vehicle });
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;
@@ -1171,7 +1173,9 @@ export async function createApp(options: {
             role: body?.role,
           });
           await persist();
-          return json(res, 201, out);
+          // The number may be anyone's, so the reply never says who it belongs to.
+          const { orgId, role, createdAtUtcMs } = out.membership;
+          return json(res, 201, { membership: { orgId, role, createdAtUtcMs }, org: out.org });
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;

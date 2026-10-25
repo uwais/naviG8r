@@ -95,6 +95,28 @@ void _carrierInviteRefusals() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('a number at another carrier says so', (tester) async {
+    final carrier = signInToCarrierApp(
+        CarrierServer(allowed: ownerAllowed, subrole: 'OWNER'));
+    api.dio.httpClientAdapter = MockApiAdapter((request) =>
+        request.path == '/v1/pilot/carrier/drivers/invite'
+            ? jsonResponse({'error': 'member_of_another_carrier'}, 409)
+            : carrier.answer(request));
+    final router = await mountCarrierApp(tester, '/driver/fleet',
+        size: const Size(360, 1600));
+    await tester.enterText(
+        find.widgetWithText(TextField, "Driver's mobile number (10 digits)"),
+        '9845012399');
+    await tester.tap(find.text('Dispatcher'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Invite dispatcher'));
+    await tester.pumpAndSettle();
+    expect(find.text('This number belongs to someone at another carrier.'),
+        findsOneWidget);
+    router.go('/');
+    await tester.pumpAndSettle();
+  });
+
   test('outside an invite, no account for a number does not say to invite',
       () {
     api = Api('http://test');

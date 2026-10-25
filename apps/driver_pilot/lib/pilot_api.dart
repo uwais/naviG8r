@@ -249,9 +249,11 @@ String formatApiError(Object e) {
           "This number already has an account. Sign in instead.",
       // A 429 that carries no wait. Sign-ups send their wait, so they are worded above with it.
       "rate_limited": "Too many tries. Wait a few minutes, then try again.",
-      // An invite's refusal. Its other one, user_not_found, is worded on the invite screens, which can
+      // Invite refusals. The other one, user_not_found, is worded on the invite screens, which can
       // say "invite"; sign-in words it its own way.
       "membership_already_exists": "This number is already in your company.",
+      "member_of_another_carrier":
+          "This number belongs to someone at another carrier.",
       "otp_expired": "This code has expired. Send a new code.",
       "otp_incorrect":
           "That code is not right. Check the SMS and type it again, or send a new code.",
