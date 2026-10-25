@@ -2124,7 +2124,7 @@ export function inviteCarrierDriver(
       ["CARRIER_SOLO", "CARRIER_FLEET", "CARRIER_LEGACY"].includes(otherOrg!.kind);
   });
   if (atAnotherCarrier) {
-    throw new ApiError("member_of_another_carrier", { detail: "This number belongs to someone at another carrier." }, 409);
+    throw new ApiError("member_of_another_carrier", { detail: "This number belongs to someone at another carrier and cannot be added yet." }, 409);
   }
   const role = params.role ?? "DRIVER";
   if (role !== "DRIVER" && role !== "DISPATCHER") throw new Error("invalid_role");

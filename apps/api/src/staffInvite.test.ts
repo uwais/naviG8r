@@ -12,7 +12,7 @@ test("a carrier cannot invite someone at another carrier, and that person's prof
   const invited = await f.request("/v1/pilot/carrier/drivers/invite", "POST", { ...driverInvite, orgId: f.carrierA.org.id, phone: f.carrierB.user.phone }, f.tokens.carrierA);
   assert.equal(invited.status, 409);
   assert.equal(invited.body.error, "member_of_another_carrier");
-  assert.equal(invited.body.detail, "This number belongs to someone at another carrier.");
+  assert.equal(invited.body.detail, "This number belongs to someone at another carrier and cannot be added yet.");
   assert.deepEqual(f.store.driverProfiles.get(f.carrierB.user.id), profileBefore);
   assert.equal(f.store.vehicles.size, vehiclesBefore, "no truck was added");
   assert.equal(f.store.memberships.has(`${f.carrierB.user.id}:${f.carrierA.org.id}`), false, "no membership in the inviting carrier");

@@ -300,9 +300,13 @@ Who reads it: the carrier office on `GET /v1/pilot/me`; shippers as `carrierTran
 #### `POST /v1/pilot/carrier/drivers/invite`
 Fleet: owner/dispatcher invites an **existing** user (by phone) to the carrier org as `DRIVER` or `DISPATCHER`, provisions a vehicle + driver profile, and upgrades `CARRIER_SOLO` → `CARRIER_FLEET` when applicable.
 
-Driver app: **Profile → Fleet — invite drivers** (owners/dispatchers). Invitee must register a user account first (`POST /v1/pilot/customer/users/register` or driver welcome **Join a carrier fleet**).
+Driver app: **Profile → Fleet — invite drivers** (owners/dispatchers). Invitee must register a user account first (`POST /v1/pilot/customer/users/register` or sign-in **Join a carrier company**).
 
 For **`DISPATCHER`**, vehicle fields are optional in the request body — the server links the invitee to the carrier org's **primary vehicle** (owner's registration from solo register). For **`DRIVER`**, provide `vehicleRegistrationNumber`, `vehicleClass`, and `vehicleCapacityKg` as before.
+
+A number that still has an active membership at another active carrier is refused, because a driver profile is kept per person and the invite would move their profile and truck away from that carrier: `409 { "error": "member_of_another_carrier", "detail": "This number belongs to someone at another carrier and cannot be added yet." }`. Nothing is created. There is no way yet for that person to join a second carrier.
+
+Reply `201 { "membership": { "orgId", "role", "createdAtUtcMs" }, "vehicle": { ... } }`. The number may be anyone's, so the reply never carries the invitee's name, phone or user id.
 
 #### Carrier onboarding (driver app)
 New carriers: **Register as new carrier** → `POST /v1/pilot/driver/register` → OTP verify → signed-in driver shell. Sign-in alone is for existing users only.
@@ -379,6 +383,8 @@ Body:
 ```
 
 `role` optional — defaults to `CUSTOMER_MEMBER`; may also be `CUSTOMER_ADMIN`.
+
+Reply `201 { "membership": { "orgId", "role", "createdAtUtcMs" }, "org": { ... } }`. As with the carrier invite, it never carries the invitee's name, phone or user id.
 
 #### `GET /v1/pilot/customer/members?orgId=...`
 Lists users + memberships for a customer org. Requires `CUSTOMER_ADMIN` on that org.

@@ -3,6 +3,7 @@
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/customer_session.dart';
 import 'package:driver_pilot/authorization_session.dart';
+import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/plain_error_sentence.dart';
@@ -111,10 +112,25 @@ void _carrierInviteRefusals() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Invite dispatcher'));
     await tester.pumpAndSettle();
-    expect(find.text('This number belongs to someone at another carrier.'),
+    expect(
+        find.text(
+            'This number belongs to someone at another carrier and cannot be added yet.'),
         findsOneWidget);
     router.go('/');
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('joining a carrier says someone at another carrier cannot be added',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+        theme: DriverTheme.theme(), home: const DriverJoinScreen()));
+    expect(
+        find.textContaining(
+            'If you already belong to another carrier, you cannot be added yet.'),
+        findsOneWidget);
   });
 
   test('outside an invite, no account for a number does not say to invite',

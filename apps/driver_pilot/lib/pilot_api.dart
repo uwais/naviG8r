@@ -253,7 +253,7 @@ String formatApiError(Object e) {
       // say "invite"; sign-in words it its own way.
       "membership_already_exists": "This number is already in your company.",
       "member_of_another_carrier":
-          "This number belongs to someone at another carrier.",
+          "This number belongs to someone at another carrier and cannot be added yet.",
       "otp_expired": "This code has expired. Send a new code.",
       "otp_incorrect":
           "That code is not right. Check the SMS and type it again, or send a new code.",

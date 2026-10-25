@@ -479,7 +479,7 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            "Create your own account. Then the carrier owner can invite you to their company. This does not create a company for you.",
+            "Create your own account. Then the carrier owner can invite you to their company. This does not create a company for you. If you already belong to another carrier, you cannot be added yet.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
