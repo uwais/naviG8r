@@ -202,7 +202,7 @@ String formatApiError(Object e) {
       return "Too many code requests. Please wait ${seconds > 0 ? seconds : 1} seconds and try again.";
     }
     // The server writes these errors' detail for the person: which bank field is wrong and how, why
-    // the truck cannot change, or which sign-up field is too long.
+    // the truck cannot change, which sign-up field is too long, or why an invite was refused.
     final detail = body is Map ? body["detail"] : null;
     if (const [
           "invalid_payout_profile",
@@ -210,7 +210,8 @@ String formatApiError(Object e) {
           "invalid_vehicleRegistrationNumber",
           "invalid_fullName",
           "invalid_orgDisplayName",
-          "invalid_phone"
+          "invalid_phone",
+          "member_of_another_carrier"
         ].contains(code) &&
         detail is String &&
         detail.isNotEmpty) {

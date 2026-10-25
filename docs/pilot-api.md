@@ -244,11 +244,11 @@ Carrier accepts a customer booking (`PENDING_CARRIER_ACCEPT` → `BOOKED`). Paym
 #### `POST /v1/pilot/carrier/drivers/invite`
 Fleet: owner/dispatcher invites an **existing** user (by phone) to the carrier org as `DRIVER` or `DISPATCHER`, provisions a vehicle + driver profile, and upgrades `CARRIER_SOLO` → `CARRIER_FLEET` when applicable.
 
-Driver app: **Profile → Fleet — invite drivers** (owners/dispatchers). Invitee must register a user account first (`POST /v1/pilot/customer/users/register` or driver welcome **Join a carrier fleet**).
+Driver app: **Profile → Fleet — invite drivers** (owners/dispatchers). Invitee must register a user account first (`POST /v1/pilot/customer/users/register` or driver welcome **Join a carrier fleet**) and must not be at another carrier.
 
 For **`DISPATCHER`**, vehicle fields are optional in the request body — the server links the invitee to the carrier org's **primary vehicle** (owner's registration from solo register). For **`DRIVER`**, provide `vehicleRegistrationNumber`, `vehicleClass`, and `vehicleCapacityKg` as before.
 
-A phone whose owner has an active driver profile or membership at another carrier is refused, and nothing changes: `409 { "error": "member_of_another_carrier", "detail": "This number belongs to someone at another carrier." }`. The `201` reply is `{ membership: { orgId, role, createdAtUtcMs }, vehicle }`; it never carries the invitee's stored name or user id.
+A phone whose owner has an active driver profile or membership at another carrier is refused, and nothing changes: `409 { "error": "member_of_another_carrier", "detail": "This number belongs to someone at another carrier and cannot be added yet." }`. The driver app shows that `detail` on the invite screen. There is no way yet for that person to leave the other carrier or join this one themselves. The `201` reply is `{ membership: { orgId, role, createdAtUtcMs }, vehicle }`; it never carries the invitee's stored name or user id.
 
 #### Carrier onboarding (driver app)
 New carriers: **Register as new carrier** → `POST /v1/pilot/driver/register` → OTP verify → signed-in driver shell. Sign-in alone is for existing users only.

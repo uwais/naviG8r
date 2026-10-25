@@ -12,7 +12,7 @@ test("a carrier cannot invite the owner of another carrier, and that carrier's p
   const before = structuredClone(f.store.driverProfiles.get(f.carrierB.user.id));
   const out = await f.request("/v1/pilot/carrier/drivers/invite", "POST", { ...driverInvite, orgId: f.carrierA.org.id, phone: f.carrierB.user.phone }, f.tokens.carrierA);
   assert.equal(out.status, 409);
-  assert.equal(out.body.detail, "This number belongs to someone at another carrier.");
+  assert.equal(out.body.detail, "This number belongs to someone at another carrier and cannot be added yet.");
   assert.deepEqual(f.store.driverProfiles.get(f.carrierB.user.id), before);
   assert.equal(f.store.memberships.has(`${f.carrierB.user.id}:${f.carrierA.org.id}`), false);
 });
