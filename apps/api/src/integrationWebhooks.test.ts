@@ -1,7 +1,7 @@
 import { bookTestShipment, internalUser, registerCompliantCarrier } from "../test/fixtures.ts";
+import { mockWebhookAddressLookup, webhookReceiver } from "../test/webhookReceiver.ts";
 import assert from "node:assert/strict";
-import dns from "node:dns";
-import test, { mock } from "node:test";
+import test from "node:test";
 import { createStore } from "./store.ts";
 import {
   acceptCarrierShipment,
@@ -75,51 +75,49 @@ function seedShipmentWithWebhook(store: ReturnType<typeof createStore>) {
   return { admin, conn, shipment };
 }
 
-test("deliverIntegrationWebhook attaches valid HMAC signature", async () => {
+test("deliverIntegrationWebhook attaches valid HMAC signature", async (t) => {
   process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
   const secret = "whsec_test_secret";
   const payloadJson = JSON.stringify({ eventId: "evt_1", eventType: "load.created" });
   let capturedSig: string | undefined;
   let capturedBody: string | undefined;
 
-  const lookupMock = mockWebhookAddressLookup();
-  const fetchMock = mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
-    const headers = init?.headers as Record<string, string>;
-    capturedSig = headers["x-navig8r-signature"];
-    capturedBody = String(init?.body ?? "");
-    return new Response("ok", { status: 200 });
+  mockWebhookAddressLookup(t);
+  await webhookReceiver(t, (req, res) => {
+    capturedSig = String(req.headers["x-navig8r-signature"]);
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", () => {
+      capturedBody = Buffer.concat(chunks).toString("utf8");
+      res.end("ok");
+    });
   });
 
-  try {
-    const delivery: IntegrationWebhookDelivery = {
-      id: "whd_1",
-      eventId: "evt_1",
-      orgId: "org_1",
-      connectionId: "conn_1",
-      webhookUrl: "https://erp.example.com/hook",
-      payloadJson,
-      status: "PENDING",
-      attempts: 0,
-      nextRetryAtUtcMs: Date.now(),
-      lastHttpStatus: null,
-      lastError: null,
-      deliveredAtUtcMs: null,
-      createdAtUtcMs: Date.now(),
-      updatedAtUtcMs: Date.now(),
-    };
+  const delivery: IntegrationWebhookDelivery = {
+    id: "whd_1",
+    eventId: "evt_1",
+    orgId: "org_1",
+    connectionId: "conn_1",
+    webhookUrl: "http://erp.example.com/hook",
+    payloadJson,
+    status: "PENDING",
+    attempts: 0,
+    nextRetryAtUtcMs: Date.now(),
+    lastHttpStatus: null,
+    lastError: null,
+    deliveredAtUtcMs: null,
+    createdAtUtcMs: Date.now(),
+    updatedAtUtcMs: Date.now(),
+  };
 
-    const result = await deliverIntegrationWebhook(delivery, secret);
-    assert.equal(result.ok, true);
-    assert.equal(capturedBody, payloadJson);
-    assert.equal(capturedSig, signWebhookPayload(secret, payloadJson));
-    assert.equal(verifyWebhookSignature(secret, payloadJson, capturedSig), true);
-  } finally {
-    fetchMock.mock.restore();
-    lookupMock.mock.restore();
-  }
+  const result = await deliverIntegrationWebhook(delivery, secret);
+  assert.equal(result.ok, true);
+  assert.equal(capturedBody, payloadJson);
+  assert.equal(capturedSig, signWebhookPayload(secret, payloadJson));
+  assert.equal(verifyWebhookSignature(secret, payloadJson, capturedSig), true);
 });
 
-test("processPendingWebhookDeliveries retries failed delivery with backoff", async () => {
+test("processPendingWebhookDeliveries retries failed delivery with backoff", async (t) => {
   process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
   const store = createStore();
   const admin = registerCustomerOrgAdmin(store, {
@@ -128,7 +126,7 @@ test("processPendingWebhookDeliveries retries failed delivery with backoff", asy
     orgDisplayName: "Retry Shipper",
   });
   const conn = updateIntegrationConnection(store, admin.org.id, {
-    webhookUrl: "https://erp.example.com/hook",
+    webhookUrl: "http://erp.example.com/hook",
     paymentPolicy: "erp_preauthorized",
     changedByUserId: internalUser(store, "ADMIN").userId,
   });
@@ -155,30 +153,25 @@ test("processPendingWebhookDeliveries retries failed delivery with backoff", asy
   store.integrationWebhookDeliveries.set(delivery.id, delivery);
 
   let calls = 0;
-  const lookupMock = mockWebhookAddressLookup();
-  const fetchMock = mock.method(globalThis, "fetch", async () => {
+  mockWebhookAddressLookup(t);
+  await webhookReceiver(t, (_req, res) => {
     calls += 1;
-    if (calls === 1) return new Response("fail", { status: 500 });
-    return new Response("ok", { status: 200 });
+    res.statusCode = calls === 1 ? 500 : 200;
+    res.end(calls === 1 ? "fail" : "ok");
   });
 
-  try {
-    await processPendingWebhookDeliveries(store);
-    const afterFirst = store.integrationWebhookDeliveries.get(delivery.id)!;
-    assert.equal(afterFirst.status, "PENDING");
-    assert.equal(afterFirst.attempts, 1);
-    assert.ok(afterFirst.nextRetryAtUtcMs > Date.now());
+  await processPendingWebhookDeliveries(store);
+  const afterFirst = store.integrationWebhookDeliveries.get(delivery.id)!;
+  assert.equal(afterFirst.status, "PENDING");
+  assert.equal(afterFirst.attempts, 1);
+  assert.ok(afterFirst.nextRetryAtUtcMs > Date.now());
 
-    afterFirst.nextRetryAtUtcMs = Date.now() - 1;
-    store.integrationWebhookDeliveries.set(delivery.id, afterFirst);
-    await processPendingWebhookDeliveries(store);
-    const afterSecond = store.integrationWebhookDeliveries.get(delivery.id)!;
-    assert.equal(afterSecond.status, "DELIVERED");
-    assert.equal(calls, 2);
-  } finally {
-    fetchMock.mock.restore();
-    lookupMock.mock.restore();
-  }
+  afterFirst.nextRetryAtUtcMs = Date.now() - 1;
+  store.integrationWebhookDeliveries.set(delivery.id, afterFirst);
+  await processPendingWebhookDeliveries(store);
+  const afterSecond = store.integrationWebhookDeliveries.get(delivery.id)!;
+  assert.equal(afterSecond.status, "DELIVERED");
+  assert.equal(calls, 2);
 });
 
 test("an explicit webhook retry starts a fresh bounded attempt budget", () => {
@@ -244,116 +237,3 @@ test("expired exhausted webhook lease becomes terminal and is persisted as chang
   assert.equal(again.changed, false);
 });
 
-const WEBHOOK_TEST_ADDRESSES: Record<string, string[]> = {
-  "erp.example.com": ["93.184.215.14"],
-  "internal.example.com": ["10.1.2.3"],
-  "mixed.example.com": ["93.184.215.14", "127.0.0.1"],
-};
-
-function mockWebhookAddressLookup() {
-  return mock.method(dns.promises, "lookup", async (host: string) =>
-    (WEBHOOK_TEST_ADDRESSES[host] ?? []).map((address) => ({ address, family: address.includes(":") ? 6 : 4 })));
-}
-
-function webhookDeliveryTo(webhookUrl: string): IntegrationWebhookDelivery {
-  return {
-    id: "whd_address",
-    eventId: "evt_address",
-    orgId: "org_address",
-    connectionId: "conn_address",
-    webhookUrl,
-    payloadJson: "{}",
-    status: "PENDING",
-    attempts: 0,
-    nextRetryAtUtcMs: Date.now(),
-    lastHttpStatus: null,
-    lastError: null,
-    deliveredAtUtcMs: null,
-    createdAtUtcMs: Date.now(),
-    updatedAtUtcMs: Date.now(),
-  };
-}
-
-test("a webhook is sent only to a public address", async () => {
-  const lookupMock = mockWebhookAddressLookup();
-  const sentTo: string[] = [];
-  const fetchMock = mock.method(globalThis, "fetch", async (url: string) => {
-    sentTo.push(String(url));
-    return new Response("ok", { status: 200 });
-  });
-  try {
-    for (const url of [
-      "http://127.0.0.1:3000/hook",
-      "http://0.0.0.0/hook",
-      "http://[::1]/hook",
-      "http://[::ffff:127.0.0.1]/hook",
-      "http://10.0.0.5/hook",
-      "http://172.16.0.1/hook",
-      "http://192.168.1.1/hook",
-      "http://100.100.100.200/hook",
-      "http://169.254.169.254/latest/meta-data",
-      "http://[fe80::1]/hook",
-      "http://[fd00:ec2::254]/hook",
-      "https://internal.example.com/hook",
-      "https://mixed.example.com/hook",
-    ]) {
-      const result = await deliverIntegrationWebhook(webhookDeliveryTo(url), undefined);
-      assert.deepEqual(result, { ok: false, httpStatus: 0, error: "webhook_address_not_allowed" }, url);
-    }
-    assert.deepEqual(sentTo, []);
-
-    const result = await deliverIntegrationWebhook(webhookDeliveryTo("https://erp.example.com/hook"), undefined);
-    assert.equal(result.ok, true);
-    assert.deepEqual(sentTo, ["https://erp.example.com/hook"]);
-  } finally {
-    fetchMock.mock.restore();
-    lookupMock.mock.restore();
-  }
-});
-
-test("a webhook redirect is not followed and counts as a failed delivery", async () => {
-  const lookupMock = mockWebhookAddressLookup();
-  let redirectOption: RequestRedirect | undefined;
-  const fetchMock = mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
-    redirectOption = init?.redirect;
-    if (init?.redirect === "manual") {
-      return new Response(null, { status: 302, headers: { location: "https://erp.example.com/elsewhere" } });
-    }
-    return new Response("ok", { status: 200 });
-  });
-  try {
-    const result = await deliverIntegrationWebhook(webhookDeliveryTo("https://erp.example.com/hook"), undefined);
-    assert.equal(redirectOption, "manual");
-    assert.equal(result.ok, false);
-    assert.equal(result.httpStatus, 302);
-  } finally {
-    fetchMock.mock.restore();
-    lookupMock.mock.restore();
-  }
-});
-
-test("only the first 4 KB of a failed webhook reply is read", async () => {
-  const lookupMock = mockWebhookAddressLookup();
-  const chunk = new TextEncoder().encode("x".repeat(64 * 1024));
-  let bytesPulled = 0;
-  const fetchMock = mock.method(globalThis, "fetch", async () => {
-    const body = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        if (bytesPulled >= 50 * 1024 * 1024) return controller.close();
-        bytesPulled += chunk.length;
-        controller.enqueue(chunk);
-      },
-    });
-    return new Response(body, { status: 500 });
-  });
-  try {
-    const result = await deliverIntegrationWebhook(webhookDeliveryTo("https://erp.example.com/hook"), undefined);
-    assert.equal(result.ok, false);
-    assert.equal(result.httpStatus, 500);
-    assert.equal(result.error, "x".repeat(500));
-    assert.ok(bytesPulled <= 2 * chunk.length, `read ${bytesPulled} bytes`);
-  } finally {
-    fetchMock.mock.restore();
-    lookupMock.mock.restore();
-  }
-});

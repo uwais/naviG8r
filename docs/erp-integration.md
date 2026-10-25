@@ -128,7 +128,7 @@ X-NaviG8r-Signature: {hex_hmac_sha256}
 
 Verify with your per-connection webhook secret (shown once when created or after **Rotate secret**).
 
-The callback host must resolve only to public addresses; a private, loopback or link-local address fails with `webhook_address_not_allowed`. Redirects are not followed: a 3xx reply counts as a failed delivery. For a failed delivery NaviG8r reads at most the first 4 KB of your reply and keeps up to 500 characters of it as the error.
+The callback host must resolve only to public addresses. A private, loopback, link-local, documentation, benchmarking or reserved address, an IPv6 form that carries an IPv4 address (NAT64 `64:ff9b::/96`, 6to4 `2002::/16`, `::/96`), and a host name that does not resolve all fail with the same error: "The webhook address must resolve to a public internet address." NaviG8r connects to the exact address that passed the check, without a second DNS lookup, and still checks the TLS certificate against your host name. Redirects are not followed: a 3xx reply counts as a failed delivery. For a failed delivery NaviG8r reads at most the first 4 KB of your reply and keeps up to 500 characters of it as the error.
 
 ### Event types
 
@@ -230,14 +230,16 @@ node --experimental-strip-types --test apps/api/src/*.test.ts
 node --experimental-strip-types --test \
   apps/api/src/integration.test.ts \
   apps/api/src/integrationHttp.test.ts \
-  apps/api/src/integrationWebhooks.test.ts
+  apps/api/src/integrationWebhooks.test.ts \
+  apps/api/src/integrationWebhookAddress.test.ts
 ```
 
 | Test file | Coverage |
 |-----------|----------|
 | `integration.test.ts` | Service-layer idempotency, events, auth headers, webhook payload fields |
 | `integrationHttp.test.ts` | Real HTTP: `POST /v1/integrations/loads`, portal `/v1/pilot/customer/integrations/*` |
-| `integrationWebhooks.test.ts` | Mock `fetch` and DNS lookup: HMAC signature, retry backoff on failed delivery, public addresses only, no redirects, error reply read up to 4 KB |
+| `integrationWebhooks.test.ts` | Local receiver and mock DNS lookup: HMAC signature, retry backoff on failed delivery |
+| `integrationWebhookAddress.test.ts` | Local receiver and mock DNS lookup: public addresses only, one error sentence, connects to the checked address, TLS host name kept, no redirects, error reply read up to 4 KB |
 
 Flutter widget tests:
 
