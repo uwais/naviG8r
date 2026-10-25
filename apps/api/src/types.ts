@@ -164,7 +164,7 @@ export type DriverProfile = {
   createdAtUtcMs: number;
 } & SoftDeleteFields;
 
-export type OtpChallengeStatus = "PENDING" | "CONSUMED" | "EXPIRED" | "SUPERSEDED";
+export type OtpChallengeStatus = "PENDING" | "CONSUMED" | "EXPIRED" | "SUPERSEDED" | "FAILED";
 
 /**
  * Pilot OTP challenge (mock SMS). Replace with real SMS + rate limits in production.
@@ -176,6 +176,8 @@ export type OtpChallenge = {
   status: OtpChallengeStatus;
   expiresAtUtcMs: number;
   createdAtUtcMs: number;
+  /** Wrong codes entered so far; absent on challenges saved before the count existed. */
+  failedAttempts?: number;
 };
 
 export type AuthSession = {

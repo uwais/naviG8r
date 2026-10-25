@@ -114,6 +114,24 @@ test("debug only controls exposure; generated leading zeroes are verified", (t) 
   }
 });
 
+test("a sign-in code stops working after five wrong codes", (t) => {
+  const f = fixture(t);
+  const kept = f.start();
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    assert.throws(() => f.verify(kept.challengeId, "999999"), /otp_incorrect/);
+  }
+  assert.equal(f.verify(kept.challengeId).user.id, f.user.id);
+
+  f.setNow(f.otp.now() + 30_000);
+  const spent = f.start();
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    assert.throws(() => f.verify(spent.challengeId, "999999"), /otp_incorrect/);
+  }
+  assert.equal(f.store.otpChallenges.get(spent.challengeId)?.status, "FAILED");
+  assert.throws(() => f.verify(spent.challengeId), /otp_challenge_invalid/);
+  assert.equal(f.store.authSessions.size, 1);
+});
+
 test("real generator returns six digits and legacy fixed override has no effect", (t) => {
   const f = fixture(t);
   const otp = createOtpDependencies({
@@ -208,6 +226,12 @@ test("phone issuance and IP request windows enforce configured limits", (t) => {
   assert.throws(() => otp.consumeIpStart("192.0.2.1"));
   now += 60_001;
   assert.doesNotThrow(() => otp.consumeIpStart("192.0.2.1"));
+  otp.consumeIpVerify("192.0.2.1");
+  otp.consumeIpVerify("192.0.2.1");
+  assert.throws(() => otp.consumeIpVerify("192.0.2.1"), /otp_rate_limited/);
+  assert.doesNotThrow(() => otp.consumeIpStart("192.0.2.1"));
+  now += 60_001;
+  assert.doesNotThrow(() => otp.consumeIpVerify("192.0.2.1"));
 });
 
 test("invalid starts and signing failures preserve a usable challenge", (t) => {

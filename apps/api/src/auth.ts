@@ -103,7 +103,11 @@ export type OtpDependencies = {
   readonly now: () => number;
   readonly generateCode: () => string;
   consumeIpStart: (ip: string) => number;
+  consumeIpVerify: (ip: string) => number;
 };
+
+/** Wrong codes one sign-in code takes before it stops working and a new code is needed. */
+const MAX_WRONG_CODES = 5;
 
 export class OtpRateLimitError extends Error {
   readonly retryAfterMs: number;
@@ -162,22 +166,27 @@ export function createOtpDependencies(
   const ipStartWindowMs = configNumber("OTP_IP_START_WINDOW_MS", 600_000);
   const now = options.now ?? nowUtcMs;
   otpDeadline(now(), ttlMs);
-  const ipStarts = new Map<string, number[]>();
-  const consumeIpStart = (ip: string): number => {
-    const instant = now();
-    const prior = ipStarts.get(ip) ?? [];
-    const recent = prior.filter((at) => at > instant - ipStartWindowMs);
-    if (recent.length >= ipStartLimit) {
-      ipStarts.set(ip, recent);
-      throw new OtpRateLimitError(Math.max(1, recent[0]! + ipStartWindowMs - instant));
-    }
-    recent.push(instant);
-    ipStarts.delete(ip);
-    ipStarts.set(ip, recent);
-    // Keep attacker-controlled IP cardinality bounded. Oldest keys are evicted first.
-    while (ipStarts.size > 10_000) ipStarts.delete(ipStarts.keys().next().value!);
-    return Math.max(0, recent[0]! + ipStartWindowMs - instant);
+  // Code requests and code checks each get their own count per IP, with the same limit and window.
+  const ipRequestLimiter = () => {
+    const ipRequests = new Map<string, number[]>();
+    return (ip: string): number => {
+      const instant = now();
+      const prior = ipRequests.get(ip) ?? [];
+      const recent = prior.filter((at) => at > instant - ipStartWindowMs);
+      if (recent.length >= ipStartLimit) {
+        ipRequests.set(ip, recent);
+        throw new OtpRateLimitError(Math.max(1, recent[0]! + ipStartWindowMs - instant));
+      }
+      recent.push(instant);
+      ipRequests.delete(ip);
+      ipRequests.set(ip, recent);
+      // Keep attacker-controlled IP cardinality bounded. Oldest keys are evicted first.
+      while (ipRequests.size > 10_000) ipRequests.delete(ipRequests.keys().next().value!);
+      return Math.max(0, recent[0]! + ipStartWindowMs - instant);
+    };
   };
+  const consumeIpStart = ipRequestLimiter();
+  const consumeIpVerify = ipRequestLimiter();
   return Object.freeze({
     ttlMs,
     resendCooldownMs,
@@ -190,6 +199,7 @@ export function createOtpDependencies(
     now,
     generateCode: options.generateCode ?? randomOtp6,
     consumeIpStart,
+    consumeIpVerify,
   });
 }
 
@@ -314,7 +324,11 @@ export function pilotOtpVerify(
     store.otpChallenges.set(ch.id, { ...ch, status: "EXPIRED" });
     throw new Error("otp_expired");
   }
-  if (String(params.code ?? "") !== ch.code) throw new Error("otp_incorrect");
+  if (String(params.code ?? "") !== ch.code) {
+    const failedAttempts = (ch.failedAttempts ?? 0) + 1;
+    store.otpChallenges.set(ch.id, { ...ch, failedAttempts, ...(failedAttempts >= MAX_WRONG_CODES ? { status: "FAILED" as const } : {}) });
+    throw new Error("otp_incorrect");
+  }
 
   const sessionTtlMs = Number(
     process.env.SESSION_TTL_MS ?? `${30 * 24 * 60 * 60 * 1000}`,

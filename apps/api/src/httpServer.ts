@@ -283,6 +283,10 @@ export async function createApp(options: {
     throw new Error("PUSH_SENDER_ENABLED requires FCM_SERVICE_ACCOUNT_JSON");
   }
   const otp = createOtpDependencies();
+  const signInClientIp = (req: http.IncomingMessage): string => {
+    const forwardedFor = otp.trustProxy ? header(req, "x-forwarded-for")?.split(",")[0]?.trim() : undefined;
+    return forwardedFor || req.socket.remoteAddress || "unknown";
+  };
   const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (options.dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
   // Beside the data file, so a test or the demo with its own data file gets its own photos folder.
   const podPhotoRoot = podPhotosRoot(dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
@@ -369,12 +373,13 @@ export async function createApp(options: {
     const challenges = new Map(store.otpChallenges);
     const sessions = new Map(store.authSessions);
     let result: T;
-    let expiryError: unknown;
+    // An expired code and a wrong code both change the challenge, so they are saved before the error goes back.
+    let savedRefusal: unknown;
     try {
       result = operation();
     } catch (error) {
-      if (!(error instanceof Error) || error.message !== "otp_expired") throw error;
-      expiryError = error;
+      if (!(error instanceof Error) || (error.message !== "otp_expired" && error.message !== "otp_incorrect")) throw error;
+      savedRefusal = error;
     }
     try {
       await persist();
@@ -385,7 +390,7 @@ export async function createApp(options: {
       for (const [key, value] of sessions) store.authSessions.set(key, value);
       throw error;
     }
-    if (expiryError) throw expiryError;
+    if (savedRefusal) throw savedRefusal;
     return result!;
   }
 
@@ -677,9 +682,7 @@ export async function createApp(options: {
 
       // --- v1 auth (pilot OTP + bearer token) ---
       if (method === "POST" && url.pathname === "/v1/auth/otp/start") {
-        const forwardedFor = otp.trustProxy ? header(req, "x-forwarded-for")?.split(",")[0]?.trim() : undefined;
-        const clientIp = forwardedFor || req.socket.remoteAddress || "unknown";
-        otp.consumeIpStart(clientIp);
+        otp.consumeIpStart(signInClientIp(req));
         const body = await readJson(req);
         const phone = String(body?.phone ?? "");
         const reused = pilotOtpCooldownReuse(store, { phone }, otp);
@@ -689,6 +692,7 @@ export async function createApp(options: {
       }
 
       if (method === "POST" && url.pathname === "/v1/auth/otp/verify") {
+        otp.consumeIpVerify(signInClientIp(req));
         const body = await readJson(req);
         const out = await persistOtp(() => pilotOtpVerify(store, {
           phone: String(body?.phone ?? ""),
