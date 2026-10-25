@@ -63,6 +63,21 @@ void main() {
         reason: 'a wait of a minute or more reads in minutes, rounded up');
   });
 
+  test('a code check refused for too many tries reads as tries, in whole minutes', () {
+    DioException limited(int retryAfterMs) => DioException(
+          requestOptions: RequestOptions(path: '/v1/auth/otp/verify'),
+          response: Response(
+            requestOptions: RequestOptions(path: '/v1/auth/otp/verify'),
+            statusCode: 429,
+            data: {'error': 'otp_rate_limited', 'retryAfterMs': retryAfterMs},
+          ),
+        );
+    expect(formatApiError(limited(45000)),
+        'Too many tries. Please wait 1 minute and try again.');
+    expect(formatApiError(limited(569223)),
+        'Too many tries. Please wait 10 minutes and try again.');
+  });
+
   test('a wait of one second reads "1 second"', () {
     final limited = DioException(
       requestOptions: RequestOptions(path: '/v1/auth/otp/start'),

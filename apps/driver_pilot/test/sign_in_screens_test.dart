@@ -219,6 +219,19 @@ void main() {
     expect(codeRequests, 2, reason: 'the code page offers a new code at once');
   });
 
+  testWidgets('a code check refused for too many tries says how many minutes to wait',
+      (tester) async {
+    await showSignIn(tester, '/customer/login',
+        codeCheckAnswer: (_) => jsonResponse(
+            {'error': 'otp_rate_limited', 'retryAfterMs': 120000}, 429));
+    await sendCode(tester);
+    await tester.enterText(find.byType(TextField), '482190');
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect(find.text('Too many tries. Please wait 2 minutes and try again.'),
+        findsOneWidget);
+  });
+
   testWidgets('the short-number error goes as soon as the number is edited',
       (tester) async {
     await showSignIn(tester, '/customer/login');
