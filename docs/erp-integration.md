@@ -112,7 +112,7 @@ All require `loads:read`.
 | `GET /v1/integrations/loads?externalLoadId=` | Lookup by ERP id |
 | `GET /v1/integrations/loads?updatedSince={utcMs}` | Delta sync (cursor: `updatedAtUtcMs`) |
 | `GET /v1/integrations/shipments/:id` | Full snapshot (shipment, trip, payment, tracking) |
-| `GET /v1/integrations/shipments/:id/tracking` | Live tracking payload |
+| `GET /v1/integrations/shipments/:id/tracking` | Live tracking payload. `liveLocation` (and `tracking.lastLocation` in webhooks) is null unless the shipment is `BOOKED` and its trip is `IN_PROGRESS` |
 | `GET /v1/integrations/events?sinceEventId=` | Missed webhook recovery |
 
 Poll responses use the same canonical JSON shape as webhook payloads.

@@ -8,11 +8,14 @@ import {
   publishAnchorTripAsPilotDriver,
   registerCustomerOrgAdmin,
 
+  reportAnchorTripLocation,
   startAnchorTripAsPilot,
 } from "./services.ts";
 import {
   createIntegrationApiKey,
   createIntegrationLoad,
+  getIntegrationShipmentSnapshot,
+  getIntegrationShipmentTracking,
   listIntegrationEvents,
   updateIntegrationConnection,
 } from "./integrationServices.ts";
@@ -249,4 +252,51 @@ test("only platform OPS or ADMIN sets the payment policy", () => {
     updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "portal_checkout", changedByUserId: platformAdmin.userId }).paymentPolicy,
     "portal_checkout",
   );
+});
+
+test("ERP tracking, snapshot and webhooks give a shipper the truck location only while its own load is on the moving truck", () => {
+  process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  const store = createStore();
+  const { trip, driver } = seedOpenTrip(store);
+  const onTruck = registerCustomerOrgAdmin(store, { fullName: "ERP Admin", phone: "9111001191", orgDisplayName: "ERP On Truck" });
+  const waiting = registerCustomerOrgAdmin(store, { fullName: "ERP Admin", phone: "9111001192", orgDisplayName: "ERP Waiting" });
+  const booked = bookTestShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: onTruck.org.displayName,
+    customerOrg: { id: onTruck.org.id, displayName: onTruck.org.displayName },
+    weightKg: 50,
+    pickupAddress: "Gurugram",
+    dropAddress: "Jaipur",
+    pickup: GURGAON,
+    drop: JAIPUR,
+  });
+  const notAccepted = bookTestShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: waiting.org.displayName,
+    customerOrg: { id: waiting.org.id, displayName: waiting.org.displayName },
+    weightKg: 50,
+    pickupAddress: "Gurugram",
+    dropAddress: "Jaipur",
+    pickup: GURGAON,
+    drop: JAIPUR,
+  });
+  const unpaid = store.payments.get(notAccepted.paymentId)!;
+  store.payments.set(unpaid.id, { ...unpaid, status: "CREATED" });
+
+  acceptCarrierShipment(store, { shipmentId: booked.id, userId: driver.user.id });
+  startAnchorTripAsPilot(store, { userId: driver.user.id, tripId: trip.id });
+  reportAnchorTripLocation(store, driver.user.id, trip.id, { lat: 28.47, lng: 77.04 });
+
+  const bookedTracking = getIntegrationShipmentTracking(store, onTruck.org.id, booked.id);
+  assert.equal(bookedTracking.liveLocation?.lat, 28.47);
+  const bookedPayload = buildIntegrationEventPayload(store, { eventType: "load.location_updated", shipment: store.shipments.get(booked.id)!, sequence: 1 });
+  assert.equal(((bookedPayload.tracking as Record<string, unknown>).lastLocation as { lat: number }).lat, 28.47);
+
+  const waitingTracking = getIntegrationShipmentTracking(store, waiting.org.id, notAccepted.id);
+  assert.equal(waitingTracking.liveLocation, null);
+  assert.equal(JSON.stringify(waitingTracking).includes("28.47"), false, "no location anywhere in the tracking reply");
+  const waitingSnapshot = getIntegrationShipmentSnapshot(store, waiting.org.id, notAccepted.id);
+  assert.equal(JSON.stringify(waitingSnapshot).includes("28.47"), false, "no location anywhere in the snapshot");
+  const waitingPayload = buildIntegrationEventPayload(store, { eventType: "load.in_transit", shipment: store.shipments.get(notAccepted.id)!, sequence: 1 });
+  assert.equal((waitingPayload.tracking as Record<string, unknown>).lastLocation, null);
 });

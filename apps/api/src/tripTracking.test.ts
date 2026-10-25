@@ -267,3 +267,42 @@ test("tripForPublicListing strips live GPS that unauthenticated browse must not 
   assert.equal(publicView.id, trip.id, "everything else is still present");
   assert.equal(publicView.carrierDisplayName, "Ravi Transport");
 });
+
+test("getShipmentTripTracking: a shipper whose goods are not on the moving truck gets no position; the carrier still does", () => {
+  const store = createStore();
+  const driver = registerCompliantCarrier(store, {
+    fullName: "Ravi",
+    phone: "9100000031",
+    orgDisplayName: "Ravi Transport",
+    vehicleRegistrationNumber: "HR05",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 500,
+  });
+  const trip = publishAnchorTrip(store, {
+    carrierId: driver.org.id,
+    originCity: "Gurugram",
+    destCity: "Jaipur",
+    windowStart: "2026-04-24T00:00:00+05:30",
+    windowEnd: "2026-04-25T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+  });
+  const onTruck = registerCustomerOrgAdmin(store, { fullName: "Buyer One", phone: "9100000032", orgDisplayName: "On Truck Co" });
+  const waiting = registerCustomerOrgAdmin(store, { fullName: "Buyer Two", phone: "9100000033", orgDisplayName: "Waiting Co" });
+  const booked = bookTestShipment(store, { anchorTripId: trip.id, customerOrgName: onTruck.org.displayName, weightKg: 50, pickupAddress: "A", dropAddress: "B" });
+  store.shipments.set(booked.id, { ...booked, customerOrgId: onTruck.org.id });
+  const notAccepted = bookTestShipment(store, { anchorTripId: trip.id, customerOrgName: waiting.org.displayName, weightKg: 50, pickupAddress: "C", dropAddress: "D" });
+  store.shipments.set(notAccepted.id, { ...notAccepted, customerOrgId: waiting.org.id });
+  const unpaid = store.payments.get(notAccepted.paymentId)!;
+  store.payments.set(unpaid.id, { ...unpaid, status: "CREATED" });
+
+  const now = 1_700_000_000_000;
+  acceptAndStartTrip(store, driver.user.id, trip.id, booked.id);
+  reportAnchorTripLocation(store, driver.user.id, trip.id, { lat: 28.47, lng: 77.04, recordedAtUtcMs: now });
+
+  assert.equal(getShipmentTripTracking(store, onTruck.user.id, booked.id, { nowUtcMs: now }).liveLocation?.lat, 28.47);
+  const other = getShipmentTripTracking(store, waiting.user.id, notAccepted.id, { nowUtcMs: now });
+  assert.equal(other.liveLocation, null, "a shipper not yet on the truck must not follow it");
+  assert.equal(other.isLive, false);
+  assert.equal(getShipmentTripTracking(store, driver.user.id, notAccepted.id, { nowUtcMs: now }).liveLocation?.lat, 28.47, "the carrier still sees its truck");
+});

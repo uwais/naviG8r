@@ -213,7 +213,7 @@ Body:
 ```
 
 #### `GET /shipments/:shipmentId/tracking`
-Customer (or ops / carrier driver on that trip) live tracking. Requires Bearer. Returns `{ shipment, trip, liveLocation, isLive, staleAfterUtcMs }` (shipment/trip include **`carrierDisplayName`**). **`isLive`** is true only when the shipment is **`BOOKED`**, the anchor trip is **`IN_PROGRESS`**, and the driver ping is fresher than 15 minutes (`TRIP_TRACKING_STALE_MS`).
+Customer (or ops / carrier driver on that trip) live tracking. Requires Bearer. Returns `{ shipment, trip, liveLocation, isLive, staleAfterUtcMs }` (shipment/trip include **`carrierDisplayName`**). **`isLive`** is true only when the shipment is **`BOOKED`**, the anchor trip is **`IN_PROGRESS`**, and the driver ping is fresher than 15 minutes (`TRIP_TRACKING_STALE_MS`). For a shipper, `liveLocation` is null unless the shipment is **`BOOKED`** and the trip is **`IN_PROGRESS`**.
 
 #### `POST /v1/pilot/anchor-trips`
 Headers:

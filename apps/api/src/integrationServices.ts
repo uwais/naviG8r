@@ -7,7 +7,7 @@ import {
   bookShipment,
   customerEligibleAnchorTripsPhaseA,
   shipmentWithCarrierDisplay,
-  tripWithCarrierDisplay,
+  tripForPublicListing,
   attachRazorpayOrderForShipment,
   isOpsAdmin,
   isOpsAgent,
@@ -333,11 +333,12 @@ export function getIntegrationShipmentTracking(store: Store, orgId: string, ship
   const loc = trip.lastLiveLocation ?? null;
   const staleMs = 15 * 60 * 1000;
   const fresh = loc != null && now - loc.recordedAtUtcMs <= staleMs;
-  const isLive = fresh && shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
+  const shipperMaySeeTruck = shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
+  const isLive = fresh && shipperMaySeeTruck;
   return {
     shipment: withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment))),
-    trip: withoutTripAssignment(tripWithCarrierDisplay(store, trip)),
-    liveLocation: loc,
+    trip: tripForPublicListing(store, trip),
+    liveLocation: shipperMaySeeTruck ? loc : null,
     isLive,
     staleAfterUtcMs: staleMs,
     trackingUrl: shipmentTrackingUrl(shipmentId),
@@ -358,7 +359,7 @@ export function getIntegrationShipmentSnapshot(store: Store, orgId: string, ship
     ...integrationLoadResponse(store, shipment, conn),
     shipment: withoutTripAssignment(withoutEwayBill(enriched)),
     payment,
-    trip: trip ? withoutTripAssignment(trip) : null,
+    trip: trip ? tripForPublicListing(store, trip) : null,
   };
 }
 
