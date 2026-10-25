@@ -51,6 +51,8 @@ Cross-org access is rejected. Revoked keys return `401 integration_unauthorized`
 
 **Headers (optional):** `Idempotency-Key: {uuid}` — safe retries; duplicates return the existing shipment (`200`).
 
+A request body over 1 MB answers `413 payload_too_large`, here and on the portal settings routes under `/v1/pilot/customer/integrations`.
+
 **Body:**
 
 ```json

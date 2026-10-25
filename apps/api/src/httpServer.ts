@@ -97,9 +97,18 @@ function restoreMap<K, V>(target: Map<K, V>, saved: ReadonlyMap<K, V>): void {
   for (const [key, value] of saved) target.set(key, value);
 }
 
-async function readRawBody(req: http.IncomingMessage): Promise<string> {
+// Razorpay events are a few KB; the body is read before its signature can be checked.
+const RAZORPAY_WEBHOOK_MAX_BYTES = 256 * 1024;
+
+async function readRawBody(req: http.IncomingMessage, maxBytes: number): Promise<string> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+  let byteLength = 0;
+  for await (const c of req) {
+    const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+    byteLength += chunk.length;
+    if (byteLength > maxBytes) throw new AuthorizationError("payload_too_large", 413);
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks).toString("utf8");
 }
 
@@ -614,7 +623,7 @@ export async function createApp(options: {
         if (!secret) {
           return json(res, 503, { error: "webhook_secret_not_configured" });
         }
-        const raw = await readRawBody(req);
+        const raw = await readRawBody(req, RAZORPAY_WEBHOOK_MAX_BYTES);
         const sig = header(req, "x-razorpay-signature");
         if (!verifyRazorpayWebhookSignature(raw, sig ?? undefined, secret)) {
           return json(res, 401, { error: "invalid_webhook_signature" });
