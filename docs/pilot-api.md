@@ -596,6 +596,7 @@ Body:
 ```
 
 Server behavior:
+- Refuse `weightKg` that is not a finite number above 0 and at most `MAX_WEIGHT_KG` (100000, `config.ts`) with `400 invalid_weightKg`; the same limit applies to a trip's `capacityKg` (`invalid_capacityKg`), a truck's `vehicleCapacityKg` (`invalid_vehicleCapacityKg`), quotes and trip matching
 - Reserve capacity immediately (`reservedKg += weightKg`)
 - If capacity becomes fully reserved, mark trip `FULL`
 

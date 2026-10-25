@@ -18,6 +18,9 @@ export const TRIP_TRACKING_STALE_MS = 15 * 60 * 1000;
  */
 export const PRICE_PAISE_PER_KG = 500;
 
+/** The most a booking may weigh, or a trip or truck carry, in kilograms. */
+export const MAX_WEIGHT_KG = 100_000;
+
 /** Bump when distance/weight formula or defaults change (returned on quote/estimate). */
 export const FREIGHT_MODEL_VERSION = "freight-v1";
 

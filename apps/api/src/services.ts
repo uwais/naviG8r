@@ -6,6 +6,7 @@ import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutS
 import {
   COMMISSION_BPS,
   FREIGHT_MODEL_VERSION,
+  MAX_WEIGHT_KG,
   PAYOUT_BATCH_SCHEDULE,
   PRICE_PAISE_PER_KG,
   TRIP_TRACKING_STALE_MS,
@@ -293,7 +294,7 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   assertSignUpLengths(params);
   assertTruckNumberLength(String(params.vehicleRegistrationNumber));
   assertVehicleClass(params.vehicleClass);
-  if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
+  if (!kilogramsInRange(params.vehicleCapacityKg)) throw new Error("invalid_vehicleCapacityKg");
   const transporterIdCheck = checkTransporterId(params.transporterId ?? null);
   if (!transporterIdCheck.ok) throw new ApiError("invalid_transporter_id", { detail: transporterIdCheck.detail, field: transporterIdCheck.field });
 
@@ -1004,7 +1005,7 @@ export function updatePilotDriverVehicle(
   }
   if (hasCap) {
     const cap = Number(params.vehicleCapacityKg);
-    if (!(cap > 0)) throw new Error("invalid_vehicleCapacityKg");
+    if (!kilogramsInRange(cap)) throw new Error("invalid_vehicleCapacityKg");
     capacityKg = cap;
   }
 
@@ -1257,6 +1258,11 @@ export function getShipmentTripTracking(
   };
 }
 
+/** A weight or capacity the server takes. Routes pass Number(value), which is NaN for text, so finiteness is checked too. */
+function kilogramsInRange(kg: number): boolean {
+  return Number.isFinite(kg) && kg > 0 && kg <= MAX_WEIGHT_KG;
+}
+
 export function publishAnchorTrip(store: Store, params: {
   carrierId: string;
   originCity: string;
@@ -1270,7 +1276,7 @@ export function publishAnchorTrip(store: Store, params: {
 }): AnchorTrip {
   // `carrierId` is legacy naming; it is the Organization id for carrier-side entities.
   getOrgOrThrow(store, params.carrierId);
-  if (params.capacityKg <= 0) throw new Error("invalid_capacityKg");
+  if (!kilogramsInRange(params.capacityKg)) throw new Error("invalid_capacityKg");
   if (params.origin) assertGeoPoint(params.origin, "origin");
   if (params.destination) assertGeoPoint(params.destination, "destination");
   const t: AnchorTrip = {
@@ -1341,7 +1347,7 @@ export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
 }> {
   assertGeoPoint(params.pickup, "pickup");
   assertGeoPoint(params.drop, "drop");
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  if (!kilogramsInRange(params.weightKg)) throw new Error("invalid_weightKg");
 
   const radii = phaseAEndpointRadiiKm();
   const maxPickup = params.maxPickupDistanceKm ?? radii.maxPickupKm;
@@ -1414,7 +1420,7 @@ export function computeFreightGrossPaise(params: {
   shipmentKm?: number | null;
 }): { grossPaise: number; breakdown: FreightBreakdown } {
   assertVehicleClass(params.vehicleClass);
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  if (!kilogramsInRange(params.weightKg)) throw new Error("invalid_weightKg");
 
   const laneKm = params.laneKm != null && params.laneKm > 0 ? params.laneKm : null;
   const shipmentKm = params.shipmentKm != null && params.shipmentKm > 0 ? params.shipmentKm : null;
@@ -1461,7 +1467,7 @@ export function quoteShipmentMarketplace(store: Store, params: {
   drop?: unknown;
   anchorTripId?: string;
 }): { grossPaise: number; breakdown: FreightBreakdown } {
-  if (params.weightKg <= 0) throw new ApiError("invalid_weightKg", {});
+  if (!kilogramsInRange(params.weightKg)) throw new ApiError("invalid_weightKg", {});
 
   let vehicleClass: VehicleClass = "MEDIUM";
   let laneKm: number | null = null;
@@ -1613,7 +1619,7 @@ export function bookShipment(store: Store, params: {
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip || !isActiveEntity(trip)) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  if (!kilogramsInRange(params.weightKg)) throw new Error("invalid_weightKg");
   if (trip.reservedKg + params.weightKg > trip.capacityKg) throw new Error("insufficient_capacity");
 
   assertPhaseABookingEligible({
@@ -2092,7 +2098,7 @@ export function inviteCarrierDriver(
     vehicle = orgVehicle;
   } else {
     assertVehicleClass(params.vehicleClass);
-    if ((params.vehicleCapacityKg ?? 0) <= 0) throw new Error("invalid_vehicleCapacityKg");
+    if (!kilogramsInRange(params.vehicleCapacityKg ?? 0)) throw new Error("invalid_vehicleCapacityKg");
     if (!String(params.vehicleRegistrationNumber ?? "").trim()) {
       throw new Error("invalid_vehicleRegistrationNumber");
     }
