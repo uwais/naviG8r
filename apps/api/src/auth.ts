@@ -198,6 +198,8 @@ export type OtpDependencies = {
   readonly ipStartWindowMs: number;
   readonly trustProxy: boolean;
   readonly debug: boolean;
+  /** False in production, where nothing sends the code by SMS; people sign in with Firebase there. */
+  readonly serverCodeSignInAllowed: boolean;
   readonly now: () => number;
   readonly generateCode: () => string;
   consumeIpStart: (ip: string) => number;
@@ -291,6 +293,7 @@ export function createOtpDependencies(
     ipStartWindowMs,
     trustProxy: env.OTP_TRUST_PROXY === "1",
     debug: env.OTP_DEBUG === "1",
+    serverCodeSignInAllowed: serverCodeSignInAllowed(env),
     now,
     generateCode: options.generateCode ?? randomOtp6,
     consumeIpStart,
@@ -306,12 +309,25 @@ function debugOtpDelivery(
   return enabled ? { debugCode: code } : {};
 }
 
+// Any other value, a misspelt "production" included, is treated as production.
+const SERVER_CODE_SIGN_IN_ENVIRONMENTS = ["test", "development", "alpha", "beta"];
+
+/** Unset counts as a local run: tests and local servers leave NODE_ENV unset, and the API image sets production. */
+export function serverCodeSignInAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.NODE_ENV === undefined || SERVER_CODE_SIGN_IN_ENVIRONMENTS.includes(env.NODE_ENV);
+}
+
+function assertServerCodeSignInAllowed(otp: OtpDependencies): void {
+  if (!otp.serverCodeSignInAllowed) throw new Error("otp_sign_in_retired");
+}
+
 /** Returns an unexpired in-cooldown challenge without mutating OTP state. */
 export function pilotOtpCooldownReuse(
   store: Store,
   params: { phone: string },
   otp = createOtpDependencies(),
 ): { challengeId: string; expiresAtUtcMs: number; retryAfterMs: number; debugCode?: string } | null {
+  assertServerCodeSignInAllowed(otp);
   const user = findUserByPhone(store, params.phone);
   if (!user) throw new Error("user_not_found");
   if (!isActiveEntity(user)) throw new Error("account_inactive");
@@ -339,6 +355,7 @@ export function pilotOtpStart(
   /** Only returned when the server enables OTP_DEBUG=1. */
   debugCode?: string;
 } {
+  assertServerCodeSignInAllowed(otp);
   const user = findUserByPhone(store, params.phone);
   if (!user) throw new Error("user_not_found");
   if (!isActiveEntity(user)) throw new Error("account_inactive");
@@ -408,6 +425,7 @@ export function pilotOtpVerify(
   accessToken: string;
   session: AuthSession;
 } {
+  assertServerCodeSignInAllowed(otp);
   const user = findUserByPhone(store, params.phone);
   if (!user) throw new Error("user_not_found");
   if (!isActiveEntity(user)) throw new Error("account_inactive");
@@ -462,6 +480,8 @@ export function verifyBearer(
   if (s.revokedAtUtcMs) throw new Error("unauthorized");
   if (s.expiresAtUtcMs <= nowUtcMs()) throw new Error("unauthorized");
   if (s.userId !== payload.uid) throw new Error("unauthorized");
+  // Only Firebase sessions carry authProvider; the rest came from the server code and end where it is retired.
+  if (s.authProvider !== "firebase" && !serverCodeSignInAllowed()) throw new Error("unauthorized");
   const user = store.users.get(s.userId);
   if (!user || !isActiveEntity(user)) throw new Error("unauthorized");
   return { userId: s.userId, sessionId: s.id };

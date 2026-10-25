@@ -2,6 +2,7 @@ import { dashboardList, onboardCarrier, setInternalAccess } from "./dashboard.ts
 import { adminDashboardV1Html } from "./adminDashboardV1.ts";
 import { opsPortalHtml } from "./opsPortal.ts";
 import { opsConsoleBetaContentSecurityPolicy, opsConsoleBetaHtml } from "./opsConsoleBeta.ts";
+import { staffSignInFromEnv } from "./staffSignIn.ts";
 import { assertAdminRemains, authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
 import { guardRequest, requestContext } from "./rbacRoutes.ts";
 import { carrierRejection } from "./carrierRejection.ts";
@@ -333,6 +334,7 @@ export async function createApp(options: {
     throw new Error("PUSH_SENDER_ENABLED requires FCM_SERVICE_ACCOUNT_JSON");
   }
   const otp = createOtpDependencies();
+  const staffSignIn = staffSignInFromEnv();
   const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (options.dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
 
   let store: ReturnType<typeof loadStoreFromDisk>;
@@ -490,11 +492,11 @@ export async function createApp(options: {
       guardRequest(req, store, url);
       if (method !== "POST") return json(res, 404, { error: "not_found" });
 
-      const ipLimit = firebaseExchangeIpRateLimiter.consume(
-        `firebase-exchange:ip:${clientIp(req, otp.trustProxy)}`,
-        firebaseExchangeIpLimit,
-        firebaseExchangeWindowMs,
-      );
+      // Without OTP_TRUST_PROXY every visitor may arrive from the proxy address, so this budget would be shared
+      // by everyone; only the per-identity limit below applies then, as for the other sign-in routes.
+      const ipLimit = otp.trustProxy
+        ? firebaseExchangeIpRateLimiter.consume(`firebase-exchange:ip:${clientIp(req, otp.trustProxy)}`, firebaseExchangeIpLimit, firebaseExchangeWindowMs)
+        : { allowed: true, retryAfterSeconds: 0 };
       if (!ipLimit.allowed) {
         res.setHeader("retry-after", String(ipLimit.retryAfterSeconds));
         return json(res, 429, { error: "firebase_exchange_rate_limited" });
@@ -568,8 +570,8 @@ export async function createApp(options: {
       // Every route that reads trip space or bookings sees unpaid bookings past their window as closed.
       expireUnpaidBookings(store);
 
-      if (method === "GET" && ["/admin/v1", "/ops/v1"].includes(url.pathname)) return html(res, 200, adminDashboardV1Html(url.pathname === "/ops/v1"));
-      if (method === "GET" && ["/admin/v2", "/ops/v2"].includes(url.pathname)) return html(res, 200, opsPortalHtml({ operations: url.pathname === "/ops/v2" }));
+      if (method === "GET" && ["/admin/v1", "/ops/v1"].includes(url.pathname)) return html(res, 200, adminDashboardV1Html(url.pathname === "/ops/v1", staffSignIn));
+      if (method === "GET" && ["/admin/v2", "/ops/v2"].includes(url.pathname)) return html(res, 200, opsPortalHtml({ operations: url.pathname === "/ops/v2", signIn: staffSignIn }));
       if (method === "GET" && /^\/v1\/ops\/dashboard\/[^/]+$/.test(url.pathname)) return json(res, 200, dashboardList(store, url.pathname.split("/")[4]!, url.searchParams));
       if (method === "POST" && url.pathname === "/v1/ops/carrier-organizations") {
         const out = onboardCarrier(store, await readJson(req)); await persist(); return json(res, out.created ? 201 : 200, out);
@@ -1279,8 +1281,8 @@ export async function createApp(options: {
         return json(res, 200, { users });
       }
 
-      if (method === "GET" && url.pathname === "/admin") return html(res, 200, opsPortalHtml());
-      if (method === "GET" && url.pathname === "/workflow") return html(res, 200, opsPortalHtml({ workflowOnly: true }));
+      if (method === "GET" && url.pathname === "/admin") return html(res, 200, opsPortalHtml({ signIn: staffSignIn }));
+      if (method === "GET" && url.pathname === "/workflow") return html(res, 200, opsPortalHtml({ workflowOnly: true, signIn: staffSignIn }));
 
       if (method === "POST" && url.pathname === "/carriers") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
@@ -1545,14 +1547,14 @@ export async function createApp(options: {
 
       if (method === "GET" && url.pathname === "/ops/beta") {
         // This page can release payments and change roles: no other site may frame it, and only its own code runs.
-        res.setHeader("content-security-policy", opsConsoleBetaContentSecurityPolicy);
+        res.setHeader("content-security-policy", opsConsoleBetaContentSecurityPolicy(staffSignIn));
         res.setHeader("x-frame-options", "DENY");
         res.setHeader("x-content-type-options", "nosniff");
         res.setHeader("referrer-policy", "same-origin");
-        return html(res, 200, opsConsoleBetaHtml());
+        return html(res, 200, opsConsoleBetaHtml(staffSignIn));
       }
       if (method === "GET" && url.pathname === "/ops") {
-        return html(res, 200, opsPortalHtml({ operations: true }));
+        return html(res, 200, opsPortalHtml({ operations: true, signIn: staffSignIn }));
       }
 
       if (method === "POST" && /^\/shipments\/[^/]+\/accept-pod$/.test(url.pathname)) {
@@ -1607,6 +1609,9 @@ export async function createApp(options: {
         return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
       }
       const msg = String(e?.message ?? "bad_request");
+      if (msg === "otp_sign_in_retired") {
+        return json(res, 410, { error: msg, message: "This sign-in is no longer used. Reload the page or update the app. If it still fails, try again later." });
+      }
       if (msg === "unauthorized" || msg === "invalid_token" || msg === "token_expired") {
         return json(res, 401, { error: "unauthorized" });
       }
