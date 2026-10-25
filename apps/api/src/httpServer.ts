@@ -91,9 +91,16 @@ function restoreMap<K, V>(target: Map<K, V>, saved: ReadonlyMap<K, V>): void {
   for (const [key, value] of saved) target.set(key, value);
 }
 
-async function readRawBody(req: http.IncomingMessage): Promise<string> {
+/** Razorpay webhook events are a few KB; the cap applies before the signature is checked. */
+async function readRawBody(req: http.IncomingMessage, maxBytes = 256 * 1024): Promise<string> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+  let byteLength = 0;
+  for await (const c of req) {
+    const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+    byteLength += chunk.length;
+    if (byteLength > maxBytes) throw new AuthorizationError("payload_too_large", 413);
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks).toString("utf8");
 }
 

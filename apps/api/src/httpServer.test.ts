@@ -326,3 +326,23 @@ test("CORS preflight allows localhost web clients", async (t) => {
     assert.ok(post.status === 200 || post.status === 201);
   });
 });
+
+test("POST /v1/payments/razorpay/webhook refuses a body over 256 KB with 413", async (t) => {
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  const previousSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  process.env.RAZORPAY_WEBHOOK_SECRET = "webhook_test_secret";
+  t.after(() => {
+    if (previousSecret === undefined) delete process.env.RAZORPAY_WEBHOOK_SECRET;
+    else process.env.RAZORPAY_WEBHOOK_SECRET = previousSecret;
+  });
+
+  await withApp(t, async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/v1/payments/razorpay/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-razorpay-signature": "0".repeat(64) },
+      body: JSON.stringify({ event: "payment.authorized", padding: "a".repeat(300 * 1024) }),
+    });
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: "payload_too_large" });
+  });
+});

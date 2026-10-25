@@ -7,6 +7,8 @@ import type {
 import type { Store } from "./store.ts";
 import { signWebhookPayload } from "./integrationAuth.ts";
 import { randomUUID } from "node:crypto";
+import dns from "node:dns";
+import net from "node:net";
 
 const EVENT_VERSION = "2026-06-01";
 const WEBHOOK_RETRY_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 24 * 60 * 60_000];
@@ -241,6 +243,50 @@ export function emitIntegrationEvent(
   return event;
 }
 
+/** This network, loopback, private, shared (carrier NAT) and link-local ranges; cloud metadata services sit in them. */
+const NON_PUBLIC_ADDRESSES = new net.BlockList();
+NON_PUBLIC_ADDRESSES.addSubnet("0.0.0.0", 8, "ipv4");
+NON_PUBLIC_ADDRESSES.addSubnet("10.0.0.0", 8, "ipv4");
+NON_PUBLIC_ADDRESSES.addSubnet("100.64.0.0", 10, "ipv4");
+NON_PUBLIC_ADDRESSES.addSubnet("127.0.0.0", 8, "ipv4");
+NON_PUBLIC_ADDRESSES.addSubnet("169.254.0.0", 16, "ipv4");
+NON_PUBLIC_ADDRESSES.addSubnet("172.16.0.0", 12, "ipv4");
+NON_PUBLIC_ADDRESSES.addSubnet("192.168.0.0", 16, "ipv4");
+NON_PUBLIC_ADDRESSES.addAddress("::", "ipv6");
+NON_PUBLIC_ADDRESSES.addAddress("::1", "ipv6");
+NON_PUBLIC_ADDRESSES.addSubnet("fc00::", 7, "ipv6");
+NON_PUBLIC_ADDRESSES.addSubnet("fe80::", 10, "ipv6");
+
+const MAX_WEBHOOK_ERROR_BODY_BYTES = 4 * 1024;
+
+/** Every address the host name resolves to must be public. */
+async function webhookHostIsPublic(webhookUrl: string): Promise<boolean> {
+  const host = new URL(webhookUrl).hostname.replace(/^\[|\]$/g, "");
+  const addresses = net.isIP(host)
+    ? [{ address: host, family: net.isIP(host) }]
+    : await dns.promises.lookup(host, { all: true });
+  return addresses.length > 0 &&
+    addresses.every((a) => !NON_PUBLIC_ADDRESSES.check(a.address, a.family === 6 ? "ipv6" : "ipv4"));
+}
+
+async function readStartOfBody(res: Response, maxBytes: number): Promise<string> {
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (byteLength < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      byteLength += value.length;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return Buffer.concat(chunks).subarray(0, maxBytes).toString("utf8");
+}
+
 export async function deliverIntegrationWebhook(
   delivery: IntegrationWebhookDelivery,
   webhookSecret: string | undefined,
@@ -254,16 +300,21 @@ export async function deliverIntegrationWebhook(
   }
 
   try {
+    if (!(await webhookHostIsPublic(delivery.webhookUrl))) {
+      return { ok: false, httpStatus: 0, error: "webhook_address_not_allowed" };
+    }
+    // A redirect comes back as a 3xx, which is not ok, so it counts as a failed delivery.
     const res = await fetch(delivery.webhookUrl, {
       method: "POST",
       headers,
       body: delivery.payloadJson,
+      redirect: "manual",
       signal: AbortSignal.timeout(30_000),
     });
     if (res.ok) {
       return { ok: true, httpStatus: res.status };
     }
-    const text = await res.text().catch(() => "");
+    const text = await readStartOfBody(res, MAX_WEBHOOK_ERROR_BODY_BYTES).catch(() => "");
     return { ok: false, httpStatus: res.status, error: text.slice(0, 500) || res.statusText };
   } catch (e: any) {
     return { ok: false, httpStatus: 0, error: String(e?.message ?? e) };

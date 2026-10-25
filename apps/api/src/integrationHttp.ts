@@ -51,12 +51,20 @@ function integrationErrorStatus(msg: string): number {
     return 404;
   }
   if (msg === "no_eligible_lane") return 422;
+  if (msg === "payload_too_large") return 413;
   return 400;
 }
 
-async function readJson(req: http.IncomingMessage): Promise<any> {
+/** Same 1 MB cap as the main router's readJson. */
+async function readJson(req: http.IncomingMessage, maxBytes = 1_048_576): Promise<any> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+  let byteLength = 0;
+  for await (const c of req) {
+    const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+    byteLength += chunk.length;
+    if (byteLength > maxBytes) throw new Error("payload_too_large");
+    chunks.push(chunk);
+  }
   if (chunks.length === 0) return null;
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
@@ -266,6 +274,10 @@ export async function handleIntegrationPortalRoutes(
     const msg = String(e?.message ?? "bad_request");
     if (msg === "forbidden" || msg === "payment_policy_staff_only") {
       json(res, 403, { error: msg });
+      return true;
+    }
+    if (msg === "payload_too_large") {
+      json(res, 413, { error: msg });
       return true;
     }
     json(res, 400, { error: msg });

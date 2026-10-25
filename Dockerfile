@@ -9,12 +9,13 @@ ENV RELEASE_SHA=${RELEASE_SHA}
 
 WORKDIR /app
 
+# Every workspace package.json is copied so npm ci can match the whole package-lock.json.
+COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/package.json
-WORKDIR /app/apps/api
+COPY apps/www/package.json ./apps/www/package.json
+COPY packages/core/package.json ./packages/core/package.json
 
-RUN npm install --ignore-scripts
-
-WORKDIR /app
+RUN npm ci --omit=dev --workspace apps/api --include-workspace-root=false --ignore-scripts
 
 COPY packages ./packages
 COPY apps/api ./apps/api

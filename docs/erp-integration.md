@@ -102,6 +102,7 @@ When `paymentPolicy` is `portal_checkout` and Razorpay is enabled, `checkoutRequ
 | 422 | `no_eligible_lane` | No open trip matches; retry later or pass `anchorTripId` |
 | 400 | `external_load_id_required` | Missing ERP id |
 | 401 | `integration_unauthorized` | Invalid or revoked key |
+| 413 | `payload_too_large` | Request body over 1 MB (also on the portal integration routes) |
 
 ## Poll APIs (reconciliation)
 
@@ -126,6 +127,8 @@ X-NaviG8r-Signature: {hex_hmac_sha256}
 ```
 
 Verify with your per-connection webhook secret (shown once when created or after **Rotate secret**).
+
+The callback host must resolve only to public addresses; a private, loopback or link-local address fails with `webhook_address_not_allowed`. Redirects are not followed: a 3xx reply counts as a failed delivery. For a failed delivery NaviG8r reads at most the first 4 KB of your reply and keeps up to 500 characters of it as the error.
 
 ### Event types
 
@@ -234,7 +237,7 @@ node --experimental-strip-types --test \
 |-----------|----------|
 | `integration.test.ts` | Service-layer idempotency, events, auth headers, webhook payload fields |
 | `integrationHttp.test.ts` | Real HTTP: `POST /v1/integrations/loads`, portal `/v1/pilot/customer/integrations/*` |
-| `integrationWebhooks.test.ts` | Mock `fetch`: HMAC signature, retry backoff on failed delivery |
+| `integrationWebhooks.test.ts` | Mock `fetch` and DNS lookup: HMAC signature, retry backoff on failed delivery, public addresses only, no redirects, error reply read up to 4 KB |
 
 Flutter widget tests:
 

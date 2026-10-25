@@ -371,7 +371,7 @@ Ops. `{ "result": "FOUND", "billNumber": "123456789012" }` or `{ "result": "PROB
 Returns **`{ ok: true, persistence: "file"|"db", paymentProvider: "mock"|"razorpay" }`** — useful when wiring Razorpay and Postgres locally.
 
 #### `POST /v1/payments/razorpay/webhook`
-**Unauthenticated** (signature only). Razorpay posts the JSON event body raw; validate **`x-razorpay-signature`** using **`RAZORPAY_WEBHOOK_SECRET`**. Implemented events: **`payment.authorized`**, **`payment.captured`**, **`payment.failed`**. The server finds the internal payment by Razorpay order/payment ids and updates state idempotently. Configure this URL on the Razorpay dashboard (test mode webhook for dev).
+**Unauthenticated** (signature only). Razorpay posts the JSON event body raw; validate **`x-razorpay-signature`** using **`RAZORPAY_WEBHOOK_SECRET`**. Implemented events: **`payment.authorized`**, **`payment.captured`**, **`payment.failed`**. The server finds the internal payment by Razorpay order/payment ids and updates state idempotently. Configure this URL on the Razorpay dashboard (test mode webhook for dev). A body over 256 KB gets **413** **`{ "error": "payload_too_large" }`** before the signature is checked.
 
 **Production vs legacy demo:** legacy admin/demo JSON that exposes or mutates operator state (`/admin`, `/v1/users`, unauthenticated legacy `/carriers` list/create, legacy `POST /anchor-trips`, ledger/payout toys, **`POST /v1/pilot/driver/login`**, etc.) returns **403** unless `ENABLE_LEGACY_DEMO_SURFACE=1`. The customer marketplace routes above stay enabled in production; without a Bearer token, protected shipment routes return **401**.
 

@@ -272,3 +272,41 @@ test("an unknown payment policy is refused with 400", async (t) => {
     assert.deepEqual(await res.json(), { error: "invalid_payment_policy" });
   });
 });
+
+test("a portal request body over 1 MB is refused with 413", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const res = await postJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/keys?orgId=${orgId}`,
+      { scopes: ["loads:read"], padding: "a".repeat(1_100_000) },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: "payload_too_large" });
+  });
+});
+
+test("an integration API request body over 1 MB is refused with 413", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const keyRes = await postJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/keys?orgId=${orgId}`,
+      { scopes: ["loads:read", "loads:write"] },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(keyRes.status, 201);
+    const keyBody = (await keyRes.json()) as { token: string };
+    const res = await postJson(
+      baseUrl,
+      "/v1/integrations/loads",
+      { externalLoadId: "ERP-HTTP-BIG", weightKg: 100, metadata: { note: "a".repeat(1_100_000) } },
+      { authorization: `Bearer ${keyBody.token}` },
+    );
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: "payload_too_large" });
+  });
+});
