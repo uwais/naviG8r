@@ -141,3 +141,27 @@ test("the shipper is told 30 minutes, but a booking closes only 10 minutes after
   assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
   assert.deepEqual([paymentOf(f, inGrace).status, f.store.shipments.get(inGrace)?.status], ["AUTHORIZED", "PENDING_CARRIER_ACCEPT"]);
 });
+
+test("a payment Razorpay reports after the booking expired leaves it looking unpaid: the id is kept for staff, and no payment notice goes out", async t => {
+  const f = await httpFixture(t);
+  const late = await book(f, f.tokens.shipperB);
+  waitingForPayment(f, late, closedAgeMs, { razorpayOrderId: "order_after_expiry" });
+  assert.equal((await f.request("/anchor-trips", "GET")).status, 200);
+  assert.equal(f.store.shipments.get(late)?.status, "FAILED_CARRIER_REFUNDED", "precondition: expired");
+  const savedSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  process.env.RAZORPAY_WEBHOOK_SECRET = "synthetic_webhook_secret";
+  t.after(() => { if (savedSecret === undefined) delete process.env.RAZORPAY_WEBHOOK_SECRET; else process.env.RAZORPAY_WEBHOOK_SECRET = savedSecret; });
+
+  // The fixture moving the mock payment back to CREATED made one notice already; only what the webhook adds counts.
+  const paymentNotices = async () => (await inbox(f, f.tokens.shipperB)).filter((n) => n.shipmentId === late && n.eventKey === "payment.status_changed").length;
+  const noticesBefore = await paymentNotices();
+  const event = { event: "payment.authorized", payload: { payment: { entity: { id: "pay_after_expiry", order_id: "order_after_expiry" } } } };
+  const signature = crypto.createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET).update(JSON.stringify(event)).digest("hex");
+  const answered = await f.request("/v1/payments/razorpay/webhook", "POST", event, undefined, { "x-razorpay-signature": signature });
+  assert.equal(answered.status, 200);
+
+  assert.deepEqual([paymentOf(f, late).status, f.store.shipments.get(late)?.status], ["CREATED", "FAILED_CARRIER_REFUNDED"]);
+  assert.deepEqual([...f.store.auditEvents.values()].filter((row) => row.action === "PAYMENT_AFTER_CANCEL" && row.resourceId === late).map((row) => [row.reasonCode, row.razorpayPaymentId]),
+    [["AUTHORIZED", "pay_after_expiry"]], "staff can find the late payment");
+  assert.equal(await paymentNotices(), noticesBefore, "no payment status notice for the late payment");
+});
