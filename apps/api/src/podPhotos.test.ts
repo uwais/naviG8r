@@ -295,3 +295,16 @@ test("a refused upload still carries the CORS answer, so the app in a browser ca
   assert.equal(response.status, 401);
   assert.equal(response.headers.get("access-control-allow-origin"), "http://localhost:5555");
 });
+
+test("the server confirms delivery only with a photo of that shipment, for the carrier office as for a driver", async t => {
+  const f = await httpFixture(t);
+  const [withPhoto, withoutPhoto] = [(await f.book()).body.shipment.id as string, (await f.book()).body.shipment.id as string];
+  for (const id of [withPhoto, withoutPhoto]) assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  startTestTrip(f.store, withPhoto);
+  assert.equal((await upload(f, withPhoto, jpeg(), f.tokens.carrierA)).status, 201);
+
+  const refused = await f.request(`/shipments/${withoutPhoto}/driver-pod`, "POST", {}, f.tokens.carrierA);
+  assert.deepEqual([refused.status, refused.body.error], [409, "pod_photo_required"], "a photo on another shipment does not count");
+  assert.deepEqual([f.store.shipments.get(withoutPhoto)?.status, f.store.shipments.get(withoutPhoto)?.podAtUtcMs], ["BOOKED", null]);
+  assert.equal((await f.request(`/shipments/${withPhoto}/driver-pod`, "POST", {}, f.tokens.carrierA)).status, 200);
+});
