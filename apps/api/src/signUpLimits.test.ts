@@ -53,6 +53,22 @@ test("sign-up routes share a per-IP limit of 30 in 10 minutes when the proxy is 
   assert.equal([...f.store.users.values()].some((user) => user.phone === "9100000100"), false);
 });
 
+test("a sign-up refused for its IP does not use one of the phone's tries", async (t) => {
+  setTrustProxy(t, "1");
+  const f = await httpFixture(t);
+  const fromFirstAddress = { "x-forwarded-for": "198.51.100.1" }, fromSecondAddress = { "x-forwarded-for": "198.51.100.2" };
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const signedUp = await f.request(TEAM_MEMBER_SIGN_UP, "POST", teamMemberSignUp(String(9100000400 + attempt)), undefined, fromFirstAddress);
+    assert.equal(signedUp.status, 201, `attempt ${attempt + 1}`);
+  }
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const limited = await f.request(TEAM_MEMBER_SIGN_UP, "POST", teamMemberSignUp("9100000450"), undefined, fromFirstAddress);
+    assert.equal(limited.status, 429, `attempt ${attempt + 1}`);
+  }
+  const signedUp = await f.request(TEAM_MEMBER_SIGN_UP, "POST", teamMemberSignUp("9100000450"), undefined, fromSecondAddress);
+  assert.equal(signedUp.status, 201);
+});
+
 test("sign-up routes share a per-phone limit of 5 in an hour", async (t) => {
   const f = await httpFixture(t);
   const phone = "9100000200";

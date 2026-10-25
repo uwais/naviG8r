@@ -3,12 +3,21 @@ type Bucket = { startedAtUtcMs: number; count: number };
 /** Small single-process fixed-window limiter for routes on the single-writer API. */
 export class FixedWindowRateLimiter {
   private readonly buckets = new Map<string, Bucket>();
+  private readonly maxKeys: number;
+
+  /** With maxKeys, the oldest windows are dropped first once there are more keys than that. */
+  constructor(maxKeys = Infinity) {
+    this.maxKeys = maxKeys;
+  }
 
   consume(key: string, limit: number, windowMs: number, now = Date.now()): { allowed: boolean; retryAfterSeconds: number } {
     let bucket = this.buckets.get(key);
     if (!bucket || now - bucket.startedAtUtcMs >= windowMs || now < bucket.startedAtUtcMs) {
       bucket = { startedAtUtcMs: now, count: 0 };
+      // Deleted first so the map stays in the order windows started, oldest first.
+      this.buckets.delete(key);
       this.buckets.set(key, bucket);
+      while (this.buckets.size > this.maxKeys) this.buckets.delete(this.buckets.keys().next().value!);
     }
     if (bucket.count >= limit) {
       return {
