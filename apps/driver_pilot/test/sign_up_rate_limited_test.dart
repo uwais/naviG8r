@@ -1,4 +1,4 @@
-// The server limits sign-ups per phone and per connection and answers 429 rate_limited.
+// The server limits sign-ups per phone, and per IP behind a trusted proxy, and answers 429 rate_limited with its wait.
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/pilot_api.dart';
@@ -11,7 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'support/mock_api.dart';
 
 void main() {
-  testWidgets('a sign-up refused for too many tries says to wait',
+  testWidgets('a sign-up refused for too many tries says how many minutes to wait',
       (tester) async {
     tester.view.physicalSize = const Size(360, 1600);
     tester.view.devicePixelRatio = 1;
@@ -21,7 +21,8 @@ void main() {
     AuthorizationSession.clear();
     api.dio.httpClientAdapter = MockApiAdapter((request) =>
         request.path == '/v1/pilot/customer/register'
-            ? jsonResponse({'error': 'rate_limited'}, 429)
+            ? jsonResponse(
+                {'error': 'rate_limited', 'retryAfterMs': 2999000}, 429)
             : jsonResponse({}));
     final router = GoRouter(initialLocation: '/customer/register', routes: [
       GoRoute(
@@ -40,7 +41,8 @@ void main() {
         find.widgetWithText(TextField, 'Company name'), 'Sharma Textiles');
     await tester.tap(find.text('Create account'));
     await tester.pumpAndSettle();
-    expect(find.text('Too many tries. Wait a few minutes, then try again.'),
-        findsOneWidget);
+    expect(find.text('Too many tries. Please wait 50 minutes and try again.'),
+        findsOneWidget,
+        reason: 'the wait is the server retryAfterMs, rounded up to whole minutes');
   });
 }

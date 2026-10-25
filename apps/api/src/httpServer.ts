@@ -271,7 +271,7 @@ function consumeSignUpRateLimit(
   const blocked = signUpLimit(clientIp, phone);
   if (blocked.allowed) return true;
   res.setHeader("retry-after", String(blocked.retryAfterSeconds));
-  json(res, 429, { error: "rate_limited" });
+  json(res, 429, { error: "rate_limited", retryAfterMs: blocked.retryAfterSeconds * 1000 });
   return false;
 }
 

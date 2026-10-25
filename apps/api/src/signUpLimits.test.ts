@@ -49,6 +49,7 @@ test("sign-up routes share a per-IP limit of 30 in 10 minutes when the proxy is 
   ] as const) {
     const limited = await f.request(path, "POST", body);
     assert.deepEqual([limited.status, limited.body.error], [429, "rate_limited"], path);
+    assert.ok(limited.body.retryAfterMs > 0 && limited.body.retryAfterMs <= 600_000, `${path} waits ${limited.body.retryAfterMs} ms`);
   }
   assert.equal([...f.store.users.values()].some((user) => user.phone === "9100000100"), false);
 });
@@ -79,6 +80,7 @@ test("sign-up routes share a per-phone limit of 5 in an hour", async (t) => {
   }
   const limited = await f.request(DRIVER_SIGN_UP, "POST", driverSignUp(phone));
   assert.deepEqual([limited.status, limited.body.error], [429, "rate_limited"]);
+  assert.ok(limited.body.retryAfterMs > 600_000 && limited.body.retryAfterMs <= 3_600_000, `waits ${limited.body.retryAfterMs} ms`);
   const otherPhone = await f.request(TEAM_MEMBER_SIGN_UP, "POST", teamMemberSignUp("9100000201"));
   assert.equal(otherPhone.status, 201);
 });

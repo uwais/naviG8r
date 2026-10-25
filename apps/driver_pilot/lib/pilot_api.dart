@@ -190,9 +190,10 @@ String formatApiError(Object e) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
     final code = body is Map ? body["error"] : null;
-    // A code check counts tries, not code requests, so it says so, and its wait in whole minutes.
-    if (code == "otp_rate_limited" &&
-        e.requestOptions.path.endsWith("/v1/auth/otp/verify")) {
+    // A code check and a sign-up count tries, not code requests, so they say so, with the wait in whole minutes.
+    if ((code == "otp_rate_limited" &&
+            e.requestOptions.path.endsWith("/v1/auth/otp/verify")) ||
+        (code == "rate_limited" && body["retryAfterMs"] is num)) {
       final retry = body["retryAfterMs"];
       final minutes = retry is num && retry > 0 ? (retry / 60000).ceil() : 1;
       return "Too many tries. Please wait $minutes ${minutes == 1 ? "minute" : "minutes"} and try again.";
@@ -246,7 +247,7 @@ String formatApiError(Object e) {
       // A 409 from every register screen; without it the screen blamed the connection.
       "phone_already_registered":
           "This number already has an account. Sign in instead.",
-      // A 429 from the register screens, which allow a few tries per phone and per connection.
+      // A 429 that carries no wait. Sign-ups send their wait, so they are worded above with it.
       "rate_limited": "Too many tries. Wait a few minutes, then try again.",
       // An invite's refusal. Its other one, user_not_found, is worded on the invite screens, which can
       // say "invite"; sign-in words it its own way.
