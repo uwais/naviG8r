@@ -243,6 +243,18 @@ void main() {
           findsOneWidget);
     });
 
+    testWidgets('a weight over 100000 kg is refused before pricing',
+        (tester) async {
+      final server = await showPricedBook(tester);
+      await tester.enterText(field('Weight'), '100001');
+      await tester.pumpAndSettle();
+      expect(find.text('Enter a weight of 100000 kg or less.'), findsOneWidget,
+          reason: 'the server takes no more, so the app says so first');
+      expect(server.sentTo('/shipments/quote').map((sent) => sent['weightKg']),
+          isNot(contains(100001)));
+      expect(bookButton(tester).onPressed, isNull, reason: 'no Pay without a price');
+    });
+
     testWidgets('a server error never shows HTTP text, and Try again re-asks',
         (tester) async {
       final server = await showShipperApp(tester, searchedBook,

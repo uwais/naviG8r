@@ -313,6 +313,20 @@ void main() {
       expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
     });
 
+    testWidgets('Match refuses a weight over 100000 kg before searching',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/trips?tab=match');
+      await tester.pumpAndSettle();
+      await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
+      await searchPlace(tester, 'Drop', 'Guindy, Chennai');
+      await tester.enterText(field('Weight'), '100001');
+      await tester.tap(find.text('Find trips'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter a weight of 100000 kg or less.'), findsOneWidget,
+          reason: 'the server takes no more, so the app says so first');
+      expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
+    });
+
     testWidgets('new words in a place box after its search keep the pin, and Match uses it',
         (tester) async {
       final server = await showShipperApp(tester, '/customer/trips?tab=match');

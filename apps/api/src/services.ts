@@ -1547,7 +1547,7 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   if (Array.isArray(body.sampleWeightsKg) && body.sampleWeightsKg.length > 0) {
     const parsed = body.sampleWeightsKg
       .map((w) => Number(w))
-      .filter((n) => Number.isFinite(n) && n > 0);
+      .filter(kilogramsInRange);
     if (parsed.length > 0) {
       sampleWeights = [...new Set(parsed)].sort((a, b) => a - b).slice(0, 8);
     }

@@ -323,7 +323,7 @@ Body:
 }
 ```
 
-(`sampleWeightsKg` optional — defaults to `[100,250,500]`. Maximum 8 positive weights.)
+(`sampleWeightsKg` optional — defaults to `[100,250,500]`. Maximum 8 positive weights; a weight that is not a number above 0 and at most 100000 kg (`MAX_WEIGHT_KG`) is left out, and with none left the defaults are used.)
 
 Response (subset):
 ```json

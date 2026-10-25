@@ -44,3 +44,15 @@ test("price, matching and truck capacity refuse a weight that is not a positive 
   }
   assert.equal(store.users.size, 0, "no refused sign-up is saved");
 });
+
+test("a carrier's rate estimate leaves out sample weights above the limit", async t => {
+  const f = await httpFixture(t);
+  const ask = (sampleWeightsKg: unknown[]) => f.request("/v1/pilot/rates/estimate", "POST",
+    { origin: { lat: 12.97, lng: 77.59 }, destination: { lat: 13.08, lng: 80.27 }, vehicleClass: "MEDIUM", sampleWeightsKg }, f.tokens.carrierA);
+  const mixed = await ask([100, MAX_WEIGHT_KG, MAX_WEIGHT_KG + 1, 1e300]);
+  assert.equal(mixed.status, 200, JSON.stringify(mixed.body));
+  assert.deepEqual(mixed.body.samples.map((s: { weightKg: number }) => s.weightKg), [100, MAX_WEIGHT_KG]);
+  const allTooHeavy = await ask([MAX_WEIGHT_KG + 1]);
+  assert.equal(allTooHeavy.status, 200);
+  assert.deepEqual(allTooHeavy.body.samples.map((s: { weightKg: number }) => s.weightKg), [100, 250, 500], "the usual samples, as for no valid weight");
+});

@@ -259,13 +259,16 @@ class _CustomerBookShipmentScreenState
       _weightError =
           typedWeight.isNotEmpty && (weightKg == null || weightKg <= 0)
               ? "Enter a weight greater than 0 kg."
-              : null;
+              : weightKg != null && weightKg > maxWeightKg
+                  ? overMaxWeightSentence
+                  : null;
     });
     final lane = _lane;
     if (lane == null ||
         lane["status"]?.toString() != "OPEN" ||
         weightKg == null ||
         weightKg <= 0 ||
+        weightKg > maxWeightKg ||
         inputs.pickup == null ||
         inputs.drop == null) {
       return;

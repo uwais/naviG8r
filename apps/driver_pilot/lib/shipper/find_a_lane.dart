@@ -326,13 +326,18 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
         point: dropPoint,
         pinAddress: _dropPinAddress);
     setState(() {
-      _weightError =
-          weightKg <= 0 ? "Enter a weight greater than 0 kg." : null;
+      _weightError = weightKg <= 0
+          ? "Enter a weight greater than 0 kg."
+          : weightKg > maxWeightKg
+              ? overMaxWeightSentence
+              : null;
       _pickupError = _placeMissing("pickup", _pickupName, pickupPoint);
       _dropError = _placeMissing("drop", _dropName, dropPoint);
       _failed = false;
     });
-    if (_pickupError != null || _dropError != null || weightKg <= 0) return;
+    if (_pickupError != null || _dropError != null || _weightError != null) {
+      return;
+    }
     setState(() => _searching = true);
     try {
       final r = await api.get<Map<String, dynamic>>(

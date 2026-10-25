@@ -1,6 +1,10 @@
 import "../pilot_api.dart";
 import "../ui/format.dart";
 
+/// The server's MAX_WEIGHT_KG: it takes no booking heavier than this.
+const maxWeightKg = 100000;
+const overMaxWeightSentence = "Enter a weight of 100000 kg or less.";
+
 String laneRoute(Map<String, dynamic> lane) =>
     "${lane["originCity"]} to ${lane["destCity"]}";
 
