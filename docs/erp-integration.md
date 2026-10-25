@@ -192,7 +192,7 @@ Failed deliveries retry with exponential backoff (1m, 5m, 30m, 2h, 24h; max 10 a
 
 ## Payment policies
 
-Set in portal **Integrations → Payment policy**:
+Every connection starts as `portal_checkout`. Only NaviG8r platform staff (`OPS` or `ADMIN`) can change it, and no staff route does that yet. The portal save (`PATCH /v1/pilot/customer/integrations/connection`) still takes `webhookUrl` and `displayName`; a `paymentPolicy` other than the current one answers `403 forbidden` and saves nothing, and an unknown value answers `400 invalid_payment_policy`.
 
 | Policy | Behavior |
 |--------|----------|

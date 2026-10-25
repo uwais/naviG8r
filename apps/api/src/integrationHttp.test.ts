@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
 import { createApp } from "./httpServer.ts";
+import { updateIntegrationConnection } from "./integrationServices.ts";
+import { internalUser } from "../test/fixtures.ts";
 
 type AppBundle = Awaited<ReturnType<typeof createApp>>;
 
@@ -53,19 +55,6 @@ async function postJson(
 ): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify(body),
-  });
-}
-
-async function patchJson(
-  baseUrl: string,
-  path: string,
-  body: unknown,
-  headers: Record<string, string> = {},
-): Promise<Response> {
-  return fetch(`${baseUrl}${path}`, {
-    method: "PATCH",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
@@ -131,7 +120,7 @@ async function seedCarrierTrip(baseUrl: string): Promise<{ tripId: string }> {
 
 test("POST /v1/integrations/loads creates and idempotently returns shipment", async (t) => {
   testEnv(t);
-  await withApp(t, async (baseUrl) => {
+  await withApp(t, async (baseUrl, app) => {
     await seedCarrierTrip(baseUrl);
     const { token, orgId } = await customerBearer(baseUrl);
 
@@ -144,12 +133,7 @@ test("POST /v1/integrations/loads creates and idempotently returns shipment", as
     assert.equal(keyRes.status, 201);
     const keyBody = (await keyRes.json()) as { token: string };
 
-    await patchJson(
-      baseUrl,
-      `/v1/pilot/customer/integrations/connection?orgId=${orgId}`,
-      { paymentPolicy: "erp_preauthorized" },
-      { authorization: `Bearer ${token}` },
-    );
+    updateIntegrationConnection(app.store, orgId, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(app.store, "OPS").userId });
 
     const loadBody = {
       externalLoadId: "ERP-HTTP-001",

@@ -222,6 +222,7 @@ export async function handleIntegrationPortalRoutes(
         paymentPolicy: body?.paymentPolicy,
         displayName: body?.displayName,
         regenerateWebhookSecret: Boolean(body?.regenerateWebhookSecret),
+        changedByUserId: userId,
       });
       json(res, 200, {
         connection: {

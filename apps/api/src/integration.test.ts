@@ -1,4 +1,4 @@
-import { addFinalTestEwayBill, bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { addFinalTestEwayBill, bookTestShipment, internalUser, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
@@ -57,7 +57,7 @@ test("integration load create is idempotent by externalLoadId", async () => {
     orgDisplayName: "ERP Shipper Co",
   });
   const { token } = createIntegrationApiKey(store, admin.org.id);
-  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized" });
+  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(store, "OPS").userId });
 
   const ctx = resolveIntegrationAuth(store, { bearerToken: token });
   const params = {
@@ -92,6 +92,7 @@ test("integration events emit on carrier accept", () => {
   updateIntegrationConnection(store, admin.org.id, {
     webhookUrl: "https://example.com/webhook",
     paymentPolicy: "erp_preauthorized",
+    changedByUserId: internalUser(store, "OPS").userId,
   });
 
   const shipment = bookTestShipment(store, {

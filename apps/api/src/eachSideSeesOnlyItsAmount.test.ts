@@ -30,7 +30,7 @@ function carrierAmountKeysIn(body: unknown): string[] {
 async function deliveredShipment(t: TestContext) {
   const f = await httpFixture(t);
   const orgId = f.carrierA.org.id;
-  updateIntegrationConnection(f.store, f.shipperA.org.id, { webhookUrl: "https://erp.example.com/hook", paymentPolicy: "erp_preauthorized" });
+  updateIntegrationConnection(f.store, f.shipperA.org.id, { webhookUrl: "https://erp.example.com/hook", paymentPolicy: "erp_preauthorized", changedByUserId: f.ops.userId });
   registerCustomerUser(f.store, { fullName: "Synthetic Driver", phone: "8000000013" });
   const driver = inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId, phone: "8000000013", role: "DRIVER", vehicleRegistrationNumber: "KA02XY9999", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
   registerCustomerUser(f.store, { fullName: "Synthetic Dispatcher", phone: "8000000015" });

@@ -11,6 +11,8 @@ import {
   shipmentWithCarrierDisplay,
   tripWithCarrierDisplay,
   attachRazorpayOrderForShipment,
+  isOpsAdmin,
+  isOpsAgent,
 } from "./services.ts";
 import type {
   GeoPoint,
@@ -18,6 +20,7 @@ import type {
   IntegrationApiScope,
   IntegrationConnection,
   IntegrationEvent,
+  IntegrationPaymentPolicy,
   IntegrationWebhookDelivery,
   Shipment,
 } from "./types.ts";
@@ -86,6 +89,8 @@ export function getOrCreateIntegrationConnection(
   return conn;
 }
 
+const PAYMENT_POLICIES: readonly IntegrationPaymentPolicy[] = ["portal_checkout", "erp_preauthorized"];
+
 export function updateIntegrationConnection(
   store: Store,
   orgId: string,
@@ -94,9 +99,16 @@ export function updateIntegrationConnection(
     paymentPolicy?: IntegrationConnection["paymentPolicy"];
     displayName?: string;
     regenerateWebhookSecret?: boolean;
+    /** Who asks; only NaviG8r platform OPS or ADMIN may change paymentPolicy. */
+    changedByUserId?: string;
   },
 ): IntegrationConnection {
   const conn = getOrCreateIntegrationConnection(store, orgId);
+  if (params.paymentPolicy != null) {
+    if (!PAYMENT_POLICIES.includes(params.paymentPolicy)) throw new Error("invalid_payment_policy");
+    const staff = params.changedByUserId != null && (isOpsAgent(store, params.changedByUserId) || isOpsAdmin(store, params.changedByUserId));
+    if (params.paymentPolicy !== conn.paymentPolicy && !staff) throw new Error("forbidden");
+  }
   const now = nowUtcMs();
   if (params.webhookUrl != null) {
     const url = params.webhookUrl.trim();
