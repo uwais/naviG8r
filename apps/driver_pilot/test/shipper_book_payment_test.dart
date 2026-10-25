@@ -158,6 +158,8 @@ void main() {
           reason: 'Rishabh: Pay goes straight to the payment step');
       expect(opened.single.toString(), contains('264000'),
           reason: 'the provider is opened for the amount on Pay');
+      expect(opened.single['timeout'], 25 * 60,
+          reason: 'checkout closes in 25 minutes, inside the 30 the shipper is told to pay in');
     });
 
     testWidgets(

@@ -5,12 +5,15 @@ import crypto from "node:crypto";
 import { httpFixture } from "../test/httpFixtures.ts";
 import { BOOKING_EXPIRED_EVENT } from "./notifications.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
-import { UNPAID_BOOKING_EXPIRY_MS } from "./config.ts";
+import { UNPAID_BOOKING_EXPIRY_MS, UNPAID_BOOKING_GRACE_MS } from "./config.ts";
 import { createIntegrationApiKey, createIntegrationLoad } from "./integrationServices.ts";
 import { resolveIntegrationAuth } from "./integrationAuth.ts";
 import type { Payment } from "./types.ts";
 
 type Fixture = Awaited<ReturnType<typeof httpFixture>>;
+
+/** Old enough to be closed: past the 30 minutes the shipper is told and the 10 minutes after. */
+const closedAgeMs = UNPAID_BOOKING_EXPIRY_MS + UNPAID_BOOKING_GRACE_MS + 1000;
 
 async function book(f: Fixture, token: string, weightKg = 10): Promise<string> {
   const booked = await f.book(token, { weightKg });
@@ -44,9 +47,9 @@ const signed = (orderId: string, paymentId: string) =>
 
 test("a booking not paid within 30 minutes closes on the next request: room freed, shipper told, no money moved", async t => {
   const f = await httpFixture(t);
-  assert.equal(UNPAID_BOOKING_EXPIRY_MS, 30 * 60 * 1000);
+  assert.deepEqual([UNPAID_BOOKING_EXPIRY_MS, UNPAID_BOOKING_GRACE_MS], [30 * 60 * 1000, 10 * 60 * 1000]);
   const expired = await book(f, f.tokens.shipperB, 1000);
-  waitingForPayment(f, expired, UNPAID_BOOKING_EXPIRY_MS + 1000);
+  waitingForPayment(f, expired, closedAgeMs);
   assert.equal(f.store.anchorTrips.get(f.trip.id)?.status, "FULL", "precondition: the unpaid booking fills the trip");
 
   const read = await f.request(`/shipments/${expired}`, "GET", undefined, f.tokens.shipperB);
@@ -76,9 +79,9 @@ test("a booking younger than 30 minutes, or already paid, keeps its room", async
   const authorized = await book(f, f.tokens.shipperB, 300);
   const collected = await book(f, f.tokens.shipperB, 300);
   waitingForPayment(f, young, UNPAID_BOOKING_EXPIRY_MS - 60_000);
-  waitingForPayment(f, authorized, UNPAID_BOOKING_EXPIRY_MS + 1000, { status: "AUTHORIZED", razorpayPaymentId: "pay_held" });
+  waitingForPayment(f, authorized, closedAgeMs, { status: "AUTHORIZED", razorpayPaymentId: "pay_held" });
   const collectedShipment = f.store.shipments.get(collected)!;
-  f.store.shipments.set(collected, { ...collectedShipment, createdAtUtcMs: Date.now() - UNPAID_BOOKING_EXPIRY_MS - 1000 });
+  f.store.shipments.set(collected, { ...collectedShipment, createdAtUtcMs: Date.now() - closedAgeMs });
 
   assert.equal((await f.request("/anchor-trips", "GET")).status, 200);
   for (const id of [young, authorized, collected]) {
@@ -91,7 +94,7 @@ test("a booking younger than 30 minutes, or already paid, keeps its room", async
 test("a payment confirmed after the booking expired is refused with the server's sentence", async t => {
   const f = await httpFixture(t);
   const late = await book(f, f.tokens.shipperB);
-  waitingForPayment(f, late, UNPAID_BOOKING_EXPIRY_MS + 1000, { razorpayOrderId: "order_late" });
+  waitingForPayment(f, late, closedAgeMs, { razorpayOrderId: "order_late" });
   // Booking itself would ask Razorpay for an order, which tests cannot, so Razorpay is on only from here.
   withRazorpay(t);
 
@@ -125,4 +128,16 @@ test("an ERP load is never closed by the unpaid expiry, and an ERP retry never g
     assert.notEqual(retry.shipment.id, closedEarlier.id);
     assert.equal(retry.shipment.status, "PENDING_CARRIER_ACCEPT");
   }
+});
+
+test("the shipper is told 30 minutes, but a booking closes only 10 minutes after that, so a payment just past 30 still goes through", async t => {
+  const f = await httpFixture(t);
+  const inGrace = await book(f, f.tokens.shipperB);
+  waitingForPayment(f, inGrace, UNPAID_BOOKING_EXPIRY_MS + 9 * 60_000, { razorpayOrderId: "order_in_grace" });
+  withRazorpay(t);
+
+  const confirmed = await f.request("/v1/payments/razorpay/confirm", "POST",
+    { shipmentId: inGrace, razorpayOrderId: "order_in_grace", razorpayPaymentId: "pay_in_grace", razorpaySignature: signed("order_in_grace", "pay_in_grace") }, f.tokens.shipperB);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+  assert.deepEqual([paymentOf(f, inGrace).status, f.store.shipments.get(inGrace)?.status], ["AUTHORIZED", "PENDING_CARRIER_ACCEPT"]);
 });

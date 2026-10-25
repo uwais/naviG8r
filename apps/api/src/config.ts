@@ -21,8 +21,11 @@ export const PRICE_PAISE_PER_KG = 500;
 /** The most a booking may weigh, or a trip or truck carry, in kilograms. */
 export const MAX_WEIGHT_KG = 100_000;
 
-/** A booking whose payment is not done this long after it was made closes and stops holding room on its trip. */
+/** How long after booking the shipper is told to pay, or the booking closes and stops holding room on its trip. */
 export const UNPAID_BOOKING_EXPIRY_MS = 30 * 60 * 1000;
+
+/** The booking closes only this long after UNPAID_BOOKING_EXPIRY_MS, so a payment finished just in time still lands. */
+export const UNPAID_BOOKING_GRACE_MS = 10 * 60 * 1000;
 
 /** What the shipper is told when that happens. */
 export const BOOKING_EXPIRED_SENTENCE = `This booking expired because it was not paid within ${UNPAID_BOOKING_EXPIRY_MS / 60_000} minutes.`;
