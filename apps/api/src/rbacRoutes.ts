@@ -93,8 +93,10 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   }
   const context = authorizationContext.getStore()!;
   context.principal = p;
-  context.reason = typeof req.headers["x-reason-code"] === "string" ? req.headers["x-reason-code"] : undefined;
-  context.effectiveActorId = typeof req.headers["x-effective-actor-id"] === "string" ? req.headers["x-effective-actor-id"] : undefined;
+  // Both headers end up in audit rows: the reason is kept only from platform staff, the represented member only from ops or admin.
+  const actsForMembers = p.internal && (p.roles.includes("OPS") || p.roles.includes("ADMIN"));
+  context.reason = p.internal && typeof req.headers["x-reason-code"] === "string" ? req.headers["x-reason-code"] : undefined;
+  context.effectiveActorId = actsForMembers && typeof req.headers["x-effective-actor-id"] === "string" ? req.headers["x-effective-actor-id"] : undefined;
   const orgId = url.searchParams.get("orgId");
   if (orgId && orgId !== p.organizationId) throw new AuthorizationError("not_found", 404);
   let resource;
