@@ -101,9 +101,10 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   }
   const context = authorizationContext.getStore()!;
   context.principal = p;
-  // Only NaviG8r staff say why they acted and for whom; from anyone else these headers would be written into audit rows unchecked.
+  // Only NaviG8r staff say why they acted, and only ops say for whom; from anyone else these headers would be written into audit rows unchecked.
+  const actsForMembers = p.internal && p.roles.includes("OPS");
   context.reason = p.internal && typeof req.headers["x-reason-code"] === "string" ? req.headers["x-reason-code"] : undefined;
-  context.effectiveActorId = p.internal && typeof req.headers["x-effective-actor-id"] === "string" ? req.headers["x-effective-actor-id"] : undefined;
+  context.effectiveActorId = actsForMembers && typeof req.headers["x-effective-actor-id"] === "string" ? req.headers["x-effective-actor-id"] : undefined;
   const orgId = url.searchParams.get("orgId");
   if (orgId && orgId !== p.organizationId) throw new AuthorizationError("not_found", 404);
   let resource;

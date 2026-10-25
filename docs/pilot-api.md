@@ -300,7 +300,7 @@ Who reads it: the carrier office on `GET /v1/pilot/me`; shippers as `carrierTran
 #### `POST /v1/pilot/carrier/drivers/invite`
 Fleet: owner/dispatcher invites an **existing** user (by phone) to the carrier org as `DRIVER` or `DISPATCHER`, provisions a vehicle + driver profile, and upgrades `CARRIER_SOLO` → `CARRIER_FLEET` when applicable.
 
-Driver app: **Profile → Fleet — invite drivers** (owners/dispatchers). Invitee must register a user account first (`POST /v1/pilot/customer/users/register` or sign-in **Join a carrier company**).
+Driver app: **Company → Team → Invite** (owners and dispatchers; Company is the office's Profile tab), or **Drivers → Add driver** on the same page. Invitee must register a user account first (`POST /v1/pilot/customer/users/register` or sign-in **Join a carrier company**).
 
 For **`DISPATCHER`**, vehicle fields are optional in the request body — the server links the invitee to the carrier org's **primary vehicle** (owner's registration from solo register). For **`DRIVER`**, provide `vehicleRegistrationNumber`, `vehicleClass`, and `vehicleCapacityKg` as before.
 

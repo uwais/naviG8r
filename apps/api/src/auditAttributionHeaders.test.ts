@@ -27,3 +27,17 @@ test("an ops-assisted booking still records who it was for and why", async t => 
   const rows = [...f.store.auditEvents.values()].filter(e => e.resourceId === booked.body.shipment.id);
   assert.ok(rows.some(e => e.source === "OPS_ASSISTED" && e.effectiveActorId === f.shipperA.user.id && e.reasonCode === "CUSTOMER_REQUEST"));
 });
+
+test("an admin who is not ops keeps the reason but cannot say whom they acted for", async t => {
+  const f = await httpFixture(t);
+  const before = new Set(f.store.auditEvents.keys());
+  const granted = await f.request("/v1/ops/dashboard-access", "POST", { userId: f.finance.user.id, roles: ["ADMIN", "FINANCE"] }, f.tokens.admin,
+    { "x-reason-code": "ACCESS_REVIEW", "x-effective-actor-id": f.shipperA.user.id });
+  assert.equal(granted.status, 200);
+  const rows = [...f.store.auditEvents.entries()].filter(([id]) => !before.has(id)).map(([, e]) => e);
+  assert.ok(rows.length > 0, "the grant wrote audit rows");
+  for (const row of rows) {
+    assert.equal(row.reasonCode, "ACCESS_REVIEW", row.action);
+    assert.equal(row.effectiveActorId, undefined, row.action);
+  }
+});
