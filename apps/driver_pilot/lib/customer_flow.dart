@@ -397,7 +397,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   int _otpCooldownSeconds = 0;
   String? _error;
   PhoneAuthClient? _firebase;
-  bool _useFirebase = firebasePhoneAuthAvailable && !kIsWeb;
+  bool _useFirebase = firebasePhoneAuthAvailable;
   bool _firebaseCodeSent = false;
 
   void _startOtpCooldown(dynamic rawMs) {
@@ -433,7 +433,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   @override
   void initState() {
     super.initState();
-    if (_useFirebase) _firebase = FirebasePhoneAuthClient();
+    if (_useFirebase) _firebase = newPhoneAuthClient();
     CustomerSession.refresh().then((_) {
       if (mounted) setState(() {});
     });
@@ -568,7 +568,10 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
           ? "/customer/shipments"
           : AuthorizationSession.home);
     } catch (e) {
-      if (mounted) setState(() => _error = formatApiError(e));
+      if (mounted) {
+        setState(() => _error =
+            _useFirebase ? formatFirebaseAuthError(e) : formatApiError(e));
+      }
     } finally {
       if (mounted) setState(() => _verifying = false);
     }
@@ -624,7 +627,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
                     : (value) {
                         setState(() {
                           _useFirebase = value;
-                          if (value) _firebase ??= FirebasePhoneAuthClient();
+                          if (value) _firebase ??= newPhoneAuthClient();
                           _firebaseCodeSent = false;
                           _challengePhone = null;
                           _challengeId = null;

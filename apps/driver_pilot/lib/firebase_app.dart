@@ -45,3 +45,30 @@ Future<FirebaseApp> ensureFirebaseApp() async {
   }
   return app;
 }
+
+// docker/customer-web/entrypoint.sh checks the same patterns before it writes runtime-config.js.
+const _firebaseWebSettingPatterns = {
+  "FIREBASE_PROJECT_ID": r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$",
+  "FIREBASE_WEB_API_KEY": r"^AIza[0-9A-Za-z_-]{35}$",
+  "FIREBASE_WEB_APP_ID": r"^[0-9]{1,3}:[0-9]{6,20}:web:[0-9a-f]{6,40}$",
+  "FIREBASE_MESSAGING_SENDER_ID": r"^[0-9]{6,20}$",
+};
+
+/// Web Firebase settings, or null when any is missing or malformed so web keeps the old code sign-in.
+FirebaseOptions? firebaseWebOptions(String Function(String key) setting) {
+  final values = <String, String>{};
+  for (final MapEntry(key: name, value: pattern)
+      in _firebaseWebSettingPatterns.entries) {
+    final value = setting(name);
+    if (!RegExp(pattern).hasMatch(value)) return null;
+    values[name] = value;
+  }
+  final projectId = values["FIREBASE_PROJECT_ID"]!;
+  return FirebaseOptions(
+    apiKey: values["FIREBASE_WEB_API_KEY"]!,
+    appId: values["FIREBASE_WEB_APP_ID"]!,
+    messagingSenderId: values["FIREBASE_MESSAGING_SENDER_ID"]!,
+    projectId: projectId,
+    authDomain: "$projectId.firebaseapp.com",
+  );
+}

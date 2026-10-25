@@ -81,6 +81,10 @@ projects:
                 sync: false
               - key: RAZORPAY_WEBHOOK_SECRET
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
 
           - type: web
             name: navig8r-customer-web-alpha
@@ -97,6 +101,15 @@ projects:
               - key: API_UPSTREAM
                 value: https://navig8r-api-alpha.onrender.com
               - key: MAPS_API_KEY
+                sync: false
+              # Firebase web sign-in; set all four or none (the container refuses a partial set).
+              - key: FIREBASE_PROJECT_ID
+                sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
+              - key: FIREBASE_MESSAGING_SENDER_ID
                 sync: false
 
           - type: web
@@ -162,6 +175,10 @@ projects:
                 sync: false
               - key: RAZORPAY_WEBHOOK_SECRET
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
 
           - type: web
             name: navig8r-customer-web-beta
@@ -178,6 +195,15 @@ projects:
               - key: API_UPSTREAM
                 value: https://navig8r-api-beta.onrender.com
               - key: MAPS_API_KEY
+                sync: false
+              # Firebase web sign-in; set all four or none (the container refuses a partial set).
+              - key: FIREBASE_PROJECT_ID
+                sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
+              - key: FIREBASE_MESSAGING_SENDER_ID
                 sync: false
 
           - type: web
@@ -251,6 +277,10 @@ projects:
                 sync: false
               - key: RAZORPAY_WEBHOOK_SECRET
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
               - key: RAZORPAYX_ACCOUNT_NUMBER
                 sync: false
               - key: RAZORPAYX_PAYOUT_MODE
@@ -271,6 +301,15 @@ projects:
               - key: API_UPSTREAM
                 value: https://navig8r.onrender.com
               - key: MAPS_API_KEY
+                sync: false
+              # Firebase web sign-in; set all four or none (the container refuses a partial set).
+              - key: FIREBASE_PROJECT_ID
+                sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
+              - key: FIREBASE_MESSAGING_SENDER_ID
                 sync: false
 
           - type: web
