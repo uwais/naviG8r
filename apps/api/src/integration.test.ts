@@ -83,6 +83,41 @@ test("integration load create is idempotent by externalLoadId", async () => {
   assert.equal(second.shipment.id, first.shipment.id);
 });
 
+test("ERP lookups by external load id and idempotency key skip a booking the unpaid expiry closed", async () => {
+  process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  const store = createStore();
+  seedOpenTrip(store);
+  const admin = registerCustomerOrgAdmin(store, {
+    fullName: "ERP Closed Admin",
+    phone: "9111001198",
+    orgDisplayName: "ERP Closed Co",
+  });
+  const { token } = createIntegrationApiKey(store, admin.org.id);
+  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(store, "ADMIN").userId });
+  const ctx = resolveIntegrationAuth(store, { bearerToken: token });
+  const params = {
+    externalLoadId: "ERP-LOAD-CLOSED",
+    weightKg: 120,
+    pickupAddress: "Warehouse A, Gurugram",
+    dropAddress: "Plant B, Jaipur",
+    pickup: GURGAON,
+    drop: JAIPUR,
+    idempotencyKey: "idem-closed-1",
+  };
+  const first = await createIntegrationLoad(store, ctx, params);
+  // A booking closed by the unpaid expiry, for example one closed before ERP loads were left out of it.
+  store.shipments.set(first.shipment.id, {
+    ...store.shipments.get(first.shipment.id)!,
+    status: "FAILED_CARRIER_REFUNDED",
+    unpaidBookingExpiredAtUtcMs: Date.now(),
+  });
+
+  const again = await createIntegrationLoad(store, ctx, params);
+  assert.equal(again.created, true);
+  assert.notEqual(again.shipment.id, first.shipment.id);
+  assert.equal(again.shipment.status, "PENDING_CARRIER_ACCEPT");
+});
+
 test("integration events emit on carrier accept", () => {
   process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
   const store = createStore();

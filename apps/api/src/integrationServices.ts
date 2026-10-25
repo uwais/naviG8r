@@ -164,15 +164,17 @@ function findShipmentByExternalLoadId(store: Store, orgId: string, externalLoadI
   if (!ext) return null;
   return (
     [...store.shipments.values()].find(
-      (s) => s.customerOrgId === orgId && s.externalLoadId === ext,
+      (s) => s.customerOrgId === orgId && s.externalLoadId === ext && s.unpaidBookingExpiredAtUtcMs == null,
     ) ?? null
   );
 }
 
+/** A booking the unpaid expiry closed is never handed back; the ERP gets a new booking instead. */
 function findShipmentByIdempotencyKey(store: Store, orgId: string, idempotencyKey: string): Shipment | null {
   const rec = store.integrationIdempotency.get(idempotencyStoreKey(orgId, idempotencyKey));
   if (!rec) return null;
-  return store.shipments.get(rec.shipmentId) ?? null;
+  const shipment = store.shipments.get(rec.shipmentId);
+  return shipment && shipment.unpaidBookingExpiredAtUtcMs == null ? shipment : null;
 }
 
 function recordIdempotency(store: Store, orgId: string, idempotencyKey: string, shipmentId: string): void {
