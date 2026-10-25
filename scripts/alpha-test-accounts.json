@@ -1,0 +1,22 @@
+{
+  "shipper": {
+    "phone": "9000000101",
+    "fullName": "Test Shipper",
+    "orgDisplayName": "Test Shipper Co"
+  },
+  "ownerDriver": {
+    "phone": "9000000201",
+    "fullName": "Test Owner Driver",
+    "orgDisplayName": "Test Carrier",
+    "vehicleRegistrationNumber": "TS01AB0001",
+    "vehicleClass": "MEDIUM",
+    "vehicleCapacityKg": 5000
+  },
+  "driver": {
+    "phone": "9000000202",
+    "fullName": "Test Driver",
+    "vehicleRegistrationNumber": "TS01AB0002",
+    "vehicleClass": "SMALL",
+    "vehicleCapacityKg": 1500
+  }
+}
