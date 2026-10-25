@@ -46,7 +46,7 @@ import {
   razorpayPayoutsEnabled,
 } from "./razorpayPayouts.ts";
 import { emitIntegrationEvent } from "./integrationWebhooks.ts";
-import { expireUnpaidBooking, UNPAID_BOOKING_EXPIRED_DETAIL } from "./unpaidBookingExpiry.ts";
+import { expireUnpaidBooking, keepPaymentAfterExpiry, UNPAID_BOOKING_EXPIRED_DETAIL } from "./unpaidBookingExpiry.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
 import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
 
@@ -2095,6 +2095,7 @@ export function confirmRazorpayCheckoutAuthorization(
   }
   expireUnpaidBooking(store, s);
   if (store.shipments.get(s.id)?.unpaidBookingExpiredAtUtcMs != null) {
+    keepPaymentAfterExpiry(store, pay.id, params.razorpayPaymentId);
     throw new ApiError("booking_expired_unpaid", { detail: UNPAID_BOOKING_EXPIRED_DETAIL }, 409);
   }
   if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {

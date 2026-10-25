@@ -1,6 +1,6 @@
 import type { Store } from "./store.ts";
 import type { Payment } from "./types.ts";
-import { expireUnpaidBooking } from "./unpaidBookingExpiry.ts";
+import { expireUnpaidBooking, keepPaymentAfterExpiry } from "./unpaidBookingExpiry.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -51,7 +51,10 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     // A payment that arrives after the booking expired does not reopen it.
     const shipment = store.shipments.get(pay.shipmentId);
     if (shipment) expireUnpaidBooking(store, shipment, now);
-    if (store.shipments.get(pay.shipmentId)?.unpaidBookingExpiredAtUtcMs != null) return;
+    if (store.shipments.get(pay.shipmentId)?.unpaidBookingExpiredAtUtcMs != null) {
+      keepPaymentAfterExpiry(store, pay.id, rid, now);
+      return;
+    }
     if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") return;
     store.payments.set(pay.id, {
       ...pay,

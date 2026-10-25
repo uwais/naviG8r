@@ -9,6 +9,8 @@ import { confirmRazorpayCheckoutAuthorization, publishAnchorTripAsPilotDriver } 
 import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
 import { serializeResponse } from "./rbacResponses.ts";
 import { expireUnpaidBookings, UNPAID_BOOKING_WINDOW_MS } from "./unpaidBookingExpiry.ts";
+import { loadStoreFromDisk } from "./persistence.ts";
+import { httpFixture } from "../test/httpFixtures.ts";
 
 process.env.PAYMENT_PROVIDER = "RAZORPAY";
 process.env.RAZORPAY_KEY_ID = "rzp_test_expiry";
@@ -85,7 +87,7 @@ test("a booking under 30 minutes old, or one already paid, keeps its trip space"
   assert.equal(paid.anchorTrips.get(old.trip.id)!.reservedKg, 300);
 });
 
-test("a payment confirm that arrives after the booking expired is refused", () => {
+test("a payment confirm that arrives after the booking expired is refused and its payment id is kept", () => {
   const store = createStore();
   const { shipment } = tripWithBooking(store, { weightKg: 200, ageMs: UNPAID_BOOKING_WINDOW_MS + 1000 });
   const orderId = `order_${shipment.id}`;
@@ -106,18 +108,22 @@ test("a payment confirm that arrives after the booking expired is refused", () =
       e.httpStatus === 409 &&
       e.extra?.detail === "This booking expired because it was not paid within 30 minutes.",
   );
-  assert.equal(store.payments.get(shipment.paymentId)!.status, "FAILED");
+  const payment = store.payments.get(shipment.paymentId)!;
+  assert.equal(payment.status, "AUTHORIZED");
+  assert.equal(payment.razorpayPaymentId, paymentId);
   assert.equal(store.shipments.get(shipment.id)!.status, "FAILED_CARRIER_REFUNDED");
 });
 
-test("a payment.authorized webhook after the booking expired leaves it closed", () => {
+test("a payment.authorized webhook after the booking expired leaves it closed and keeps the payment id", () => {
   const store = createStore();
   const { trip, shipment } = tripWithBooking(store, { weightKg: 200, ageMs: UNPAID_BOOKING_WINDOW_MS + 1000 });
   applyRazorpayWebhookPayload(store, {
     event: "payment.authorized",
     payload: { payment: { entity: { id: "pay_late_webhook", order_id: `order_${shipment.id}`, status: "authorized" } } },
   });
-  assert.equal(store.payments.get(shipment.paymentId)!.status, "FAILED");
+  const payment = store.payments.get(shipment.paymentId)!;
+  assert.equal(payment.status, "AUTHORIZED");
+  assert.equal(payment.razorpayPaymentId, "pay_late_webhook");
   assert.equal(store.shipments.get(shipment.id)!.status, "FAILED_CARRIER_REFUNDED");
   assert.equal(store.anchorTrips.get(trip.id)!.reservedKg, 0);
 });
@@ -149,4 +155,39 @@ test("GET /anchor-trips/:id shows the space an expired unpaid booking held as fr
   const body = (await res.json()) as { trip: { reservedKg: number; status: string } };
   assert.equal(body.trip.reservedKg, 0);
   assert.equal(body.trip.status, "OPEN");
+});
+
+test("POST /v1/payments/razorpay/confirm after the booking expired saves the payment id", async (t) => {
+  const f = await httpFixture(t);
+  t.after(() => { process.env.PAYMENT_PROVIDER = "RAZORPAY"; });
+  const booked = bookTestShipment(f.store, {
+    anchorTripId: f.trip.id,
+    customerOrg: { id: f.shipperA.org.id, displayName: f.shipperA.org.displayName },
+    customerOrgName: f.shipperA.org.displayName,
+    weightKg: 10,
+    pickupAddress: "Synthetic A",
+    dropAddress: "Synthetic B",
+  });
+  const orderId = `order_${booked.id}`;
+  const paymentId = "pay_late_http_confirm";
+  f.store.shipments.set(booked.id, { ...booked, createdAtUtcMs: Date.now() - UNPAID_BOOKING_WINDOW_MS - 1000 });
+  const payment = f.store.payments.get(booked.paymentId)!;
+  f.store.payments.set(payment.id, { ...payment, provider: "RAZORPAY", status: "CREATED", razorpayOrderId: orderId });
+  process.env.PAYMENT_PROVIDER = "RAZORPAY";
+
+  const signature = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
+    .update(`${orderId}|${paymentId}`)
+    .digest("hex");
+  const refused = await f.request("/v1/payments/razorpay/confirm", "POST", {
+    shipmentId: booked.id,
+    razorpayOrderId: orderId,
+    razorpayPaymentId: paymentId,
+    razorpaySignature: signature,
+  }, f.tokens.shipperA);
+  assert.equal(refused.status, 409);
+  assert.equal(refused.body.error, "booking_expired_unpaid");
+
+  const saved = loadStoreFromDisk(process.env.DATA_FILE!).payments.get(payment.id)!;
+  assert.equal(saved.status, "AUTHORIZED");
+  assert.equal(saved.razorpayPaymentId, paymentId);
 });

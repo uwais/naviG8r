@@ -281,10 +281,13 @@ function consumeSignUpRateLimit(
 ): boolean {
   const now = Date.now();
   const digits = phone.replace(/[^\d]/g, "");
-  const phoneKey = digits.length === 12 && digits.startsWith("91") ? digits.slice(-10) : digits;
+  // Same rule as the register functions; any other phone is refused there as invalid_phone, so it gets no count here.
+  const phoneKey = digits.length === 12 && digits.startsWith("91") ? digits.slice(-10) : digits.length === 10 ? digits : null;
   const ipLimit = limiter.consume(`sign-up:ip:${clientIp(req, trustProxy)}`, SIGN_UP_IP_LIMIT, SIGN_UP_WINDOW_MS, now);
-  const phoneLimit = limiter.consume(`sign-up:phone:${phoneKey}`, SIGN_UP_PHONE_LIMIT, SIGN_UP_WINDOW_MS, now);
-  const blocked = !ipLimit.allowed ? ipLimit : !phoneLimit.allowed ? phoneLimit : null;
+  const phoneLimit = ipLimit.allowed && phoneKey
+    ? limiter.consume(`sign-up:phone:${phoneKey}`, SIGN_UP_PHONE_LIMIT, SIGN_UP_WINDOW_MS, now)
+    : null;
+  const blocked = !ipLimit.allowed ? ipLimit : phoneLimit && !phoneLimit.allowed ? phoneLimit : null;
   if (!blocked) return true;
   res.setHeader("retry-after", String(blocked.retryAfterSeconds));
   json(res, 429, { error: "sign_up_rate_limited" });
@@ -733,6 +736,8 @@ export async function createApp(options: {
           return json(res, 200, out);
         } catch (e: any) {
           if (e instanceof ApiError) {
+            // The booking was closed and the late payment id kept; both must be saved.
+            if (e.message === "booking_expired_unpaid") await persist();
             const status = e.httpStatus ?? 400;
             return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
           }

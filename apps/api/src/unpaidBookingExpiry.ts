@@ -36,6 +36,16 @@ export function expireUnpaidBooking(store: Store, shipment: Shipment, now = Date
   return true;
 }
 
+/**
+ * Keeps the Razorpay payment id of a payment that arrived after its booking expired, so staff can find it.
+ * Razorpay refunds an authorized payment that is never captured, and a closed booking is never captured.
+ */
+export function keepPaymentAfterExpiry(store: Store, paymentId: string, razorpayPaymentId: string, now = Date.now()): void {
+  const payment = store.payments.get(paymentId);
+  if (!payment || (payment.status !== "CREATED" && payment.status !== "FAILED")) return;
+  store.payments.set(payment.id, { ...payment, status: "AUTHORIZED", razorpayPaymentId, updatedAtUtcMs: now });
+}
+
 /** Run before reading trip space or booking lists, so an unpaid booking past its window holds nothing. */
 export function expireUnpaidBookings(store: Store, now = Date.now()): void {
   for (const shipment of [...store.shipments.values()]) expireUnpaidBooking(store, shipment, now);
