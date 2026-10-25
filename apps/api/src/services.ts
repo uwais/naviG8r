@@ -5,11 +5,13 @@ import { assertAdminRemains, authorizationContext, AuthorizationError, principal
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
 import {
   COMMISSION_BPS,
+  BOOKING_EXPIRED_SENTENCE,
   FREIGHT_MODEL_VERSION,
   MAX_WEIGHT_KG,
   PAYOUT_BATCH_SCHEDULE,
   PRICE_PAISE_PER_KG,
   TRIP_TRACKING_STALE_MS,
+  UNPAID_BOOKING_EXPIRY_MS,
   freightMinGrossPaise,
   freightPaisePerKmForClass,
 } from "./config.ts";
@@ -1953,6 +1955,34 @@ function closeBookingsLeftBehind(store: Store, activeOnTrip: Shipment[], userId:
   return freedKg;
 }
 
+/**
+ * Closes each booking whose payment is still not done (CREATED or FAILED) UNPAID_BOOKING_EXPIRY_MS after it was made,
+ * as a trip's start closes one left behind: FAILED_CARRIER_REFUNDED, its room freed, no money moved. The HTTP server
+ * runs this before every request, so no timer is needed. Returns how many it closed.
+ */
+export function expireUnpaidBookings(store: Store, now = nowUtcMs()): number {
+  let closedCount = 0;
+  for (const s of store.shipments.values()) {
+    if (s.status !== "PENDING_CARRIER_ACCEPT" || !isActiveEntity(s) || now < s.createdAtUtcMs + UNPAID_BOOKING_EXPIRY_MS) continue;
+    const payStatus = store.payments.get(s.paymentId)?.status;
+    if (payStatus !== "CREATED" && payStatus !== "FAILED") continue;
+    const closed: Shipment = { ...s, status: "FAILED_CARRIER_REFUNDED", expiredUnpaidAtUtcMs: now, updatedAtUtcMs: now };
+    store.shipments.set(closed.id, closed);
+    const trip = store.anchorTrips.get(s.anchorTripId);
+    if (trip) {
+      trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
+      if (trip.status === "FULL" && trip.reservedKg < trip.capacityKg) trip.status = "OPEN";
+      store.anchorTrips.set(trip.id, trip);
+    }
+    const requestId = authorizationContext.getStore()?.requestId ?? randomUUID();
+    authorizationContext.run({ requestId, system: true, systemActor: "system:unpaid-booking-expiry" }, () =>
+      recordAudit(store, "BOOKING_EXPIRED_UNPAID", "shipment", s.id, s.status, closed.status));
+    emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: s.id });
+    closedCount++;
+  }
+  return closedCount;
+}
+
 /** Carrier/driver explicitly starts a load (anchor trip → IN_PROGRESS). */
 export function startAnchorTripAsPilot(
   store: Store,
@@ -2254,6 +2284,10 @@ export function confirmRazorpayCheckoutAuthorization(
   }
   if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
     return { payment: pay };
+  }
+  // Closed by expireUnpaidBookings; a payment Razorpay still reports goes through the webhook's cancelled-shipment path.
+  if (s.expiredUnpaidAtUtcMs != null) {
+    throw new ApiError("booking_expired", { detail: `${BOOKING_EXPIRED_SENTENCE} If your bank shows a payment, it comes back within 3 days.` }, 409);
   }
   refuseCheckoutIfTripLeft(store, s);
   if (pay.status !== "CREATED") {

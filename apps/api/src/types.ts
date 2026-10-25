@@ -331,6 +331,8 @@ export type Shipment = {
   ewayBill?: EwayBill;
   /** When its trip started while its checkout was not done, which closed it as FAILED_CARRIER_REFUNDED (owner, 23 Oct 2026). */
   leftBehindAtUtcMs?: number;
+  /** When it closed as FAILED_CARRIER_REFUNDED because its payment was not done within UNPAID_BOOKING_EXPIRY_MS. */
+  expiredUnpaidAtUtcMs?: number;
 } & SoftDeleteFields;
 
 export type PaymentProviderId = "MOCK" | "RAZORPAY";

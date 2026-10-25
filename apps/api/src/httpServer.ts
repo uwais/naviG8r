@@ -79,6 +79,7 @@ import {
   registerSoloOwnerOperatorDriver,
   revokeOpsAdmin,
   opsDeleteUser,
+  expireUnpaidBookings,
   rollbackBooking,
   runPayoutBatch,
   shipmentVisibleToCustomerUser,
@@ -477,6 +478,8 @@ export async function createApp(options: {
         res.end();
         return;
       }
+      // Before any route reads trip room or bookings, so a booking not paid in time never holds room or takes payment.
+      if (expireUnpaidBookings(store) > 0) await persist();
 
       if (method === "GET" && ["/admin/v1", "/ops/v1"].includes(url.pathname)) return html(res, 200, adminDashboardV1Html(url.pathname === "/ops/v1"));
       if (method === "GET" && ["/admin/v2", "/ops/v2"].includes(url.pathname)) return html(res, 200, opsPortalHtml({ operations: url.pathname === "/ops/v2" }));

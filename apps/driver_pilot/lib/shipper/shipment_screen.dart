@@ -484,6 +484,8 @@ class _CustomerShipmentDetailScreenState
     final nothingPaid = paymentNotTaken(_paymentStatus);
     // The trip started before this booking was paid for, so it was closed (owner, 23 Oct 2026).
     final leftBehind = _shipment?["leftBehindAtUtcMs"] != null;
+    // Not paid within the server's UNPAID_BOOKING_EXPIRY_MS (30 minutes), so it was closed.
+    final expiredUnpaid = _shipment?["expiredUnpaidAtUtcMs"] != null;
     final bill = _shipment?["ewayBill"];
     final madeBill = bill is Map && bill["kind"] == "BILL";
     // The portal allows a cancel within 24 hours of making the bill. Only its date is known, so a bill dated
@@ -521,13 +523,15 @@ class _CustomerShipmentDetailScreenState
                 child: Text(
                     leftBehind
                         ? "This trip left without your shipment"
-                        : "This shipment was cancelled",
+                        : expiredUnpaid
+                            ? "This booking expired because it was not paid within 30 minutes."
+                            : "This shipment was cancelled",
                     style: NvText.bodyStrong.copyWith(color: NvColors.navyInk)),
               ),
               const SizedBox(height: NvSpace.s2),
               if (nothingPaid)
                 Text(
-                    leftBehind
+                    leftBehind || expiredUnpaid
                         ? "If your bank shows a payment, it comes back within 3 days."
                         : "Nothing was paid for this shipment.",
                     style: NvText.body)

@@ -257,6 +257,24 @@ void main() {
       await leave(tester);
     });
 
+    testWidgets('closed because it was not paid within 30 minutes: says so',
+        (tester) async {
+      await showShipment(
+          tester,
+          booking(
+              status: 'FAILED_CARRIER_REFUNDED',
+              extra: const {'expiredUnpaidAtUtcMs': 1761200000000}),
+          trip: lane(),
+          payment: {'status': 'CREATED', 'amountPaise': 264000});
+      expect(
+          find.text(
+              'This booking expired because it was not paid within 30 minutes.'),
+          findsOneWidget);
+      expect(find.text('If your bank shows a payment, it comes back within 3 days.'), findsOneWidget);
+      expect(find.text('This shipment was cancelled'), findsNothing);
+      await leave(tester);
+    });
+
     testWidgets('cancelled before any payment: says nothing was paid',
         (tester) async {
       await showShipment(tester, booking(status: 'FAILED_CARRIER_REFUNDED'),

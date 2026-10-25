@@ -295,6 +295,26 @@ void main() {
     });
 
     testWidgets(
+        'a payment refused because the booking expired unpaid shows the server sentence, never Booked',
+        (tester) async {
+      const sentence = 'This booking expired because it was not paid within 30 minutes. If your bank shows a payment, it comes back within 3 days.';
+      final (_, announced) = await payThroughCheckout(tester,
+          confirmRefusal: const {'error': 'booking_expired', 'detail': sentence},
+          checkoutAnswer: {
+            'type': 0,
+            'data': {
+              'razorpay_order_id': 'order_synthetic',
+              'razorpay_payment_id': 'pay_synthetic',
+              'razorpay_signature': 'signature_synthetic'
+            }
+          });
+      expect(find.text(sentence), findsOneWidget);
+      expect(announced, contains(sentence));
+      expect(announced.where((words) => words.startsWith('Booked')), isEmpty,
+          reason: 'the booking did not go ahead');
+    });
+
+    testWidgets(
         'a booking whose payment never started is not announced as paid',
         (tester) async {
       final announced = watchAnnouncements(tester);

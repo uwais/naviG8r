@@ -21,6 +21,12 @@ export const PRICE_PAISE_PER_KG = 500;
 /** The most a booking may weigh, or a trip or truck carry, in kilograms. */
 export const MAX_WEIGHT_KG = 100_000;
 
+/** A booking whose payment is not done this long after it was made closes and stops holding room on its trip. */
+export const UNPAID_BOOKING_EXPIRY_MS = 30 * 60 * 1000;
+
+/** What the shipper is told when that happens. */
+export const BOOKING_EXPIRED_SENTENCE = `This booking expired because it was not paid within ${UNPAID_BOOKING_EXPIRY_MS / 60_000} minutes.`;
+
 /** Bump when distance/weight formula or defaults change (returned on quote/estimate). */
 export const FREIGHT_MODEL_VERSION = "freight-v1";
 

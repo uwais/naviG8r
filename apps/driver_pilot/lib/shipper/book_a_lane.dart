@@ -328,7 +328,8 @@ class _CustomerBookShipmentScreenState
   }) async {
     final id = _pendingShipmentIdForCheckout;
     var confirmed = false;
-    // The server refuses a payment for a trip that has already left, in its own sentence.
+    // The server refuses a payment for a trip that has already left, or a booking that expired unpaid, in its own
+    // sentence.
     String? refusal;
     if (id != null && id.isNotEmpty) {
       try {
@@ -343,7 +344,8 @@ class _CustomerBookShipmentScreenState
         );
         confirmed = true;
       } catch (error) {
-        if (_apiErrorCode(error) == "trip_already_started") {
+        final code = _apiErrorCode(error);
+        if (code == "trip_already_started" || code == "booking_expired") {
           refusal = plainErrorSentence(error);
         }
       }
