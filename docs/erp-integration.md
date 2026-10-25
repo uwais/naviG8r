@@ -200,7 +200,7 @@ Failed deliveries retry with exponential backoff (1m, 5m, 30m, 2h, 24h; max 10 a
 
 ## Payment policies
 
-Every connection starts as `portal_checkout`. Only NaviG8r platform staff (`OPS` or `ADMIN`) can change it, and no staff route does that yet. The portal save (`PATCH /v1/pilot/customer/integrations/connection`) still takes `webhookUrl` and `displayName`; a `paymentPolicy` other than the current one answers `403 forbidden` and saves nothing, and an unknown value answers `400 invalid_payment_policy`.
+Every connection starts as `portal_checkout`. Only NaviG8r platform staff (`OPS` or `ADMIN`) can change it, through `POST /v1/ops/organizations/:orgId/erp-payment-policy` with body `{ "paymentPolicy": "portal_checkout" | "erp_preauthorized" }` and the staff bearer token. It answers `200 { "orgId", "paymentPolicy" }`; each change writes an audit row `ERP_PAYMENT_POLICY_CHANGED` (resource `organization`, previous and new policy, the staff user as actor), and setting the current policy again writes none. Refusals: `401` without a bearer token, `403 forbidden` for anyone but platform `OPS` or `ADMIN` (`FINANCE` too), `404 not_found` for an organisation that is not an active shipper, `400 invalid_payment_policy` for any other value. There is no ops page for it. The shipper portal shows the policy read-only ("Set by NaviG8r staff.") and its save (`PATCH /v1/pilot/customer/integrations/connection`) takes `webhookUrl` and `displayName`; a `paymentPolicy` other than the current one answers `403 forbidden` and saves nothing, and an unknown value answers `400 invalid_payment_policy`.
 
 | Policy | Behavior |
 |--------|----------|
@@ -260,7 +260,7 @@ BASE_URL=https://navig8r.onrender.com bash scripts/test-erp-integration.sh
 BASE_URL=http://127.0.0.1:3000 bash scripts/test-erp-integration.sh
 ```
 
-The script registers customer + carrier, creates an integration key, posts a load, verifies idempotency, and polls loads/events.
+The script registers customer + carrier, creates an integration key, saves the webhook address (not the payment policy, which only staff set), posts a load, verifies idempotency, and polls loads/events. It stops at the first reply that is not 2xx (curl 7.76 or later, for `--fail-with-body`), so a run on a server that already has these phones registered stops at the first register.
 
 ## Environment (operators)
 

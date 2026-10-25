@@ -32,3 +32,31 @@ test("platform OPS and ADMIN can change an ERP connection's payment policy; FINA
   assert.equal(updateIntegrationConnection(f.store, orgId, { paymentPolicy: "erp_preauthorized", changedByUserId: f.ops.userId }).paymentPolicy, "erp_preauthorized");
   assert.equal(updateIntegrationConnection(f.store, orgId, { paymentPolicy: "portal_checkout", changedByUserId: f.admin.userId }).paymentPolicy, "portal_checkout");
 });
+
+test("NaviG8r staff set an organisation's ERP payment policy through the ops route, and each change is in the audit log", async t => {
+  const f = await httpFixture(t);
+  const orgId = f.shipperA.org.id;
+  const route = (id: string) => `/v1/ops/organizations/${id}/erp-payment-policy`;
+
+  const byOps = await f.request(route(orgId), "POST", { paymentPolicy: "erp_preauthorized" }, f.tokens.ops);
+  assert.deepEqual([byOps.status, byOps.body], [200, { orgId, paymentPolicy: "erp_preauthorized" }]);
+  assert.equal(getOrCreateIntegrationConnection(f.store, orgId).paymentPolicy, "erp_preauthorized");
+  const byAdmin = await f.request(route(orgId), "POST", { paymentPolicy: "portal_checkout" }, f.tokens.admin);
+  assert.deepEqual([byAdmin.status, byAdmin.body.paymentPolicy], [200, "portal_checkout"]);
+  assert.deepEqual([...f.store.auditEvents.values()].filter((row) => row.action === "ERP_PAYMENT_POLICY_CHANGED").map((row) => [row.resourceType, row.resourceId, row.previousState, row.newState, row.actorUserId]),
+    [["organization", orgId, "portal_checkout", "erp_preauthorized", f.ops.userId], ["organization", orgId, "erp_preauthorized", "portal_checkout", f.admin.userId]]);
+
+  for (const token of [f.tokens.finance, f.tokens.shipperA, f.tokens.carrierA]) {
+    const refused = await f.request(route(orgId), "POST", { paymentPolicy: "erp_preauthorized" }, token);
+    assert.deepEqual([refused.status, refused.body.error], [403, "forbidden"]);
+  }
+  assert.equal((await f.request(route(orgId), "POST", { paymentPolicy: "erp_preauthorized" })).status, 401);
+  assert.equal(getOrCreateIntegrationConnection(f.store, orgId).paymentPolicy, "portal_checkout", "no refused request changed it");
+
+  const unknown = await f.request(route(orgId), "POST", { paymentPolicy: "pay_later" }, f.tokens.ops);
+  assert.deepEqual([unknown.status, unknown.body.error], [400, "invalid_payment_policy"]);
+  for (const id of ["org_missing", f.carrierA.org.id]) {
+    assert.deepEqual([(await f.request(route(id), "POST", { paymentPolicy: "erp_preauthorized" }, f.tokens.ops)).status], [404], id);
+  }
+  assert.equal([...f.store.auditEvents.values()].filter((row) => row.action === "ERP_PAYMENT_POLICY_CHANGED").length, 2);
+});

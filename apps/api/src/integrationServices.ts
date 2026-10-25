@@ -1,4 +1,4 @@
-import { requirePermission } from "./rbac.ts";
+import { AuthorizationError, principalFor, recordAudit, requirePermission } from "./rbac.ts";
 import { withoutEwayBill } from "./ewayBillVisibility.ts";
 import { withoutPodPhotos } from "./podPhotos.ts";
 import { withoutTripAssignment } from "./tripAssignmentRules.ts";
@@ -122,6 +122,19 @@ export function updateIntegrationConnection(
   if (params.regenerateWebhookSecret) conn.webhookSecret = crypto.randomBytes(24).toString("hex");
   conn.updatedAtUtcMs = now;
   store.integrationConnections.set(conn.id, conn);
+  return conn;
+}
+
+/** POST /v1/ops/organizations/:orgId/erp-payment-policy: platform OPS or ADMIN set it, with an audit row per change. */
+export function setErpPaymentPolicyAsStaff(store: Store, orgId: string, paymentPolicy: unknown): IntegrationConnection {
+  const userId = principalFor(store).userId;
+  if (!isOpsAgent(store, userId) && !isOpsAdmin(store, userId)) throw new AuthorizationError("forbidden");
+  const org = store.organizations.get(orgId);
+  if (!org || !isActiveEntity(org) || org.kind !== "CUSTOMER") throw new AuthorizationError("not_found", 404);
+  if (!PAYMENT_POLICIES.includes(paymentPolicy as IntegrationPaymentPolicy)) throw new Error("invalid_payment_policy");
+  const previous = getOrCreateIntegrationConnection(store, orgId).paymentPolicy;
+  const conn = updateIntegrationConnection(store, orgId, { paymentPolicy: paymentPolicy as IntegrationPaymentPolicy, changedByUserId: userId });
+  if (conn.paymentPolicy !== previous) recordAudit(store, "ERP_PAYMENT_POLICY_CHANGED", "organization", orgId, previous, conn.paymentPolicy);
   return conn;
 }
 

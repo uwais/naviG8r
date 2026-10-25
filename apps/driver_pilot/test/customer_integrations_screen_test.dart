@@ -7,7 +7,9 @@ import "package:flutter/material.dart";
 import "package:flutter_test/flutter_test.dart";
 
 void main() {
+  final sent = <RequestOptions>[];
   setUp(() {
+    sent.clear();
     CustomerSession.clear();
     CustomerSession.skipRefreshInTests = true;
     api = Api("http://test");
@@ -15,6 +17,7 @@ void main() {
     api.dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
+          sent.add(options);
           if (options.path.contains("/v1/pilot/customer/integrations")) {
             handler.resolve(
               Response<Map<String, dynamic>>(
@@ -146,21 +149,39 @@ void main() {
       await tester.scrollUntilVisible(find.text("Payment policy"), -200,
           scrollable: list);
       await tester.pumpAndSettle();
-      final chosenPolicy = tester.widget<Text>(
-          find.text("Portal checkout (Razorpay in customer web)"));
-      expect(chosenPolicy.maxLines, 1,
-          reason: "the closed field keeps the chosen policy to one line");
-      expect(chosenPolicy.overflow, TextOverflow.ellipsis);
-
-      await tester.tap(find.byType(DropdownButtonFormField<String>));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull,
-          reason: "the payment policy choices fit the open menu");
-      expect(find.text("ERP pre-authorized (book without portal checkout)"),
-          findsOneWidget,
-          reason: "the menu is open and shows the other choice");
+      expect(find.text("Portal checkout (Razorpay in customer web)"),
+          findsOneWidget);
+      expect(find.text("Set by NaviG8r staff."), findsOneWidget,
+          reason: "only NaviG8r staff change it, so the shipper reads it and cannot choose");
+      expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+      expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets("Save settings sends the webhook address and never a payment policy",
+      (tester) async {
+    CustomerSession.applyForTest(
+      userFullName: "ERP Admin",
+      userPhone: "9111009900",
+      customerOrgId: "org_test",
+      customerOrgName: "ERP Smoke Co",
+      customerRole: "CUSTOMER_ADMIN",
+    );
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+        theme: DriverTheme.theme(), home: const CustomerIntegrationsScreen()));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    await tester.tap(find.text("Save settings"));
+    await tester.pumpAndSettle();
+    final saved = sent.where((options) => options.method == "PATCH").single;
+    final body = saved.data as Map;
+    expect(body["webhookUrl"], "https://erp.example.com/hook");
+    expect(body.containsKey("paymentPolicy"), isFalse,
+        reason: "only NaviG8r staff set the payment policy");
+  });
 
   testWidgets("CustomerIntegrationsScreen shows admin required for non-admin",
       (tester) async {

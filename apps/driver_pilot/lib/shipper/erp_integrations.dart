@@ -113,7 +113,6 @@ class _CustomerIntegrationsScreenState
         "/v1/pilot/customer/integrations/connection$_orgQuery",
         data: {
           "webhookUrl": _webhookUrl.text.trim(),
-          "paymentPolicy": _paymentPolicy,
           "regenerateWebhookSecret": regenerateWebhookSecret,
         },
       );
@@ -320,24 +319,13 @@ class _CustomerIntegrationsScreenState
                 keyboardType: TextInputType.url,
               ),
               const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: _paymentPolicy,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: "Payment policy"),
-                // The open menu shows each choice in full, wrapping if it must;
-                // the closed field keeps the chosen one to a single line.
-                selectedItemBuilder: (_) => [
-                  for (final label in _paymentPolicyLabels.values)
-                    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-                ],
-                items: [
-                  for (final policy in _paymentPolicyLabels.entries)
-                    DropdownMenuItem(
-                        value: policy.key, child: Text(policy.value)),
-                ],
-                onChanged: (v) {
-                  if (v != null) setState(() => _paymentPolicy = v);
-                },
+              // Only NaviG8r staff change it (the server refuses the shipper), so it is shown, not chosen.
+              InputDecorator(
+                decoration: const InputDecoration(
+                    labelText: "Payment policy",
+                    helperText: "Set by NaviG8r staff."),
+                child: Text(
+                    _paymentPolicyLabels[_paymentPolicy] ?? _paymentPolicy),
               ),
               const SizedBox(height: 8),
               Row(

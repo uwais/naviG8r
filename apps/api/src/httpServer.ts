@@ -89,6 +89,7 @@ import { verifyRazorpayWebhookSignature, razorpayPaymentsEnabled, publicRazorpay
 import { payoutsMode } from "./razorpayPayouts.ts";
 import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
 import { handleIntegrationPortalRoutes, handleIntegrationRoutes } from "./integrationHttp.ts";
+import { setErpPaymentPolicyAsStaff } from "./integrationServices.ts";
 import { captureTerminalConversationWindows, captureWorkflowNotifications, CommunicationError, decideConversationEscalation, listConversationMessages, listConversationTimeline, listGroupedNotifications, listNotifications, markConversationRead, markNotificationRead, requestConversationEscalation, resolveNotificationOpenRoute, revokeConversationEscalation, sendConversationMessage, workflowSnapshot, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
 
 class CommunicationPersistenceError extends Error {}
@@ -702,6 +703,13 @@ export async function createApp(options: {
         recordAudit(store, "COMPLIANCE_STATUS_CHANGED", "organization", orgId, org.kycStatus, body.status);
         await persist();
         return json(res, 200, { org: store.organizations.get(orgId) });
+      }
+      if (method === "POST" && /^\/v1\/ops\/organizations\/[^/]+\/erp-payment-policy$/.test(url.pathname)) {
+        const orgId = url.pathname.split("/")[4]!;
+        const body = await readJson(req, 1024);
+        const connection = setErpPaymentPolicyAsStaff(store, orgId, body?.paymentPolicy);
+        await persist();
+        return json(res, 200, { orgId, paymentPolicy: connection.paymentPolicy });
       }
       if (method === "GET" && url.pathname === "/v1/audit") {
         const p = requirePermission(store, "audit.read");
