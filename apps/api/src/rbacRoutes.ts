@@ -38,7 +38,7 @@ const rules: [string, RegExp, Permission][] = [
   ["GET", /^\/v1\/pilot\/customer\/members$/, "organization.member.invite"],
   ["*", /^\/v1\/pilot\/customer\/integrations(?:\/.*)?$/, "integration.manage"],
   ["GET", /^\/shipments(?:\/[^/]+(?:\/tracking)?)?$/, "load.read"],
-  ["POST", /^\/shipments\/book$/, "load.create"],
+  ["POST", /^\/shipments\/(?:book|quote)$/, "load.create"],
   ["POST", /^\/shipments\/[^/]+\/eway-bill(?:\/remove)?$/, "eway_bill.write"],
   ["POST", /^\/shipments\/[^/]+\/eway-bill\/truck$/, "eway_bill.add_truck"],
   ["POST", /^\/v1\/pilot\/carrier\/shipments\/[^/]+\/eway-bill\/truck$/, "eway_bill.add_truck"],
@@ -77,7 +77,7 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   if (method === "GET" && /^\/anchor-trips(?:\/[^/]+)?$/.test(path)) return;
   // The practice government site and its guide: public, and only when the demo server turned them on.
   if ((method === "GET" || method === "POST") && process.env.EWAY_DEMO_PORTAL === "1" && (path === "/demo/eway-guide" || path.startsWith("/demo/eway-portal"))) return;
-  if (method === "POST" && ["/shipments/quote", "/v1/auth/otp/start", "/v1/auth/otp/verify", "/v1/pilot/driver/register", "/v1/pilot/customer/register", "/v1/pilot/customer/users/register", "/v1/payments/razorpay/webhook"].includes(path)) return;
+  if (method === "POST" && ["/v1/auth/otp/start", "/v1/auth/otp/verify", "/v1/pilot/driver/register", "/v1/pilot/customer/register", "/v1/pilot/customer/users/register", "/v1/payments/razorpay/webhook"].includes(path)) return;
   if (path.startsWith("/v1/integrations/")) return; // separately authenticated service principal
   const token = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization ?? ""))?.[1] ?? null;
   if (path === "/v1/auth/me" && method === "GET") { verifyBearer(store, token); return; }
@@ -105,10 +105,10 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   if (orgId && orgId !== p.organizationId) throw new AuthorizationError("not_found", 404);
   let resource;
   const shipmentId = /^\/(?:ops\/)?shipments\/([^/]+)/.exec(path)?.[1] ?? /^\/v1\/(?:pilot\/carrier\/)?shipments\/([^/]+)/.exec(path)?.[1];
-  if (shipmentId && !["book", "pending-release", "delivered"].includes(shipmentId)) resource = store.shipments.get(shipmentId);
+  if (shipmentId && !["book", "quote", "pending-release", "delivered"].includes(shipmentId)) resource = store.shipments.get(shipmentId);
   const tripId = /^\/v1\/pilot\/anchor-trips\/([^/]+)/.exec(path)?.[1];
   if (tripId) resource = store.anchorTrips.get(tripId);
-  if ((tripId || (shipmentId && !["book", "pending-release", "delivered"].includes(shipmentId))) && !resource) throw new AuthorizationError("not_found", 404);
+  if ((tripId || (shipmentId && !["book", "quote", "pending-release", "delivered"].includes(shipmentId))) && !resource) throw new AuthorizationError("not_found", 404);
   if (resource && (!visible(p, resource) || !assignedDriverMaySee(store, p, resource))) throw new AuthorizationError("not_found", 404);
   if (!p.permissions.includes(requiredPermission)) throw new AuthorizationError("forbidden");
   if ((path.startsWith("/v1/ops/") || path.startsWith("/ops/") || path === "/payout-batches" || path.startsWith("/carriers/")) && !p.internal) throw new AuthorizationError("forbidden");

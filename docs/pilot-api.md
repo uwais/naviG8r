@@ -414,7 +414,7 @@ Ops. `{ "result": "FOUND", "billNumber": "123456789012" }` or `{ "result": "PROB
 
 ### Existing marketplace endpoints (still available)
 - `GET /anchor-trips` (list + `GET /anchor-trips/:id`) lists trips for the customer pilot; **enabled in production** as part of the public marketplace. The list leaves out `CANCEL_REQUESTED` and `CANCELLED` trips.
-- `POST /shipments/quote` quotes a shipment. Body **`weightKg`** (required); optional **`pickup`** / **`drop`** (`GeoPoint` each — send **both** or **neither**); optional **`anchorTripId`**. Response includes **`grossPaise`** plus **`breakdown`** (`pricingMode`, `laneKm`, `shipmentKm`, `distanceKmForPrice`, `modelVersion`, component paise). Booking uses the same formula when coords allow distance pricing.
+- `POST /shipments/quote` quotes a shipment. It needs `Authorization: Bearer` for a login with `load.create` (shippers and ops): without one it answers **401**, and a carrier login gets **403**. Body **`weightKg`** (required); optional **`pickup`** / **`drop`** (`GeoPoint` each — send **both** or **neither**); optional **`anchorTripId`**. Response includes **`grossPaise`** plus **`breakdown`** (`pricingMode`, `laneKm`, `shipmentKm`, `distanceKmForPrice`, `modelVersion`, component paise). Booking uses the same formula when coords allow distance pricing.
 - `POST /shipments/book` books against an `anchorTripId`. With `Authorization: Bearer` from OTP for a user in a **CUSTOMER** org, the shipment is tagged with `customerOrgId` and `customerOrgName` from that org (otherwise anonymous booking uses only the body `customerOrgName`). Optional **`customerPhone`** or **`bookedByPhone`** (India mobile, same normalization as registration) stores `bookedByPhone` on the shipment so the same person can list it after OTP **without** relying on org name matching.
   - **`PAYMENT_PROVIDER=MOCK` (default):** response **`201`** `{ shipment, payment }` where `payment.status` is **`CAPTURED`** immediately.
   - **`PAYMENT_PROVIDER=RAZORPAY`:** after booking, server creates an order with **`payment_capture: false`**. Response **`201`** **`{ shipment, payment, razorpayKeyId? }`** — `payment.status` starts **`CREATED`** with **`razorpayOrderId`**. Flutter (or Web) opens Razorpay Standard Checkout with **`key`=`razorpayKeyId`**, **`order_id`=`razorpayOrderId`**, and amount from `payment.amountPaise`. After customer pays, **authorization** is applied when Razorpay calls **`POST /v1/payments/razorpay/webhook`** (`payment.authorized` / `payment.failed`). **Capture** happens on **`POST /shipments/:id/pod`** (server captures before ledger). Booking may be rolled back if order creation fails.
@@ -529,7 +529,7 @@ MVP eligibility rules (simple + explainable):
 ### Customer: quote + book (en-route)
 
 #### `POST /shipments/quote`
-Body (minimum):
+Signed-in shippers (and ops) only, like booking. Body (minimum):
 ```json
 { "weightKg": 200 }
 ```

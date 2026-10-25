@@ -93,6 +93,22 @@ test("a rate estimate gives the carrier office its own amount, and a driver no a
   assert.deepEqual(Object.keys(driver.samples[0]!), ["weightKg"]);
 });
 
+test("a shipment quote is priced for a signed-in shipper only", async t => {
+  const { f, carrier } = await deliveredShipment(t);
+  const ask = (token?: string) => f.request("/shipments/quote", "POST", { anchorTripId: f.trip.id, weightKg: 10, pickup: { lat: 12.97, lng: 77.59 }, drop: { lat: 13.08, lng: 80.27 } }, token);
+  const signedOut = await ask();
+  assert.equal(signedOut.status, 401);
+  assert.deepEqual(shipperPriceKeys(signedOut.body), [], "signed out");
+  for (const [who, token] of Object.entries(carrier)) {
+    const response = await ask(token);
+    assert.equal(response.status, 403, who);
+    assert.deepEqual(shipperPriceKeys(response.body), [], who);
+  }
+  const shipper = await ask(f.tokens.shipperA);
+  assert.equal(shipper.status, 200);
+  assert.equal(typeof shipper.body.quote.grossPaise, "number", "the shipper still sees its price before booking");
+});
+
 test("no shipper login gets the carrier's amount, the cut, payout dates or ledger data", async t => {
   const { f, id, responses } = await deliveredShipment(t);
   const seen: Record<string, unknown> = { booked: responses.booked, podAccepted: responses.podAccepted };
