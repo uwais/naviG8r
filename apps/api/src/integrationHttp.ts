@@ -221,6 +221,7 @@ export async function handleIntegrationPortalRoutes(
         paymentPolicy: body?.paymentPolicy,
         displayName: body?.displayName,
         regenerateWebhookSecret: Boolean(body?.regenerateWebhookSecret),
+        changedByUserId: userId,
       });
       json(res, 200, {
         connection: {
@@ -263,7 +264,7 @@ export async function handleIntegrationPortalRoutes(
     return true;
   } catch (e: any) {
     const msg = String(e?.message ?? "bad_request");
-    if (msg === "forbidden") {
+    if (msg === "forbidden" || msg === "payment_policy_staff_only") {
       json(res, 403, { error: msg });
       return true;
     }

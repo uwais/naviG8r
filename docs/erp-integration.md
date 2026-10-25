@@ -192,7 +192,7 @@ Failed deliveries retry with exponential backoff (1m, 5m, 30m, 2h, 24h; max 10 a
 
 ## Payment policies
 
-Set in portal **Integrations → Payment policy**:
+Only NaviG8r platform staff (OPS or ADMIN in the platform org) change the payment policy; there is no staff page or route for it yet. The portal shows it read-only. A shipper request to `PATCH /v1/pilot/customer/integrations/connection` that changes it gets `403 { "error": "payment_policy_staff_only" }` and nothing is saved; sending the current value, or leaving it out, is fine, so shippers still change the webhook URL and display name. A value other than the two below gets `400 { "error": "invalid_payment_policy" }`.
 
 | Policy | Behavior |
 |--------|----------|

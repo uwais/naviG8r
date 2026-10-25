@@ -299,6 +299,8 @@ export type Shipment = {
   /** Monotonic sequence for integration webhooks per shipment. */
   integrationSequence?: number;
   ewayBill?: EwayBill;
+  /** Set when the booking closed because no payment arrived within the unpaid-booking window. */
+  unpaidBookingExpiredAtUtcMs?: number;
 } & SoftDeleteFields;
 
 export type PaymentProviderId = "MOCK" | "RAZORPAY";

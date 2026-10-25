@@ -9,6 +9,8 @@ import {
   shipmentWithCarrierDisplay,
   tripWithCarrierDisplay,
   attachRazorpayOrderForShipment,
+  isOpsAdmin,
+  isOpsAgent,
 } from "./services.ts";
 import type {
   GeoPoint,
@@ -16,6 +18,7 @@ import type {
   IntegrationApiScope,
   IntegrationConnection,
   IntegrationEvent,
+  IntegrationPaymentPolicy,
   IntegrationWebhookDelivery,
   Shipment,
 } from "./types.ts";
@@ -84,6 +87,8 @@ export function getOrCreateIntegrationConnection(
   return conn;
 }
 
+const INTEGRATION_PAYMENT_POLICIES: IntegrationPaymentPolicy[] = ["erp_preauthorized", "portal_checkout"];
+
 export function updateIntegrationConnection(
   store: Store,
   orgId: string,
@@ -92,9 +97,17 @@ export function updateIntegrationConnection(
     paymentPolicy?: IntegrationConnection["paymentPolicy"];
     displayName?: string;
     regenerateWebhookSecret?: boolean;
+    changedByUserId?: string;
   },
 ): IntegrationConnection {
   const conn = getOrCreateIntegrationConnection(store, orgId);
+  if (params.paymentPolicy != null) {
+    if (!INTEGRATION_PAYMENT_POLICIES.includes(params.paymentPolicy)) throw new Error("invalid_payment_policy");
+    // Booking without portal checkout rests on a payment agreement with NaviG8r, so only platform OPS or ADMIN changes it.
+    const changedByStaff = params.changedByUserId != null &&
+      (isOpsAdmin(store, params.changedByUserId) || isOpsAgent(store, params.changedByUserId));
+    if (params.paymentPolicy !== conn.paymentPolicy && !changedByStaff) throw new Error("payment_policy_staff_only");
+  }
   const now = nowUtcMs();
   if (params.webhookUrl != null) {
     const url = params.webhookUrl.trim();

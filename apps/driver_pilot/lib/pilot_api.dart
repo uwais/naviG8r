@@ -385,6 +385,13 @@ String shipmentStatusLabel(String status, {bool seesPayment = true}) {
   }
 }
 
+/// The server sets unpaidBookingExpiredAtUtcMs when a booking closed because its payment window (30 minutes,
+/// UNPAID_BOOKING_WINDOW_MS in the API) passed without payment.
+String? unpaidBookingExpiredLine(Map<String, dynamic> shipment) =>
+    shipment["unpaidBookingExpiredAtUtcMs"] == null
+        ? null
+        : "This booking expired because it was not paid within 30 minutes.";
+
 String tripStatusLabel(String status) {
   switch (status) {
     case "OPEN":

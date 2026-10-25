@@ -1,4 +1,4 @@
-import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { bookTestShipment, internalUser, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 import { createStore } from "./store.ts";
@@ -53,6 +53,7 @@ function seedShipmentWithWebhook(store: ReturnType<typeof createStore>) {
   const conn = updateIntegrationConnection(store, admin.org.id, {
     webhookUrl: "https://erp.example.com/hook",
     paymentPolicy: "erp_preauthorized",
+    changedByUserId: internalUser(store, "ADMIN").userId,
   });
   const shipment = bookTestShipment(store, {
     anchorTripId: trip.id,
@@ -126,6 +127,7 @@ test("processPendingWebhookDeliveries retries failed delivery with backoff", asy
   const conn = updateIntegrationConnection(store, admin.org.id, {
     webhookUrl: "https://erp.example.com/hook",
     paymentPolicy: "erp_preauthorized",
+    changedByUserId: internalUser(store, "ADMIN").userId,
   });
   conn.webhookSecret = "whsec_retry";
   store.integrationConnections.set(conn.id, conn);

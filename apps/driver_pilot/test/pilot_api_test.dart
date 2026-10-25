@@ -53,4 +53,15 @@ void main() {
   test('preserves a web relative API path', () {
     expect(normalizeApiBaseUrl('/api'), '/api');
   });
+
+  test('an expired unpaid booking shows a plain line', () {
+    expect(
+        unpaidBookingExpiredLine({
+          'status': 'FAILED_CARRIER_REFUNDED',
+          'unpaidBookingExpiredAtUtcMs': 1767225600000,
+        }),
+        'This booking expired because it was not paid within 30 minutes.');
+    expect(
+        unpaidBookingExpiredLine({'status': 'FAILED_CARRIER_REFUNDED'}), null);
+  });
 }

@@ -1,4 +1,4 @@
-import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { bookTestShipment, internalUser, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
@@ -57,7 +57,7 @@ test("integration load create is idempotent by externalLoadId", async () => {
     orgDisplayName: "ERP Shipper Co",
   });
   const { token } = createIntegrationApiKey(store, admin.org.id);
-  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized" });
+  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(store, "ADMIN").userId });
 
   const ctx = resolveIntegrationAuth(store, { bearerToken: token });
   const params = {
@@ -92,6 +92,7 @@ test("integration events emit on carrier accept", () => {
   updateIntegrationConnection(store, admin.org.id, {
     webhookUrl: "https://example.com/webhook",
     paymentPolicy: "erp_preauthorized",
+    changedByUserId: internalUser(store, "ADMIN").userId,
   });
 
   const shipment = bookTestShipment(store, {
@@ -220,4 +221,32 @@ test("resolveIntegrationAuth accepts X-Api-Key headers", () => {
   });
   assert.equal(ctx.orgId, admin.org.id);
   assert.equal(key.secretHash, hashIntegrationSecret(parsed![2]!));
+});
+
+test("only platform OPS or ADMIN sets the payment policy", () => {
+  const store = createStore();
+  const admin = registerCustomerOrgAdmin(store, {
+    fullName: "ERP Admin",
+    phone: "9111001197",
+    orgDisplayName: "ERP Shipper 3",
+  });
+  const finance = internalUser(store, "FINANCE");
+  assert.throws(
+    () => updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: finance.userId }),
+    (e: Error) => e.message === "payment_policy_staff_only",
+  );
+  assert.throws(
+    () => updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: admin.user.id }),
+    (e: Error) => e.message === "payment_policy_staff_only",
+  );
+  const ops = internalUser(store, "OPS");
+  assert.equal(
+    updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: ops.userId }).paymentPolicy,
+    "erp_preauthorized",
+  );
+  const platformAdmin = internalUser(store, "ADMIN");
+  assert.equal(
+    updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "portal_checkout", changedByUserId: platformAdmin.userId }).paymentPolicy,
+    "portal_checkout",
+  );
 });
