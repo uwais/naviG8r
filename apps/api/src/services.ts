@@ -1933,6 +1933,17 @@ export function inviteCarrierDriver(
   if (existing) {
     throw new ApiError("membership_already_exists", { role: existing.role });
   }
+  // Driver profiles are keyed by user alone, so inviting someone from another carrier would move their profile and truck here.
+  const profile = store.driverProfiles.get(user.id);
+  const profileAtAnotherCarrier = isActiveEntity(profile) && profile!.orgId !== params.orgId;
+  const memberOfAnotherCarrier = [...store.memberships.values()].some((m) => {
+    const memberOrg = store.organizations.get(m.orgId);
+    return m.userId === user.id && m.orgId !== params.orgId && isActiveEntity(m) && isActiveEntity(memberOrg) &&
+      (memberOrg!.kind === "CARRIER_SOLO" || memberOrg!.kind === "CARRIER_FLEET" || memberOrg!.kind === "CARRIER_LEGACY");
+  });
+  if (profileAtAnotherCarrier || memberOfAnotherCarrier) {
+    throw new ApiError("member_of_another_carrier", { detail: "This number belongs to someone at another carrier." }, 409);
+  }
   const role = params.role ?? "DRIVER";
   if (role !== "DRIVER" && role !== "DISPATCHER") throw new Error("invalid_role");
 

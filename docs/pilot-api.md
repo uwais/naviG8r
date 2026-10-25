@@ -248,6 +248,8 @@ Driver app: **Profile → Fleet — invite drivers** (owners/dispatchers). Invit
 
 For **`DISPATCHER`**, vehicle fields are optional in the request body — the server links the invitee to the carrier org's **primary vehicle** (owner's registration from solo register). For **`DRIVER`**, provide `vehicleRegistrationNumber`, `vehicleClass`, and `vehicleCapacityKg` as before.
 
+A phone whose owner has an active driver profile or membership at another carrier is refused, and nothing changes: `409 { "error": "member_of_another_carrier", "detail": "This number belongs to someone at another carrier." }`. The `201` reply is `{ membership: { orgId, role, createdAtUtcMs }, vehicle }`; it never carries the invitee's stored name or user id.
+
 #### Carrier onboarding (driver app)
 New carriers: **Register as new carrier** → `POST /v1/pilot/driver/register` → OTP verify → signed-in driver shell. Sign-in alone is for existing users only.
 
@@ -323,6 +325,8 @@ Body:
 ```
 
 `role` optional — defaults to `CUSTOMER_MEMBER`; may also be `CUSTOMER_ADMIN`.
+
+The `201` reply is `{ membership: { orgId, role, createdAtUtcMs }, org }`; it never carries the invitee's stored name or user id.
 
 #### `GET /v1/pilot/customer/members?orgId=...`
 Lists users + memberships for a customer org. Requires `CUSTOMER_ADMIN` on that org.

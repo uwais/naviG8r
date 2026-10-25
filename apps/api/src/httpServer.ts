@@ -1115,7 +1115,9 @@ export async function createApp(options: {
             vehicleCapacityKg: Number(body?.vehicleCapacityKg ?? 0),
           });
           await persist();
-          return json(res, 201, out);
+          // The invitee's stored name and user id are theirs, not the inviter's; the inviter typed only the phone.
+          const { orgId, role, createdAtUtcMs } = out.membership;
+          return json(res, 201, { membership: { orgId, role, createdAtUtcMs }, vehicle: out.vehicle });
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;
@@ -1220,7 +1222,9 @@ export async function createApp(options: {
             role: body?.role,
           });
           await persist();
-          return json(res, 201, out);
+          // The invitee's stored name and user id are theirs, not the inviter's; the inviter typed only the phone.
+          const { orgId, role, createdAtUtcMs } = out.membership;
+          return json(res, 201, { membership: { orgId, role, createdAtUtcMs }, org: out.org });
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;
