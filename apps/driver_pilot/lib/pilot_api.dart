@@ -192,13 +192,16 @@ String formatApiError(Object e) {
       final seconds = retry is num ? (retry / 1000).ceil() : 30;
       return "Too many code requests. Please wait ${seconds > 0 ? seconds : 1} seconds and try again.";
     }
-    // The server writes these errors' detail for the carrier: which bank field is wrong and how, or why
-    // the truck cannot change.
+    // The server writes these errors' detail for the person: which bank field is wrong and how, why
+    // the truck cannot change, or which sign-up field is too long.
     final detail = body is Map ? body["detail"] : null;
     if (const [
           "invalid_payout_profile",
           "truck_on_unfinished_trip",
-          "invalid_vehicleRegistrationNumber"
+          "invalid_vehicleRegistrationNumber",
+          "invalid_fullName",
+          "invalid_orgDisplayName",
+          "invalid_phone"
         ].contains(code) &&
         detail is String &&
         detail.isNotEmpty) {
@@ -224,6 +227,8 @@ String formatApiError(Object e) {
           "This code request is no longer valid. Request a new code.",
       "otp_challenge_mismatch":
           "This code request is no longer valid. Request a new code.",
+      "sign_up_rate_limited":
+          "Too many sign-up tries. Please wait a few minutes and try again.",
     };
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||

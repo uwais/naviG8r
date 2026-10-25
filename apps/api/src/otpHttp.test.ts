@@ -107,6 +107,40 @@ test("HTTP OTP starts are rate limited by the connecting IP", async (t) => {
   assert.ok(limited.body.retryAfterMs <= 600_000);
 });
 
+test("HTTP OTP verifies are rate limited by the connecting IP", async (t) => {
+  const oldLimit = process.env.OTP_IP_START_LIMIT;
+  process.env.OTP_IP_START_LIMIT = "7";
+  t.after(() => oldLimit === undefined ? delete process.env.OTP_IP_START_LIMIT : process.env.OTP_IP_START_LIMIT = oldLimit);
+  // The fixture's seven sign-ins used every verify slot for this address.
+  const f = await httpFixture(t);
+  const limited = await f.request(VERIFY, "POST", { phone: f.shipperA.user.phone, challengeId: "any", code: "000000" });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.body.error, "otp_rate_limited");
+  assert.ok(limited.body.retryAfterMs > 0);
+  assert.ok(limited.body.retryAfterMs <= 600_000);
+});
+
+test("HTTP wrong codes are saved and the fifth wrong code ends the challenge", async (t) => {
+  const f = await httpFixture(t),
+    phone = f.shipperA.user.phone;
+  const started = await f.request(START, "POST", { phone });
+  const wrongCode = started.body.debugCode === "000000" ? "000001" : "000000";
+  await f.request(VERIFY, "POST", { phone, challengeId: started.body.challengeId, code: wrongCode });
+  assert.equal(loadStoreFromDisk(f.dataFilePath!).otpChallenges.get(started.body.challengeId)?.wrongCodeCount, 1);
+  for (let attempt = 2; attempt <= 4; attempt++) {
+    const wrong = await f.request(VERIFY, "POST", { phone, challengeId: started.body.challengeId, code: wrongCode });
+    assert.equal(wrong.body.error, "otp_incorrect");
+  }
+  const fifth = await f.request(VERIFY, "POST", { phone, challengeId: started.body.challengeId, code: wrongCode });
+  assert.equal(fifth.status, 400);
+  assert.equal(fifth.body.error, "otp_challenge_invalid");
+  assert.equal(loadStoreFromDisk(f.dataFilePath!).otpChallenges.get(started.body.challengeId)?.status, "FAILED");
+  const correct = await f.request(VERIFY, "POST", { phone, challengeId: started.body.challengeId, code: started.body.debugCode });
+  assert.equal(correct.status, 400);
+  assert.equal(correct.body.error, "otp_challenge_invalid");
+  assert.equal(correct.body.accessToken, undefined);
+});
+
 test("HTTP expiration is persisted even though verification returns an error", async (t) => {
   const f = await httpFixture(t),
     phone = f.shipperA.user.phone;

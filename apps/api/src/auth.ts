@@ -201,6 +201,7 @@ export type OtpDependencies = {
   readonly now: () => number;
   readonly generateCode: () => string;
   consumeIpStart: (ip: string) => number;
+  consumeIpVerify: (ip: string) => number;
 };
 
 export class OtpRateLimitError extends Error {
@@ -260,22 +261,27 @@ export function createOtpDependencies(
   const ipStartWindowMs = configNumber("OTP_IP_START_WINDOW_MS", 600_000);
   const now = options.now ?? nowUtcMs;
   otpDeadline(now(), ttlMs);
-  const ipStarts = new Map<string, number[]>();
-  const consumeIpStart = (ip: string): number => {
-    const instant = now();
-    const prior = ipStarts.get(ip) ?? [];
-    const recent = prior.filter((at) => at > instant - ipStartWindowMs);
-    if (recent.length >= ipStartLimit) {
-      ipStarts.set(ip, recent);
-      throw new OtpRateLimitError(Math.max(1, recent[0]! + ipStartWindowMs - instant));
-    }
-    recent.push(instant);
-    ipStarts.delete(ip);
-    ipStarts.set(ip, recent);
-    // Keep attacker-controlled IP cardinality bounded. Oldest keys are evicted first.
-    while (ipStarts.size > 10_000) ipStarts.delete(ipStarts.keys().next().value!);
-    return Math.max(0, recent[0]! + ipStartWindowMs - instant);
+  // Start and verify are counted separately, with the same limit and window.
+  const ipRequestCounter = () => {
+    const requestsByIp = new Map<string, number[]>();
+    return (ip: string): number => {
+      const instant = now();
+      const prior = requestsByIp.get(ip) ?? [];
+      const recent = prior.filter((at) => at > instant - ipStartWindowMs);
+      if (recent.length >= ipStartLimit) {
+        requestsByIp.set(ip, recent);
+        throw new OtpRateLimitError(Math.max(1, recent[0]! + ipStartWindowMs - instant));
+      }
+      recent.push(instant);
+      requestsByIp.delete(ip);
+      requestsByIp.set(ip, recent);
+      // Keep attacker-controlled IP cardinality bounded. Oldest keys are evicted first.
+      while (requestsByIp.size > 10_000) requestsByIp.delete(requestsByIp.keys().next().value!);
+      return Math.max(0, recent[0]! + ipStartWindowMs - instant);
+    };
   };
+  const consumeIpStart = ipRequestCounter();
+  const consumeIpVerify = ipRequestCounter();
   return Object.freeze({
     ttlMs,
     resendCooldownMs,
@@ -288,6 +294,7 @@ export function createOtpDependencies(
     now,
     generateCode: options.generateCode ?? randomOtp6,
     consumeIpStart,
+    consumeIpVerify,
   });
 }
 
@@ -390,6 +397,8 @@ export function pilotOtpStart(
   return out;
 }
 
+const MAX_WRONG_CODES_PER_CHALLENGE = 5;
+
 export function pilotOtpVerify(
   store: Store,
   params: { phone: string; challengeId: string; code: string },
@@ -412,7 +421,15 @@ export function pilotOtpVerify(
     store.otpChallenges.set(ch.id, { ...ch, status: "EXPIRED" });
     throw new Error("otp_expired");
   }
-  if (String(params.code ?? "") !== ch.code) throw new Error("otp_incorrect");
+  if (String(params.code ?? "") !== ch.code) {
+    const wrongCodeCount = (ch.wrongCodeCount ?? 0) + 1;
+    if (wrongCodeCount >= MAX_WRONG_CODES_PER_CHALLENGE) {
+      store.otpChallenges.set(ch.id, { ...ch, wrongCodeCount, status: "FAILED" });
+      throw new Error("otp_challenge_invalid");
+    }
+    store.otpChallenges.set(ch.id, { ...ch, wrongCodeCount });
+    throw new Error("otp_incorrect");
+  }
 
   const sessionTtl = sessionTtlMs();
   const session: AuthSession = {
