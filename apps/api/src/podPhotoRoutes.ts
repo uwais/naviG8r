@@ -3,7 +3,7 @@
  * read routes that run inside it. What a photo is and who may change it lives in podPhotos.ts.
  */
 import type http from "node:http";
-import { authorizationContext, AuthorizationError } from "./rbac.ts";
+import { authorizationContext, AuthorizationError, type RequestContext } from "./rbac.ts";
 import { guardRequest, requestContext } from "./rbacRoutes.ts";
 import { addPodPhoto, readPodPhoto, readPodPhotoUpload, removePodPhoto, removePodPhotoFile, type PodPhotoUpload } from "./podPhotos.ts";
 import type { Store } from "./store.ts";
@@ -15,12 +15,15 @@ const UPLOADS_READ_AT_ONCE = 4;
 // A phone that stops sending for this long has lost its signal; its connection is closed.
 const UPLOAD_IDLE_TIMEOUT_MS = 30_000;
 let uploadsBeingRead = 0;
+// One upload read at a time per sign-in, so one login cannot take every slot. The app sends one photo at a time.
+const usersWithUploadBeingRead = new Set<string>();
 
-/** The sign-in, the shipment and the caller's right to add photos, from the store alone. Null when all pass. */
-function uploadRefusal(req: http.IncomingMessage, store: Store): { status: number; error: string } | null {
+/** The sign-in, the shipment and the caller's right to add photos, from the store alone. The signed-in user when all pass. */
+function uploaderOrRefusal(req: http.IncomingMessage, store: Store): { status: number; error: string } | { userId: string } {
   try {
-    authorizationContext.run(requestContext(), () => guardRequest(req, store, new URL(req.url ?? "/", "http://localhost")));
-    return null;
+    const context: RequestContext = requestContext();
+    authorizationContext.run(context, () => guardRequest(req, store, new URL(req.url ?? "/", "http://localhost")));
+    return { userId: context.principal!.userId };
   } catch (error) {
     if (error instanceof AuthorizationError) return { status: error.status, error: error.message };
     if ((error as Error)?.message === "account_inactive") return { status: 403, error: "account_inactive" };
@@ -41,15 +44,18 @@ function refuseUnread(req: http.IncomingMessage, res: http.ServerResponse, json:
  * being read. Then calls handle with the body.
  */
 export function receivePodPhotoUpload(req: http.IncomingMessage, res: http.ServerResponse, store: Store, json: Json, handle: (upload: PodPhotoUpload) => unknown): void {
-  const refusal = uploadRefusal(req, store);
-  if (refusal) return refuseUnread(req, res, json, refusal.status, refusal.error);
-  if (uploadsBeingRead >= UPLOADS_READ_AT_ONCE) return refuseUnread(req, res, json, 503, "busy_try_again");
+  const uploader = uploaderOrRefusal(req, store);
+  if ("error" in uploader) return refuseUnread(req, res, json, uploader.status, uploader.error);
+  const { userId } = uploader;
+  if (uploadsBeingRead >= UPLOADS_READ_AT_ONCE || usersWithUploadBeingRead.has(userId)) return refuseUnread(req, res, json, 503, "busy_try_again");
   uploadsBeingRead += 1;
+  usersWithUploadBeingRead.add(userId);
   let released = false;
   const release = () => {
     if (released) return;
     released = true;
     uploadsBeingRead -= 1;
+    usersWithUploadBeingRead.delete(userId);
   };
   req.once("end", release);
   req.once("close", release);

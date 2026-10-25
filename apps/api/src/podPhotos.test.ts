@@ -251,19 +251,49 @@ test("an upload with no sign-in, or from someone who may not add photos, is answ
   assert.equal(f.store.shipments.get(id)!.podPhotos, undefined);
 });
 
-test("a fifth upload while four are still being read is told to try again, and the four finish", async t => {
-  const { f, id, driver } = await deliveryWaitingForPhotos(t);
-  const slow = [1, 2, 3, 4].map(() => partialUpload(f, id, driver.token, jpeg().length, jpeg().subarray(0, 8)));
+/** Four of carrier A's trips on the way, each with its own driver and one accepted booking of shipper A. */
+async function fourDeliveriesWaitingForPhotos(t: TestContext) {
+  const f = await httpFixture(t);
+  const deliveries: { id: string; token: string }[] = [];
+  for (const n of [1, 2, 3, 4]) {
+    const driver = await hireDriver(f, `800000003${n}`, `Synthetic Driver ${n}`, `KA0${n}CD123${n}`);
+    const trip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: `2026-10-${10 + 2 * n}`, windowEnd: `2026-10-${11 + 2 * n}`, vehicleClass: "MEDIUM", capacityKg: 1000 });
+    assert.equal((await f.request(`/v1/pilot/anchor-trips/${trip.id}/assignment`, "POST", { vehicleId: driver.vehicleId, driverUserId: driver.userId }, f.tokens.carrierA)).status, 200);
+    const booking = await f.book(f.tokens.shipperA, { anchorTripId: trip.id });
+    assert.equal(booking.status, 201);
+    const id = booking.body.shipment.id as string;
+    assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+    startTestTrip(f.store, id);
+    deliveries.push({ id, token: driver.token });
+  }
+  return { f, deliveries };
+}
+
+test("a fifth upload while four logins each have one being read is told to try again, and the four finish", async t => {
+  const { f, deliveries } = await fourDeliveriesWaitingForPhotos(t);
+  const slow = deliveries.map(({ id, token }) => partialUpload(f, id, token, jpeg().length, jpeg().subarray(0, 8)));
   await Promise.all(slow.map((sending) => sending.written));
   // The four are on the wire; a moment more and the server has read their headers.
   await new Promise((resolve) => setTimeout(resolve, 100));
-  const fifth = await upload(f, id, jpeg(), driver.token);
+  const fifth = await upload(f, deliveries[0]!.id, jpeg(), f.tokens.carrierA);
   assert.deepEqual([fifth.status, fifth.body.error], [503, "busy_try_again"]);
   for (const sending of slow) sending.finish(jpeg().subarray(8));
-  const statuses = (await Promise.all(slow.map((sending) => sending.answered))).map((answer) => answer.status).sort();
-  assert.deepEqual(statuses, [201, 201, 201, 409], "three photos is the most; the fourth is refused for that, not for being busy");
-  assert.equal((await f.request(`/v1/shipments/${id}/pod-photos/${f.store.shipments.get(id)!.podPhotos![0]!.id}`, "DELETE", undefined, driver.token)).status, 200);
-  assert.equal((await upload(f, id, jpeg(9), driver.token)).status, 201, "the slots were given back");
+  const statuses = (await Promise.all(slow.map((sending) => sending.answered))).map((answer) => answer.status);
+  assert.deepEqual(statuses, [201, 201, 201, 201]);
+  assert.equal((await upload(f, deliveries[0]!.id, jpeg(9), f.tokens.carrierA)).status, 201, "the slots were given back");
+});
+
+test("a login with an upload still being read is told to try again for a second one; another login's upload goes through", async t => {
+  const { f, id, driver } = await deliveryWaitingForPhotos(t);
+  const slow = partialUpload(f, id, driver.token, jpeg().length, jpeg().subarray(0, 8));
+  await slow.written;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const second = await upload(f, id, jpeg(2), driver.token);
+  assert.deepEqual([second.status, second.body.error], [503, "busy_try_again"]);
+  assert.equal((await upload(f, id, jpeg(3), f.tokens.carrierA)).status, 201, "the carrier office is not held up by its driver");
+  slow.finish(jpeg().subarray(8));
+  assert.equal((await slow.answered).status, 201);
+  assert.equal((await upload(f, id, jpeg(4), driver.token)).status, 201, "the driver's slot was given back");
 });
 
 test("with under 200 MB free the photo is refused with 507 and nothing is written", async t => {
