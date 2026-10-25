@@ -271,11 +271,15 @@ const SIGN_UP_IP_LIMIT = 30;
 const SIGN_UP_PHONE_LIMIT = 5;
 const SIGN_UP_WINDOW_MS = 600_000;
 
-/** The three sign-up routes share one budget per connecting address and one per phone number. */
+/**
+ * The three sign-up routes share one budget per phone number, and one per connecting address only when
+ * OTP_TRUST_PROXY=1, because without it every visitor may arrive from the proxy address. Each budget has its own
+ * limiter, so filling one with keys cannot push out the other.
+ */
 function consumeSignUpRateLimit(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  limiter: FixedWindowRateLimiter,
+  limiters: { byAddress: FixedWindowRateLimiter; byPhone: FixedWindowRateLimiter },
   trustProxy: boolean,
   phone: string,
 ): boolean {
@@ -283,9 +287,11 @@ function consumeSignUpRateLimit(
   const digits = phone.replace(/[^\d]/g, "");
   // Same rule as the register functions; any other phone is refused there as invalid_phone, so it gets no count here.
   const phoneKey = digits.length === 12 && digits.startsWith("91") ? digits.slice(-10) : digits.length === 10 ? digits : null;
-  const ipLimit = limiter.consume(`sign-up:ip:${clientIp(req, trustProxy)}`, SIGN_UP_IP_LIMIT, SIGN_UP_WINDOW_MS, now);
+  const ipLimit = trustProxy
+    ? limiters.byAddress.consume(`sign-up:ip:${clientIp(req, trustProxy)}`, SIGN_UP_IP_LIMIT, SIGN_UP_WINDOW_MS, now)
+    : { allowed: true, retryAfterSeconds: 0 };
   const phoneLimit = ipLimit.allowed && phoneKey
-    ? limiter.consume(`sign-up:phone:${phoneKey}`, SIGN_UP_PHONE_LIMIT, SIGN_UP_WINDOW_MS, now)
+    ? limiters.byPhone.consume(`sign-up:phone:${phoneKey}`, SIGN_UP_PHONE_LIMIT, SIGN_UP_WINDOW_MS, now)
     : null;
   const blocked = !ipLimit.allowed ? ipLimit : phoneLimit && !phoneLimit.allowed ? phoneLimit : null;
   if (!blocked) return true;
@@ -413,7 +419,7 @@ export async function createApp(options: {
       result = operation();
     } catch (error) {
       // These errors still changed the challenge (expired, wrong-code count, or failed), so it is saved.
-      if (!(error instanceof Error) || !["otp_expired", "otp_incorrect", "otp_challenge_invalid"].includes(error.message)) throw error;
+      if (!(error instanceof Error) || !["otp_expired", "otp_incorrect", "otp_too_many_wrong_codes"].includes(error.message)) throw error;
       savedError = error;
     }
     try {
@@ -468,7 +474,7 @@ export async function createApp(options: {
   }
 
   const pushRateLimiter = new FixedWindowRateLimiter();
-  const signUpRateLimiter = new FixedWindowRateLimiter();
+  const signUpRateLimiters = { byAddress: new FixedWindowRateLimiter(10_000), byPhone: new FixedWindowRateLimiter(10_000) };
   const firebaseExchangeIpLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IP_LIMIT", 30);
   const firebaseExchangeIdentityLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IDENTITY_LIMIT", 10);
   const firebaseExchangeWindowMs = positiveIntegerEnv("FIREBASE_EXCHANGE_WINDOW_MS", 600_000);
@@ -797,7 +803,8 @@ export async function createApp(options: {
       }
 
       if (method === "POST" && url.pathname === "/v1/auth/otp/verify") {
-        otp.consumeIpVerify(clientIp(req, otp.trustProxy));
+        // Without OTP_TRUST_PROXY every visitor may arrive from the proxy address, so only the per-code limit applies.
+        if (otp.trustProxy) otp.consumeIpVerify(clientIp(req, otp.trustProxy));
         const body = await readJson(req);
         const out = await persistOtp(() => pilotOtpVerify(store, {
           phone: String(body?.phone ?? ""),
@@ -889,7 +896,7 @@ export async function createApp(options: {
       // --- v1 pilot API resources (Flutter Driver app first) ---
       if (method === "POST" && url.pathname === "/v1/pilot/driver/register") {
         const body = await readJson(req);
-        if (!consumeSignUpRateLimit(req, res, signUpRateLimiter, otp.trustProxy, String(body?.phone ?? ""))) return;
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""))) return;
         const out = registerSoloOwnerOperatorDriver(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
@@ -1162,7 +1169,7 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/register") {
         const body = await readJson(req);
-        if (!consumeSignUpRateLimit(req, res, signUpRateLimiter, otp.trustProxy, String(body?.phone ?? ""))) return;
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""))) return;
         const out = registerCustomerOrgAdmin(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
@@ -1174,7 +1181,7 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/users/register") {
         const body = await readJson(req);
-        if (!consumeSignUpRateLimit(req, res, signUpRateLimiter, otp.trustProxy, String(body?.phone ?? ""))) return;
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""))) return;
         try {
           const out = registerCustomerUser(store, {
             fullName: String(body?.fullName ?? ""),

@@ -5,6 +5,8 @@ import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { httpFixture } from "../test/httpFixtures.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
 import { createApp } from "./httpServer.ts";
+import { adminDashboardV1Html } from "./adminDashboardV1.ts";
+import { opsConsoleBetaHtml } from "./opsConsoleBeta.ts";
 
 const START = "/v1/auth/otp/start",
   VERIFY = "/v1/auth/otp/verify";
@@ -107,10 +109,14 @@ test("HTTP OTP starts are rate limited by the connecting IP", async (t) => {
   assert.ok(limited.body.retryAfterMs <= 600_000);
 });
 
-test("HTTP OTP verifies are rate limited by the connecting IP", async (t) => {
-  const oldLimit = process.env.OTP_IP_START_LIMIT;
+test("HTTP OTP verifies are rate limited by the connecting IP when OTP_TRUST_PROXY=1", async (t) => {
+  const oldLimit = process.env.OTP_IP_START_LIMIT, oldTrustProxy = process.env.OTP_TRUST_PROXY;
   process.env.OTP_IP_START_LIMIT = "7";
-  t.after(() => oldLimit === undefined ? delete process.env.OTP_IP_START_LIMIT : process.env.OTP_IP_START_LIMIT = oldLimit);
+  process.env.OTP_TRUST_PROXY = "1";
+  t.after(() => {
+    oldLimit === undefined ? delete process.env.OTP_IP_START_LIMIT : process.env.OTP_IP_START_LIMIT = oldLimit;
+    oldTrustProxy === undefined ? delete process.env.OTP_TRUST_PROXY : process.env.OTP_TRUST_PROXY = oldTrustProxy;
+  });
   // The fixture's seven sign-ins used every verify slot for this address.
   const f = await httpFixture(t);
   const limited = await f.request(VERIFY, "POST", { phone: f.shipperA.user.phone, challengeId: "any", code: "000000" });
@@ -118,6 +124,21 @@ test("HTTP OTP verifies are rate limited by the connecting IP", async (t) => {
   assert.equal(limited.body.error, "otp_rate_limited");
   assert.ok(limited.body.retryAfterMs > 0);
   assert.ok(limited.body.retryAfterMs <= 600_000);
+});
+
+test("HTTP OTP verifies have no per-IP limit without OTP_TRUST_PROXY", async (t) => {
+  const oldLimit = process.env.OTP_IP_START_LIMIT, oldTrustProxy = process.env.OTP_TRUST_PROXY;
+  process.env.OTP_IP_START_LIMIT = "7";
+  delete process.env.OTP_TRUST_PROXY;
+  t.after(() => {
+    oldLimit === undefined ? delete process.env.OTP_IP_START_LIMIT : process.env.OTP_IP_START_LIMIT = oldLimit;
+    if (oldTrustProxy !== undefined) process.env.OTP_TRUST_PROXY = oldTrustProxy;
+  });
+  // The fixture's seven sign-ins would have used every verify slot for this address.
+  const f = await httpFixture(t);
+  const answer = await f.request(VERIFY, "POST", { phone: f.shipperA.user.phone, challengeId: "any", code: "000000" });
+  assert.equal(answer.status, 400);
+  assert.equal(answer.body.error, "otp_challenge_not_found");
 });
 
 test("HTTP wrong codes are saved and the fifth wrong code ends the challenge", async (t) => {
@@ -133,11 +154,11 @@ test("HTTP wrong codes are saved and the fifth wrong code ends the challenge", a
   }
   const fifth = await f.request(VERIFY, "POST", { phone, challengeId: started.body.challengeId, code: wrongCode });
   assert.equal(fifth.status, 400);
-  assert.equal(fifth.body.error, "otp_challenge_invalid");
+  assert.equal(fifth.body.error, "otp_too_many_wrong_codes");
   assert.equal(loadStoreFromDisk(f.dataFilePath!).otpChallenges.get(started.body.challengeId)?.status, "FAILED");
   const correct = await f.request(VERIFY, "POST", { phone, challengeId: started.body.challengeId, code: started.body.debugCode });
   assert.equal(correct.status, 400);
-  assert.equal(correct.body.error, "otp_challenge_invalid");
+  assert.equal(correct.body.error, "otp_too_many_wrong_codes");
   assert.equal(correct.body.accessToken, undefined);
 });
 
@@ -234,4 +255,9 @@ test("debug configuration is captured at startup; client parameters cannot enabl
   );
   assert.equal(response.status, 200);
   assert.equal(Object.hasOwn(await response.json(), "debugCode"), false);
+});
+
+test("web sign-in pages word the too-many-wrong-codes answer", () => {
+  assert.match(adminDashboardV1Html(), /otp_too_many_wrong_codes: "Too many wrong codes\. Send a new code\."/);
+  assert.match(opsConsoleBetaHtml(), /otp_too_many_wrong_codes: 'too many wrong codes were entered, so send a new code'/);
 });

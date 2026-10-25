@@ -13,7 +13,7 @@ This document defines the **first concrete API resources** for the Flutter pilot
 
 ### Server env vars (pilot)
 - **`AUTH_SECRET`**: required (min 16 chars). Used to sign access tokens.
-- **`OTP_DEBUG=1`**: returns the generated six-digit `debugCode` from `otp/start` for local testing. Codes are random; this setting controls delivery only. **`OTP_TTL_MS`** defaults to `600000` (ten minutes); an explicit value must be a positive safe integer that produces a valid expiration timestamp, or startup fails. **`OTP_RESEND_COOLDOWN_MS`** defaults to `30000` (30 seconds). **`OTP_PHONE_START_LIMIT` / `OTP_PHONE_START_WINDOW_MS`** default to 5 newly issued challenges per phone per hour. **`OTP_IP_START_LIMIT` / `OTP_IP_START_WINDOW_MS`** default to 30 start requests per IP per 10 minutes; verify requests are counted separately against the same limit and window.
+- **`OTP_DEBUG=1`**: returns the generated six-digit `debugCode` from `otp/start` for local testing. Codes are random; this setting controls delivery only. **`OTP_TTL_MS`** defaults to `600000` (ten minutes); an explicit value must be a positive safe integer that produces a valid expiration timestamp, or startup fails. **`OTP_RESEND_COOLDOWN_MS`** defaults to `30000` (30 seconds). **`OTP_PHONE_START_LIMIT` / `OTP_PHONE_START_WINDOW_MS`** default to 5 newly issued challenges per phone per hour. **`OTP_IP_START_LIMIT` / `OTP_IP_START_WINDOW_MS`** default to 30 start requests per IP per 10 minutes; verify requests are counted separately against the same limit and window, only when `OTP_TRUST_PROXY=1`.
 - **`CONVERSATION_REPLY_WINDOW_DAYS`**: optional nonnegative number of days to allow replies after a shipment first enters `DELIVERED` or `FAILED_CARRIER_REFUNDED` (default **14**). Existing terminal shipments without reliable transition timestamps are read-only.
 - **`CONVERSATION_SENDS_PER_MINUTE`**: optional per-user, per-conversation send limit (default **20**, maximum **120**).
 - **`ALLOW_X_USER_ID=1`**: allows the old header-based auth (not for real pilots).
@@ -75,7 +75,7 @@ Response:
 }
 ```
 
-Note: `debugCode` is only present when `OTP_DEBUG=1`. A start request during the 30-second cooldown returns the same challenge and code without persisting another store snapshot; no new code is generated. After the cooldown, a new random code is issued and the prior pending challenge is superseded, subject to the phone issuance limit. Requests are also limited by client IP, including requests during cooldown. A limit response uses HTTP 429 with `{ "error": "otp_rate_limited", "retryAfterMs": ... }` and a `Retry-After` header. The API trusts `X-Forwarded-For` only when `OTP_TRUST_PROXY=1`; otherwise it uses the direct socket IP. Keep `OTP_TRUST_PROXY=1` for the Render deployment that supplies the forwarding header. No external delivery channel is implemented yet; pilot login requires debug delivery. Retry an incorrect code before its deadline; request a new code after expiration. The fifth wrong code for one challenge ends it (`FAILED`); that reply and any later verify of the same challenge return `otp_challenge_invalid`, and the person must request a new code.
+Note: `debugCode` is only present when `OTP_DEBUG=1`. A start request during the 30-second cooldown returns the same challenge and code without persisting another store snapshot; no new code is generated. After the cooldown, a new random code is issued and the prior pending challenge is superseded, subject to the phone issuance limit. Requests are also limited by client IP, including requests during cooldown. A limit response uses HTTP 429 with `{ "error": "otp_rate_limited", "retryAfterMs": ... }` and a `Retry-After` header. The API trusts `X-Forwarded-For` only when `OTP_TRUST_PROXY=1`; otherwise it uses the direct socket IP. Keep `OTP_TRUST_PROXY=1` for the Render deployment that supplies the forwarding header. No external delivery channel is implemented yet; pilot login requires debug delivery. Retry an incorrect code before its deadline; request a new code after expiration. The fifth wrong code for one challenge ends it (`FAILED`); that reply and any later verify of the same challenge return `otp_too_many_wrong_codes`, and the person must request a new code.
 
 #### `POST /v1/auth/otp/verify`
 Body:
@@ -96,11 +96,11 @@ Response:
 }
 ```
 
-Verify requests are limited by client IP the same way as start, with the same 429 `otp_rate_limited` response.
+Verify requests are limited by client IP the same way as start, with the same 429 `otp_rate_limited` response, only when `OTP_TRUST_PROXY=1`. Without it every visitor may arrive from the proxy address, so verify relies on the five-wrong-codes limit per challenge and sign-up on its per-phone limit; the start limit per IP applies either way.
 
 ### Sign-up limits
 
-The three sign-up routes (`POST /v1/pilot/driver/register`, `POST /v1/pilot/customer/register`, `POST /v1/pilot/customer/users/register`) share one budget of 30 requests per client IP and 5 per phone number every 10 minutes. Past either, they return HTTP 429 `{ "error": "sign_up_rate_limited" }` with a `Retry-After` header. `fullName` and `orgDisplayName` can have at most 100 characters and `phone` at most 20 after trimming; a longer value returns 400 `invalid_fullName`, `invalid_orgDisplayName` or `invalid_phone` with a `detail` sentence and `field`.
+The three sign-up routes (`POST /v1/pilot/driver/register`, `POST /v1/pilot/customer/register`, `POST /v1/pilot/customer/users/register`) share one budget of 5 requests per phone number and, when `OTP_TRUST_PROXY=1`, 30 per client IP every 10 minutes. Past either, they return HTTP 429 `{ "error": "sign_up_rate_limited" }` with a `Retry-After` header. `fullName` and `orgDisplayName` can have at most 100 characters and `phone` at most 20 after trimming; a longer value returns 400 `invalid_fullName`, `invalid_orgDisplayName` or `invalid_phone` with a `detail` sentence and `field`.
 
 #### `POST /v1/pilot/driver/register`
 Creates:

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { httpFixture } from "../test/httpFixtures.ts";
 import { FixedWindowRateLimiter } from "./http/rateLimit.ts";
 
@@ -11,7 +11,16 @@ function driverBody(phone: string, extra: Record<string, unknown> = {}) {
   return { fullName: "Sign-up Driver", phone, orgDisplayName: "Sign-up Carrier", vehicleRegistrationNumber: "TEST-S", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000, ...extra };
 }
 
-test("sign-up routes share one limit per connecting IP", async (t) => {
+/** Sets OTP_TRUST_PROXY for one test (undefined removes it) and puts the old value back after. */
+function setTrustProxyForTest(t: TestContext, value: string | undefined) {
+  const old = process.env.OTP_TRUST_PROXY;
+  if (value === undefined) delete process.env.OTP_TRUST_PROXY;
+  else process.env.OTP_TRUST_PROXY = value;
+  t.after(() => old === undefined ? delete process.env.OTP_TRUST_PROXY : process.env.OTP_TRUST_PROXY = old);
+}
+
+test("sign-up routes share one limit per connecting IP when OTP_TRUST_PROXY=1", async (t) => {
+  setTrustProxyForTest(t, "1");
   const f = await httpFixture(t);
   for (let index = 0; index < 30; index++) {
     const phone = `70000${String(index).padStart(5, "0")}`;
@@ -24,6 +33,33 @@ test("sign-up routes share one limit per connecting IP", async (t) => {
   assert.equal(limited.status, 429);
   assert.equal(limited.body.error, "sign_up_rate_limited");
   assert.equal([...f.store.users.values()].some((user) => user.phone === "7100000000"), false);
+});
+
+test("sign-up has no per-IP limit without OTP_TRUST_PROXY", async (t) => {
+  setTrustProxyForTest(t, undefined);
+  const f = await httpFixture(t);
+  for (let index = 0; index < 31; index++) {
+    const created = await f.request(CUSTOMER_USER, "POST", { fullName: "Sign-up Person", phone: `77000${String(index).padStart(5, "0")}` });
+    assert.equal(created.status, 201, `sign-up ${index + 1}`);
+  }
+});
+
+test("sign-up counts addresses and phones in separate limiters, each with a key cap", async (t) => {
+  setTrustProxyForTest(t, "1");
+  const f = await httpFixture(t);
+  const limiterByPrefix = new Map<string, FixedWindowRateLimiter>();
+  const original = FixedWindowRateLimiter.prototype.consume;
+  t.mock.method(FixedWindowRateLimiter.prototype, "consume", function (this: FixedWindowRateLimiter, key: string, ...rest: [number, number, number?]) {
+    if (key.startsWith("sign-up:")) limiterByPrefix.set(key.split(":").slice(0, 2).join(":"), this);
+    return original.call(this, key, ...rest);
+  });
+  const created = await f.request(CUSTOMER_USER, "POST", { fullName: "Sign-up Person", phone: "7800000000" });
+  assert.equal(created.status, 201);
+  const ipLimiter = limiterByPrefix.get("sign-up:ip"), phoneLimiter = limiterByPrefix.get("sign-up:phone");
+  assert.ok(ipLimiter && phoneLimiter);
+  assert.notEqual(ipLimiter, phoneLimiter);
+  assert.equal(ipLimiter.maxKeys, 10_000);
+  assert.equal(phoneLimiter.maxKeys, 10_000);
 });
 
 test("sign-up routes limit repeated tries for one phone number", async (t) => {
@@ -83,6 +119,7 @@ test("sign-up keeps a per-phone count only for a valid phone number", async (t) 
 });
 
 test("sign-up does not count the phone when the connecting IP is over its limit", async (t) => {
+  setTrustProxyForTest(t, "1");
   const f = await httpFixture(t);
   for (let index = 0; index < 30; index++) {
     const created = await f.request(CUSTOMER_USER, "POST", { fullName: "Sign-up Person", phone: `75000${String(index).padStart(5, "0")}` });

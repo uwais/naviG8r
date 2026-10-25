@@ -415,6 +415,7 @@ export function pilotOtpVerify(
   const ch = store.otpChallenges.get(String(params.challengeId ?? ""));
   if (!ch) throw new Error("otp_challenge_not_found");
   if (ch.phone !== user.phone) throw new Error("otp_challenge_mismatch");
+  if (ch.status === "FAILED") throw new Error("otp_too_many_wrong_codes");
   if (ch.status !== "PENDING") throw new Error("otp_challenge_invalid");
   const now = otp.now();
   if (ch.expiresAtUtcMs <= now) {
@@ -425,7 +426,7 @@ export function pilotOtpVerify(
     const wrongCodeCount = (ch.wrongCodeCount ?? 0) + 1;
     if (wrongCodeCount >= MAX_WRONG_CODES_PER_CHALLENGE) {
       store.otpChallenges.set(ch.id, { ...ch, wrongCodeCount, status: "FAILED" });
-      throw new Error("otp_challenge_invalid");
+      throw new Error("otp_too_many_wrong_codes");
     }
     store.otpChallenges.set(ch.id, { ...ch, wrongCodeCount });
     throw new Error("otp_incorrect");

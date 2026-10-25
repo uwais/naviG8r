@@ -187,6 +187,15 @@ String formatApiError(Object e) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
     final code = body is Map ? body["error"] : null;
+    if (code == "otp_rate_limited" &&
+        e.requestOptions.path.endsWith("/v1/auth/otp/verify")) {
+      final retry = body["retryAfterMs"];
+      if (retry is! num) {
+        return "Too many tries. Please wait a few minutes and try again.";
+      }
+      final minutes = retry > 60000 ? (retry / 60000).ceil() : 1;
+      return "Too many tries. Please wait $minutes ${minutes == 1 ? "minute" : "minutes"} and try again.";
+    }
     if (code == "otp_rate_limited") {
       final retry = body["retryAfterMs"];
       final seconds = retry is num ? (retry / 1000).ceil() : 30;
@@ -227,6 +236,7 @@ String formatApiError(Object e) {
           "This code request is no longer valid. Request a new code.",
       "otp_challenge_mismatch":
           "This code request is no longer valid. Request a new code.",
+      "otp_too_many_wrong_codes": "Too many wrong codes. Send a new code.",
       "sign_up_rate_limited":
           "Too many sign-up tries. Please wait a few minutes and try again.",
     };

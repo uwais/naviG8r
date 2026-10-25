@@ -39,6 +39,75 @@ void main() {
       ),
     );
     expect(formatApiError(limited), contains('45 seconds'));
+    expect(formatApiError(error('otp_too_many_wrong_codes')),
+        'Too many wrong codes. Send a new code.');
+  });
+
+  test('too many code checks read as tries, in whole minutes', () {
+    api = Api('http://test');
+    DioException verifyLimited(Object? retryAfterMs) => DioException(
+          requestOptions: RequestOptions(path: '/v1/auth/otp/verify'),
+          response: Response(
+            requestOptions: RequestOptions(path: '/v1/auth/otp/verify'),
+            statusCode: 429,
+            data: {
+              'error': 'otp_rate_limited',
+              if (retryAfterMs != null) 'retryAfterMs': retryAfterMs
+            },
+          ),
+        );
+    expect(formatApiError(verifyLimited(125000)),
+        'Too many tries. Please wait 3 minutes and try again.');
+    expect(formatApiError(verifyLimited(600000)),
+        'Too many tries. Please wait 10 minutes and try again.');
+    expect(formatApiError(verifyLimited(1000)),
+        'Too many tries. Please wait 1 minute and try again.');
+    expect(formatApiError(verifyLimited(null)),
+        'Too many tries. Please wait a few minutes and try again.');
+  });
+
+  testWidgets('customer sign-in offers a new code after too many wrong codes',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    var starts = 0;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') {
+        starts++;
+        return jsonResponse({
+          'challengeId': 'customer-$starts',
+          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
+          'retryAfterMs': 0,
+        });
+      }
+      if (request.uri.path == '/v1/auth/otp/verify') {
+        return jsonResponse({'error': 'otp_too_many_wrong_codes'}, 400);
+      }
+      if (request.uri.path == '/v1/auth/me') return jsonResponse({}, 401);
+      return jsonResponse({});
+    });
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+          path: '/customer/login',
+          builder: (_, __) => const CustomerLoginScreen())
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '8000000001');
+    await tester.tap(find.text('Send code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '999999');
+    await tester.tap(find.text('Verify and continue'));
+    await tester.pumpAndSettle();
+    expect(find.text('Too many wrong codes. Send a new code.'), findsOneWidget);
+    await tester.tap(find.text('Resend code'));
+    await tester.pumpAndSettle();
+    expect(starts, 2);
   });
 
   testWidgets('customer resend cooldown disables button and counts down',
