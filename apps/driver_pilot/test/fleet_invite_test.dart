@@ -59,7 +59,7 @@ void main() {
   });
 
   testWidgets(
-      'the invite screen says people at another carrier cannot be invited, and shows the sentence when refused',
+      'the invite screen says someone at another carrier cannot be added yet, and shows the sentence when refused',
       (tester) async {
     await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: DriverFleetInviteScreen())));
@@ -67,7 +67,7 @@ void main() {
 
     expect(
         find.text(
-            'Invite a driver who already registered their phone. People at another carrier cannot be invited. Solo orgs become fleet when you add drivers.'),
+            'Invite a driver who already registered their phone. Someone at another carrier cannot be added yet. A solo company becomes a fleet when you add drivers.'),
         findsOneWidget);
     expect(find.textContaining('or used Join a fleet'), findsNothing);
 
@@ -84,13 +84,13 @@ void main() {
   });
 
   testWidgets(
-      'the Join a fleet screen says someone at another carrier cannot be invited',
+      'the Join a fleet screen says someone at another carrier cannot be added yet',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: DriverJoinScreen()));
 
     expect(
         find.text(
-            'Create a personal account so your carrier admin can invite you to their org. You do not get a carrier org from this step. If you already work for another carrier, you cannot be invited yet.'),
+            'Create a personal account so your carrier admin can invite you to their company. You do not get a carrier company from this step. If you already work for another carrier, you cannot be added yet.'),
         findsOneWidget);
   });
 }

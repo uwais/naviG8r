@@ -182,6 +182,8 @@ void main() {
     await showBanner(tester);
     expect(bannerMessage(tester),
         contains('choose it in the organization menu at the top of the screen'));
+    // Inviting someone whose carrier was turned down is refused, so the banner must not suggest it.
+    expect(bannerMessage(tester), isNot(contains('invite')));
     expect(bannerMessage(tester), isNot(contains("You can't send documents")));
   });
 

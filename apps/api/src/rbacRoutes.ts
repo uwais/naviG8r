@@ -93,8 +93,8 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   }
   const context = authorizationContext.getStore()!;
   context.principal = p;
-  // Both headers end up in audit rows: the reason is kept only from platform staff, the represented member only from ops or admin.
-  const actsForMembers = p.internal && (p.roles.includes("OPS") || p.roles.includes("ADMIN"));
+  // Both headers end up in audit rows: the reason is kept only from platform staff, the represented member only from ops.
+  const actsForMembers = p.internal && p.roles.includes("OPS");
   context.reason = p.internal && typeof req.headers["x-reason-code"] === "string" ? req.headers["x-reason-code"] : undefined;
   context.effectiveActorId = actsForMembers && typeof req.headers["x-effective-actor-id"] === "string" ? req.headers["x-effective-actor-id"] : undefined;
   const orgId = url.searchParams.get("orgId");

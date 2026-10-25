@@ -2,7 +2,10 @@
 // get them written into the audit trail; ops acting for a member still records both.
 import test from "node:test";
 import assert from "node:assert/strict";
+import type http from "node:http";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { authorizationContext } from "./rbac.ts";
+import { guardRequest, requestContext } from "./rbacRoutes.ts";
 
 const staffHeaders = (memberUserId: string) => ({ "x-reason-code": "CUSTOMER_REQUEST", "x-effective-actor-id": memberUserId });
 
@@ -31,4 +34,16 @@ test("ops acting for a carrier member still records the reason and the represent
   assert.equal(row.reasonCode, "CUSTOMER_REQUEST");
   assert.equal(row.effectiveActorId, f.carrierA.user.id);
   assert.equal(row.source, "OPS_ASSISTED");
+});
+
+test("only ops can name a represented member; an admin who is not ops sending the header records none", async t => {
+  const f = await httpFixture(t);
+  const representedMemberFor = (token: string) => {
+    const req = { method: "GET", headers: { authorization: `Bearer ${token}`, ...staffHeaders(f.carrierA.user.id) } } as unknown as http.IncomingMessage;
+    return authorizationContext.run(requestContext(), () => {
+      guardRequest(req, f.store, new URL("http://test/v1/orgs"));
+      return authorizationContext.getStore()!.effectiveActorId;
+    });
+  };
+  assert.equal(representedMemberFor(f.tokens.admin), undefined);
 });

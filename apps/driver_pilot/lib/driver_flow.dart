@@ -782,7 +782,7 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            "Create a personal account so your carrier admin can invite you to their org. You do not get a carrier org from this step. If you already work for another carrier, you cannot be invited yet.",
+            "Create a personal account so your carrier admin can invite you to their company. You do not get a carrier company from this step. If you already work for another carrier, you cannot be added yet.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
@@ -911,7 +911,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
         ),
         const SizedBox(height: 8),
         const Text(
-          "Invite a driver who already registered their phone. People at another carrier cannot be invited. Solo orgs become fleet when you add drivers.",
+          "Invite a driver who already registered their phone. Someone at another carrier cannot be added yet. A solo company becomes a fleet when you add drivers.",
           style: TextStyle(color: DriverTheme.muted, height: 1.4),
         ),
         if (!DriverSession.canInviteDrivers) ...[
