@@ -326,7 +326,11 @@ export function pilotOtpVerify(
   }
   if (String(params.code ?? "") !== ch.code) {
     const failedAttempts = (ch.failedAttempts ?? 0) + 1;
-    store.otpChallenges.set(ch.id, { ...ch, failedAttempts, ...(failedAttempts >= MAX_WRONG_CODES ? { status: "FAILED" as const } : {}) });
+    if (failedAttempts >= MAX_WRONG_CODES) {
+      store.otpChallenges.set(ch.id, { ...ch, failedAttempts, status: "FAILED" });
+      throw new Error("otp_too_many_wrong_codes");
+    }
+    store.otpChallenges.set(ch.id, { ...ch, failedAttempts });
     throw new Error("otp_incorrect");
   }
 

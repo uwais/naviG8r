@@ -156,6 +156,7 @@ const errorWords = {
   invalid_role: "one of those roles doesn't fit that organization",
   verification_status_and_reason_required: 'a decision and a reason code are both needed',
   otp_incorrect: 'that code is wrong, so check it and try again',
+  otp_too_many_wrong_codes: 'too many wrong codes, so send a new code',
   otp_expired: 'that code has expired, so send a new one',
   otp_challenge_invalid: "that code request isn't valid any more, so send a new code",
   otp_challenge_mismatch: "that code request isn't valid any more, so send a new code",

@@ -124,9 +124,10 @@ test("a sign-in code stops working after five wrong codes", (t) => {
 
   f.setNow(f.otp.now() + 30_000);
   const spent = f.start();
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
     assert.throws(() => f.verify(spent.challengeId, "999999"), /otp_incorrect/);
   }
+  assert.throws(() => f.verify(spent.challengeId, "999999"), /otp_too_many_wrong_codes/);
   assert.equal(f.store.otpChallenges.get(spent.challengeId)?.status, "FAILED");
   assert.throws(() => f.verify(spent.challengeId), /otp_challenge_invalid/);
   assert.equal(f.store.authSessions.size, 1);

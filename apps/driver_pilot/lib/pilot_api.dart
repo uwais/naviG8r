@@ -243,6 +243,8 @@ String formatApiError(Object e) {
       "otp_expired": "This code has expired. Send a new code.",
       "otp_incorrect":
           "That code is not right. Check the SMS and type it again, or send a new code.",
+      // The fifth wrong code; the server then stops that code working.
+      "otp_too_many_wrong_codes": "Too many wrong codes. Send a new code.",
       "otp_challenge_invalid":
           "This code request is no longer valid. Request a new code.",
       "otp_challenge_not_found":

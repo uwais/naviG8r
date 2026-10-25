@@ -400,12 +400,13 @@ export async function createApp(options: {
     const challenges = new Map(store.otpChallenges);
     const sessions = new Map(store.authSessions);
     let result: T;
-    // An expired code and a wrong code both change the challenge, so they are saved before the error goes back.
+    // An expired code and a wrong code change the challenge, so they are saved before the error goes back.
+    const savedRefusals = ["otp_expired", "otp_incorrect", "otp_too_many_wrong_codes"];
     let savedRefusal: unknown;
     try {
       result = operation();
     } catch (error) {
-      if (!(error instanceof Error) || (error.message !== "otp_expired" && error.message !== "otp_incorrect")) throw error;
+      if (!(error instanceof Error) || !savedRefusals.includes(error.message)) throw error;
       savedRefusal = error;
     }
     try {

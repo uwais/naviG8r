@@ -96,6 +96,8 @@ Response:
 }
 ```
 
+One code takes five wrong entries: the fifth answers `400 { "error": "otp_too_many_wrong_codes" }` and the code stops working (a later check answers `otp_challenge_invalid`), so the person requests a new code. The app words it "Too many wrong codes. Send a new code."
+
 Code checks and the three sign-up routes (`/v1/pilot/driver/register`, `/v1/pilot/customer/register`, `/v1/pilot/customer/users/register`) have a per-IP limit only when `OTP_TRUST_PROXY=1`, because without it the socket IP may be the proxy's, shared by every visitor. Without it they rely on the five-wrong-codes limit per code and the per-phone limits; code requests (`otp/start`) keep their per-IP limit either way.
 
 #### `POST /v1/pilot/driver/register`

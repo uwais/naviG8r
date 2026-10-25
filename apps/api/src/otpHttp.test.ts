@@ -138,10 +138,12 @@ test("HTTP wrong codes are saved, and the fifth stops the code working", async (
     phone = f.shipperA.user.phone;
   const started = await f.request(START, "POST", { phone });
   const wrongCode = started.body.debugCode === "000000" ? "000001" : "000000";
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
     const wrong = await f.request(VERIFY, "POST", { phone, challengeId: started.body.challengeId, code: wrongCode });
     assert.equal(wrong.body.error, "otp_incorrect");
   }
+  const fifth = await f.request(VERIFY, "POST", { phone, challengeId: started.body.challengeId, code: wrongCode });
+  assert.deepEqual([fifth.status, fifth.body.error], [400, "otp_too_many_wrong_codes"]);
   assert.equal(
     loadStoreFromDisk(f.dataFilePath!).otpChallenges.get(started.body.challengeId)?.status,
     "FAILED",

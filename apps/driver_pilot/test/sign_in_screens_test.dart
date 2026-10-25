@@ -33,7 +33,8 @@ List<(String, bool)> listenForAnnouncements(WidgetTester tester) {
 
 Future<GoRouter> showSignIn(WidgetTester tester, String at,
     {bool codeIsWrong = false,
-    ResponseBody Function(RequestOptions request)? codeRequestAnswer}) async {
+    ResponseBody Function(RequestOptions request)? codeRequestAnswer,
+    ResponseBody Function(RequestOptions request)? codeCheckAnswer}) async {
   tester.view.physicalSize = const Size(360, 800);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -44,6 +45,9 @@ Future<GoRouter> showSignIn(WidgetTester tester, String at,
     if (request.uri.path == '/v1/auth/otp/start') {
       return codeRequestAnswer?.call(request) ??
           jsonResponse({'challengeId': 'challenge-1', 'retryAfterMs': 0});
+    }
+    if (request.uri.path == '/v1/auth/otp/verify' && codeCheckAnswer != null) {
+      return codeCheckAnswer(request);
     }
     if (request.uri.path == '/v1/auth/otp/verify' && codeIsWrong) {
       return jsonResponse({'error': 'otp_incorrect'}, 400);
@@ -192,6 +196,27 @@ void main() {
         reason: 'c-code-error: the error sits under the field');
     expect(heard, contains((wrong, true)),
         reason: 'accessibility.md: a wrong code is announced assertively');
+  });
+
+  testWidgets('the fifth wrong code says to send a new one, and Send a new code does',
+      (tester) async {
+    var codeRequests = 0;
+    await showSignIn(tester, '/customer/login', codeRequestAnswer: (_) {
+      codeRequests++;
+      return jsonResponse(
+          {'challengeId': 'challenge-$codeRequests', 'retryAfterMs': 0});
+    },
+        codeCheckAnswer: (_) =>
+            jsonResponse({'error': 'otp_too_many_wrong_codes'}, 400));
+    await sendCode(tester);
+    await tester.enterText(find.byType(TextField), '482190');
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect(find.text('Too many wrong codes. Send a new code.'), findsOneWidget);
+    await tester.ensureVisible(find.text('Send a new code'));
+    await tester.tap(find.text('Send a new code'));
+    await tester.pumpAndSettle();
+    expect(codeRequests, 2, reason: 'the code page offers a new code at once');
   });
 
   testWidgets('the short-number error goes as soon as the number is edited',

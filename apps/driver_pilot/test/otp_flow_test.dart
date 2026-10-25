@@ -33,6 +33,8 @@ void main() {
     expect(formatApiError(error('otp_incorrect')),
         'That code is not right. Check the SMS and type it again, or send a new code.',
         reason: 'copy.md: code errors, verbatim');
+    expect(formatApiError(error('otp_too_many_wrong_codes')),
+        'Too many wrong codes. Send a new code.');
     expect(formatApiError(error('otp_challenge_invalid')),
         contains('Request a new code'));
     expect(formatApiError(error('otp_challenge_not_found')),
