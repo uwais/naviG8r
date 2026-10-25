@@ -265,13 +265,13 @@ function consumePushRateLimit(
 function consumeSignUpRateLimit(
   res: http.ServerResponse,
   limiter: FixedWindowRateLimiter,
-  clientIp: string,
+  clientIp: string | null,
   phone: string,
 ): boolean {
   const now = Date.now();
   const phoneDigits = phone.replace(/\D/g, "").slice(-10);
   // The same limits as sign-in code requests: 30 per IP in 10 minutes, 5 per phone in an hour.
-  const ipLimit = limiter.consume(`sign-up:ip:${clientIp}`, 30, 600_000, now);
+  const ipLimit = clientIp === null ? { allowed: true, retryAfterSeconds: 0 } : limiter.consume(`sign-up:ip:${clientIp}`, 30, 600_000, now);
   const phoneLimit = limiter.consume(`sign-up:phone:${phoneDigits}`, 5, 3_600_000, now);
   const blocked = !ipLimit.allowed ? ipLimit : !phoneLimit.allowed ? phoneLimit : null;
   if (!blocked) return true;
@@ -316,6 +316,9 @@ export async function createApp(options: {
     const forwardedFor = otp.trustProxy ? header(req, "x-forwarded-for")?.split(",")[0]?.trim() : undefined;
     return forwardedFor || req.socket.remoteAddress || "unknown";
   };
+  // The per-IP limits on code checks and sign-ups count only behind a trusted proxy; without one, every
+  // visitor may arrive from the proxy's one address. Code requests keep their own per-IP limit either way.
+  const trustedClientIp = (req: http.IncomingMessage): string | null => otp.trustProxy ? signInClientIp(req) : null;
   const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (options.dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
   // Beside the data file, so a test or the demo with its own data file gets its own photos folder.
   const podPhotoRoot = podPhotosRoot(dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
@@ -724,7 +727,8 @@ export async function createApp(options: {
       }
 
       if (method === "POST" && url.pathname === "/v1/auth/otp/verify") {
-        otp.consumeIpVerify(signInClientIp(req));
+        const verifyingIp = trustedClientIp(req);
+        if (verifyingIp !== null) otp.consumeIpVerify(verifyingIp);
         const body = await readJson(req);
         const out = await persistOtp(() => pilotOtpVerify(store, {
           phone: String(body?.phone ?? ""),
@@ -816,7 +820,7 @@ export async function createApp(options: {
       // --- v1 pilot API resources (Flutter Driver app first) ---
       if (method === "POST" && url.pathname === "/v1/pilot/driver/register") {
         const body = await readJson(req);
-        if (!consumeSignUpRateLimit(res, signUpRateLimiter, signInClientIp(req), String(body?.phone ?? ""))) return;
+        if (!consumeSignUpRateLimit(res, signUpRateLimiter, trustedClientIp(req), String(body?.phone ?? ""))) return;
         const out = registerSoloOwnerOperatorDriver(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
@@ -1121,7 +1125,7 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/register") {
         const body = await readJson(req);
-        if (!consumeSignUpRateLimit(res, signUpRateLimiter, signInClientIp(req), String(body?.phone ?? ""))) return;
+        if (!consumeSignUpRateLimit(res, signUpRateLimiter, trustedClientIp(req), String(body?.phone ?? ""))) return;
         const out = registerCustomerOrgAdmin(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
@@ -1133,7 +1137,7 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/users/register") {
         const body = await readJson(req);
-        if (!consumeSignUpRateLimit(res, signUpRateLimiter, signInClientIp(req), String(body?.phone ?? ""))) return;
+        if (!consumeSignUpRateLimit(res, signUpRateLimiter, trustedClientIp(req), String(body?.phone ?? ""))) return;
         try {
           const out = registerCustomerUser(store, {
             fullName: String(body?.fullName ?? ""),

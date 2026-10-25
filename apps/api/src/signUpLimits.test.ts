@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { httpFixture } from "../test/httpFixtures.ts";
 
 const DRIVER_SIGN_UP = "/v1/pilot/driver/register",
@@ -17,7 +17,25 @@ const teamMemberSignUp = (phone: string, extra: Record<string, unknown> = {}) =>
   fullName: "Synthetic Member", phone, ...extra,
 });
 
-test("sign-up routes share a per-IP limit of 30 in 10 minutes", async (t) => {
+function setTrustProxy(t: TestContext, value: string | undefined) {
+  const old = process.env.OTP_TRUST_PROXY;
+  if (value === undefined) delete process.env.OTP_TRUST_PROXY;
+  else process.env.OTP_TRUST_PROXY = value;
+  t.after(() => old === undefined ? delete process.env.OTP_TRUST_PROXY : process.env.OTP_TRUST_PROXY = old);
+}
+
+test("sign-up routes have no per-IP limit when the proxy is not trusted", async (t) => {
+  setTrustProxy(t, undefined);
+  const f = await httpFixture(t);
+  for (let attempt = 0; attempt < 31; attempt++) {
+    const phone = String(9100000000 + attempt);
+    const signedUp = await f.request(TEAM_MEMBER_SIGN_UP, "POST", teamMemberSignUp(phone));
+    assert.equal(signedUp.status, 201, `attempt ${attempt + 1}`);
+  }
+});
+
+test("sign-up routes share a per-IP limit of 30 in 10 minutes when the proxy is trusted", async (t) => {
+  setTrustProxy(t, "1");
   const f = await httpFixture(t);
   for (let attempt = 0; attempt < 30; attempt++) {
     const phone = String(9100000000 + attempt);

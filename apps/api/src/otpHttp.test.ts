@@ -107,10 +107,12 @@ test("HTTP OTP starts are rate limited by the connecting IP", async (t) => {
   assert.ok(limited.body.retryAfterMs <= 600_000);
 });
 
-test("HTTP OTP verifications are rate limited by the connecting IP", async (t) => {
-  const oldLimit = process.env.OTP_IP_START_LIMIT;
+test("HTTP OTP verifications are rate limited by IP when the proxy is trusted", async (t) => {
+  const oldLimit = process.env.OTP_IP_START_LIMIT, oldTrustProxy = process.env.OTP_TRUST_PROXY;
   process.env.OTP_IP_START_LIMIT = "7";
+  process.env.OTP_TRUST_PROXY = "1";
   t.after(() => oldLimit === undefined ? delete process.env.OTP_IP_START_LIMIT : process.env.OTP_IP_START_LIMIT = oldLimit);
+  t.after(() => oldTrustProxy === undefined ? delete process.env.OTP_TRUST_PROXY : process.env.OTP_TRUST_PROXY = oldTrustProxy);
   // The fixture's seven sign-ins used every verification slot for this IP.
   const f = await httpFixture(t);
   const limited = await f.request(VERIFY, "POST", { phone: f.shipperA.user.phone, challengeId: "otp_any", code: "000000" });
@@ -118,6 +120,17 @@ test("HTTP OTP verifications are rate limited by the connecting IP", async (t) =
   assert.equal(limited.body.error, "otp_rate_limited");
   assert.ok(limited.body.retryAfterMs > 0);
   assert.ok(limited.body.retryAfterMs <= 600_000);
+});
+
+test("HTTP OTP verifications have no per-IP limit when the proxy is not trusted", async (t) => {
+  const oldLimit = process.env.OTP_IP_START_LIMIT, oldTrustProxy = process.env.OTP_TRUST_PROXY;
+  process.env.OTP_IP_START_LIMIT = "7";
+  delete process.env.OTP_TRUST_PROXY;
+  t.after(() => oldLimit === undefined ? delete process.env.OTP_IP_START_LIMIT : process.env.OTP_IP_START_LIMIT = oldLimit);
+  t.after(() => oldTrustProxy === undefined ? delete process.env.OTP_TRUST_PROXY : process.env.OTP_TRUST_PROXY = oldTrustProxy);
+  const f = await httpFixture(t);
+  const checked = await f.request(VERIFY, "POST", { phone: f.shipperA.user.phone, challengeId: "otp_any", code: "000000" });
+  assert.deepEqual([checked.status, checked.body.error], [400, "otp_challenge_not_found"]);
 });
 
 test("HTTP wrong codes are saved, and the fifth stops the code working", async (t) => {

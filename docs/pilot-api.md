@@ -96,6 +96,8 @@ Response:
 }
 ```
 
+Code checks and the three sign-up routes (`/v1/pilot/driver/register`, `/v1/pilot/customer/register`, `/v1/pilot/customer/users/register`) have a per-IP limit only when `OTP_TRUST_PROXY=1`, because without it the socket IP may be the proxy's, shared by every visitor. Without it they rely on the five-wrong-codes limit per code and the per-phone limits; code requests (`otp/start`) keep their per-IP limit either way.
+
 #### `POST /v1/pilot/driver/register`
 Creates:
 - `User`
