@@ -6,6 +6,8 @@ import { httpFixture } from "../test/httpFixtures.ts";
 import { BOOKING_EXPIRED_EVENT } from "./notifications.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
 import { UNPAID_BOOKING_EXPIRY_MS } from "./config.ts";
+import { createIntegrationApiKey, createIntegrationLoad } from "./integrationServices.ts";
+import { resolveIntegrationAuth } from "./integrationAuth.ts";
 import type { Payment } from "./types.ts";
 
 type Fixture = Awaited<ReturnType<typeof httpFixture>>;
@@ -98,4 +100,29 @@ test("a payment confirmed after the booking expired is refused with the server's
   assert.equal(refused.status, 409);
   assert.deepEqual(refused.body, { error: "booking_expired", detail: "This booking expired because it was not paid within 30 minutes. If your bank shows a payment, it comes back within 3 days." });
   assert.deepEqual([paymentOf(f, late).status, f.store.shipments.get(late)?.status], ["CREATED", "FAILED_CARRIER_REFUNDED"]);
+});
+
+test("an ERP load is never closed by the unpaid expiry, and an ERP retry never gets back a booking it closed", async t => {
+  const f = await httpFixture(t);
+  const { token } = createIntegrationApiKey(f.store, f.shipperA.org.id);
+  const ctx = resolveIntegrationAuth(f.store, { bearerToken: token });
+  const load = (externalLoadId: string, idempotencyKey: string) => createIntegrationLoad(f.store, ctx, {
+    externalLoadId, idempotencyKey, weightKg: 10, pickupAddress: "Synthetic A", dropAddress: "Synthetic B",
+    pickup: { lat: 28.4595, lng: 77.0266 }, drop: { lat: 26.9124, lng: 75.7873 }, lanePreference: "explicit", anchorTripId: f.trip.id,
+  });
+  const erp = (await load("ERP-OLD", "key-old")).shipment.id;
+  waitingForPayment(f, erp, 24 * 60 * 60 * 1000);
+  assert.equal((await f.request("/anchor-trips", "GET")).status, 200);
+  assert.deepEqual([f.store.shipments.get(erp)?.status, f.store.shipments.get(erp)?.expiredUnpaidAtUtcMs], ["PENDING_CARRIER_ACCEPT", undefined]);
+
+  // A load closed by the expiry before ERP loads were left out of it.
+  const closedEarlier = (await load("ERP-CLOSED", "key-closed")).shipment;
+  f.store.shipments.set(closedEarlier.id, { ...closedEarlier, status: "FAILED_CARRIER_REFUNDED", expiredUnpaidAtUtcMs: Date.now() });
+  const byKey = await load("ERP-OTHER", "key-closed");
+  const byLoadId = await load("ERP-CLOSED", "key-new");
+  for (const retry of [byKey, byLoadId]) {
+    assert.equal(retry.created, true);
+    assert.notEqual(retry.shipment.id, closedEarlier.id);
+    assert.equal(retry.shipment.status, "PENDING_CARRIER_ACCEPT");
+  }
 });

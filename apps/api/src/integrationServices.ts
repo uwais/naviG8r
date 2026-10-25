@@ -160,12 +160,13 @@ export function listIntegrationApiKeys(store: Store, orgId: string): Integration
   return [...store.integrationApiKeys.values()].filter((k) => k.orgId === orgId && k.status === "ACTIVE");
 }
 
+/** This and the lookup by idempotency key skip a booking the unpaid expiry closed, so a retry books again. */
 function findShipmentByExternalLoadId(store: Store, orgId: string, externalLoadId: string): Shipment | null {
   const ext = externalLoadId.trim();
   if (!ext) return null;
   return (
     [...store.shipments.values()].find(
-      (s) => s.customerOrgId === orgId && s.externalLoadId === ext,
+      (s) => s.customerOrgId === orgId && s.externalLoadId === ext && s.expiredUnpaidAtUtcMs == null,
     ) ?? null
   );
 }
@@ -173,7 +174,8 @@ function findShipmentByExternalLoadId(store: Store, orgId: string, externalLoadI
 function findShipmentByIdempotencyKey(store: Store, orgId: string, idempotencyKey: string): Shipment | null {
   const rec = store.integrationIdempotency.get(idempotencyStoreKey(orgId, idempotencyKey));
   if (!rec) return null;
-  return store.shipments.get(rec.shipmentId) ?? null;
+  const shipment = store.shipments.get(rec.shipmentId);
+  return shipment && shipment.expiredUnpaidAtUtcMs == null ? shipment : null;
 }
 
 function recordIdempotency(store: Store, orgId: string, idempotencyKey: string, shipmentId: string): void {

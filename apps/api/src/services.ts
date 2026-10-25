@@ -1964,12 +1964,14 @@ function closeBookingsLeftBehind(store: Store, activeOnTrip: Shipment[], userId:
 /**
  * Closes each booking whose payment is still not done (CREATED or FAILED) UNPAID_BOOKING_EXPIRY_MS after it was made,
  * as a trip's start closes one left behind: FAILED_CARRIER_REFUNDED, its room freed, no money moved. The HTTP server
- * runs this before every request, so no timer is needed. Returns how many it closed.
+ * runs this before every request, so no timer is needed. Returns how many it closed. A load made through the
+ * integration API is left out: its ERP pays on its own schedule and is never told to pay within the time.
  */
 export function expireUnpaidBookings(store: Store, now = nowUtcMs()): number {
   let closedCount = 0;
   for (const s of store.shipments.values()) {
-    if (s.status !== "PENDING_CARRIER_ACCEPT" || !isActiveEntity(s) || now < s.createdAtUtcMs + UNPAID_BOOKING_EXPIRY_MS) continue;
+    if (s.status !== "PENDING_CARRIER_ACCEPT" || !isActiveEntity(s) || s.integrationConnectionId != null) continue;
+    if (now < s.createdAtUtcMs + UNPAID_BOOKING_EXPIRY_MS) continue;
     const payStatus = store.payments.get(s.paymentId)?.status;
     if (payStatus !== "CREATED" && payStatus !== "FAILED") continue;
     const closed: Shipment = { ...s, status: "FAILED_CARRIER_REFUNDED", expiredUnpaidAtUtcMs: now, updatedAtUtcMs: now };
