@@ -308,8 +308,8 @@ class _CustomerShipmentDetailScreenState
 
   String _notPaidSentence(String carrier, Map<String, dynamic> shipment) {
     final booked = _momentFromUtcMs(shipment["createdAtUtcMs"]);
-    // The server closes an unpaid booking 30 minutes after it was made (UNPAID_BOOKING_EXPIRY_MS), but never a
-    // load the shipper's ERP sent, which is the only kind with an external load id.
+    // Shippers are told 30 minutes; the server closes an unpaid booking 10 minutes after that, as grace, but never
+    // a load the shipper's ERP sent, which is the only kind with an external load id.
     final closes = shipment["status"] == "PENDING_CARRIER_ACCEPT" &&
         shipment["externalLoadId"] == null &&
         booked != null;
