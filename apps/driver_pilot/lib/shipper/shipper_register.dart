@@ -71,13 +71,16 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
           const SizedBox(height: 16),
           TextField(
               controller: _fullName,
+              maxLength: 100,
               decoration: const InputDecoration(labelText: "Your name")),
           TextField(
               controller: _phone,
+              maxLength: 20,
               decoration: const InputDecoration(labelText: "Mobile number (10 digits)"),
               keyboardType: TextInputType.phone),
           TextField(
               controller: _org,
+              maxLength: 100,
               decoration:
                   const InputDecoration(labelText: "Company name")),
           if (_error != null) ...[
@@ -167,9 +170,11 @@ class _CustomerRegisterUserScreenState
           const SizedBox(height: 16),
           TextField(
               controller: _fullName,
+              maxLength: 100,
               decoration: const InputDecoration(labelText: "Your name")),
           TextField(
               controller: _phone,
+              maxLength: 20,
               decoration: const InputDecoration(labelText: "Mobile number (10 digits)"),
               keyboardType: TextInputType.phone),
           if (_error != null) ...[

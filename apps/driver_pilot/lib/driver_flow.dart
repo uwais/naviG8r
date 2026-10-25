@@ -372,14 +372,17 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
           const SizedBox(height: 16),
           TextField(
               controller: _fullName,
+              maxLength: 100,
               decoration: const InputDecoration(labelText: "Your name")),
           TextField(
               controller: _phone,
+              maxLength: 20,
               keyboardType: TextInputType.phone,
               decoration:
                   const InputDecoration(labelText: "Mobile number (10 digits)")),
           TextField(
               controller: _org,
+              maxLength: 100,
               decoration: const InputDecoration(
                   labelText: "Company name")),
           TextField(
@@ -482,9 +485,11 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
           const SizedBox(height: 16),
           TextField(
               controller: _fullName,
+              maxLength: 100,
               decoration: const InputDecoration(labelText: "Your name")),
           TextField(
               controller: _phone,
+              maxLength: 20,
               keyboardType: TextInputType.phone,
               decoration:
                   const InputDecoration(labelText: "Mobile number (10 digits)")),

@@ -180,9 +180,15 @@ function assertTruckNumberLength(registrationNumber: string): void {
 
 /** Anyone can sign up, so each free-text sign-up field has a cap; real names and phone numbers are far shorter. */
 function assertSignUpLengths(params: { fullName: string; phone: string; orgDisplayName?: string }): void {
-  if (String(params.fullName ?? "").trim().length > 100) throw new Error("invalid_fullName");
-  if (params.orgDisplayName !== undefined && String(params.orgDisplayName).trim().length > 100) throw new Error("invalid_orgDisplayName");
-  if (String(params.phone ?? "").trim().length > 20) throw new Error("invalid_phone");
+  if (String(params.fullName ?? "").trim().length > 100) {
+    throw new ApiError("invalid_fullName", { detail: "A name can have at most 100 characters.", field: "fullName" });
+  }
+  if (params.orgDisplayName !== undefined && String(params.orgDisplayName).trim().length > 100) {
+    throw new ApiError("invalid_orgDisplayName", { detail: "A company name can have at most 100 characters.", field: "orgDisplayName" });
+  }
+  if (String(params.phone ?? "").trim().length > 20) {
+    throw new ApiError("invalid_phone", { detail: "A phone number can have at most 20 characters.", field: "phone" });
+  }
 }
 
 function getOrgOrThrow(store: Store, orgId: string): Organization {

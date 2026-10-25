@@ -100,6 +100,8 @@ One code takes five wrong entries: the fifth answers `400 { "error": "otp_too_ma
 
 Code checks and the three sign-up routes (`/v1/pilot/driver/register`, `/v1/pilot/customer/register`, `/v1/pilot/customer/users/register`) have a per-IP limit only when `OTP_TRUST_PROXY=1`, because without it the socket IP may be the proxy's, shared by every visitor. Without it they rely on the five-wrong-codes limit per code and the per-phone limits; code requests (`otp/start`) keep their per-IP limit either way. A code check over its limit answers `429 otp_rate_limited` with `retryAfterMs`, which the app words "Too many tries. Please wait N minutes and try again.", N rounded up.
 
+On the three sign-up routes, `fullName` and `orgDisplayName` can have at most 100 characters and `phone` at most 20, after trimming. A longer one is refused and nothing is saved: `400 { "error": "invalid_fullName", "detail": "A name can have at most 100 characters.", "field": "fullName" }`, and the same for `invalid_orgDisplayName` ("A company name can have at most 100 characters.") and `invalid_phone` ("A phone number can have at most 20 characters."). The app shows the `detail` and its fields stop at those lengths.
+
 #### `POST /v1/pilot/driver/register`
 Creates:
 - `User`

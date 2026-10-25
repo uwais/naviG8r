@@ -96,10 +96,15 @@ test("sign-up text fields over their length cap are refused with 400 and nothing
     [TEAM_MEMBER_SIGN_UP, teamMemberSignUp("9100000304", { fullName: longName }), "invalid_fullName"],
     [TEAM_MEMBER_SIGN_UP, teamMemberSignUp(longPhone), "invalid_phone"],
   ] as const;
+  const details = {
+    invalid_fullName: "A name can have at most 100 characters.",
+    invalid_orgDisplayName: "A company name can have at most 100 characters.",
+    invalid_phone: "A phone number can have at most 20 characters.",
+  };
   const usersBefore = f.store.users.size;
   for (const [path, body, error] of cases) {
     const refused = await f.request(path, "POST", body);
-    assert.deepEqual([refused.status, refused.body.error], [400, error], `${path} ${error}`);
+    assert.deepEqual([refused.status, refused.body.error, refused.body.detail], [400, error, details[error]], `${path} ${error}`);
   }
   assert.equal(f.store.users.size, usersBefore);
 

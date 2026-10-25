@@ -211,8 +211,12 @@ String formatApiError(Object e) {
     // the truck cannot change, what a transporter ID looks like, that a chosen truck or driver is not theirs, or
     // that a trip its carrier asked NaviG8r to cancel takes no acceptance or delivery, that a started trip takes
     // no acceptance, or that delivery needs a photo; and for the shipper, that a booking expired unpaid.
+    // At sign-up, it says how long a name, company name or phone can be.
     final detail = body is Map ? body["detail"] : null;
     if (const [
+          "invalid_fullName",
+          "invalid_orgDisplayName",
+          "invalid_phone",
           "invalid_payout_profile",
           "truck_on_unfinished_trip",
           "invalid_vehicleRegistrationNumber",
