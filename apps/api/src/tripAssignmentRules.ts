@@ -29,6 +29,17 @@ export function assignedDriverMaySee(store: Store, principal: Pick<Principal, "i
   return trip?.assignedDriverUserId === principal.userId;
 }
 
+/**
+ * The phone that may send a trip's location is the one in the truck. When the trip names a driver, that is
+ * their phone, whoever started the trip. A trip from before assignments names nobody, so the person who
+ * started it keeps sending. An office phone that only opened the trip is neither, and must not overwrite
+ * the point customers are tracking.
+ */
+export function callerMayReportTripLocation(trip: AnchorTrip, userId: string): boolean {
+  if (trip.assignedDriverUserId) return trip.assignedDriverUserId === userId;
+  return trip.startedByUserId === userId;
+}
+
 /** A truck named on a trip that is not finished is the truck its shippers read, so a driver may not change it. */
 export function truckOnUnfinishedTrip(store: Store, vehicleId: string): boolean {
   return [...store.anchorTrips.values()].some((trip) =>
