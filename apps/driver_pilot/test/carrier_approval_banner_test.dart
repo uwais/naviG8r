@@ -181,9 +181,21 @@ void main() {
         kycStatus: 'REJECTED', owner: true, rejectionReasonCode: 'DUPLICATE_ACCOUNT');
     await showBanner(tester);
     expect(bannerMessage(tester),
-        'NaviG8r did not approve this company: it already has an account. Choose that account in the company menu, or ask its owner to invite you.');
+        'NaviG8r did not approve this company: it already has an account. Choose that account in the company menu.');
     expect(find.byType(FilledButton), findsNothing);
     expect(bannerMessage(tester), isNot(contains("You can't send documents")));
+    // The other account cannot invite this owner: the server refuses someone still at another carrier.
+    signInCarrier(
+        kycStatus: 'REJECTED',
+        owner: true,
+        rejectionReasonCode: 'DUPLICATE_ACCOUNT',
+        approvalTakenBack: true);
+    await showBanner(tester);
+    expect(
+        bannerMessage(tester),
+        "NaviG8r took back your company's approval. NaviG8r already has an account for your company. "
+        'Choose that account in the company menu. '
+        'Until your company is approved, you cannot accept bookings or start trips.');
   });
 
   testWidgets(

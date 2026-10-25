@@ -210,3 +210,11 @@ test("the reject captions on /ops, /ops/v1 and /ops/beta say exactly who sees ea
     for (const caption of captions) assert.ok(html.includes(caption), `${path}: ${caption.slice(0, 60)}`);
   }
 });
+
+test("a carrier rejected as a duplicate stays an active carrier, so the other account cannot invite its owner", async t => {
+  const { f, reject } = await rejectionFixture(t);
+  await reject("DUPLICATE_ACCOUNT");
+  const invited = await f.request("/v1/pilot/carrier/drivers/invite", "POST", { orgId: f.carrierB.org.id, phone: f.carrierA.user.phone, role: "DISPATCHER" }, f.tokens.carrierB);
+  assert.equal(invited.status, 409);
+  assert.equal(invited.body.error, "member_of_another_carrier");
+});

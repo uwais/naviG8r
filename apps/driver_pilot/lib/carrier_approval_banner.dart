@@ -41,7 +41,7 @@ String? rejectionReasonInWords(String? code) => switch (code) {
   // A duplicate is fixed by switching to the other account, so the owner reads one short line.
   if (code == "DUPLICATE_ACCOUNT" && !DriverSession.approvalTakenBack) {
     return (
-      "NaviG8r did not approve this company: it already has an account. Choose that account in the company menu, or ask its owner to invite you.",
+      "NaviG8r did not approve this company: it already has an account. Choose that account in the company menu.",
       null,
     );
   }
@@ -52,7 +52,7 @@ String? rejectionReasonInWords(String? code) => switch (code) {
         null
       ),
     "DUPLICATE_ACCOUNT" => (
-        "Choose that account in the company menu, or ask its owner to invite you.",
+        "Choose that account in the company menu.",
         null
       ),
     // The bank reason, or none the app knows: new bank details are the one step that can help.
