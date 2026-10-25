@@ -175,6 +175,13 @@ function assertTruckNumberLength(registrationNumber: string): void {
   }
 }
 
+/** Anyone can sign up, so each free-text sign-up field has a cap; real names and phone numbers are far shorter. */
+function assertSignUpLengths(params: { fullName: string; phone: string; orgDisplayName?: string }): void {
+  if (String(params.fullName ?? "").trim().length > 100) throw new Error("invalid_fullName");
+  if (params.orgDisplayName !== undefined && String(params.orgDisplayName).trim().length > 100) throw new Error("invalid_orgDisplayName");
+  if (String(params.phone ?? "").trim().length > 20) throw new Error("invalid_phone");
+}
+
 function getOrgOrThrow(store: Store, orgId: string): Organization {
   const org = store.organizations.get(orgId);
   if (!org) throw new Error("org_not_found");
@@ -283,6 +290,7 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
   if (!String(params.vehicleRegistrationNumber ?? "").trim()) throw new Error("invalid_vehicleRegistrationNumber");
+  assertSignUpLengths(params);
   assertTruckNumberLength(String(params.vehicleRegistrationNumber));
   assertVehicleClass(params.vehicleClass);
   if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
@@ -807,6 +815,7 @@ export function registerCustomerOrgAdmin(store: Store, params: {
 }): { user: User; org: Organization; membership: Membership } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
+  assertSignUpLengths(params);
 
   const phone = normalizeInPhone(params.phone);
   const dup = [...store.users.values()].find((u) => u.phone === phone);
@@ -843,6 +852,7 @@ export function registerCustomerUser(store: Store, params: {
   phone: string;
 }): { user: User } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
+  assertSignUpLengths(params);
 
   const phone = normalizeInPhone(params.phone);
   const dup = [...store.users.values()].find((u) => u.phone === phone);

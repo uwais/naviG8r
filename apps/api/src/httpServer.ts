@@ -251,6 +251,25 @@ function consumePushRateLimit(
   return false;
 }
 
+/** Sign-up needs no account and answers whether a number already has one, so each IP and each phone get a few tries. */
+function consumeSignUpRateLimit(
+  res: http.ServerResponse,
+  limiter: FixedWindowRateLimiter,
+  clientIp: string,
+  phone: string,
+): boolean {
+  const now = Date.now();
+  const phoneDigits = phone.replace(/\D/g, "").slice(-10);
+  // The same limits as sign-in code requests: 30 per IP in 10 minutes, 5 per phone in an hour.
+  const ipLimit = limiter.consume(`sign-up:ip:${clientIp}`, 30, 600_000, now);
+  const phoneLimit = limiter.consume(`sign-up:phone:${phoneDigits}`, 5, 3_600_000, now);
+  const blocked = !ipLimit.allowed ? ipLimit : !phoneLimit.allowed ? phoneLimit : null;
+  if (!blocked) return true;
+  res.setHeader("retry-after", String(blocked.retryAfterSeconds));
+  json(res, 429, { error: "rate_limited" });
+  return false;
+}
+
 function userCanReceiveShipmentPush(store: ReturnType<typeof loadStoreFromDisk>, userId: string): boolean {
   for (const membership of store.memberships.values()) {
     if (membership.userId !== userId) continue;
@@ -433,6 +452,7 @@ export async function createApp(options: {
   }
 
   const pushRateLimiter = new FixedWindowRateLimiter();
+  const signUpRateLimiter = new FixedWindowRateLimiter();
   const server = http.createServer((req, res) => {
     // The practice portal takes form bodies from anyone and never touches the store. Served outside the
     // queue, a sender that trickles its body in cannot hold up every other request.
@@ -784,6 +804,7 @@ export async function createApp(options: {
       // --- v1 pilot API resources (Flutter Driver app first) ---
       if (method === "POST" && url.pathname === "/v1/pilot/driver/register") {
         const body = await readJson(req);
+        if (!consumeSignUpRateLimit(res, signUpRateLimiter, signInClientIp(req), String(body?.phone ?? ""))) return;
         const out = registerSoloOwnerOperatorDriver(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
@@ -1088,6 +1109,7 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/register") {
         const body = await readJson(req);
+        if (!consumeSignUpRateLimit(res, signUpRateLimiter, signInClientIp(req), String(body?.phone ?? ""))) return;
         const out = registerCustomerOrgAdmin(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
@@ -1099,6 +1121,7 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/users/register") {
         const body = await readJson(req);
+        if (!consumeSignUpRateLimit(res, signUpRateLimiter, signInClientIp(req), String(body?.phone ?? ""))) return;
         try {
           const out = registerCustomerUser(store, {
             fullName: String(body?.fullName ?? ""),
