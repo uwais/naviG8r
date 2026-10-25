@@ -1,4 +1,4 @@
-import { requirePermission } from "./rbac.ts";
+import { AuthorizationError, recordAudit, requirePermission } from "./rbac.ts";
 import { withoutEwayBill } from "./ewayBillVisibility.ts";
 import { withoutTripAssignment } from "./tripAssignmentRules.ts";
 import { isActiveEntity } from "./softDelete.ts";
@@ -121,6 +121,24 @@ export function updateIntegrationConnection(
   if (params.regenerateWebhookSecret) conn.webhookSecret = crypto.randomBytes(24).toString("hex");
   conn.updatedAtUtcMs = now;
   store.integrationConnections.set(conn.id, conn);
+  return conn;
+}
+
+/** The staff route for the payment policy: platform OPS or ADMIN only, and every change goes in the audit log. */
+export function setIntegrationPaymentPolicyAsStaff(
+  store: Store,
+  orgId: string,
+  paymentPolicy: IntegrationPaymentPolicy,
+  staffUserId: string,
+): IntegrationConnection {
+  if (!isOpsAdmin(store, staffUserId) && !isOpsAgent(store, staffUserId)) {
+    throw new AuthorizationError("payment_policy_staff_only");
+  }
+  const org = store.organizations.get(orgId);
+  if (!org || !isActiveEntity(org) || org.kind !== "CUSTOMER") throw new AuthorizationError("not_found", 404);
+  const previousPolicy = getOrCreateIntegrationConnection(store, orgId).paymentPolicy;
+  const conn = updateIntegrationConnection(store, orgId, { paymentPolicy, changedByUserId: staffUserId });
+  recordAudit(store, "INTEGRATION_PAYMENT_POLICY_CHANGED", "organization", orgId, previousPolicy, conn.paymentPolicy);
   return conn;
 }
 

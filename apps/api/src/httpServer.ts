@@ -81,6 +81,7 @@ import { verifyRazorpayWebhookSignature, razorpayPaymentsEnabled, publicRazorpay
 import { payoutsMode } from "./razorpayPayouts.ts";
 import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
 import { handleIntegrationPortalRoutes, handleIntegrationRoutes } from "./integrationHttp.ts";
+import { setIntegrationPaymentPolicyAsStaff } from "./integrationServices.ts";
 import { expireUnpaidBookings } from "./unpaidBookingExpiry.ts";
 import { captureTerminalConversationWindows, captureWorkflowNotifications, CommunicationError, decideConversationEscalation, listConversationMessages, listConversationTimeline, listGroupedNotifications, listNotifications, markConversationRead, markNotificationRead, requestConversationEscalation, resolveNotificationOpenRoute, revokeConversationEscalation, sendConversationMessage, workflowSnapshot, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
 
@@ -782,6 +783,14 @@ export async function createApp(options: {
         recordAudit(store, "COMPLIANCE_STATUS_CHANGED", "organization", orgId, org.kycStatus, body.status);
         await persist();
         return json(res, 200, { org: store.organizations.get(orgId) });
+      }
+      if (method === "PUT" && /^\/v1\/ops\/organizations\/[^/]+\/integration-payment-policy$/.test(url.pathname)) {
+        const p = requirePermission(store, "directory.read");
+        if (!/^[A-Z][A-Z0-9_]{2,63}$/.test(authorizationContext.getStore()?.reason ?? "")) throw new AuthorizationError("reason_required", 400);
+        const body = await readJson(req);
+        const conn = setIntegrationPaymentPolicyAsStaff(store, url.pathname.split("/")[4]!, String(body?.paymentPolicy ?? "") as never, p.userId);
+        await persist();
+        return json(res, 200, { connection: { id: conn.id, orgId: conn.orgId, paymentPolicy: conn.paymentPolicy } });
       }
       if (method === "GET" && url.pathname === "/v1/audit") {
         const p = requirePermission(store, "audit.read");

@@ -116,6 +116,8 @@ All require `loads:read`.
 | `GET /v1/integrations/shipments/:id/tracking` | Live tracking payload. `liveLocation` (and `tracking.lastLocation` in webhooks) is null unless the shipment is `BOOKED` and its trip is `IN_PROGRESS` |
 | `GET /v1/integrations/events?sinceEventId=` | Missed webhook recovery |
 
+The tracking and snapshot replies give the truck's location only while your goods are on the moving truck (shipment `BOOKED`, trip `IN_PROGRESS`), and only in `liveLocation`. Their `trip` object never carries the trip's stored last live location or NaviG8r user ids (who started or completed the trip, the assigned driver and truck).
+
 Poll responses use the same canonical JSON shape as webhook payloads.
 
 ## Outbound webhooks
@@ -195,7 +197,18 @@ Failed deliveries retry with exponential backoff (1m, 5m, 30m, 2h, 24h; max 10 a
 
 ## Payment policies
 
-Only NaviG8r platform staff (OPS or ADMIN in the platform org) change the payment policy; there is no staff page or route for it yet. The portal shows it read-only. A shipper request to `PATCH /v1/pilot/customer/integrations/connection` that changes it gets `403 { "error": "payment_policy_staff_only" }` and nothing is saved; sending the current value, or leaving it out, is fine, so shippers still change the webhook URL and display name. A value other than the two below gets `400 { "error": "invalid_payment_policy" }`.
+Only NaviG8r platform staff (OPS or ADMIN in the platform org) change the payment policy. The portal shows it read-only with "Set by NaviG8r staff." Staff set it through the API (there is no ops page for it):
+
+```http
+PUT /v1/ops/organizations/{customerOrgId}/integration-payment-policy
+Authorization: Bearer {platform OPS or ADMIN access token}
+X-Reason-Code: PAYMENT_AGREEMENT_SIGNED
+Content-Type: application/json
+
+{"paymentPolicy":"erp_preauthorized"}
+```
+
+It answers `200 { "connection": { "id", "orgId", "paymentPolicy" } }` and writes an `INTEGRATION_PAYMENT_POLICY_CHANGED` audit event on the organisation with the old and new policy and the reason code. Other answers: `400 reason_required` (no `X-Reason-Code`, which must be 3 to 64 capitals, digits and underscores, starting with a capital), `400 invalid_payment_policy`, `403 forbidden` for a user outside the platform org, `403 payment_policy_staff_only` for platform FINANCE, `404 not_found` when the organisation is not an active shipper organisation. A shipper request to `PATCH /v1/pilot/customer/integrations/connection` that changes it gets `403 { "error": "payment_policy_staff_only" }` and nothing is saved; sending the current value, or leaving it out, is fine, so shippers still change the webhook URL and display name. A value other than the two below gets `400 { "error": "invalid_payment_policy" }`.
 
 | Policy | Behavior |
 |--------|----------|

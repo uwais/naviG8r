@@ -18,6 +18,8 @@ const rules: [string, RegExp, Permission][] = [
   ["GET", /^\/v1\/ops\/dashboard\/[^/]+$/, "organization.profile.read"],
   ["POST", /^\/v1\/ops\/carrier-organizations$/, "carrier.onboard"],
   ["POST", /^\/v1\/ops\/dashboard-access$/, "user.role_manage"],
+  // OPS and ADMIN share no write permission; /v1/ops/ already needs a platform user, and the service allows only OPS or ADMIN.
+  ["PUT", /^\/v1\/ops\/organizations\/[^/]+\/integration-payment-policy$/, "directory.read"],
   ["GET", /^\/v1\/pilot\/me$/, "organization.profile.read"],
   ["PATCH", /^\/v1\/pilot\/me\/vehicle$/, "load.status_update"],
   ["GET", /^\/v1\/pilot\/anchor-trips(?:\/[^/]+)?$/, "load.read"],
