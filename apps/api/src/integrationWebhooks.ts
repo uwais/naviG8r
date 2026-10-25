@@ -83,11 +83,13 @@ function trackingSnapshot(store: Store, shipment: Shipment): Record<string, unkn
   const staleMs = 15 * 60 * 1000;
   const loc = trip?.lastLiveLocation;
   const fresh = loc != null && nowUtcMs() - loc.recordedAtUtcMs <= staleMs;
-  const isLive = fresh && shipment.status === "BOOKED" && trip?.status === "IN_PROGRESS";
+  // The same rule as the app: a shipper sees the truck only while its own goods are on it.
+  const shipperMaySeeTruck = shipment.status === "BOOKED" && trip?.status === "IN_PROGRESS";
+  const isLive = fresh && shipperMaySeeTruck;
   return {
     url: shipmentTrackingUrl(shipment.id),
     isLive,
-    lastLocation: loc ?? null,
+    lastLocation: shipperMaySeeTruck ? loc ?? null : null,
     staleAfterUtcMs: staleMs,
     paymentStatus: payment?.status ?? null,
   };

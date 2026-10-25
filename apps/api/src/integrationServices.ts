@@ -333,9 +333,12 @@ function withoutCarrierPay<T extends Shipment>(shipment: T): Omit<T, "netToCarri
   return rest;
 }
 
-/** A carrier's cancel request, its note above all, is between the carrier and NaviG8r; an ERP caller reads the status only. */
-function tripForErp<T extends { cancelRequest?: unknown }>(trip: T) {
-  const { cancelRequest: _request, ...rest } = withoutTripAssignment(trip);
+/**
+ * A carrier's cancel request, its note above all, is between the carrier and NaviG8r; an ERP caller reads the status only.
+ * The truck's position goes out only as the tracking route's liveLocation, and the driver's user ids not at all.
+ */
+function tripForErp<T extends { cancelRequest?: unknown; lastLiveLocation?: unknown; startedByUserId?: string; completedByUserId?: string }>(trip: T) {
+  const { cancelRequest: _request, lastLiveLocation: _location, startedByUserId: _startedBy, completedByUserId: _completedBy, ...rest } = withoutTripAssignment(trip);
   return rest;
 }
 
@@ -348,11 +351,13 @@ export function getIntegrationShipmentTracking(store: Store, orgId: string, ship
   const loc = trip.lastLiveLocation ?? null;
   const staleMs = 15 * 60 * 1000;
   const fresh = loc != null && now - loc.recordedAtUtcMs <= staleMs;
-  const isLive = fresh && shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
+  // The same rule as the app: a shipper sees the truck only while its own goods are on it.
+  const shipperMaySeeTruck = shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
+  const isLive = fresh && shipperMaySeeTruck;
   return {
     shipment: withoutPodPhotos(withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment)))))),
     trip: tripForErp(tripWithCarrierDisplay(store, trip)),
-    liveLocation: loc,
+    liveLocation: shipperMaySeeTruck ? loc : null,
     isLive,
     staleAfterUtcMs: staleMs,
     trackingUrl: shipmentTrackingUrl(shipmentId),
