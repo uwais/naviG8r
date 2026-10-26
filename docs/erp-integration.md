@@ -102,6 +102,7 @@ When `paymentPolicy` is `portal_checkout` and Razorpay is enabled, `checkoutRequ
 | 422 | `no_eligible_lane` | No open trip matches; retry later or pass `anchorTripId` |
 | 400 | `external_load_id_required` | Missing ERP id |
 | 401 | `integration_unauthorized` | Invalid or revoked key |
+| 413 | `payload_too_large` | Request body over 1 MB (also on the portal integration routes) |
 
 ## Poll APIs (reconciliation)
 
@@ -112,8 +113,10 @@ All require `loads:read`.
 | `GET /v1/integrations/loads?externalLoadId=` | Lookup by ERP id |
 | `GET /v1/integrations/loads?updatedSince={utcMs}` | Delta sync (cursor: `updatedAtUtcMs`) |
 | `GET /v1/integrations/shipments/:id` | Full snapshot (shipment, trip, payment, tracking) |
-| `GET /v1/integrations/shipments/:id/tracking` | Live tracking payload |
+| `GET /v1/integrations/shipments/:id/tracking` | Live tracking payload. `liveLocation` (and `tracking.lastLocation` in webhooks) is null unless the shipment is `BOOKED` and its trip is `IN_PROGRESS` |
 | `GET /v1/integrations/events?sinceEventId=` | Missed webhook recovery |
+
+The tracking and snapshot replies give the truck's location only while your goods are on the moving truck (shipment `BOOKED`, trip `IN_PROGRESS`), and only in `liveLocation`. Their `trip` object never carries the trip's stored last live location or NaviG8r user ids (who started or completed the trip, the assigned driver and truck).
 
 Poll responses use the same canonical JSON shape as webhook payloads.
 
@@ -126,6 +129,8 @@ X-NaviG8r-Signature: {hex_hmac_sha256}
 ```
 
 Verify with your per-connection webhook secret (shown once when created or after **Rotate secret**).
+
+The callback host must resolve only to public addresses. A private, loopback, link-local, documentation, benchmarking or reserved address, an IPv6 form that carries an IPv4 address (NAT64 `64:ff9b::/96`, 6to4 `2002::/16`, `::/96`), and a host name that does not resolve all fail with the same error: "The webhook address must resolve to a public internet address." NaviG8r connects to the exact address that passed the check, without a second DNS lookup, and still checks the TLS certificate against your host name. Redirects are not followed: a 3xx reply counts as a failed delivery. For a failed delivery NaviG8r reads at most the first 4 KB of your reply and keeps up to 500 characters of it as the error.
 
 ### Event types
 
@@ -192,7 +197,18 @@ Failed deliveries retry with exponential backoff (1m, 5m, 30m, 2h, 24h; max 10 a
 
 ## Payment policies
 
-Set in portal **Integrations → Payment policy**:
+Only NaviG8r platform staff (OPS or ADMIN in the platform org) change the payment policy. The portal shows it read-only with "Set by NaviG8r staff." Staff set it through the API (there is no ops page for it):
+
+```http
+PUT /v1/ops/organizations/{customerOrgId}/integration-payment-policy
+Authorization: Bearer {platform OPS or ADMIN access token}
+X-Reason-Code: PAYMENT_AGREEMENT_SIGNED
+Content-Type: application/json
+
+{"paymentPolicy":"erp_preauthorized"}
+```
+
+It answers `200 { "connection": { "id", "orgId", "paymentPolicy" } }` and writes an `INTEGRATION_PAYMENT_POLICY_CHANGED` audit event on the organisation with the old and new policy and the reason code. Other answers: `400 reason_required` (no `X-Reason-Code`, which must be 3 to 64 capitals, digits and underscores, starting with a capital), `400 invalid_payment_policy`, `403 forbidden` for a user outside the platform org, `403 payment_policy_staff_only` for platform FINANCE, `404 not_found` when the organisation is not an active shipper organisation. A shipper request to `PATCH /v1/pilot/customer/integrations/connection` that changes it gets `403 { "error": "payment_policy_staff_only" }` and nothing is saved; sending the current value, or leaving it out, is fine, so shippers still change the webhook URL and display name. A value other than the two below gets `400 { "error": "invalid_payment_policy" }`.
 
 | Policy | Behavior |
 |--------|----------|
@@ -227,14 +243,16 @@ node --experimental-strip-types --test apps/api/src/*.test.ts
 node --experimental-strip-types --test \
   apps/api/src/integration.test.ts \
   apps/api/src/integrationHttp.test.ts \
-  apps/api/src/integrationWebhooks.test.ts
+  apps/api/src/integrationWebhooks.test.ts \
+  apps/api/src/integrationWebhookAddress.test.ts
 ```
 
 | Test file | Coverage |
 |-----------|----------|
 | `integration.test.ts` | Service-layer idempotency, events, auth headers, webhook payload fields |
 | `integrationHttp.test.ts` | Real HTTP: `POST /v1/integrations/loads`, portal `/v1/pilot/customer/integrations/*` |
-| `integrationWebhooks.test.ts` | Mock `fetch`: HMAC signature, retry backoff on failed delivery |
+| `integrationWebhooks.test.ts` | Local receiver and mock DNS lookup: HMAC signature, retry backoff on failed delivery |
+| `integrationWebhookAddress.test.ts` | Local receiver and mock DNS lookup: public addresses only, one error sentence, connects to the checked address, TLS host name kept, no redirects, error reply read up to 4 KB |
 
 Flutter widget tests:
 

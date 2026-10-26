@@ -187,18 +187,31 @@ String formatApiError(Object e) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
     final code = body is Map ? body["error"] : null;
+    if (code == "otp_rate_limited" &&
+        e.requestOptions.path.endsWith("/v1/auth/otp/verify")) {
+      final retry = body["retryAfterMs"];
+      if (retry is! num) {
+        return "Too many tries. Please wait a few minutes and try again.";
+      }
+      final minutes = retry > 60000 ? (retry / 60000).ceil() : 1;
+      return "Too many tries. Please wait $minutes ${minutes == 1 ? "minute" : "minutes"} and try again.";
+    }
     if (code == "otp_rate_limited") {
       final retry = body["retryAfterMs"];
       final seconds = retry is num ? (retry / 1000).ceil() : 30;
       return "Too many code requests. Please wait ${seconds > 0 ? seconds : 1} seconds and try again.";
     }
-    // The server writes these errors' detail for the carrier: which bank field is wrong and how, or why
-    // the truck cannot change.
+    // The server writes these errors' detail for the person: which bank field is wrong and how, why
+    // the truck cannot change, which sign-up field is too long, or why an invite was refused.
     final detail = body is Map ? body["detail"] : null;
     if (const [
           "invalid_payout_profile",
           "truck_on_unfinished_trip",
-          "invalid_vehicleRegistrationNumber"
+          "invalid_vehicleRegistrationNumber",
+          "invalid_fullName",
+          "invalid_orgDisplayName",
+          "invalid_phone",
+          "member_of_another_carrier"
         ].contains(code) &&
         detail is String &&
         detail.isNotEmpty) {
@@ -224,6 +237,9 @@ String formatApiError(Object e) {
           "This code request is no longer valid. Request a new code.",
       "otp_challenge_mismatch":
           "This code request is no longer valid. Request a new code.",
+      "otp_too_many_wrong_codes": "Too many wrong codes. Send a new code.",
+      "sign_up_rate_limited":
+          "Too many sign-up tries. Please wait a few minutes and try again.",
     };
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||
@@ -363,7 +379,13 @@ void defaultAnchorTripWindow(
 
 /// [seesPayment] is false for a driver, who never sees carrier earnings or their status (owner decision,
 /// 15 Oct 2026), so those two statuses are worded without payment.
-String shipmentStatusLabel(String status, {bool seesPayment = true}) {
+/// [unpaidBookingExpired] is true when the shipment has unpaidBookingExpiredAtUtcMs: the shipper never paid,
+/// so nothing was cancelled or refunded.
+String shipmentStatusLabel(String status,
+    {bool seesPayment = true, bool unpaidBookingExpired = false}) {
+  if (status == "FAILED_CARRIER_REFUNDED" && unpaidBookingExpired) {
+    return unpaidBookingExpiredSentence;
+  }
   switch (status) {
     case "PENDING_CARRIER_ACCEPT":
       return "Awaiting carrier acceptance";
@@ -378,6 +400,37 @@ String shipmentStatusLabel(String status, {bool seesPayment = true}) {
     default:
       return status;
   }
+}
+
+const unpaidBookingExpiredSentence =
+    "This booking expired because it was not paid within 30 minutes.";
+
+/// Shown next to Book and pay. The API tells users the same 30 minutes (UNPAID_BOOKING_WINDOW_MS).
+const payWithinWindowLine = "Pay within 30 minutes, or this booking closes.";
+
+/// Razorpay Checkout closes itself after this many seconds, so a shipper cannot finish paying after the
+/// 30 minutes they are told; the API closes the booking 10 minutes after those 30.
+const razorpayCheckoutTimeoutSeconds = 25 * 60;
+
+/// The server sets unpaidBookingExpiredAtUtcMs when a booking closed because its payment window (30 minutes,
+/// UNPAID_BOOKING_WINDOW_MS in the API) passed without payment. The app cannot tell whether the shipper paid
+/// after that, so the shipper always gets the line on where a held payment goes.
+String? unpaidBookingExpiredLine(Map<String, dynamic> shipment) =>
+    shipment["unpaidBookingExpiredAtUtcMs"] == null
+        ? null
+        : "$unpaidBookingExpiredSentence "
+            "If your bank shows a payment, it comes back within 3 days of when you paid. "
+            "Your bank may take 5-7 more working days.";
+
+/// The server sentence when a payment confirm arrives after the booking expired; null for any other error.
+String? bookingExpiredMessage(Object error) {
+  if (error is! DioException) return null;
+  final body = error.response?.data;
+  if (body is! Map || body["error"] != "booking_expired_unpaid") return null;
+  final detail = body["detail"];
+  return detail is String && detail.isNotEmpty
+      ? detail
+      : unpaidBookingExpiredSentence;
 }
 
 String tripStatusLabel(String status) {

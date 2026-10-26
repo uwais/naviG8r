@@ -81,6 +81,8 @@ import { verifyRazorpayWebhookSignature, razorpayPaymentsEnabled, publicRazorpay
 import { payoutsMode } from "./razorpayPayouts.ts";
 import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
 import { handleIntegrationPortalRoutes, handleIntegrationRoutes } from "./integrationHttp.ts";
+import { setIntegrationPaymentPolicyAsStaff } from "./integrationServices.ts";
+import { expireUnpaidBookings } from "./unpaidBookingExpiry.ts";
 import { captureTerminalConversationWindows, captureWorkflowNotifications, CommunicationError, decideConversationEscalation, listConversationMessages, listConversationTimeline, listGroupedNotifications, listNotifications, markConversationRead, markNotificationRead, requestConversationEscalation, resolveNotificationOpenRoute, revokeConversationEscalation, sendConversationMessage, workflowSnapshot, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
 
 class CommunicationPersistenceError extends Error {}
@@ -90,9 +92,16 @@ function restoreMap<K, V>(target: Map<K, V>, saved: ReadonlyMap<K, V>): void {
   for (const [key, value] of saved) target.set(key, value);
 }
 
-async function readRawBody(req: http.IncomingMessage): Promise<string> {
+/** Razorpay webhook events are a few KB; the cap applies before the signature is checked. */
+async function readRawBody(req: http.IncomingMessage, maxBytes = 256 * 1024): Promise<string> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+  let byteLength = 0;
+  for await (const c of req) {
+    const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+    byteLength += chunk.length;
+    if (byteLength > maxBytes) throw new AuthorizationError("payload_too_large", 413);
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks).toString("utf8");
 }
 
@@ -259,6 +268,39 @@ function consumePushRateLimit(
   return false;
 }
 
+const SIGN_UP_IP_LIMIT = 30;
+const SIGN_UP_PHONE_LIMIT = 5;
+const SIGN_UP_WINDOW_MS = 600_000;
+
+/**
+ * The three sign-up routes share one budget per phone number, and one per connecting address only when
+ * OTP_TRUST_PROXY=1, because without it every visitor may arrive from the proxy address. Each budget has its own
+ * limiter, so filling one with keys cannot push out the other.
+ */
+function consumeSignUpRateLimit(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  limiters: { byAddress: FixedWindowRateLimiter; byPhone: FixedWindowRateLimiter },
+  trustProxy: boolean,
+  phone: string,
+): boolean {
+  const now = Date.now();
+  const digits = phone.replace(/[^\d]/g, "");
+  // Same rule as the register functions; any other phone is refused there as invalid_phone, so it gets no count here.
+  const phoneKey = digits.length === 12 && digits.startsWith("91") ? digits.slice(-10) : digits.length === 10 ? digits : null;
+  const ipLimit = trustProxy
+    ? limiters.byAddress.consume(`sign-up:ip:${clientIp(req, trustProxy)}`, SIGN_UP_IP_LIMIT, SIGN_UP_WINDOW_MS, now)
+    : { allowed: true, retryAfterSeconds: 0 };
+  const phoneLimit = ipLimit.allowed && phoneKey
+    ? limiters.byPhone.consume(`sign-up:phone:${phoneKey}`, SIGN_UP_PHONE_LIMIT, SIGN_UP_WINDOW_MS, now)
+    : null;
+  const blocked = !ipLimit.allowed ? ipLimit : phoneLimit && !phoneLimit.allowed ? phoneLimit : null;
+  if (!blocked) return true;
+  res.setHeader("retry-after", String(blocked.retryAfterSeconds));
+  json(res, 429, { error: "sign_up_rate_limited" });
+  return false;
+}
+
 function userCanReceiveShipmentPush(store: ReturnType<typeof loadStoreFromDisk>, userId: string): boolean {
   for (const membership of store.memberships.values()) {
     if (membership.userId !== userId) continue;
@@ -373,12 +415,13 @@ export async function createApp(options: {
     const challenges = new Map(store.otpChallenges);
     const sessions = new Map(store.authSessions);
     let result: T;
-    let expiryError: unknown;
+    let savedError: unknown;
     try {
       result = operation();
     } catch (error) {
-      if (!(error instanceof Error) || error.message !== "otp_expired") throw error;
-      expiryError = error;
+      // These errors still changed the challenge (expired, wrong-code count, or failed), so it is saved.
+      if (!(error instanceof Error) || !["otp_expired", "otp_incorrect", "otp_too_many_wrong_codes"].includes(error.message)) throw error;
+      savedError = error;
     }
     try {
       await persist();
@@ -389,7 +432,7 @@ export async function createApp(options: {
       for (const [key, value] of sessions) store.authSessions.set(key, value);
       throw error;
     }
-    if (expiryError) throw expiryError;
+    if (savedError) throw savedError;
     return result!;
   }
 
@@ -432,6 +475,7 @@ export async function createApp(options: {
   }
 
   const pushRateLimiter = new FixedWindowRateLimiter();
+  const signUpRateLimiters = { byAddress: new FixedWindowRateLimiter(10_000), byPhone: new FixedWindowRateLimiter(10_000) };
   const firebaseExchangeIpLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IP_LIMIT", 30);
   const firebaseExchangeIdentityLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IDENTITY_LIMIT", 10);
   const firebaseExchangeWindowMs = positiveIntegerEnv("FIREBASE_EXCHANGE_WINDOW_MS", 600_000);
@@ -521,6 +565,8 @@ export async function createApp(options: {
         res.end();
         return;
       }
+      // Every route that reads trip space or bookings sees unpaid bookings past their window as closed.
+      expireUnpaidBookings(store);
 
       if (method === "GET" && ["/admin/v1", "/ops/v1"].includes(url.pathname)) return html(res, 200, adminDashboardV1Html(url.pathname === "/ops/v1"));
       if (method === "GET" && ["/admin/v2", "/ops/v2"].includes(url.pathname)) return html(res, 200, opsPortalHtml({ operations: url.pathname === "/ops/v2" }));
@@ -697,6 +743,8 @@ export async function createApp(options: {
           return json(res, 200, out);
         } catch (e: any) {
           if (e instanceof ApiError) {
+            // The booking was closed and the late payment id kept; both must be saved.
+            if (e.message === "booking_expired_unpaid") await persist();
             const status = e.httpStatus ?? 400;
             return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
           }
@@ -736,6 +784,14 @@ export async function createApp(options: {
         await persist();
         return json(res, 200, { org: store.organizations.get(orgId) });
       }
+      if (method === "PUT" && /^\/v1\/ops\/organizations\/[^/]+\/integration-payment-policy$/.test(url.pathname)) {
+        const p = requirePermission(store, "directory.read");
+        if (!/^[A-Z][A-Z0-9_]{2,63}$/.test(authorizationContext.getStore()?.reason ?? "")) throw new AuthorizationError("reason_required", 400);
+        const body = await readJson(req);
+        const conn = setIntegrationPaymentPolicyAsStaff(store, url.pathname.split("/")[4]!, String(body?.paymentPolicy ?? "") as never, p.userId);
+        await persist();
+        return json(res, 200, { connection: { id: conn.id, orgId: conn.orgId, paymentPolicy: conn.paymentPolicy } });
+      }
       if (method === "GET" && url.pathname === "/v1/audit") {
         const p = requirePermission(store, "audit.read");
         const financial = new Set(["PAYMENT_CAPTURED", "PAYMENT_REFUNDED", "SETTLEMENT_RELEASED"]);
@@ -756,6 +812,8 @@ export async function createApp(options: {
       }
 
       if (method === "POST" && url.pathname === "/v1/auth/otp/verify") {
+        // Without OTP_TRUST_PROXY every visitor may arrive from the proxy address, so only the per-code limit applies.
+        if (otp.trustProxy) otp.consumeIpVerify(clientIp(req, otp.trustProxy));
         const body = await readJson(req);
         const out = await persistOtp(() => pilotOtpVerify(store, {
           phone: String(body?.phone ?? ""),
@@ -847,6 +905,7 @@ export async function createApp(options: {
       // --- v1 pilot API resources (Flutter Driver app first) ---
       if (method === "POST" && url.pathname === "/v1/pilot/driver/register") {
         const body = await readJson(req);
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""))) return;
         const out = registerSoloOwnerOperatorDriver(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
@@ -1056,7 +1115,9 @@ export async function createApp(options: {
             vehicleCapacityKg: Number(body?.vehicleCapacityKg ?? 0),
           });
           await persist();
-          return json(res, 201, out);
+          // The invitee's stored name and user id are theirs, not the inviter's; the inviter typed only the phone.
+          const { orgId, role, createdAtUtcMs } = out.membership;
+          return json(res, 201, { membership: { orgId, role, createdAtUtcMs }, vehicle: out.vehicle });
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;
@@ -1119,6 +1180,7 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/register") {
         const body = await readJson(req);
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""))) return;
         const out = registerCustomerOrgAdmin(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
@@ -1130,6 +1192,7 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/users/register") {
         const body = await readJson(req);
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""))) return;
         try {
           const out = registerCustomerUser(store, {
             fullName: String(body?.fullName ?? ""),
@@ -1159,7 +1222,9 @@ export async function createApp(options: {
             role: body?.role,
           });
           await persist();
-          return json(res, 201, out);
+          // The invitee's stored name and user id are theirs, not the inviter's; the inviter typed only the phone.
+          const { orgId, role, createdAtUtcMs } = out.membership;
+          return json(res, 201, { membership: { orgId, role, createdAtUtcMs }, org: out.org });
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;

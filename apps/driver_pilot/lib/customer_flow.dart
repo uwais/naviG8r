@@ -1050,7 +1050,6 @@ class _CustomerIntegrationsScreenState
         "/v1/pilot/customer/integrations/connection$_orgQuery",
         data: {
           "webhookUrl": _webhookUrl.text.trim(),
-          "paymentPolicy": _paymentPolicy,
           "regenerateWebhookSecret": regenerateWebhookSecret,
         },
       );
@@ -1244,7 +1243,9 @@ class _CustomerIntegrationsScreenState
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 value: _paymentPolicy,
-                decoration: const InputDecoration(labelText: "Payment policy"),
+                decoration: const InputDecoration(
+                    labelText: "Payment policy",
+                    helperText: "Set by NaviG8r staff."),
                 items: const [
                   DropdownMenuItem(
                       value: "portal_checkout",
@@ -1255,9 +1256,8 @@ class _CustomerIntegrationsScreenState
                       child: Text(
                           "ERP pre-authorized (book without portal checkout)")),
                 ],
-                onChanged: (v) {
-                  if (v != null) setState(() => _paymentPolicy = v);
-                },
+                // Only NaviG8r staff change the payment policy; the server refuses a change from here.
+                onChanged: null,
               ),
               const SizedBox(height: 8),
               Row(
@@ -1879,7 +1879,14 @@ class _CustomerBookShipmentScreenState
             "razorpaySignature": signature,
           },
         );
-      } catch (_) {}
+      } catch (e) {
+        // Other confirm errors stay quiet: the Razorpay webhook can still confirm the payment.
+        final expired = bookingExpiredMessage(e);
+        if (expired != null && mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(expired)));
+        }
+      }
     }
     if (!mounted) return;
     if (id != null) {
@@ -2124,6 +2131,9 @@ class _CustomerBookShipmentScreenState
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                const Text(payWithinWindowLine,
+                    style: TextStyle(color: DriverTheme.muted)),
               ],
             ),
             secondary: Column(
@@ -2273,7 +2283,8 @@ class _CustomerShipmentsScreenState extends State<CustomerShipmentsScreen> {
               ),
             ..._shipments.map((s) {
               final id = s["id"]?.toString() ?? "";
-              final status = shipmentStatusLabel(s["status"]?.toString() ?? "");
+              final status = unpaidBookingExpiredLine(s) ??
+                  shipmentStatusLabel(s["status"]?.toString() ?? "");
               final carrier = s["carrierDisplayName"]?.toString() ?? "Carrier";
               return Card(
                 margin: const EdgeInsets.only(top: 12),
@@ -2521,13 +2532,14 @@ class _CustomerShipmentDetailScreenState
         : <ShipmentTimelineStep>[];
 
     final trackingMessage = shipment != null
-        ? customerTrackingStatusMessage(
-            shipmentStatus: shipment["status"]?.toString() ?? "",
-            tripStatus: tripStatus,
-            isLive: _isLive,
-            hasDriverPing: _liveLocation != null,
-            carrierDisplayName: shipment["carrierDisplayName"]?.toString(),
-          )
+        ? unpaidBookingExpiredLine(shipment) ??
+            customerTrackingStatusMessage(
+              shipmentStatus: shipment["status"]?.toString() ?? "",
+              tripStatus: tripStatus,
+              isLive: _isLive,
+              hasDriverPing: _liveLocation != null,
+              carrierDisplayName: shipment["carrierDisplayName"]?.toString(),
+            )
         : "";
 
     return CustomerScaffold(

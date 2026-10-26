@@ -13,7 +13,7 @@ This document defines the **first concrete API resources** for the Flutter pilot
 
 ### Server env vars (pilot)
 - **`AUTH_SECRET`**: required (min 16 chars). Used to sign access tokens.
-- **`OTP_DEBUG=1`**: returns the generated six-digit `debugCode` from `otp/start` for local testing. Codes are random; this setting controls delivery only. **`OTP_TTL_MS`** defaults to `600000` (ten minutes); an explicit value must be a positive safe integer that produces a valid expiration timestamp, or startup fails. **`OTP_RESEND_COOLDOWN_MS`** defaults to `30000` (30 seconds). **`OTP_PHONE_START_LIMIT` / `OTP_PHONE_START_WINDOW_MS`** default to 5 newly issued challenges per phone per hour. **`OTP_IP_START_LIMIT` / `OTP_IP_START_WINDOW_MS`** default to 30 start requests per IP per 10 minutes.
+- **`OTP_DEBUG=1`**: returns the generated six-digit `debugCode` from `otp/start` for local testing. Codes are random; this setting controls delivery only. **`OTP_TTL_MS`** defaults to `600000` (ten minutes); an explicit value must be a positive safe integer that produces a valid expiration timestamp, or startup fails. **`OTP_RESEND_COOLDOWN_MS`** defaults to `30000` (30 seconds). **`OTP_PHONE_START_LIMIT` / `OTP_PHONE_START_WINDOW_MS`** default to 5 newly issued challenges per phone per hour. **`OTP_IP_START_LIMIT` / `OTP_IP_START_WINDOW_MS`** default to 30 start requests per IP per 10 minutes; verify requests are counted separately against the same limit and window, only when `OTP_TRUST_PROXY=1`.
 - **`CONVERSATION_REPLY_WINDOW_DAYS`**: optional nonnegative number of days to allow replies after a shipment first enters `DELIVERED` or `FAILED_CARRIER_REFUNDED` (default **14**). Existing terminal shipments without reliable transition timestamps are read-only.
 - **`CONVERSATION_SENDS_PER_MINUTE`**: optional per-user, per-conversation send limit (default **20**, maximum **120**).
 - **`ALLOW_X_USER_ID=1`**: allows the old header-based auth (not for real pilots).
@@ -75,7 +75,7 @@ Response:
 }
 ```
 
-Note: `debugCode` is only present when `OTP_DEBUG=1`. A start request during the 30-second cooldown returns the same challenge and code without persisting another store snapshot; no new code is generated. After the cooldown, a new random code is issued and the prior pending challenge is superseded, subject to the phone issuance limit. Requests are also limited by client IP, including requests during cooldown. A limit response uses HTTP 429 with `{ "error": "otp_rate_limited", "retryAfterMs": ... }` and a `Retry-After` header. The API trusts `X-Forwarded-For` only when `OTP_TRUST_PROXY=1`; otherwise it uses the direct socket IP. Keep `OTP_TRUST_PROXY=1` for the Render deployment that supplies the forwarding header. No external delivery channel is implemented yet; pilot login requires debug delivery. Retry an incorrect code before its deadline; request a new code after expiration.
+Note: `debugCode` is only present when `OTP_DEBUG=1`. A start request during the 30-second cooldown returns the same challenge and code without persisting another store snapshot; no new code is generated. After the cooldown, a new random code is issued and the prior pending challenge is superseded, subject to the phone issuance limit. Requests are also limited by client IP, including requests during cooldown. A limit response uses HTTP 429 with `{ "error": "otp_rate_limited", "retryAfterMs": ... }` and a `Retry-After` header. The API trusts `X-Forwarded-For` only when `OTP_TRUST_PROXY=1`; otherwise it uses the direct socket IP. Keep `OTP_TRUST_PROXY=1` for the Render deployment that supplies the forwarding header. No external delivery channel is implemented yet; pilot login requires debug delivery. Retry an incorrect code before its deadline; request a new code after expiration. The fifth wrong code for one challenge ends it (`FAILED`); that reply and any later verify of the same challenge return `otp_too_many_wrong_codes`, and the person must request a new code.
 
 #### `POST /v1/auth/otp/verify`
 Body:
@@ -95,6 +95,12 @@ Response:
   "session": { "...": "..." }
 }
 ```
+
+Verify requests are limited by client IP the same way as start, with the same 429 `otp_rate_limited` response, only when `OTP_TRUST_PROXY=1`. Without it every visitor may arrive from the proxy address, so verify relies on the five-wrong-codes limit per challenge and sign-up on its per-phone limit; the start limit per IP applies either way.
+
+### Sign-up limits
+
+The three sign-up routes (`POST /v1/pilot/driver/register`, `POST /v1/pilot/customer/register`, `POST /v1/pilot/customer/users/register`) share one budget of 5 requests per phone number and, when `OTP_TRUST_PROXY=1`, 30 per client IP every 10 minutes. Past either, they return HTTP 429 `{ "error": "sign_up_rate_limited" }` with a `Retry-After` header. `fullName` and `orgDisplayName` can have at most 100 characters and `phone` at most 20 after trimming; a longer value returns 400 `invalid_fullName`, `invalid_orgDisplayName` or `invalid_phone` with a `detail` sentence and `field`.
 
 #### `POST /v1/pilot/driver/register`
 Creates:
@@ -207,7 +213,7 @@ Body:
 ```
 
 #### `GET /shipments/:shipmentId/tracking`
-Customer (or ops / carrier driver on that trip) live tracking. Requires Bearer. Returns `{ shipment, trip, liveLocation, isLive, staleAfterUtcMs }` (shipment/trip include **`carrierDisplayName`**). **`isLive`** is true only when the shipment is **`BOOKED`**, the anchor trip is **`IN_PROGRESS`**, and the driver ping is fresher than 15 minutes (`TRIP_TRACKING_STALE_MS`).
+Customer (or ops / carrier driver on that trip) live tracking. Requires Bearer. Returns `{ shipment, trip, liveLocation, isLive, staleAfterUtcMs }` (shipment/trip include **`carrierDisplayName`**). **`isLive`** is true only when the shipment is **`BOOKED`**, the anchor trip is **`IN_PROGRESS`**, and the driver ping is fresher than 15 minutes (`TRIP_TRACKING_STALE_MS`). For a shipper, `liveLocation` is null unless the shipment is **`BOOKED`** and the trip is **`IN_PROGRESS`**.
 
 #### `POST /v1/pilot/anchor-trips`
 Headers:
@@ -238,9 +244,11 @@ Carrier accepts a customer booking (`PENDING_CARRIER_ACCEPT` → `BOOKED`). Paym
 #### `POST /v1/pilot/carrier/drivers/invite`
 Fleet: owner/dispatcher invites an **existing** user (by phone) to the carrier org as `DRIVER` or `DISPATCHER`, provisions a vehicle + driver profile, and upgrades `CARRIER_SOLO` → `CARRIER_FLEET` when applicable.
 
-Driver app: **Profile → Fleet — invite drivers** (owners/dispatchers). Invitee must register a user account first (`POST /v1/pilot/customer/users/register` or driver welcome **Join a carrier fleet**).
+Driver app: **Profile → Fleet — invite drivers** (owners/dispatchers). Invitee must register a user account first (`POST /v1/pilot/customer/users/register` or driver welcome **Join a carrier fleet**) and must not be at another carrier.
 
 For **`DISPATCHER`**, vehicle fields are optional in the request body — the server links the invitee to the carrier org's **primary vehicle** (owner's registration from solo register). For **`DRIVER`**, provide `vehicleRegistrationNumber`, `vehicleClass`, and `vehicleCapacityKg` as before.
+
+A phone whose owner has an active driver profile or membership at another carrier is refused, and nothing changes: `409 { "error": "member_of_another_carrier", "detail": "This number belongs to someone at another carrier and cannot be added yet." }`. The driver app shows that `detail` on the invite screen. There is no way yet for that person to leave the other carrier or join this one themselves. The `201` reply is `{ membership: { orgId, role, createdAtUtcMs }, vehicle }`; it never carries the invitee's stored name or user id.
 
 #### Carrier onboarding (driver app)
 New carriers: **Register as new carrier** → `POST /v1/pilot/driver/register` → OTP verify → signed-in driver shell. Sign-in alone is for existing users only.
@@ -318,6 +326,8 @@ Body:
 
 `role` optional — defaults to `CUSTOMER_MEMBER`; may also be `CUSTOMER_ADMIN`.
 
+The `201` reply is `{ membership: { orgId, role, createdAtUtcMs }, org }`; it never carries the invitee's stored name or user id.
+
 #### `GET /v1/pilot/customer/members?orgId=...`
 Lists users + memberships for a customer org. Requires `CUSTOMER_ADMIN` on that org.
 
@@ -356,6 +366,8 @@ Ops. `{ "result": "FOUND", "billNumber": "123456789012" }` or `{ "result": "PROB
 - `POST /shipments/book` books against an `anchorTripId`. With `Authorization: Bearer` from OTP for a user in a **CUSTOMER** org, the shipment is tagged with `customerOrgId` and `customerOrgName` from that org (otherwise anonymous booking uses only the body `customerOrgName`). Optional **`customerPhone`** or **`bookedByPhone`** (India mobile, same normalization as registration) stores `bookedByPhone` on the shipment so the same person can list it after OTP **without** relying on org name matching.
   - **`PAYMENT_PROVIDER=MOCK` (default):** response **`201`** `{ shipment, payment }` where `payment.status` is **`CAPTURED`** immediately.
   - **`PAYMENT_PROVIDER=RAZORPAY`:** after booking, server creates an order with **`payment_capture: false`**. Response **`201`** **`{ shipment, payment, razorpayKeyId? }`** — `payment.status` starts **`CREATED`** with **`razorpayOrderId`**. Flutter (or Web) opens Razorpay Standard Checkout with **`key`=`razorpayKeyId`**, **`order_id`=`razorpayOrderId`**, and amount from `payment.amountPaise`. After customer pays, **authorization** is applied when Razorpay calls **`POST /v1/payments/razorpay/webhook`** (`payment.authorized` / `payment.failed`). **Capture** happens on **`POST /shipments/:id/pod`** (server captures before ledger). Booking may be rolled back if order creation fails.
+  - **Unpaid bookings expire after 30 minutes** (`UNPAID_BOOKING_WINDOW_MS` in `apps/api/src/unpaidBookingExpiry.ts`). Users are told 30 minutes; the server closes the booking 10 minutes later (`UNPAID_BOOKING_CLOSES_AFTER_MS`, 40 minutes after it was made), so a payment finished near the end still lands. A booking still `PENDING_CARRIER_ACCEPT` whose Razorpay payment is `CREATED` or `FAILED` at that point is closed on the next request: shipment `FAILED_CARRIER_REFUNDED` with `unpaidBookingExpiredAtUtcMs`, payment `FAILED`, its kilograms returned to the trip (a `FULL` trip goes back to `OPEN`), and a `load.cancelled` integration event. Loads booked through the ERP integration (they carry `integrationConnectionId`) are never closed this way. A checkout confirm that arrives after that gets `409 { "error": "booking_expired_unpaid", "detail": "This booking expired because it was not paid within 30 minutes. If your bank shows a payment, it comes back within 3 days of when you paid. Your bank may take 5-7 more working days." }`. A late confirm or `payment.authorized` webhook leaves the booking closed and the payment `FAILED`; only its Razorpay payment id is stored, for staff, and no payment status notice is sent. In the app, the shipper booking list and detail show the expired sentence followed by the held-payment line (the app cannot tell whether a late payment came in), and the same sentence pops up when a late checkout confirm gets the 409. Carrier shipment screens show "This booking expired because it was not paid within 30 minutes." instead of the cancelled status. The booking screen says "Pay within 30 minutes, or this booking closes." under Book & pay, and Razorpay Checkout is opened with `timeout` 1500 seconds (25 minutes) on mobile and web.
+- **Weights and capacities** (`weightKg` on quote, eligible-trip search and booking; `capacityKg` on trip publish; `vehicleCapacityKg` on sign-up, driver invite and vehicle update) must be a finite number above zero and at most **100000** kg, or the answer is `400 invalid_weightKg`, `invalid_capacityKg` or `invalid_vehicleCapacityKg`. The routes still convert the JSON value with `Number()` first, so numeric text such as `"250"` is read as 250; any other text is refused.
 - `GET /shipments`, `GET /shipments/:id`, and **`GET /shipments/:id/tracking`** require `Authorization: Bearer`. Responses include shipments for your **CUSTOMER** org (`customerOrgId` match, or legacy match on `customerOrgName` vs org `displayName`) **or** shipments whose **`bookedByPhone`** equals your user’s phone.
 - `POST /shipments/:id/pod` and `POST /shipments/:id/fail-refund` require the same Bearer and the same visibility rules as GET. With Razorpay, POD triggers **capture** then delivery/ledger logic; **`fail-refund`** may refund an **AUTHORIZED** or **CAPTURED** payment where applicable.
 
@@ -363,7 +375,7 @@ Ops. `{ "result": "FOUND", "billNumber": "123456789012" }` or `{ "result": "PROB
 Returns **`{ ok: true, persistence: "file"|"db", paymentProvider: "mock"|"razorpay" }`** — useful when wiring Razorpay and Postgres locally.
 
 #### `POST /v1/payments/razorpay/webhook`
-**Unauthenticated** (signature only). Razorpay posts the JSON event body raw; validate **`x-razorpay-signature`** using **`RAZORPAY_WEBHOOK_SECRET`**. Implemented events: **`payment.authorized`**, **`payment.captured`**, **`payment.failed`**. The server finds the internal payment by Razorpay order/payment ids and updates state idempotently. Configure this URL on the Razorpay dashboard (test mode webhook for dev).
+**Unauthenticated** (signature only). Razorpay posts the JSON event body raw; validate **`x-razorpay-signature`** using **`RAZORPAY_WEBHOOK_SECRET`**. Implemented events: **`payment.authorized`**, **`payment.captured`**, **`payment.failed`**. The server finds the internal payment by Razorpay order/payment ids and updates state idempotently. Configure this URL on the Razorpay dashboard (test mode webhook for dev). A body over 256 KB gets **413** **`{ "error": "payload_too_large" }`** before the signature is checked.
 
 **Production vs legacy demo:** legacy admin/demo JSON that exposes or mutates operator state (`/admin`, `/v1/users`, unauthenticated legacy `/carriers` list/create, legacy `POST /anchor-trips`, ledger/payout toys, **`POST /v1/pilot/driver/login`**, etc.) returns **403** unless `ENABLE_LEGACY_DEMO_SURFACE=1`. The customer marketplace routes above stay enabled in production; without a Bearer token, protected shipment routes return **401**.
 

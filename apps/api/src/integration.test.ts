@@ -1,4 +1,4 @@
-import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { bookTestShipment, internalUser, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
@@ -8,11 +8,14 @@ import {
   publishAnchorTripAsPilotDriver,
   registerCustomerOrgAdmin,
 
+  reportAnchorTripLocation,
   startAnchorTripAsPilot,
 } from "./services.ts";
 import {
   createIntegrationApiKey,
   createIntegrationLoad,
+  getIntegrationShipmentSnapshot,
+  getIntegrationShipmentTracking,
   listIntegrationEvents,
   updateIntegrationConnection,
 } from "./integrationServices.ts";
@@ -57,7 +60,7 @@ test("integration load create is idempotent by externalLoadId", async () => {
     orgDisplayName: "ERP Shipper Co",
   });
   const { token } = createIntegrationApiKey(store, admin.org.id);
-  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized" });
+  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(store, "ADMIN").userId });
 
   const ctx = resolveIntegrationAuth(store, { bearerToken: token });
   const params = {
@@ -80,6 +83,41 @@ test("integration load create is idempotent by externalLoadId", async () => {
   assert.equal(second.shipment.id, first.shipment.id);
 });
 
+test("ERP lookups by external load id and idempotency key skip a booking the unpaid expiry closed", async () => {
+  process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  const store = createStore();
+  seedOpenTrip(store);
+  const admin = registerCustomerOrgAdmin(store, {
+    fullName: "ERP Closed Admin",
+    phone: "9111001198",
+    orgDisplayName: "ERP Closed Co",
+  });
+  const { token } = createIntegrationApiKey(store, admin.org.id);
+  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(store, "ADMIN").userId });
+  const ctx = resolveIntegrationAuth(store, { bearerToken: token });
+  const params = {
+    externalLoadId: "ERP-LOAD-CLOSED",
+    weightKg: 120,
+    pickupAddress: "Warehouse A, Gurugram",
+    dropAddress: "Plant B, Jaipur",
+    pickup: GURGAON,
+    drop: JAIPUR,
+    idempotencyKey: "idem-closed-1",
+  };
+  const first = await createIntegrationLoad(store, ctx, params);
+  // A booking closed by the unpaid expiry, for example one closed before ERP loads were left out of it.
+  store.shipments.set(first.shipment.id, {
+    ...store.shipments.get(first.shipment.id)!,
+    status: "FAILED_CARRIER_REFUNDED",
+    unpaidBookingExpiredAtUtcMs: Date.now(),
+  });
+
+  const again = await createIntegrationLoad(store, ctx, params);
+  assert.equal(again.created, true);
+  assert.notEqual(again.shipment.id, first.shipment.id);
+  assert.equal(again.shipment.status, "PENDING_CARRIER_ACCEPT");
+});
+
 test("integration events emit on carrier accept", () => {
   process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
   const store = createStore();
@@ -92,6 +130,7 @@ test("integration events emit on carrier accept", () => {
   updateIntegrationConnection(store, admin.org.id, {
     webhookUrl: "https://example.com/webhook",
     paymentPolicy: "erp_preauthorized",
+    changedByUserId: internalUser(store, "ADMIN").userId,
   });
 
   const shipment = bookTestShipment(store, {
@@ -220,4 +259,79 @@ test("resolveIntegrationAuth accepts X-Api-Key headers", () => {
   });
   assert.equal(ctx.orgId, admin.org.id);
   assert.equal(key.secretHash, hashIntegrationSecret(parsed![2]!));
+});
+
+test("only platform OPS or ADMIN sets the payment policy", () => {
+  const store = createStore();
+  const admin = registerCustomerOrgAdmin(store, {
+    fullName: "ERP Admin",
+    phone: "9111001197",
+    orgDisplayName: "ERP Shipper 3",
+  });
+  const finance = internalUser(store, "FINANCE");
+  assert.throws(
+    () => updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: finance.userId }),
+    (e: Error) => e.message === "payment_policy_staff_only",
+  );
+  assert.throws(
+    () => updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: admin.user.id }),
+    (e: Error) => e.message === "payment_policy_staff_only",
+  );
+  const ops = internalUser(store, "OPS");
+  assert.equal(
+    updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: ops.userId }).paymentPolicy,
+    "erp_preauthorized",
+  );
+  const platformAdmin = internalUser(store, "ADMIN");
+  assert.equal(
+    updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "portal_checkout", changedByUserId: platformAdmin.userId }).paymentPolicy,
+    "portal_checkout",
+  );
+});
+
+test("ERP tracking, snapshot and webhooks give a shipper the truck location only while its own load is on the moving truck", () => {
+  process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  const store = createStore();
+  const { trip, driver } = seedOpenTrip(store);
+  const onTruck = registerCustomerOrgAdmin(store, { fullName: "ERP Admin", phone: "9111001191", orgDisplayName: "ERP On Truck" });
+  const waiting = registerCustomerOrgAdmin(store, { fullName: "ERP Admin", phone: "9111001192", orgDisplayName: "ERP Waiting" });
+  const booked = bookTestShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: onTruck.org.displayName,
+    customerOrg: { id: onTruck.org.id, displayName: onTruck.org.displayName },
+    weightKg: 50,
+    pickupAddress: "Gurugram",
+    dropAddress: "Jaipur",
+    pickup: GURGAON,
+    drop: JAIPUR,
+  });
+  const notAccepted = bookTestShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: waiting.org.displayName,
+    customerOrg: { id: waiting.org.id, displayName: waiting.org.displayName },
+    weightKg: 50,
+    pickupAddress: "Gurugram",
+    dropAddress: "Jaipur",
+    pickup: GURGAON,
+    drop: JAIPUR,
+  });
+  const unpaid = store.payments.get(notAccepted.paymentId)!;
+  store.payments.set(unpaid.id, { ...unpaid, status: "CREATED" });
+
+  acceptCarrierShipment(store, { shipmentId: booked.id, userId: driver.user.id });
+  startAnchorTripAsPilot(store, { userId: driver.user.id, tripId: trip.id });
+  reportAnchorTripLocation(store, driver.user.id, trip.id, { lat: 28.47, lng: 77.04 });
+
+  const bookedTracking = getIntegrationShipmentTracking(store, onTruck.org.id, booked.id);
+  assert.equal(bookedTracking.liveLocation?.lat, 28.47);
+  const bookedPayload = buildIntegrationEventPayload(store, { eventType: "load.location_updated", shipment: store.shipments.get(booked.id)!, sequence: 1 });
+  assert.equal(((bookedPayload.tracking as Record<string, unknown>).lastLocation as { lat: number }).lat, 28.47);
+
+  const waitingTracking = getIntegrationShipmentTracking(store, waiting.org.id, notAccepted.id);
+  assert.equal(waitingTracking.liveLocation, null);
+  assert.equal(JSON.stringify(waitingTracking).includes("28.47"), false, "no location anywhere in the tracking reply");
+  const waitingSnapshot = getIntegrationShipmentSnapshot(store, waiting.org.id, notAccepted.id);
+  assert.equal(JSON.stringify(waitingSnapshot).includes("28.47"), false, "no location anywhere in the snapshot");
+  const waitingPayload = buildIntegrationEventPayload(store, { eventType: "load.in_transit", shipment: store.shipments.get(notAccepted.id)!, sequence: 1 });
+  assert.equal((waitingPayload.tracking as Record<string, unknown>).lastLocation, null);
 });

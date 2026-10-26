@@ -782,7 +782,7 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            "Create a personal account so your carrier admin can invite you to their org. You do not get a carrier org from this step.",
+            "Create a personal account so your carrier admin can invite you to their company. You do not get a carrier company from this step. If you already work for another carrier, you cannot be added yet.",
             style: TextStyle(color: DriverTheme.muted, height: 1.4),
           ),
           const SizedBox(height: 16),
@@ -911,7 +911,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
         ),
         const SizedBox(height: 8),
         const Text(
-          "Invite a driver who already registered their phone (or used Join a fleet). Solo orgs become fleet when you add drivers.",
+          "Invite a driver who already registered their phone. Someone at another carrier cannot be added yet. A solo company becomes a fleet when you add drivers.",
           style: TextStyle(color: DriverTheme.muted, height: 1.4),
         ),
         if (!DriverSession.canInviteDrivers) ...[
@@ -1065,7 +1065,8 @@ class _DriverShipmentsScreenState extends State<DriverShipmentsScreen> {
             final id = s["id"]?.toString() ?? "";
             final st = s["status"]?.toString() ?? "";
             final stLabel = shipmentStatusLabel(st,
-                seesPayment: AuthorizationSession.can("payment.read"));
+                seesPayment: AuthorizationSession.can("payment.read"),
+                unpaidBookingExpired: s["unpaidBookingExpiredAtUtcMs"] != null);
             return Card(
               child: ListTile(
                 title: Text("${s["customerOrgName"]} · ${s["weightKg"]} kg"),
@@ -1213,7 +1214,7 @@ class _DriverShipmentDetailScreenState
                   color: DriverTheme.navy)),
           const SizedBox(height: 8),
           Text(
-              "Status: ${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"))}",
+              "Status: ${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"), unpaidBookingExpired: s["unpaidBookingExpiredAtUtcMs"] != null)}",
               style: const TextStyle(color: DriverTheme.muted)),
           const SizedBox(height: 12),
           Text("Pickup: ${s["pickupAddress"]}"),
@@ -2354,10 +2355,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                           title: Text(
                               "${s["customerOrgName"]} · ${s["weightKg"]}kg"),
                           subtitle: Text(s["netToCarrierPaise"] is num
-                              ? "${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"))} · ${formatInrFromPaise(s["netToCarrierPaise"] as num)} net"
+                              ? "${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"), unpaidBookingExpired: s["unpaidBookingExpiredAtUtcMs"] != null)} · ${formatInrFromPaise(s["netToCarrierPaise"] as num)} net"
                               : shipmentStatusLabel(st,
                                   seesPayment:
-                                      AuthorizationSession.can("payment.read"))),
+                                      AuthorizationSession.can("payment.read"),
+                                  unpaidBookingExpired:
+                                      s["unpaidBookingExpiredAtUtcMs"] !=
+                                          null)),
                           trailing: st == "PENDING_CARRIER_ACCEPT"
                               ? TextButton(
                                   onPressed: DriverSession.complianceApproved &&

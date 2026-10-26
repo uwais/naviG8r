@@ -18,6 +18,8 @@ const rules: [string, RegExp, Permission][] = [
   ["GET", /^\/v1\/ops\/dashboard\/[^/]+$/, "organization.profile.read"],
   ["POST", /^\/v1\/ops\/carrier-organizations$/, "carrier.onboard"],
   ["POST", /^\/v1\/ops\/dashboard-access$/, "user.role_manage"],
+  // OPS and ADMIN share no write permission; /v1/ops/ already needs a platform user, and the service allows only OPS or ADMIN.
+  ["PUT", /^\/v1\/ops\/organizations\/[^/]+\/integration-payment-policy$/, "directory.read"],
   ["GET", /^\/v1\/pilot\/me$/, "organization.profile.read"],
   ["PATCH", /^\/v1\/pilot\/me\/vehicle$/, "load.status_update"],
   ["GET", /^\/v1\/pilot\/anchor-trips(?:\/[^/]+)?$/, "load.read"],
@@ -91,8 +93,10 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   }
   const context = authorizationContext.getStore()!;
   context.principal = p;
-  context.reason = typeof req.headers["x-reason-code"] === "string" ? req.headers["x-reason-code"] : undefined;
-  context.effectiveActorId = typeof req.headers["x-effective-actor-id"] === "string" ? req.headers["x-effective-actor-id"] : undefined;
+  // Both headers end up in audit rows: the reason is kept only from platform staff, the represented member only from ops.
+  const actsForMembers = p.internal && p.roles.includes("OPS");
+  context.reason = p.internal && typeof req.headers["x-reason-code"] === "string" ? req.headers["x-reason-code"] : undefined;
+  context.effectiveActorId = actsForMembers && typeof req.headers["x-effective-actor-id"] === "string" ? req.headers["x-effective-actor-id"] : undefined;
   const orgId = url.searchParams.get("orgId");
   if (orgId && orgId !== p.organizationId) throw new AuthorizationError("not_found", 404);
   let resource;

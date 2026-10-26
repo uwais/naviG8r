@@ -1,4 +1,4 @@
-import { requirePermission } from "./rbac.ts";
+import { AuthorizationError, recordAudit, requirePermission } from "./rbac.ts";
 import { withoutEwayBill } from "./ewayBillVisibility.ts";
 import { withoutTripAssignment } from "./tripAssignmentRules.ts";
 import { isActiveEntity } from "./softDelete.ts";
@@ -7,8 +7,10 @@ import {
   bookShipment,
   customerEligibleAnchorTripsPhaseA,
   shipmentWithCarrierDisplay,
-  tripWithCarrierDisplay,
+  tripForPublicListing,
   attachRazorpayOrderForShipment,
+  isOpsAdmin,
+  isOpsAgent,
 } from "./services.ts";
 import type {
   GeoPoint,
@@ -16,6 +18,7 @@ import type {
   IntegrationApiScope,
   IntegrationConnection,
   IntegrationEvent,
+  IntegrationPaymentPolicy,
   IntegrationWebhookDelivery,
   Shipment,
 } from "./types.ts";
@@ -84,6 +87,8 @@ export function getOrCreateIntegrationConnection(
   return conn;
 }
 
+const INTEGRATION_PAYMENT_POLICIES: IntegrationPaymentPolicy[] = ["erp_preauthorized", "portal_checkout"];
+
 export function updateIntegrationConnection(
   store: Store,
   orgId: string,
@@ -92,9 +97,17 @@ export function updateIntegrationConnection(
     paymentPolicy?: IntegrationConnection["paymentPolicy"];
     displayName?: string;
     regenerateWebhookSecret?: boolean;
+    changedByUserId?: string;
   },
 ): IntegrationConnection {
   const conn = getOrCreateIntegrationConnection(store, orgId);
+  if (params.paymentPolicy != null) {
+    if (!INTEGRATION_PAYMENT_POLICIES.includes(params.paymentPolicy)) throw new Error("invalid_payment_policy");
+    // Booking without portal checkout rests on a payment agreement with NaviG8r, so only platform OPS or ADMIN changes it.
+    const changedByStaff = params.changedByUserId != null &&
+      (isOpsAdmin(store, params.changedByUserId) || isOpsAgent(store, params.changedByUserId));
+    if (params.paymentPolicy !== conn.paymentPolicy && !changedByStaff) throw new Error("payment_policy_staff_only");
+  }
   const now = nowUtcMs();
   if (params.webhookUrl != null) {
     const url = params.webhookUrl.trim();
@@ -108,6 +121,24 @@ export function updateIntegrationConnection(
   if (params.regenerateWebhookSecret) conn.webhookSecret = crypto.randomBytes(24).toString("hex");
   conn.updatedAtUtcMs = now;
   store.integrationConnections.set(conn.id, conn);
+  return conn;
+}
+
+/** The staff route for the payment policy: platform OPS or ADMIN only, and every change goes in the audit log. */
+export function setIntegrationPaymentPolicyAsStaff(
+  store: Store,
+  orgId: string,
+  paymentPolicy: IntegrationPaymentPolicy,
+  staffUserId: string,
+): IntegrationConnection {
+  if (!isOpsAdmin(store, staffUserId) && !isOpsAgent(store, staffUserId)) {
+    throw new AuthorizationError("payment_policy_staff_only");
+  }
+  const org = store.organizations.get(orgId);
+  if (!org || !isActiveEntity(org) || org.kind !== "CUSTOMER") throw new AuthorizationError("not_found", 404);
+  const previousPolicy = getOrCreateIntegrationConnection(store, orgId).paymentPolicy;
+  const conn = updateIntegrationConnection(store, orgId, { paymentPolicy, changedByUserId: staffUserId });
+  recordAudit(store, "INTEGRATION_PAYMENT_POLICY_CHANGED", "organization", orgId, previousPolicy, conn.paymentPolicy);
   return conn;
 }
 
@@ -151,15 +182,17 @@ function findShipmentByExternalLoadId(store: Store, orgId: string, externalLoadI
   if (!ext) return null;
   return (
     [...store.shipments.values()].find(
-      (s) => s.customerOrgId === orgId && s.externalLoadId === ext,
+      (s) => s.customerOrgId === orgId && s.externalLoadId === ext && s.unpaidBookingExpiredAtUtcMs == null,
     ) ?? null
   );
 }
 
+/** A booking the unpaid expiry closed is never handed back; the ERP gets a new booking instead. */
 function findShipmentByIdempotencyKey(store: Store, orgId: string, idempotencyKey: string): Shipment | null {
   const rec = store.integrationIdempotency.get(idempotencyStoreKey(orgId, idempotencyKey));
   if (!rec) return null;
-  return store.shipments.get(rec.shipmentId) ?? null;
+  const shipment = store.shipments.get(rec.shipmentId);
+  return shipment && shipment.unpaidBookingExpiredAtUtcMs == null ? shipment : null;
 }
 
 function recordIdempotency(store: Store, orgId: string, idempotencyKey: string, shipmentId: string): void {
@@ -320,11 +353,12 @@ export function getIntegrationShipmentTracking(store: Store, orgId: string, ship
   const loc = trip.lastLiveLocation ?? null;
   const staleMs = 15 * 60 * 1000;
   const fresh = loc != null && now - loc.recordedAtUtcMs <= staleMs;
-  const isLive = fresh && shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
+  const shipperMaySeeTruck = shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
+  const isLive = fresh && shipperMaySeeTruck;
   return {
     shipment: withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment))),
-    trip: withoutTripAssignment(tripWithCarrierDisplay(store, trip)),
-    liveLocation: loc,
+    trip: tripForPublicListing(store, trip),
+    liveLocation: shipperMaySeeTruck ? loc : null,
     isLive,
     staleAfterUtcMs: staleMs,
     trackingUrl: shipmentTrackingUrl(shipmentId),
@@ -345,7 +379,7 @@ export function getIntegrationShipmentSnapshot(store: Store, orgId: string, ship
     ...integrationLoadResponse(store, shipment, conn),
     shipment: withoutTripAssignment(withoutEwayBill(enriched)),
     payment,
-    trip: trip ? withoutTripAssignment(trip) : null,
+    trip: trip ? tripForPublicListing(store, trip) : null,
   };
 }
 

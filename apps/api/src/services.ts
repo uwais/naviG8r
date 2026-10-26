@@ -46,6 +46,7 @@ import {
   razorpayPayoutsEnabled,
 } from "./razorpayPayouts.ts";
 import { emitIntegrationEvent } from "./integrationWebhooks.ts";
+import { expireUnpaidBooking, HELD_PAYMENT_RETURN_DETAIL, keepPaymentAfterExpiry, UNPAID_BOOKING_EXPIRED_DETAIL } from "./unpaidBookingExpiry.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
 import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
 
@@ -90,6 +91,14 @@ export class ApiError extends Error {
     this.httpStatus = httpStatus;
     Object.setPrototypeOf(this, new.target.prototype);
   }
+}
+
+/** Upper bound for any load weight or truck and trip capacity; far above what one truck carries. */
+const MAX_WEIGHT_KG = 100_000;
+
+/** A load weight or capacity: a finite number above zero, at most MAX_WEIGHT_KG. NaN and text fail here. */
+function weightKgInRange(kg: unknown): boolean {
+  return typeof kg === "number" && Number.isFinite(kg) && kg > 0 && kg <= MAX_WEIGHT_KG;
 }
 
 /** Max distance from trip origin / destination for Phase A booking (km). Env overrides for ops. */
@@ -169,6 +178,16 @@ function assertVehicleClass(v: any): asserts v is VehicleClass {
 function assertTruckNumberLength(registrationNumber: string): void {
   if (registrationNumber.trim().length > 20) {
     throw new ApiError("invalid_vehicleRegistrationNumber", { detail: "A truck number can have at most 20 characters.", field: "vehicleRegistrationNumber" });
+  }
+}
+
+/** Sign-up needs no account, so each text field it takes has a length cap. */
+function assertSignUpFieldLengths(params: { fullName: string; phone: string; orgDisplayName?: string }): void {
+  const caps = [["fullName", 100, "A name"], ["orgDisplayName", 100, "A company name"], ["phone", 20, "A phone number"]] as const;
+  for (const [field, maxCharacters, label] of caps) {
+    if (String(params[field] ?? "").trim().length > maxCharacters) {
+      throw new ApiError(`invalid_${field}`, { detail: `${label} can have at most ${maxCharacters} characters.`, field });
+    }
   }
 }
 
@@ -267,9 +286,10 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
   if (!String(params.vehicleRegistrationNumber ?? "").trim()) throw new Error("invalid_vehicleRegistrationNumber");
+  assertSignUpFieldLengths(params);
   assertTruckNumberLength(String(params.vehicleRegistrationNumber));
   assertVehicleClass(params.vehicleClass);
-  if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
+  if (!weightKgInRange(params.vehicleCapacityKg)) throw new Error("invalid_vehicleCapacityKg");
 
   const phone = normalizeInPhone(params.phone);
   const dup = [...store.users.values()].find((u) => u.phone === phone);
@@ -788,6 +808,7 @@ export function registerCustomerOrgAdmin(store: Store, params: {
 }): { user: User; org: Organization; membership: Membership } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
+  assertSignUpFieldLengths(params);
 
   const phone = normalizeInPhone(params.phone);
   const dup = [...store.users.values()].find((u) => u.phone === phone);
@@ -824,6 +845,7 @@ export function registerCustomerUser(store: Store, params: {
   phone: string;
 }): { user: User } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
+  assertSignUpFieldLengths(params);
 
   const phone = normalizeInPhone(params.phone);
   const dup = [...store.users.values()].find((u) => u.phone === phone);
@@ -975,7 +997,7 @@ export function updatePilotDriverVehicle(
   }
   if (hasCap) {
     const cap = Number(params.vehicleCapacityKg);
-    if (!(cap > 0)) throw new Error("invalid_vehicleCapacityKg");
+    if (!weightKgInRange(cap)) throw new Error("invalid_vehicleCapacityKg");
     capacityKg = cap;
   }
 
@@ -1201,10 +1223,8 @@ export function getShipmentTripTracking(
 } {
   const shipment = store.shipments.get(shipmentId);
   if (!shipment) throw new Error("shipment_not_found");
-  const visible =
-    shipmentVisibleToCustomerUser(store, shipment, userId) ||
-    isOpsAdmin(store, userId) ||
-    isOpsAgent(store, userId);
+  const asShipper = shipmentVisibleToCustomerUser(store, shipment, userId);
+  const visible = asShipper || isOpsAdmin(store, userId) || isOpsAgent(store, userId);
   if (!visible) {
     try {
       pilotGetMyAnchorTrip(store, userId, shipment.anchorTripId);
@@ -1219,10 +1239,12 @@ export function getShipmentTripTracking(
   const fresh = isTripLocationLive(loc ?? undefined, now);
   const tripStarted = trip.status === "IN_PROGRESS";
   const isLive = fresh && shipment.status === "BOOKED" && tripStarted;
+  // A shipper sees the truck only while their own goods are on it; before that, or after a refund, it carries others'.
+  const shipperMaySeeTruck = shipment.status === "BOOKED" && tripStarted;
   return {
     shipment: shipmentWithCarrierDisplay(store, shipment),
     trip: tripWithCarrierDisplay(store, trip),
-    liveLocation: loc,
+    liveLocation: asShipper && !shipperMaySeeTruck ? null : loc,
     isLive,
     staleAfterUtcMs: TRIP_TRACKING_STALE_MS,
   };
@@ -1241,7 +1263,7 @@ export function publishAnchorTrip(store: Store, params: {
 }): AnchorTrip {
   // `carrierId` is legacy naming; it is the Organization id for carrier-side entities.
   getOrgOrThrow(store, params.carrierId);
-  if (params.capacityKg <= 0) throw new Error("invalid_capacityKg");
+  if (!weightKgInRange(params.capacityKg)) throw new Error("invalid_capacityKg");
   if (params.origin) assertGeoPoint(params.origin, "origin");
   if (params.destination) assertGeoPoint(params.destination, "destination");
   const t: AnchorTrip = {
@@ -1312,7 +1334,7 @@ export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
 }> {
   assertGeoPoint(params.pickup, "pickup");
   assertGeoPoint(params.drop, "drop");
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  if (!weightKgInRange(params.weightKg)) throw new Error("invalid_weightKg");
 
   const radii = phaseAEndpointRadiiKm();
   const maxPickup = params.maxPickupDistanceKm ?? radii.maxPickupKm;
@@ -1385,7 +1407,7 @@ export function computeFreightGrossPaise(params: {
   shipmentKm?: number | null;
 }): { grossPaise: number; breakdown: FreightBreakdown } {
   assertVehicleClass(params.vehicleClass);
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  if (!weightKgInRange(params.weightKg)) throw new Error("invalid_weightKg");
 
   const laneKm = params.laneKm != null && params.laneKm > 0 ? params.laneKm : null;
   const shipmentKm = params.shipmentKm != null && params.shipmentKm > 0 ? params.shipmentKm : null;
@@ -1432,7 +1454,7 @@ export function quoteShipmentMarketplace(store: Store, params: {
   drop?: unknown;
   anchorTripId?: string;
 }): { grossPaise: number; breakdown: FreightBreakdown } {
-  if (params.weightKg <= 0) throw new ApiError("invalid_weightKg", {});
+  if (!weightKgInRange(params.weightKg)) throw new ApiError("invalid_weightKg", {});
 
   let vehicleClass: VehicleClass = "MEDIUM";
   let laneKm: number | null = null;
@@ -1501,7 +1523,7 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   if (Array.isArray(body.sampleWeightsKg) && body.sampleWeightsKg.length > 0) {
     const parsed = body.sampleWeightsKg
       .map((w) => Number(w))
-      .filter((n) => Number.isFinite(n) && n > 0);
+      .filter(weightKgInRange);
     if (parsed.length > 0) {
       sampleWeights = [...new Set(parsed)].sort((a, b) => a - b).slice(0, 8);
     }
@@ -1565,7 +1587,7 @@ export function bookShipment(store: Store, params: {
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip || !isActiveEntity(trip)) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  if (!weightKgInRange(params.weightKg)) throw new Error("invalid_weightKg");
   if (trip.reservedKg + params.weightKg > trip.capacityKg) throw new Error("insufficient_capacity");
 
   assertPhaseABookingEligible({
@@ -1911,6 +1933,17 @@ export function inviteCarrierDriver(
   if (existing) {
     throw new ApiError("membership_already_exists", { role: existing.role });
   }
+  // Driver profiles are keyed by user alone, so inviting someone from another carrier would move their profile and truck here.
+  const profile = store.driverProfiles.get(user.id);
+  const profileAtAnotherCarrier = isActiveEntity(profile) && profile!.orgId !== params.orgId;
+  const memberOfAnotherCarrier = [...store.memberships.values()].some((m) => {
+    const memberOrg = store.organizations.get(m.orgId);
+    return m.userId === user.id && m.orgId !== params.orgId && isActiveEntity(m) && isActiveEntity(memberOrg) &&
+      (memberOrg!.kind === "CARRIER_SOLO" || memberOrg!.kind === "CARRIER_FLEET" || memberOrg!.kind === "CARRIER_LEGACY");
+  });
+  if (profileAtAnotherCarrier || memberOfAnotherCarrier) {
+    throw new ApiError("member_of_another_carrier", { detail: "This number belongs to someone at another carrier and cannot be added yet." }, 409);
+  }
   const role = params.role ?? "DRIVER";
   if (role !== "DRIVER" && role !== "DISPATCHER") throw new Error("invalid_role");
 
@@ -1933,7 +1966,7 @@ export function inviteCarrierDriver(
     vehicle = orgVehicle;
   } else {
     assertVehicleClass(params.vehicleClass);
-    if ((params.vehicleCapacityKg ?? 0) <= 0) throw new Error("invalid_vehicleCapacityKg");
+    if (!weightKgInRange(params.vehicleCapacityKg)) throw new Error("invalid_vehicleCapacityKg");
     if (!String(params.vehicleRegistrationNumber ?? "").trim()) {
       throw new Error("invalid_vehicleRegistrationNumber");
     }
@@ -2070,6 +2103,11 @@ export function confirmRazorpayCheckoutAuthorization(
     params.razorpaySignature,
   )) {
     throw new ApiError("invalid_razorpay_signature", {});
+  }
+  expireUnpaidBooking(store, s);
+  if (store.shipments.get(s.id)?.unpaidBookingExpiredAtUtcMs != null) {
+    keepPaymentAfterExpiry(store, pay.id, params.razorpayPaymentId);
+    throw new ApiError("booking_expired_unpaid", { detail: `${UNPAID_BOOKING_EXPIRED_DETAIL} ${HELD_PAYMENT_RETURN_DETAIL}` }, 409);
   }
   if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
     return { payment: pay };

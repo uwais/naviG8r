@@ -148,7 +148,7 @@ export type DriverProfile = {
   createdAtUtcMs: number;
 } & SoftDeleteFields;
 
-export type OtpChallengeStatus = "PENDING" | "CONSUMED" | "EXPIRED" | "SUPERSEDED";
+export type OtpChallengeStatus = "PENDING" | "CONSUMED" | "EXPIRED" | "SUPERSEDED" | "FAILED";
 
 /**
  * Pilot OTP challenge (mock SMS). Replace with real SMS + rate limits in production.
@@ -160,6 +160,7 @@ export type OtpChallenge = {
   status: OtpChallengeStatus;
   expiresAtUtcMs: number;
   createdAtUtcMs: number;
+  wrongCodeCount?: number;
 };
 
 export type AuthSession = {
@@ -298,6 +299,8 @@ export type Shipment = {
   /** Monotonic sequence for integration webhooks per shipment. */
   integrationSequence?: number;
   ewayBill?: EwayBill;
+  /** Set when the booking closed because no payment arrived within the unpaid-booking window. */
+  unpaidBookingExpiredAtUtcMs?: number;
 } & SoftDeleteFields;
 
 export type PaymentProviderId = "MOCK" | "RAZORPAY";
