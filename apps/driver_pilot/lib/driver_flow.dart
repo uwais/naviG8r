@@ -397,8 +397,9 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
     final p = GoRouterState.of(context).uri.queryParameters["phone"] ?? "";
     final extra = GoRouterState.of(context).extra;
     _useFirebase =
-        GoRouterState.of(context).uri.queryParameters["firebase"] == "1";
-    if (_useFirebase) _firebase ??= FirebasePhoneAuthClient();
+        GoRouterState.of(context).uri.queryParameters["firebase"] == "1" ||
+            !legacyOtpFallbackEnabled;
+    if (_useFirebase) _firebase ??= newPhoneAuthClient();
     if (extra is Map && !_receivedChallenge && extra["challengeId"] is String) {
       _phone = p;
       _challengeId.text = (extra["challengeId"] as String).trim();

@@ -258,6 +258,6 @@ test("debug configuration is captured at startup; client parameters cannot enabl
 });
 
 test("web sign-in pages word the too-many-wrong-codes answer", () => {
-  assert.match(adminDashboardV1Html(), /otp_too_many_wrong_codes: "Too many wrong codes\. Send a new code\."/);
-  assert.match(opsConsoleBetaHtml(), /otp_too_many_wrong_codes: 'too many wrong codes were entered, so send a new code'/);
+  assert.match(adminDashboardV1Html(false, { kind: "server-code" }), /otp_too_many_wrong_codes: "Too many wrong codes\. Send a new code\."/);
+  assert.match(opsConsoleBetaHtml({ kind: "server-code" }), /otp_too_many_wrong_codes: 'too many wrong codes were entered, so send a new code'/);
 });

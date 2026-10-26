@@ -65,6 +65,37 @@ Service-account credentials remain deployment secrets.
 node --experimental-strip-types --test apps/api/src/firebaseAuth.test.ts
 ```
 
-The legacy OTP provider remains available on web. Android uses Firebase by
-default; enable it explicitly with
+Web uses Firebase when runtime-config.js carries the four Firebase settings, and
+the old server code otherwise; a production server refuses the old server code.
+Android uses Firebase by default; enable the old server code explicitly with
 `--dart-define=ALLOW_LEGACY_OTP_FALLBACK=true` only when a fallback is needed.
+
+## Staff pages served by the API
+
+`/ops`, `/ops/beta`, `/ops/v1`, `/ops/v2`, `/admin`, `/admin/v1`, `/admin/v2` and
+`/workflow` sign in with Firebase phone auth in the browser, then call the same
+`POST /v1/auth/firebase/exchange`. The browser script lives in
+`apps/api/src/staffSignIn.ts` and loads one pinned Firebase JS SDK version from
+`www.gstatic.com`.
+
+Set these on the API service, next to `FIREBASE_PROJECT_ID`:
+
+```bash
+export FIREBASE_WEB_API_KEY="<web app apiKey from the Firebase console>"
+export FIREBASE_WEB_APP_ID="<web app appId, 1:<number>:web:<hex>>"
+```
+
+Each value must match a strict pattern or the server ignores it. The old code
+sign-in is allowed only when `NODE_ENV` is `test`, `development`, `alpha` or
+`beta`, or is unset (local runs and tests). Any other value, `production` or a
+misspelling of it, counts as production:
+
+- `POST /v1/auth/otp/start` and `/v1/auth/otp/verify` answer `410`
+  `otp_sign_in_retired` and never return a code or a session.
+- Sessions made by the old code sign-in stop working; people sign in again
+  with Firebase.
+- If the two web settings are missing or invalid, the staff pages show
+  "Staff sign-in is not set up on this server." and offer no way in.
+
+Where the old code sign-in is allowed, staff pages keep it unless both web
+settings are set on that server, in which case they use Firebase too.

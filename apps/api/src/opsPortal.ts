@@ -1,7 +1,21 @@
+import { firebaseSignInMarkup, staffSignInNotSetUpMarkup, type StaffSignIn } from "./staffSignIn.ts";
+
+const signInControls = '<label>Phone<input id="phone" autocomplete="tel"></label><button id="start">Send code</button><label>Verification code<input id="code" autocomplete="one-time-code"></label><button id="verify">Sign in</button>';
+
+// Only outside production: the server refuses these routes there.
+const serverCodeSignIn = `$('phone').oninput = () => { otpPhoneRevision++; challenge = ''; $('code').value = ''; otpCooldownUntil = 0; renderOtpCooldown(); };
+$('start').onclick = perform(async () => { const button=$('start'), previousChallenge=challenge, requestRevision=otpPhoneRevision, requestedPhone=$('phone').value; button.disabled=true; try { const out = await request('/v1/auth/otp/start','POST',{phone:requestedPhone}); if (requestRevision !== otpPhoneRevision || requestedPhone !== $('phone').value) return; challenge = out.challengeId; if (out.debugCode !== undefined) $('code').value = out.debugCode; else if (challenge !== previousChallenge) $('code').value = ''; startOtpCooldown(out.retryAfterMs); } catch (e) { if (requestRevision !== otpPhoneRevision || requestedPhone !== $('phone').value) return; if (e.retryAfterMs) { startOtpCooldown(e.retryAfterMs); } throw e; } finally { if (requestRevision === otpPhoneRevision && (!otpCooldownUntil || otpCooldownUntil <= Date.now())) renderOtpCooldown(); } });
+$('verify').onclick = perform(async () => { if(!challenge) throw Error('Start a new code before signing in.'); const out = await request('/v1/auth/otp/verify','POST',{phone:$('phone').value,challengeId:challenge,code:$('code').value}); await signedIn(out.accessToken); });
+`;
+
 /** Public shell; every data request is authenticated and authorized by the API. */
 export function opsPortalHtml(
-  options: { workflowOnly?: boolean; operations?: boolean } = {},
+  options: { workflowOnly?: boolean; operations?: boolean; signIn: StaffSignIn },
 ): string {
+  const signIn = options.signIn;
+  const loginContent = signIn.kind === "not-set-up" ? staffSignInNotSetUpMarkup
+    : signIn.kind === "firebase" ? signInControls + firebaseSignInMarkup(signIn.settings, { phone: "phone", send: "start", code: "code", verify: "verify" })
+    : signInControls;
   const workflowOnly = options.workflowOnly === true;
   const heading = workflowOnly
     ? "NaviG8r shipments"
@@ -17,7 +31,7 @@ ${workflowOnly ? "" : "body{max-width:none;margin:0;padding:0}.dashboard-header{
 </style></head><body>
 ${workflowOnly ? "" : `<header class="dashboard-header"><div><strong>NaviG8r</strong><small>Operations &amp; administration · V2</small></div><nav aria-label="Dashboard navigation"><a href="${fullDashboardPath}">Open full dashboard (V1)</a><a href="/workflow">Shipment / POD workspace</a></nav></header><main class="compact-dashboard">`}
 <h1>${heading}</h1>${workflowOnly ? '<nav><a href="/admin">Admin workspace</a></nav><p><a href="/admin/v1">Open full dashboard (V1)</a></p>' : ""}<p id="error" role="alert"></p>
-<section id="login"><label>Phone<input id="phone" autocomplete="tel"></label><button id="start">Send code</button><label>Verification code<input id="code" autocomplete="one-time-code"></label><button id="verify">Sign in</button></section>
+<section id="login">${loginContent}</section>
 <section id="workspace" hidden><label>Acting organization<select id="organization"><option value="">Select an organization</option></select></label><button id="signout">Sign out</button><p id="roles"></p><p id="access"></p><div id="shipments"></div>
 <section id="roleManagement" hidden><h2>Membership roles</h2><label>User ID<input id="memberUser"></label><label>Organization ID<input id="memberOrg"></label><label>Roles (comma separated)<input id="memberRoles" placeholder="OPS,FINANCE"></label><button id="saveRoles">Save roles</button></section>
 <section id="compliance" hidden><h2>Carrier compliance review</h2><p id="notice" role="status"></p><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="reason"></label><p>If you reject with DOCUMENTS_MISSING, BANK_DETAILS_MISMATCH, DUPLICATE_ACCOUNT or NOT_A_CARRIER, only the carrier's owner sees that reason in their app, in plain words; BANK_DETAILS_MISMATCH only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details.</p><h3>Not yet approved</h3><p id="kycEmpty" hidden>Every carrier is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Carrier organization ID<input id="carrierOrg"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
@@ -43,10 +57,9 @@ function startOtpCooldown(retryAfterMs) {
  otpCooldownUntil = Date.now() + Math.max(0, Number(retryAfterMs) || 0); renderOtpCooldown();
  if (otpCooldownUntil > Date.now()) otpCooldownTimer = setInterval(renderOtpCooldown, 250);
 }
-$('phone').oninput = () => { otpPhoneRevision++; challenge = ''; $('code').value = ''; otpCooldownUntil = 0; renderOtpCooldown(); };
-$('start').onclick = perform(async () => { const button=$('start'), previousChallenge=challenge, requestRevision=otpPhoneRevision, requestedPhone=$('phone').value; button.disabled=true; try { const out = await request('/v1/auth/otp/start','POST',{phone:requestedPhone}); if (requestRevision !== otpPhoneRevision || requestedPhone !== $('phone').value) return; challenge = out.challengeId; if (out.debugCode !== undefined) $('code').value = out.debugCode; else if (challenge !== previousChallenge) $('code').value = ''; startOtpCooldown(out.retryAfterMs); } catch (e) { if (requestRevision !== otpPhoneRevision || requestedPhone !== $('phone').value) return; if (e.retryAfterMs) { startOtpCooldown(e.retryAfterMs); } throw e; } finally { if (requestRevision === otpPhoneRevision && (!otpCooldownUntil || otpCooldownUntil <= Date.now())) renderOtpCooldown(); } });
-$('verify').onclick = perform(async () => { if(!challenge) throw Error('Start a new code before signing in.'); const out = await request('/v1/auth/otp/verify','POST',{phone:$('phone').value,challengeId:challenge,code:$('code').value}); token = out.accessToken; org=''; sessionStorage.setItem('navig8r_access',token); sessionStorage.removeItem('navig8r_org'); await loadOrganizations(); });
-$('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
+async function signedIn(accessToken) { token = accessToken; org=''; sessionStorage.setItem('navig8r_access',token); sessionStorage.removeItem('navig8r_org'); await loadOrganizations(); }
+document.addEventListener('navig8r-staff-signed-in', event => perform(() => signedIn(event.detail))());
+${signIn.kind === "server-code" ? serverCodeSignIn : ""}$('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
 async function loadOrganizations() {
  const me = await request('/v1/auth/me'); $('login').hidden = true; $('workspace').hidden = false;
  $('organization').replaceChildren(new Option('Select an organization',''));

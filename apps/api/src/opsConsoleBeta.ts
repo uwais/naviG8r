@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { ewayBillMarkup, ewayBillScript } from "./opsConsoleBetaEwayBills.ts";
 import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
+import { firebaseSignInMarkup, firebaseSignInPolicySources, firebaseSignInScript, staffSignInNotSetUpMarkup, type SignInElementIds, type StaffSignIn } from "./staffSignIn.ts";
 
 /**
  * The redesigned operations page, served at /ops/beta beside the current /ops page until the team agrees
@@ -10,8 +11,15 @@ import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
  * Over 500 lines because markup and script are one screen: every element id the script reads is defined
  * here, or in opsConsoleBetaEwayBills.ts, which is pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
  */
-export function opsConsoleBetaHtml(): string {
-  return page;
+export function opsConsoleBetaHtml(signIn: StaffSignIn): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NaviG8r operations (beta)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Poppins:wght@600;700&display=swap">
+<style>${opsConsoleBetaStyles}</style></head><body>
+${markup(signInContent(signIn))}
+<script>${pageScript(signIn)}</script>
+</body></html>`;
 }
 
 // The website's logo file (apps/www/public/brand/logo-horizontal-light.svg), inlined because the API does
@@ -26,7 +34,19 @@ const logo = `<svg viewBox="0 0 1400 400" role="img" aria-label="NaviG8r" xmlns=
 <text x="364" y="300" font-family="TeX Gyre Heros Cn" font-size="26" letter-spacing="6" fill="#5B6B87">FREIGHT &amp; LOGISTICS MARKETPLACE</text>
 </svg>`;
 
-const markup = `
+const signInControls = `
+  <label class="stack"><span class="field-label">Phone</span><input id="phone" class="field" autocomplete="tel" inputmode="tel"></label>
+  <div><button id="start" class="btn btn-secondary" type="button">Send code</button></div>
+  <label class="stack"><span class="field-label">Verification code</span><input id="code" class="field" autocomplete="one-time-code" inputmode="numeric"></label>
+  <div><button id="verify" class="btn btn-primary" type="button">Sign in</button></div>`;
+const signInIds: SignInElementIds = { phone: "phone", send: "start", code: "code", verify: "verify" };
+
+function signInContent(signIn: StaffSignIn): string {
+  if (signIn.kind === "not-set-up") return staffSignInNotSetUpMarkup;
+  return signIn.kind === "firebase" ? signInControls + firebaseSignInMarkup(signIn.settings, signInIds) : signInControls;
+}
+
+const markup = (signInSection: string) => `
 <header>
   ${logo}
   <div class="divider"></div>
@@ -44,11 +64,7 @@ const markup = `
 </header>
 <div id="pageMessage"></div>
 <section id="signin" class="card" aria-labelledby="signinTitle" hidden>
-  <h2 id="signinTitle">Sign in</h2>
-  <label class="stack"><span class="field-label">Phone</span><input id="phone" class="field" autocomplete="tel" inputmode="tel"></label>
-  <div><button id="start" class="btn btn-secondary" type="button">Send code</button></div>
-  <label class="stack"><span class="field-label">Verification code</span><input id="code" class="field" autocomplete="one-time-code" inputmode="numeric"></label>
-  <div><button id="verify" class="btn btn-primary" type="button">Sign in</button></div>
+  <h2 id="signinTitle">Sign in</h2>${signInSection}
   <div id="signinResult"></div>
 </section>
 <div id="workspace" hidden>
@@ -686,6 +702,37 @@ function waitToResend(ms) {
   };
   if (tick()) resendTimer = setInterval(tick, 1000);
 }
+async function signedIn(accessToken) {
+  token = accessToken;
+  org = '';
+  sessionStorage.setItem('navig8r_access', token);
+  sessionStorage.removeItem('navig8r_org');
+  await loadSession();
+}
+document.addEventListener('navig8r-staff-signed-in', event => run(() => signedIn(event.detail), "Couldn't sign in", byId('signinResult')));
+byId('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
+byId('organization').onchange = () => {
+  org = byId('organization').value;
+  if (org) sessionStorage.setItem('navig8r_org', org); else sessionStorage.removeItem('navig8r_org');
+  run(loadWorkspace, "Couldn't switch the organization");
+};
+byId('carriersReload').onclick = () => run(loadCarriers, "Couldn't reload");
+byId('paymentsReload').onclick = () => run(loadPayments, "Couldn't reload");
+${ewayBillScript}
+byId('legend').append(...[['Done', 'good'], ['Someone must act', 'attention'], ['Blocked or failed', 'problem'], ['In progress', 'info']].map(statusTag));
+if (!token) byId('signin').hidden = false;
+else {
+  byId('pageMessage').replaceChildren(element('div', { class: 'msg msg-info', role: 'status' }, element('span', { class: 'spin', 'aria-hidden': 'true' }), element('span', { text: 'Loading your account…' })));
+  loadSession().catch(error => {
+    byId('pageMessage').replaceChildren();
+    byId('signin').hidden = false;
+    byId('signinResult').replaceChildren(message('err', "Couldn't open your session: " + error.message + '.'));
+  });
+}
+`;
+
+// Only outside production: the server refuses these routes there.
+const serverCodeSignInScript = `
 // A new phone number starts over: the old code, wait and any reply still on its way belong to the old number.
 byId('phone').oninput = () => {
   challenge = '';
@@ -713,52 +760,31 @@ byId('start').onclick = async () => {
 };
 byId('verify').onclick = () => whileWaiting(byId('verify'), 'Signing in…', () => run(async () => {
   const out = await request('/v1/auth/otp/verify', 'POST', { phone: byId('phone').value, challengeId: challenge, code: byId('code').value });
-  token = out.accessToken;
-  org = '';
-  sessionStorage.setItem('navig8r_access', token);
-  sessionStorage.removeItem('navig8r_org');
-  await loadSession();
+  await signedIn(out.accessToken);
 }, "Couldn't sign in", byId('signinResult')));
-byId('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
-byId('organization').onchange = () => {
-  org = byId('organization').value;
-  if (org) sessionStorage.setItem('navig8r_org', org); else sessionStorage.removeItem('navig8r_org');
-  run(loadWorkspace, "Couldn't switch the organization");
-};
-byId('carriersReload').onclick = () => run(loadCarriers, "Couldn't reload");
-byId('paymentsReload').onclick = () => run(loadPayments, "Couldn't reload");
-${ewayBillScript}
-byId('legend').append(...[['Done', 'good'], ['Someone must act', 'attention'], ['Blocked or failed', 'problem'], ['In progress', 'info']].map(statusTag));
-if (!token) byId('signin').hidden = false;
-else {
-  byId('pageMessage').replaceChildren(element('div', { class: 'msg msg-info', role: 'status' }, element('span', { class: 'spin', 'aria-hidden': 'true' }), element('span', { text: 'Loading your account…' })));
-  loadSession().catch(error => {
-    byId('pageMessage').replaceChildren();
-    byId('signin').hidden = false;
-    byId('signinResult').replaceChildren(message('err', "Couldn't open your session: " + error.message + '.'));
-  });
-}
 `;
 
-const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NaviG8r operations (beta)</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Poppins:wght@600;700&display=swap">
-<style>${opsConsoleBetaStyles}</style></head><body>
-${markup}
-<script>${script}</script>
-</body></html>`;
+function pageScript(signIn: StaffSignIn): string {
+  return signIn.kind === "server-code" ? script + serverCodeSignInScript : script;
+}
 
 const sha256 = (text: string): string => "'sha256-" + createHash("sha256").update(text).digest("base64") + "'";
-/** Only this page's own script and stylesheet may run, fonts come only from Google, and data stays on this server. */
-export const opsConsoleBetaContentSecurityPolicy = [
-  "default-src 'self'",
-  "script-src " + sha256(script),
-  "style-src " + sha256(opsConsoleBetaStyles) + " https://fonts.googleapis.com",
-  "font-src https://fonts.gstatic.com",
-  "frame-src 'none'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join("; ");
+/**
+ * Only this page's own script and stylesheet may run, fonts come only from Google, and data stays on this
+ * server; with Firebase sign-in, also the pinned Firebase code and Google's reCAPTCHA check.
+ */
+export function opsConsoleBetaContentSecurityPolicy(signIn: StaffSignIn): string {
+  const firebase = signIn.kind === "firebase";
+  return [
+    "default-src 'self'",
+    ["script-src", sha256(pageScript(signIn)), ...(firebase ? [sha256(firebaseSignInScript(signIn.settings, signInIds)), ...firebaseSignInPolicySources.script] : [])].join(" "),
+    "style-src " + sha256(opsConsoleBetaStyles) + " https://fonts.googleapis.com",
+    "font-src https://fonts.gstatic.com",
+    ...(firebase ? ["connect-src 'self' " + firebaseSignInPolicySources.connect.join(" ")] : []),
+    firebase ? "frame-src " + firebaseSignInPolicySources.frame.join(" ") : "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
