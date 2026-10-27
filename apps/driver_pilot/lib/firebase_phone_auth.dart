@@ -21,7 +21,6 @@ const bool _legacyOtpFallbackRequested = bool.fromEnvironment(
 
 bool get legacyOtpFallbackEnabled =>
     _legacyOtpFallbackRequested ||
-    kIsWeb ||
     defaultTargetPlatform != TargetPlatform.android ||
     !firebasePhoneAuthAvailable;
 
@@ -57,8 +56,12 @@ String formatFirebaseAuthError(Object error) {
   return error.toString();
 }
 
-String firebasePhoneNumber(String nationalNumber) {
-  return "+91${digitsOnly(nationalNumber)}";
+String firebasePhoneNumber(String nationalNumber,
+    [String countryCode = "+91"]) {
+  final code = countryCode.trim().startsWith("+")
+      ? countryCode.trim()
+      : "+${countryCode.trim()}";
+  return "$code${digitsOnly(nationalNumber)}";
 }
 
 bool firebasePhoneAuthAvailable = false;
@@ -73,13 +76,16 @@ abstract interface class PhoneAuthClient {
   Future<void> verifyCode(String code);
   Future<String> idToken();
   Future<void> signOut();
+  void dispose();
 }
 
 class FirebasePhoneAuthClient implements PhoneAuthClient {
   FirebasePhoneAuthClient({FirebaseAuth? auth})
       : _auth = auth ?? FirebaseAuth.instance;
+
   final FirebaseAuth _auth;
   String? _verificationId;
+  ConfirmationResult? _webConfirmation;
   bool _autoVerified = false;
 
   @override
@@ -89,10 +95,25 @@ class FirebasePhoneAuthClient implements PhoneAuthClient {
     void Function()? onAutoVerified,
   }) async {
     final previousVerificationId = _verificationId;
+    final previousWebConfirmation = _webConfirmation;
     final previousAutoVerified = _autoVerified;
     _autoVerified = false;
     final callbackResult = Completer<void>();
     try {
+      if (kIsWeb) {
+        // Omitting the verifier lets FlutterFire create and dispose its
+        // managed verifier for this request. Reusing a custom verifier can
+        // submit a stale or already-consumed reCAPTCHA token.
+        _webConfirmation =
+            await _auth.signInWithPhoneNumber(phoneNumber).timeout(
+                  const Duration(seconds: 90),
+                  onTimeout: () => throw TimeoutException(
+                    "Firebase reCAPTCHA did not complete. Check the browser challenge and try again.",
+                  ),
+                );
+        onCodeSent(phoneNumber);
+        return;
+      }
       await _auth.verifyPhoneNumber(
         phoneNumber: phoneNumber,
         verificationCompleted: (credential) async {
@@ -122,6 +143,7 @@ class FirebasePhoneAuthClient implements PhoneAuthClient {
       await callbackResult.future;
     } catch (_) {
       _verificationId = previousVerificationId;
+      _webConfirmation = previousWebConfirmation;
       _autoVerified = previousAutoVerified;
       rethrow;
     }
@@ -129,6 +151,13 @@ class FirebasePhoneAuthClient implements PhoneAuthClient {
 
   @override
   Future<void> verifyCode(String code) async {
+    if (kIsWeb) {
+      final confirmation = _webConfirmation;
+      if (confirmation == null) throw StateError("Request a code first.");
+      await confirmation.confirm(code).timeout(const Duration(seconds: 30));
+      _webConfirmation = null;
+      return;
+    }
     if (_autoVerified) return;
     final id = _verificationId;
     if (id == null || id.isEmpty) throw StateError("Request a code first.");
@@ -155,12 +184,19 @@ class FirebasePhoneAuthClient implements PhoneAuthClient {
   }
 
   @override
-  Future<void> signOut() => _auth.signOut();
+  Future<void> signOut() async {
+    _webConfirmation = null;
+    await _auth.signOut();
+  }
+
+  @override
+  void dispose() {
+    _webConfirmation = null;
+  }
 }
 
 Future<bool> initializeFirebasePhoneAuth() async {
-  if (kIsWeb ||
-      defaultTargetPlatform != TargetPlatform.android ||
+  if ((!kIsWeb && defaultTargetPlatform != TargetPlatform.android) ||
       !firebasePhoneAuthEnabled) {
     return false;
   }
@@ -169,8 +205,9 @@ Future<bool> initializeFirebasePhoneAuth() async {
     firebasePhoneAuthAvailable = true;
     return true;
   } catch (_) {
-    firebasePhoneAuthDiagnostic =
-        "Firebase phone sign-in is unavailable. Check Firebase Android configuration.";
+    firebasePhoneAuthDiagnostic = kIsWeb
+        ? "Firebase phone sign-in is unavailable in this browser. Reload and try again."
+        : "Firebase phone sign-in is unavailable. Check Firebase Android configuration.";
     return false;
   }
 }

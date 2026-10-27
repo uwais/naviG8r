@@ -3,6 +3,7 @@ import type { AuthSession, OtpChallenge, User } from "./types.ts";
 import type { Store } from "./store.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import { verifyFirebasePhoneToken, type FirebaseTokenClaims, type VerifiedFirebasePhoneToken } from "./providers/firebasePhoneAuth.ts";
+import { findUserByPhone, normalizePhone, phoneKeyForUser } from "./phone.ts";
 export { setFirebaseTokenVerifierForTests } from "./providers/firebasePhoneAuth.ts";
 export type { FirebaseTokenClaims, FirebaseTokenVerifier } from "./providers/firebasePhoneAuth.ts";
 
@@ -88,20 +89,6 @@ function verifyToken(token: string): TokenPayloadV1 {
   return payload;
 }
 
-function normalizeInPhone(phone: string): string {
-  const p = String(phone ?? "").trim();
-  if (!p) throw new Error("invalid_phone");
-  const digits = p.replace(/[^\d]/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(-10);
-  if (digits.length === 10) return digits;
-  throw new Error("invalid_phone");
-}
-
-function findUserByPhone(store: Store, phone: string): User | null {
-  const p = normalizeInPhone(phone);
-  return [...store.users.values()].find((u) => u.phone === p) ?? null;
-}
-
 export type FirebasePhoneExchange = {
   user: User; accessToken: string; session: AuthSession;
 };
@@ -120,13 +107,13 @@ export function firebasePhoneExchangeVerified(
   if (!claims.uid || !claims.phone_number || claims.firebase?.sign_in_provider !== "phone") {
     throw new Error("firebase_phone_provider_required");
   }
-  const phone = normalizeInPhone(claims.phone_number);
+  const phone = normalizePhone(claims.phone_number);
   const mapped = store.firebaseIdentities.get(claims.uid);
-  const user = mapped ? store.users.get(mapped.userId) : findUserByPhone(store, phone);
+  const user = mapped ? store.users.get(mapped.userId) : findUserByPhone(store, phone.e164);
   if (!user) throw new Error("user_not_found");
   if (!isActiveEntity(user)) throw new Error("account_inactive");
-  if (user.phone !== phone) throw new Error("firebase_identity_conflict");
-  const existingPhoneOwner = findUserByPhone(store, phone);
+  if (phoneKeyForUser(user) !== phone.key) throw new Error("firebase_identity_conflict");
+  const existingPhoneOwner = findUserByPhone(store, phone.e164);
   if (existingPhoneOwner && existingPhoneOwner.id !== user.id) throw new Error("firebase_identity_conflict");
   let stateChanged = false;
   if (!mapped) {
@@ -309,15 +296,16 @@ function debugOtpDelivery(
 /** Returns an unexpired in-cooldown challenge without mutating OTP state. */
 export function pilotOtpCooldownReuse(
   store: Store,
-  params: { phone: string },
+  params: { phone: string; countryCode?: string },
   otp = createOtpDependencies(),
 ): { challengeId: string; expiresAtUtcMs: number; retryAfterMs: number; debugCode?: string } | null {
-  const user = findUserByPhone(store, params.phone);
+  const user = findUserByPhone(store, params.phone, params.countryCode);
   if (!user) throw new Error("user_not_found");
   if (!isActiveEntity(user)) throw new Error("account_inactive");
   const now = otp.now();
   const pending = [...store.otpChallenges.values()].find((challenge) =>
-    challenge.phone === user.phone && challenge.status === "PENDING" && challenge.expiresAtUtcMs > now,
+    normalizePhone(challenge.phone, challenge.countryCode).key === phoneKeyForUser(user) &&
+    challenge.status === "PENDING" && challenge.expiresAtUtcMs > now,
   );
   if (!pending || pending.createdAtUtcMs + otp.resendCooldownMs <= now) return null;
   return {
@@ -330,7 +318,7 @@ export function pilotOtpCooldownReuse(
 
 export function pilotOtpStart(
   store: Store,
-  params: { phone: string },
+  params: { phone: string; countryCode?: string },
   otp = createOtpDependencies(),
 ): {
   challengeId: string;
@@ -339,7 +327,7 @@ export function pilotOtpStart(
   /** Only returned when the server enables OTP_DEBUG=1. */
   debugCode?: string;
 } {
-  const user = findUserByPhone(store, params.phone);
+  const user = findUserByPhone(store, params.phone, params.countryCode);
   if (!user) throw new Error("user_not_found");
   if (!isActiveEntity(user)) throw new Error("account_inactive");
 
@@ -347,7 +335,8 @@ export function pilotOtpStart(
   const reusable = pilotOtpCooldownReuse(store, params, otp);
   if (reusable) return reusable;
   const recent = [...store.otpChallenges.values()].filter((challenge) =>
-    challenge.phone === user.phone && challenge.createdAtUtcMs > now - otp.phoneStartWindowMs,
+    normalizePhone(challenge.phone, challenge.countryCode).key === phoneKeyForUser(user) &&
+    challenge.createdAtUtcMs > now - otp.phoneStartWindowMs,
   ).sort((a, b) => a.createdAtUtcMs - b.createdAtUtcMs);
   if (recent.length >= otp.phoneStartLimit) {
     throw new OtpRateLimitError(Math.max(1, recent[0]!.createdAtUtcMs + otp.phoneStartWindowMs - now));
@@ -360,13 +349,14 @@ export function pilotOtpStart(
   const ch: OtpChallenge = {
     id: id("otp"),
     phone: user.phone,
+    countryCode: user.countryCode,
     code,
     status: "PENDING",
     expiresAtUtcMs,
     createdAtUtcMs: now,
   };
   for (const previous of store.otpChallenges.values()) {
-    if (previous.phone === user.phone && previous.status === "PENDING") {
+    if (normalizePhone(previous.phone, previous.countryCode).key === phoneKeyForUser(user) && previous.status === "PENDING") {
       store.otpChallenges.set(previous.id, {
         ...previous,
         status: "SUPERSEDED",
@@ -377,7 +367,7 @@ export function pilotOtpStart(
 
   // Retain recent issuance history for the configured phone window and any live challenge.
   for (const [challengeId, challenge] of store.otpChallenges) {
-    if (challenge.phone === user.phone && challenge.status !== "PENDING" &&
+    if (normalizePhone(challenge.phone, challenge.countryCode).key === phoneKeyForUser(user) && challenge.status !== "PENDING" &&
         challenge.createdAtUtcMs <= now - otp.phoneStartWindowMs) {
       store.otpChallenges.delete(challengeId);
     }
@@ -401,20 +391,20 @@ const MAX_WRONG_CODES_PER_CHALLENGE = 5;
 
 export function pilotOtpVerify(
   store: Store,
-  params: { phone: string; challengeId: string; code: string },
+  params: { phone: string; countryCode?: string; challengeId: string; code: string },
   otp = createOtpDependencies(),
 ): {
   user: User;
   accessToken: string;
   session: AuthSession;
 } {
-  const user = findUserByPhone(store, params.phone);
+  const user = findUserByPhone(store, params.phone, params.countryCode);
   if (!user) throw new Error("user_not_found");
   if (!isActiveEntity(user)) throw new Error("account_inactive");
 
   const ch = store.otpChallenges.get(String(params.challengeId ?? ""));
   if (!ch) throw new Error("otp_challenge_not_found");
-  if (ch.phone !== user.phone) throw new Error("otp_challenge_mismatch");
+  if (normalizePhone(ch.phone, ch.countryCode).key !== phoneKeyForUser(user)) throw new Error("otp_challenge_mismatch");
   if (ch.status === "FAILED") throw new Error("otp_too_many_wrong_codes");
   if (ch.status !== "PENDING") throw new Error("otp_challenge_invalid");
   const now = otp.now();
