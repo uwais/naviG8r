@@ -30,6 +30,7 @@ import type {
   FirebaseIdentity,
 } from "./types.ts";
 import type { GroupedInboxPageReader, TimelinePageReader } from "./notifications.ts";
+import { storedCountryCode } from "./phone.ts";
 
 const prisma = new PrismaClient();
 
@@ -158,6 +159,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     const user: User = {
       id: u.id,
       phone: u.phone,
+      countryCode: storedCountryCode(u.countryCode),
       fullName: u.fullName,
       createdAtUtcMs: Number(u.createdAtUtcMs),
       inactiveAtUtcMs: u.inactiveAtUtcMs != null ? Number(u.inactiveAtUtcMs) : null,
@@ -217,6 +219,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     const ch: OtpChallenge = {
       id: o.id,
       phone: o.phone,
+      countryCode: storedCountryCode(o.countryCode),
       code: o.code,
       status: o.status as OtpChallenge["status"],
       expiresAtUtcMs: Number(o.expiresAtUtcMs),
@@ -569,7 +572,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
     const organizationIds = [...store.organizations.keys()];
     await tx.organization.deleteMany(organizationIds.length ? { where: { id: { notIn: organizationIds } } } : undefined);
     for (const u of store.users.values()) {
-      const data = { id: u.id, phone: u.phone, fullName: u.fullName, createdAtUtcMs: BigInt(u.createdAtUtcMs), ...softToDb(u) };
+      const data = { id: u.id, phone: u.phone, countryCode: storedCountryCode(u.countryCode), fullName: u.fullName, createdAtUtcMs: BigInt(u.createdAtUtcMs), ...softToDb(u) };
       await tx.userRow.upsert({ where: { id: u.id }, create: data, update: data });
     }
     const userIds = [...store.users.keys()];
@@ -631,6 +634,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
         data: {
           id: o.id,
           phone: o.phone,
+          countryCode: storedCountryCode(o.countryCode),
           code: o.code,
           status: o.status,
           expiresAtUtcMs: BigInt(o.expiresAtUtcMs),

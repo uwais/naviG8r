@@ -119,6 +119,8 @@ export type Organization = {
 export type User = {
   id: string;
   phone: string;
+  /** National digits; omitted on legacy rows means +91. */
+  countryCode?: string;
   fullName: string;
   createdAtUtcMs: number;
 } & SoftDeleteFields;
@@ -156,6 +158,8 @@ export type OtpChallengeStatus = "PENDING" | "CONSUMED" | "EXPIRED" | "SUPERSEDE
 export type OtpChallenge = {
   id: string;
   phone: string;
+  /** Omitted on legacy challenges means +91. */
+  countryCode?: string;
   code: string;
   status: OtpChallengeStatus;
   expiresAtUtcMs: number;

@@ -23,6 +23,7 @@ import "notification_center.dart";
 import "trip_assignment_card.dart";
 import "unassigned_driver_notice.dart";
 import "firebase_phone_auth.dart";
+import "phone_country.dart";
 
 /// Nested navigator for the driver shell (tabs + pushed detail routes).
 final GlobalKey<NavigatorState> driverShellNavigatorKey =
@@ -264,6 +265,7 @@ class DriverPhoneScreen extends StatefulWidget {
 
 class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
   final _phone = TextEditingController();
+  String _countryCode = "+91";
   bool _busy = false;
   bool _useFirebase = firebasePhoneAuthAvailable;
 
@@ -285,7 +287,14 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
     try {
       if (_useFirebase) {
         if (!mounted) return;
-        context.go("/driver/onboarding/otp?phone=$phone&firebase=1");
+        context.go(Uri(
+          path: "/driver/onboarding/otp",
+          queryParameters: {
+            "phone": phone,
+            "countryCode": _countryCode,
+            "firebase": "1",
+          },
+        ).toString());
         return;
       }
       if (!legacyOtpFallbackEnabled) {
@@ -293,13 +302,18 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
             "Firebase phone sign-in is unavailable.");
       }
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
-          data: {"phone": phone});
+          data: {"phone": phone, "countryCode": _countryCode});
       if (!mounted) return;
-      context.go("/driver/onboarding/otp?phone=$phone", extra: {
-        "challengeId": r.data?["challengeId"],
-        "expiresAtUtcMs": r.data?["expiresAtUtcMs"],
-        "debugCode": r.data?["debugCode"],
-      });
+      context.go(
+          Uri(
+            path: "/driver/onboarding/otp",
+            queryParameters: {"phone": phone, "countryCode": _countryCode},
+          ).toString(),
+          extra: {
+            "challengeId": r.data?["challengeId"],
+            "expiresAtUtcMs": r.data?["expiresAtUtcMs"],
+            "debugCode": r.data?["debugCode"],
+          });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -318,11 +332,13 @@ class _DriverPhoneScreenState extends State<DriverPhoneScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextField(
+            PhoneNumberField(
               controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                  labelText: "Mobile number", hintText: "+91 …"),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Mobile number",
+              hintText: "10 digits",
             ),
             const SizedBox(height: 16),
             if (firebasePhoneAuthAvailable && legacyOtpFallbackEnabled)
@@ -367,6 +383,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   bool _verifying = false;
   String? _debugCode;
   String _phone = "";
+  String _countryCode = "+91";
   String? _firebasePhone;
   int? _expiresAtUtcMs;
   bool _receivedChallenge = false;
@@ -387,6 +404,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       });
     }
   }
+
   PhoneAuthClient? _firebase;
   bool _useFirebase = false;
   bool _firebaseCodeSent = false;
@@ -395,9 +413,12 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final p = GoRouterState.of(context).uri.queryParameters["phone"] ?? "";
+    final country =
+        GoRouterState.of(context).uri.queryParameters["countryCode"] ?? "+91";
     final extra = GoRouterState.of(context).extra;
     _useFirebase =
         GoRouterState.of(context).uri.queryParameters["firebase"] == "1";
+    _countryCode = supportedCountryCodes.contains(country) ? country : "+91";
     if (_useFirebase) _firebase ??= FirebasePhoneAuthClient();
     if (extra is Map && !_receivedChallenge && extra["challengeId"] is String) {
       _phone = p;
@@ -427,14 +448,14 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
     try {
       final previousChallengeId = _challengeId.text.trim();
       if (_useFirebase) {
-        preserveFirebaseChallenge =
-            _firebaseCodeSent && _firebasePhone == _phone;
+        preserveFirebaseChallenge = _firebaseCodeSent &&
+            _firebasePhone == phoneIdentityKey(_countryCode, _phone);
         setState(() {
-          _firebasePhone = _phone;
+          _firebasePhone = phoneIdentityKey(_countryCode, _phone);
           _firebaseCodeSent = false;
         });
         await _firebase!.requestCode(
-          firebasePhoneNumber(_phone),
+          firebasePhoneNumber(_phone, _countryCode),
           onCodeSent: (_) {
             if (mounted) setState(() => _firebaseCodeSent = true);
           },
@@ -447,7 +468,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         return;
       }
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
-          data: {"phone": _phone});
+          data: {"phone": _phone, "countryCode": _countryCode});
       if (!mounted) return;
       final id = r.data?["challengeId"] as String?;
       if (id != null) _challengeId.text = id;
@@ -472,8 +493,8 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         final firebaseRetry = _useFirebase ? firebaseAuthRetryAfterMs(e) : null;
         if (firebaseRetry != null) _startCooldown(firebaseRetry);
         if (retry != null) _startCooldown(retry);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(_useFirebase
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_useFirebase
                 ? formatFirebaseAuthError(e)
                 : formatApiError(e))));
       }
@@ -501,6 +522,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         "/v1/auth/otp/verify",
         data: {
           "phone": _phone,
+          "countryCode": _countryCode,
           "challengeId": _challengeId.text.trim(),
           "code": _code.text.trim()
         },
@@ -522,8 +544,8 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       }
     } catch (e) {
       if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(_useFirebase
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_useFirebase
                 ? formatFirebaseAuthError(e)
                 : formatApiError(e))));
     } finally {
@@ -534,6 +556,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
   @override
   void dispose() {
     _cooldownTimer?.cancel();
+    _firebase?.dispose();
     _challengeId.dispose();
     _code.dispose();
     super.dispose();
@@ -618,6 +641,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   final _reg = TextEditingController();
   final _vehClass = TextEditingController(text: "MEDIUM");
   final _cap = TextEditingController(text: "1000");
+  String _countryCode = "+91";
   bool _busy = false;
 
   @override
@@ -652,6 +676,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
         data: {
           "fullName": _fullName.text.trim(),
           "phone": phone,
+          "countryCode": _countryCode,
           "orgDisplayName": _org.text.trim(),
           "vehicleRegistrationNumber": _reg.text.trim(),
           "vehicleClass": vc,
@@ -665,7 +690,15 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
         const SnackBar(
             content: Text("Carrier created — verify your phone to continue.")),
       );
-      context.go("/driver/onboarding/otp?phone=$phone");
+      final queryParameters = <String, String>{
+        "phone": phone,
+        "countryCode": _countryCode,
+        if (firebasePhoneAuthAvailable) "firebase": "1",
+      };
+      context.go(Uri(
+        path: "/driver/onboarding/otp",
+        queryParameters: queryParameters,
+      ).toString());
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
@@ -690,11 +723,12 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
           TextField(
               controller: _fullName,
               decoration: const InputDecoration(labelText: "Your full name")),
-          TextField(
+          PhoneNumberField(
               controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration:
-                  const InputDecoration(labelText: "Phone (10 digits)")),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Phone (10 digits)"),
           TextField(
               controller: _org,
               decoration: const InputDecoration(
@@ -741,6 +775,7 @@ class DriverJoinScreen extends StatefulWidget {
 class _DriverJoinScreenState extends State<DriverJoinScreen> {
   final _fullName = TextEditingController();
   final _phone = TextEditingController();
+  String _countryCode = "+91";
   bool _busy = false;
 
   @override
@@ -756,7 +791,11 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
       final phone = digitsOnly(_phone.text.trim());
       await api.post<Map<String, dynamic>>(
         "/v1/pilot/customer/users/register",
-        data: {"fullName": _fullName.text.trim(), "phone": phone},
+        data: {
+          "fullName": _fullName.text.trim(),
+          "phone": phone,
+          "countryCode": _countryCode,
+        },
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -789,11 +828,12 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
           TextField(
               controller: _fullName,
               decoration: const InputDecoration(labelText: "Your full name")),
-          TextField(
+          PhoneNumberField(
               controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration:
-                  const InputDecoration(labelText: "Phone (10 digits)")),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Phone (10 digits)"),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _busy ? null : _submit,
@@ -827,6 +867,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
   final _vehClass = TextEditingController(text: "MEDIUM");
   final _cap = TextEditingController(text: "1000");
   String _role = "DRIVER";
+  String _countryCode = "+91";
   bool _loading = true;
   bool _inviting = false;
   String? _error;
@@ -870,6 +911,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
       final payload = <String, dynamic>{
         "orgId": orgId,
         "phone": digitsOnly(_phone.text.trim()),
+        "countryCode": _countryCode,
         "role": _role,
       };
       if (_role == "DRIVER") {
@@ -920,11 +962,12 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
               style: const TextStyle(color: Colors.red)),
         ] else ...[
           const SizedBox(height: 16),
-          TextField(
+          PhoneNumberField(
               controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration:
-                  const InputDecoration(labelText: "Driver phone (10 digits)")),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Driver phone (10 digits)"),
           DropdownButtonFormField<String>(
             value: _role,
             decoration: const InputDecoration(labelText: "Role"),
@@ -1242,8 +1285,7 @@ class _DriverShipmentDetailScreenState
           if (st == "BOOKED" && AuthorizationSession.can("pod.upload"))
             FilledButton(
               onPressed: () async {
-                await context
-                    .push("/driver/shipment/${widget.shipmentId}/pod");
+                await context.push("/driver/shipment/${widget.shipmentId}/pod");
                 // Confirming delivery changes the status, so the button must not stay on offer.
                 if (mounted) _load();
               },
@@ -1507,7 +1549,8 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
               child: Text("No trips match these filters.",
                   style: TextStyle(color: DriverTheme.muted)),
             ),
-          if (!_loading && _error == null && _trips.isEmpty) const UnassignedDriverNotice(),
+          if (!_loading && _error == null && _trips.isEmpty)
+            const UnassignedDriverNotice(),
           ..._filtered.map(
             (t) => _LoadCard(
               trip: t,
@@ -1962,7 +2005,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           perm == LocationPermission.deniedForever) return;
       try {
         final p = await Geolocator.getCurrentPosition();
-        if (mounted) setState(() => _driverPos = LatLng(p.latitude, p.longitude));
+        if (mounted)
+          setState(() => _driverPos = LatLng(p.latitude, p.longitude));
       } catch (_) {}
       if (!_mayShareLocation) return;
       _posSub = Geolocator.getPositionStream(
@@ -2247,172 +2291,174 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               Expanded(
                 // The truck and driver card tells the office to pull down after a refused save. The reload's
                 // spinner replaces this list, so the card comes back with fresh truck and driver lists.
-                child: RefreshIndicator(onRefresh: _load, child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    if (_error != null)
-                      Text(_error!, style: const TextStyle(color: Colors.red)),
-                    Text(
-                      tripComplete
-                          ? "Load complete"
-                          : tripStarted
-                              ? "Load in progress"
-                              : "Load not started",
-                      style: const TextStyle(
-                          color: DriverTheme.muted,
-                          fontWeight: FontWeight.w600),
-                    ),
-                    Text(
-                      "Status: ${tripStatusLabel(tripStatus)}",
-                      style: const TextStyle(
-                          color: DriverTheme.muted, fontSize: 13),
-                    ),
-                    if (trip != null) TripAssignmentCard(trip: trip),
-                    if (tripComplete)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 6),
-                        child: Text(
-                          "All deliveries confirmed. GPS sharing has stopped.",
-                          style:
-                              TextStyle(color: DriverTheme.muted, fontSize: 13),
+                child: RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        if (_error != null)
+                          Text(_error!,
+                              style: const TextStyle(color: Colors.red)),
+                        Text(
+                          tripComplete
+                              ? "Load complete"
+                              : tripStarted
+                                  ? "Load in progress"
+                                  : "Load not started",
+                          style: const TextStyle(
+                              color: DriverTheme.muted,
+                              fontWeight: FontWeight.w600),
                         ),
-                      ),
-                    if (tripStarted && !_hasActiveShipments)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 6),
-                        child: Text(
-                          "All bookings have proof of delivery — complete the load to stop tracking.",
-                          style:
-                              TextStyle(color: DriverTheme.muted, fontSize: 13),
+                        Text(
+                          "Status: ${tripStatusLabel(tripStatus)}",
+                          style: const TextStyle(
+                              color: DriverTheme.muted, fontSize: 13),
                         ),
-                      ),
-                    if (!tripStarted && !tripComplete && hasAccepted) ...[
-                      const SizedBox(height: 12),
-                      FilledButton(
-                        onPressed: _starting ||
-                                !DriverSession.complianceApproved ||
-                                !AuthorizationSession.can("load.status_update")
-                            ? null
-                            : _startTrip,
-                        child: _starting
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2))
-                            : const Text("Start load"),
-                      ),
-                    ],
-                    if (!tripStarted && !tripComplete && !hasAccepted)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: Text(
-                          "Accept customer bookings on Shipments before starting.",
-                          style:
-                              TextStyle(color: DriverTheme.muted, fontSize: 13),
-                        ),
-                      ),
-                    if (canCompleteLoad) ...[
-                      const SizedBox(height: 12),
-                      FilledButton(
-                        onPressed: _completing ? null : _completeLoad,
-                        child: _completing
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2))
-                            : const Text("Complete load"),
-                      ),
-                    ],
-                    if (tripComplete) ...[
-                      const SizedBox(height: 12),
-                      OutlinedButton(
-                        onPressed: () => context.go("/driver/loads"),
-                        child: const Text("Back to loads"),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Text(
-                      tripComplete
-                          ? "Trip summary"
-                          : next != null &&
-                                  next["status"]?.toString() == "BOOKED"
-                              ? "Next pickup: ${next["pickupAddress"]}"
-                              : "No pending deliveries on this load",
-                      style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: DriverTheme.navy),
-                    ),
-                    const SizedBox(height: 12),
-                    ..._shipments.map((s) {
-                      final id = s["id"]?.toString() ?? "";
-                      final st = s["status"]?.toString() ?? "";
-                      return Card(
-                        child: ListTile(
-                          title: Text(
-                              "${s["customerOrgName"]} · ${s["weightKg"]}kg"),
-                          subtitle: Text(s["netToCarrierPaise"] is num
-                              ? "${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"), unpaidBookingExpired: s["unpaidBookingExpiredAtUtcMs"] != null)} · ${formatInrFromPaise(s["netToCarrierPaise"] as num)} net"
-                              : shipmentStatusLabel(st,
-                                  seesPayment:
-                                      AuthorizationSession.can("payment.read"),
-                                  unpaidBookingExpired:
-                                      s["unpaidBookingExpiredAtUtcMs"] !=
-                                          null)),
-                          trailing: st == "PENDING_CARRIER_ACCEPT"
-                              ? TextButton(
-                                  onPressed: DriverSession.complianceApproved &&
-                                          AuthorizationSession.can(
-                                              "carrier.offer_accept")
-                                      ? () => _acceptOnTrip(id)
-                                      : null,
-                                  child: const Text("Accept"))
-                              : st == "BOOKED"
-                                  ? TextButton(
-                                      onPressed: () => _openPod(id),
-                                      child: const Text("Confirm delivery"),
-                                    )
-                                  : st == "PENDING_RELEASE" &&
-                                          AuthorizationSession.can(
-                                              "payment.read")
-                                      ? const Text("Payment pending",
-                                          style: TextStyle(
-                                              fontSize: 12,
-                                              color: DriverTheme.muted))
-                                      : null,
-                        ),
-                      );
-                    }),
-                    if (tripStarted && !_hasActiveShipments) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        "Live GPS is shared with customers while the load is in progress.",
-                        style: const TextStyle(
-                            fontSize: 12, color: DriverTheme.muted),
-                      ),
-                    ],
-                    if (tripStarted && _hasActiveShipments) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: next != null &&
-                                      next["status"]?.toString() == "BOOKED"
-                                  ? () =>
-                                      _openPod(next!["id"]?.toString() ?? "")
-                                  : null,
-                              child: const Text("Mark arrived / POD"),
+                        if (trip != null) TripAssignmentCard(trip: trip),
+                        if (tripComplete)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 6),
+                            child: Text(
+                              "All deliveries confirmed. GPS sharing has stopped.",
+                              style: TextStyle(
+                                  color: DriverTheme.muted, fontSize: 13),
                             ),
                           ),
+                        if (tripStarted && !_hasActiveShipments)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 6),
+                            child: Text(
+                              "All bookings have proof of delivery — complete the load to stop tracking.",
+                              style: TextStyle(
+                                  color: DriverTheme.muted, fontSize: 13),
+                            ),
+                          ),
+                        if (!tripStarted && !tripComplete && hasAccepted) ...[
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            onPressed: _starting ||
+                                    !DriverSession.complianceApproved ||
+                                    !AuthorizationSession.can(
+                                        "load.status_update")
+                                ? null
+                                : _startTrip,
+                            child: _starting
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2))
+                                : const Text("Start load"),
+                          ),
                         ],
-                      ),
-                    ],
-                  ],
-                )),
+                        if (!tripStarted && !tripComplete && !hasAccepted)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Text(
+                              "Accept customer bookings on Shipments before starting.",
+                              style: TextStyle(
+                                  color: DriverTheme.muted, fontSize: 13),
+                            ),
+                          ),
+                        if (canCompleteLoad) ...[
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            onPressed: _completing ? null : _completeLoad,
+                            child: _completing
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2))
+                                : const Text("Complete load"),
+                          ),
+                        ],
+                        if (tripComplete) ...[
+                          const SizedBox(height: 12),
+                          OutlinedButton(
+                            onPressed: () => context.go("/driver/loads"),
+                            child: const Text("Back to loads"),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Text(
+                          tripComplete
+                              ? "Trip summary"
+                              : next != null &&
+                                      next["status"]?.toString() == "BOOKED"
+                                  ? "Next pickup: ${next["pickupAddress"]}"
+                                  : "No pending deliveries on this load",
+                          style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: DriverTheme.navy),
+                        ),
+                        const SizedBox(height: 12),
+                        ..._shipments.map((s) {
+                          final id = s["id"]?.toString() ?? "";
+                          final st = s["status"]?.toString() ?? "";
+                          return Card(
+                            child: ListTile(
+                              title: Text(
+                                  "${s["customerOrgName"]} · ${s["weightKg"]}kg"),
+                              subtitle: Text(s["netToCarrierPaise"] is num
+                                  ? "${shipmentStatusLabel(st, seesPayment: AuthorizationSession.can("payment.read"))} · ${formatInrFromPaise(s["netToCarrierPaise"] as num)} net"
+                                  : shipmentStatusLabel(st,
+                                      seesPayment: AuthorizationSession.can(
+                                          "payment.read"))),
+                              trailing: st == "PENDING_CARRIER_ACCEPT"
+                                  ? TextButton(
+                                      onPressed:
+                                          DriverSession.complianceApproved &&
+                                                  AuthorizationSession.can(
+                                                      "carrier.offer_accept")
+                                              ? () => _acceptOnTrip(id)
+                                              : null,
+                                      child: const Text("Accept"))
+                                  : st == "BOOKED"
+                                      ? TextButton(
+                                          onPressed: () => _openPod(id),
+                                          child: const Text("Confirm delivery"),
+                                        )
+                                      : st == "PENDING_RELEASE" &&
+                                              AuthorizationSession.can(
+                                                  "payment.read")
+                                          ? const Text("Payment pending",
+                                              style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: DriverTheme.muted))
+                                          : null,
+                            ),
+                          );
+                        }),
+                        if (tripStarted && !_hasActiveShipments) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            "Live GPS is shared with customers while the load is in progress.",
+                            style: const TextStyle(
+                                fontSize: 12, color: DriverTheme.muted),
+                          ),
+                        ],
+                        if (tripStarted && _hasActiveShipments) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: next != null &&
+                                          next["status"]?.toString() == "BOOKED"
+                                      ? () => _openPod(
+                                          next!["id"]?.toString() ?? "")
+                                      : null,
+                                  child: const Text("Mark arrived / POD"),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    )),
               ),
             ],
           );
@@ -2458,8 +2504,8 @@ class _DriverPodScreenState extends State<DriverPodScreen> {
       context.pop();
     } catch (e) {
       if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_driverRefusalSentence(e))));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(_driverRefusalSentence(e))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -2647,10 +2693,10 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
   InputDecoration _decoration(String label, String field) {
     if (_refusedField != field) return InputDecoration(labelText: label);
     final theme = Theme.of(context);
-    final box =
-        (theme.inputDecorationTheme.border ?? const OutlineInputBorder())
-            .copyWith(
-                borderSide: BorderSide(color: theme.colorScheme.error, width: 2));
+    final box = (theme.inputDecorationTheme.border ??
+            const OutlineInputBorder())
+        .copyWith(
+            borderSide: BorderSide(color: theme.colorScheme.error, width: 2));
     return InputDecoration(
         labelText: label, enabledBorder: box, focusedBorder: box);
   }

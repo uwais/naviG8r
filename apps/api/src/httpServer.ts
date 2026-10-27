@@ -78,6 +78,7 @@ import {
   shipmentVisibleToCustomerUser,
 } from "./services.ts";
 import { verifyRazorpayWebhookSignature, razorpayPaymentsEnabled, publicRazorpayKeyId } from "./razorpayPayments.ts";
+import { findUserByPhone, normalizePhone } from "./phone.ts";
 import { payoutsMode } from "./razorpayPayouts.ts";
 import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
 import { handleIntegrationPortalRoutes, handleIntegrationRoutes } from "./integrationHttp.ts";
@@ -283,11 +284,15 @@ function consumeSignUpRateLimit(
   limiters: { byAddress: FixedWindowRateLimiter; byPhone: FixedWindowRateLimiter },
   trustProxy: boolean,
   phone: string,
+  countryCode?: string,
 ): boolean {
   const now = Date.now();
-  const digits = phone.replace(/[^\d]/g, "");
-  // Same rule as the register functions; any other phone is refused there as invalid_phone, so it gets no count here.
-  const phoneKey = digits.length === 12 && digits.startsWith("91") ? digits.slice(-10) : digits.length === 10 ? digits : null;
+  let phoneKey: string | null = null;
+  try {
+    phoneKey = normalizePhone(phone, countryCode).key;
+  } catch {
+    // The registration function returns the validation error; invalid input gets no phone budget.
+  }
   const ipLimit = trustProxy
     ? limiters.byAddress.consume(`sign-up:ip:${clientIp(req, trustProxy)}`, SIGN_UP_IP_LIMIT, SIGN_UP_WINDOW_MS, now)
     : { allowed: true, retryAfterSeconds: 0 };
@@ -805,9 +810,10 @@ export async function createApp(options: {
         otp.consumeIpStart(clientIp(req, otp.trustProxy));
         const body = await readJson(req);
         const phone = String(body?.phone ?? "");
-        const reused = pilotOtpCooldownReuse(store, { phone }, otp);
+        const countryCode = body?.countryCode == null ? undefined : String(body.countryCode);
+        const reused = pilotOtpCooldownReuse(store, { phone, countryCode }, otp);
         if (reused) return json(res, 200, reused);
-        const out = await persistOtp(() => pilotOtpStart(store, { phone }, otp));
+        const out = await persistOtp(() => pilotOtpStart(store, { phone, countryCode }, otp));
         return json(res, 200, out);
       }
 
@@ -817,6 +823,7 @@ export async function createApp(options: {
         const body = await readJson(req);
         const out = await persistOtp(() => pilotOtpVerify(store, {
           phone: String(body?.phone ?? ""),
+          countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
           challengeId: String(body?.challengeId ?? ""),
           code: String(body?.code ?? ""),
         }, otp));
@@ -851,7 +858,10 @@ export async function createApp(options: {
         if (!userId) return;
         requirePermission(store, "user.role_manage");
         const body = await readJson(req);
-        const entry = grantOpsAdmin(store, { phone: String(body?.phone ?? "") });
+        const entry = grantOpsAdmin(store, {
+          phone: String(body?.phone ?? ""),
+          countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
+        });
         await persist();
         return json(res, 201, { opsAdmin: entry });
       }
@@ -861,7 +871,11 @@ export async function createApp(options: {
         if (!userId) return;
         requirePermission(store, "user.role_manage");
         const phone = decodeURIComponent(url.pathname.split("/")[3] ?? "");
-        const out = revokeOpsAdmin(store, { phone, actingUserId: userId });
+        const out = revokeOpsAdmin(store, {
+          phone,
+          countryCode: url.searchParams.get("countryCode") ?? undefined,
+          actingUserId: userId,
+        });
         await persist();
         return json(res, 200, out);
       }
@@ -890,10 +904,11 @@ export async function createApp(options: {
               detail: "Pass /v1/ops/users/:userId or ?phone=",
             });
           }
-          const digits = phoneRaw.replace(/[^\d]/g, "");
-          const phone =
-            digits.length === 12 && digits.startsWith("91") ? digits.slice(-10) : digits;
-          const found = [...store.users.values()].find((u) => u.phone === phone);
+          const found = findUserByPhone(
+            store,
+            phoneRaw,
+            url.searchParams.get("countryCode") ?? undefined,
+          );
           if (!found) return json(res, 404, { error: "user_not_found" });
           targetUserId = found.id;
         }
@@ -905,10 +920,11 @@ export async function createApp(options: {
       // --- v1 pilot API resources (Flutter Driver app first) ---
       if (method === "POST" && url.pathname === "/v1/pilot/driver/register") {
         const body = await readJson(req);
-        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""))) return;
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""), body?.countryCode == null ? undefined : String(body.countryCode))) return;
         const out = registerSoloOwnerOperatorDriver(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
+          countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
           orgDisplayName: String(body?.orgDisplayName ?? ""),
           vehicleRegistrationNumber: String(body?.vehicleRegistrationNumber ?? ""),
           vehicleClass: body?.vehicleClass,
@@ -921,7 +937,11 @@ export async function createApp(options: {
       if (method === "POST" && url.pathname === "/v1/pilot/driver/login") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
-        const out = pilotLoginDriverByPhone(store, String(body?.phone ?? ""));
+        const out = pilotLoginDriverByPhone(
+          store,
+          String(body?.phone ?? ""),
+          body?.countryCode == null ? undefined : String(body.countryCode),
+        );
         return json(res, 200, out);
       }
 
@@ -1109,6 +1129,7 @@ export async function createApp(options: {
           const out = inviteCarrierDriver(store, userId, {
             orgId: String(body?.orgId ?? ""),
             phone: String(body?.phone ?? ""),
+            countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
             role: body?.role,
             vehicleRegistrationNumber: String(body?.vehicleRegistrationNumber ?? ""),
             vehicleClass: body?.vehicleClass,
@@ -1180,10 +1201,11 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/register") {
         const body = await readJson(req);
-        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""))) return;
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""), body?.countryCode == null ? undefined : String(body.countryCode))) return;
         const out = registerCustomerOrgAdmin(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
+          countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
           orgDisplayName: String(body?.orgDisplayName ?? ""),
         });
         await persist();
@@ -1192,11 +1214,12 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/users/register") {
         const body = await readJson(req);
-        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""))) return;
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""), body?.countryCode == null ? undefined : String(body.countryCode))) return;
         try {
           const out = registerCustomerUser(store, {
             fullName: String(body?.fullName ?? ""),
             phone: String(body?.phone ?? ""),
+            countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
           });
           await persist();
           return json(res, 201, out);
@@ -1219,6 +1242,7 @@ export async function createApp(options: {
           const out = inviteCustomerMember(store, userId, {
             orgId: String(body?.orgId ?? ""),
             phone: String(body?.phone ?? ""),
+            countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
             role: body?.role,
           });
           await persist();

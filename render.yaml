@@ -98,6 +98,16 @@ projects:
                 value: https://navig8r-api-alpha.onrender.com
               - key: MAPS_API_KEY
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
+              - key: FIREBASE_WEB_MESSAGING_SENDER_ID
+                sync: false
+              - key: FIREBASE_WEB_PROJECT_ID
+                value: navig8r-beta
+              - key: FIREBASE_WEB_AUTH_DOMAIN
+                value: navig8r-beta.firebaseapp.com
 
           - type: web
             name: navig8r-www-alpha
@@ -179,6 +189,16 @@ projects:
                 value: https://navig8r-api-beta.onrender.com
               - key: MAPS_API_KEY
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
+              - key: FIREBASE_WEB_MESSAGING_SENDER_ID
+                sync: false
+              - key: FIREBASE_WEB_PROJECT_ID
+                value: navig8r-beta
+              - key: FIREBASE_WEB_AUTH_DOMAIN
+                value: navig8r-beta.firebaseapp.com
 
           - type: web
             name: navig8r-www-beta
@@ -272,6 +292,16 @@ projects:
                 value: https://navig8r.onrender.com
               - key: MAPS_API_KEY
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
+              - key: FIREBASE_WEB_MESSAGING_SENDER_ID
+                sync: false
+              - key: FIREBASE_WEB_PROJECT_ID
+                value: project-e8131904-7071-4f79-89c
+              - key: FIREBASE_WEB_AUTH_DOMAIN
+                value: project-e8131904-7071-4f79-89c.firebaseapp.com
 
           - type: web
             name: navig8r-www-image
