@@ -253,7 +253,9 @@ test("driver starts one generated challenge without exposing it in the URL", asy
     .evaluate((e: HTMLElement) => e.click());
   const challenge = await (await started).json();
   expect(challenge.debugCode).toMatch(/^\d{6}$/);
-  await expect(page).toHaveURL(/#\/driver\/onboarding\/otp\?phone=8000000003$/);
+  await expect(page).toHaveURL(
+    /#\/driver\/onboarding\/otp\?phone=8000000003&countryCode=\+91$/,
+  );
   expect(starts).toBe(1);
   expect(page.url()).not.toContain(challenge.challengeId);
   expect(page.url()).not.toContain("debugCode");

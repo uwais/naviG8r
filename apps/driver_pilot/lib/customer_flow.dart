@@ -19,6 +19,7 @@ import "location_editor.dart";
 import "pilot_api.dart";
 import "notification_center.dart";
 import "firebase_phone_auth.dart";
+import "phone_country.dart";
 
 String? lastBookedShipmentId;
 
@@ -391,13 +392,14 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   String? _debugCode;
   String? _challengeId;
   String? _challengePhone;
+  String _countryCode = "+91";
   bool _sending = false;
   bool _verifying = false;
   Timer? _otpCooldownTimer;
   int _otpCooldownSeconds = 0;
   String? _error;
   PhoneAuthClient? _firebase;
-  bool _useFirebase = firebasePhoneAuthAvailable && !kIsWeb;
+  bool _useFirebase = firebasePhoneAuthAvailable;
   bool _firebaseCodeSent = false;
 
   void _startOtpCooldown(dynamic rawMs) {
@@ -417,8 +419,24 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
 
   void _phoneChanged(String value) {
     final phone = digitsOnly(value.trim());
-    if (_challengePhone == null || phone == _challengePhone) return;
+    if (_challengePhone == null ||
+        phoneIdentityKey(_countryCode, phone) == _challengePhone) return;
     setState(() {
+      _challengeId = null;
+      _challengePhone = null;
+      _firebaseCodeSent = false;
+      _debugCode = null;
+      _code.clear();
+      _otpCooldownSeconds = 0;
+      _otpCooldownTimer?.cancel();
+      _otpCooldownTimer = null;
+    });
+  }
+
+  void _countryChanged(String value) {
+    if (_countryCode == value) return;
+    setState(() {
+      _countryCode = value;
       _challengeId = null;
       _challengePhone = null;
       _firebaseCodeSent = false;
@@ -442,6 +460,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
   @override
   void dispose() {
     _otpCooldownTimer?.cancel();
+    _firebase?.dispose();
     _phone.dispose();
     _code.dispose();
     super.dispose();
@@ -464,14 +483,14 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
     try {
       final previousChallengeId = _challengeId;
       if (_useFirebase) {
-        preserveFirebaseChallenge =
-            _firebaseCodeSent && _challengePhone == phone;
+        preserveFirebaseChallenge = _firebaseCodeSent &&
+            _challengePhone == phoneIdentityKey(_countryCode, phone);
         setState(() {
-          _challengePhone = phone;
+          _challengePhone = phoneIdentityKey(_countryCode, phone);
           _firebaseCodeSent = false;
         });
         await _firebase!.requestCode(
-          firebasePhoneNumber(phone),
+          firebasePhoneNumber(phone, _countryCode),
           onCodeSent: (_) {
             if (mounted) setState(() => _firebaseCodeSent = true);
           },
@@ -493,10 +512,10 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
             "Firebase phone sign-in is unavailable.");
       }
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
-          data: {"phone": phone});
+          data: {"phone": phone, "countryCode": _countryCode});
       if (!mounted) return;
       _challengeId = r.data?["challengeId"] as String?;
-      _challengePhone = phone;
+      _challengePhone = phoneIdentityKey(_countryCode, phone);
       _startOtpCooldown(r.data?["retryAfterMs"]);
       final dc = r.data?["debugCode"];
       if (dc is String && dc.isNotEmpty) {
@@ -533,7 +552,8 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
     final phone = digitsOnly(_phone.text.trim());
     try {
       if (_useFirebase) {
-        if (!_firebaseCodeSent || phone != _challengePhone) {
+        if (!_firebaseCodeSent ||
+            phoneIdentityKey(_countryCode, phone) != _challengePhone) {
           throw Exception("Request a code for this phone number first.");
         }
         await _firebase!.verifyCode(_code.text.trim());
@@ -550,12 +570,14 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
             "Firebase phone sign-in is unavailable.");
       }
       final challengeId = _challengeId;
-      if (challengeId == null || phone != _challengePhone)
+      if (challengeId == null ||
+          phoneIdentityKey(_countryCode, phone) != _challengePhone)
         throw Exception("Request a code for this phone number first.");
       final r = await api.post<Map<String, dynamic>>(
         "/v1/auth/otp/verify",
         data: {
           "phone": phone,
+          "countryCode": _countryCode,
           "challengeId": challengeId,
           "code": _code.text.trim()
         },
@@ -610,9 +632,7 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
             ],
             const Text("Use the phone number you registered with.",
                 style: TextStyle(color: DriverTheme.muted)),
-            if (firebasePhoneAuthAvailable &&
-                !kIsWeb &&
-                legacyOtpFallbackEnabled)
+            if (firebasePhoneAuthAvailable && legacyOtpFallbackEnabled)
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text("Use Firebase phone verification"),
@@ -642,11 +662,12 @@ class _CustomerLoginScreenState extends State<CustomerLoginScreen> {
                       const TextStyle(fontSize: 12, color: DriverTheme.muted)),
             ],
             const SizedBox(height: 16),
-            TextField(
+            PhoneNumberField(
               controller: _phone,
-              keyboardType: TextInputType.phone,
+              countryCode: _countryCode,
+              onCountryChanged: _countryChanged,
               onChanged: _phoneChanged,
-              decoration: const InputDecoration(labelText: "Mobile number"),
+              label: "Mobile number",
             ),
             const SizedBox(height: 12),
             OutlinedButton(
@@ -709,6 +730,7 @@ class _CustomerRegisterUserScreenState
     extends State<CustomerRegisterUserScreen> {
   final _fullName = TextEditingController();
   final _phone = TextEditingController();
+  String _countryCode = "+91";
   bool _submitting = false;
   String? _error;
 
@@ -730,6 +752,7 @@ class _CustomerRegisterUserScreenState
         data: {
           "fullName": _fullName.text.trim(),
           "phone": digitsOnly(_phone.text.trim()),
+          "countryCode": _countryCode,
         },
       );
       if (!mounted) return;
@@ -762,10 +785,12 @@ class _CustomerRegisterUserScreenState
           TextField(
               controller: _fullName,
               decoration: const InputDecoration(labelText: "Your name")),
-          TextField(
+          PhoneNumberField(
               controller: _phone,
-              decoration: const InputDecoration(labelText: "Phone (10 digits)"),
-              keyboardType: TextInputType.phone),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Phone (10 digits)"),
           if (_error != null) ...[
             const SizedBox(height: 8),
             Text(_error!, style: const TextStyle(color: Colors.red)),
@@ -795,6 +820,7 @@ class CustomerTeamScreen extends StatefulWidget {
 
 class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
   final _phone = TextEditingController();
+  String _countryCode = "+91";
   bool _loading = false;
   bool _inviting = false;
   String? _error;
@@ -862,7 +888,11 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
     try {
       await api.post<Map<String, dynamic>>(
         "/v1/pilot/customer/members/invite",
-        data: {"orgId": orgId, "phone": digitsOnly(_phone.text.trim())},
+        data: {
+          "orgId": orgId,
+          "phone": digitsOnly(_phone.text.trim()),
+          "countryCode": _countryCode,
+        },
       );
       _phone.clear();
       await _loadMembers();
@@ -902,11 +932,12 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
                 style: const TextStyle(color: Colors.red)),
           ] else ...[
             const SizedBox(height: 16),
-            TextField(
+            PhoneNumberField(
               controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                  labelText: "Teammate phone (10 digits)"),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Teammate phone (10 digits)",
             ),
             const SizedBox(height: 8),
             FilledButton(
@@ -1396,6 +1427,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
   final _fullName = TextEditingController();
   final _phone = TextEditingController();
   final _org = TextEditingController();
+  String _countryCode = "+91";
   bool _submitting = false;
   String? _error;
 
@@ -1418,6 +1450,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
         data: {
           "fullName": _fullName.text.trim(),
           "phone": digitsOnly(_phone.text.trim()),
+          "countryCode": _countryCode,
           "orgDisplayName": _org.text.trim(),
         },
       );
@@ -1448,10 +1481,12 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
           TextField(
               controller: _fullName,
               decoration: const InputDecoration(labelText: "Your name")),
-          TextField(
+          PhoneNumberField(
               controller: _phone,
-              decoration: const InputDecoration(labelText: "Phone (10 digits)"),
-              keyboardType: TextInputType.phone),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Phone (10 digits)"),
           TextField(
               controller: _org,
               decoration:

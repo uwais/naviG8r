@@ -57,6 +57,34 @@ test("HTTP concurrent OTP starts reuse one challenge and concurrent verification
   );
 });
 
+test("HTTP registration and OTP verification preserve a US country code", async (t) => {
+  const f = await httpFixture(t);
+  const phone = "2025550100";
+  const registration = await f.request(
+    "/v1/pilot/customer/users/register",
+    "POST",
+    { fullName: "US test user", phone, countryCode: "+1" },
+  );
+  assert.equal(registration.status, 201);
+  const registeredUser = registration.body.user;
+  assert.equal(registeredUser.phone, phone);
+  assert.equal(registeredUser.countryCode, "+1");
+
+  const started = await f.request(START, "POST", {
+    phone,
+    countryCode: "+1",
+  });
+  assert.equal(started.status, 200);
+  const verified = await f.request(VERIFY, "POST", {
+    phone,
+    countryCode: "+1",
+    challengeId: started.body.challengeId,
+    code: started.body.debugCode,
+  });
+  assert.equal(verified.status, 200);
+  assert.equal(verified.body.user.countryCode, "+1");
+});
+
 test("cooldown retries reuse the current challenge without rewriting the store", async (t) => {
   const f = await httpFixture(t), phone = f.shipperA.user.phone;
   const first = await f.request(START, "POST", { phone });
