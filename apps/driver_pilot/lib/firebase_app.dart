@@ -21,12 +21,10 @@ String get expectedFirebaseProjectId => kIsWeb
     : _dartFirebaseProjectId;
 
 FirebaseOptions? get firebaseDartOptions {
-  final apiKey = kIsWeb
-      ? (firebaseWebConfig.apiKey ?? _firebaseApiKey)
-      : _firebaseApiKey;
-  final appId = kIsWeb
-      ? (firebaseWebConfig.appId ?? _firebaseAppId)
-      : _firebaseAppId;
+  final apiKey =
+      kIsWeb ? (firebaseWebConfig.apiKey ?? _firebaseApiKey) : _firebaseApiKey;
+  final appId =
+      kIsWeb ? (firebaseWebConfig.appId ?? _firebaseAppId) : _firebaseAppId;
   final senderId = kIsWeb
       ? (firebaseWebConfig.messagingSenderId ?? _firebaseSenderId)
       : _firebaseSenderId;
@@ -50,14 +48,24 @@ FirebaseOptions? get firebaseDartOptions {
 }
 
 /// Initializes Firebase once for Auth and FCM and rejects a mixed environment.
-Future<FirebaseApp> ensureFirebaseApp() async {
+Future<FirebaseApp>? _firebaseAppFuture;
+
+Future<FirebaseApp> _initializeFirebaseApp() async {
   final options = firebaseDartOptions;
   if (kIsWeb && options == null) {
     throw StateError("Firebase web configuration is missing.");
   }
-  final app = Firebase.apps.isEmpty
-      ? await Firebase.initializeApp(options: options)
-      : Firebase.app();
+
+  // Do not inspect Firebase.apps before initialization. Older FlutterFire web
+  // versions access the JS SDK while evaluating that getter; on WebKit this
+  // can happen before the loader has installed window.firebase_core.
+  late final FirebaseApp app;
+  try {
+    app = await Firebase.initializeApp(options: options);
+  } on FirebaseException catch (error) {
+    if (error.code != "duplicate-app") rethrow;
+    app = Firebase.app();
+  }
   if (expectedFirebaseProjectId.isNotEmpty &&
       app.options.projectId != expectedFirebaseProjectId) {
     throw StateError(
@@ -69,4 +77,19 @@ Future<FirebaseApp> ensureFirebaseApp() async {
     throw StateError("Firebase Dart and native configuration do not match.");
   }
   return app;
+}
+
+Future<FirebaseApp> ensureFirebaseApp() async {
+  final cached = _firebaseAppFuture;
+  if (cached != null) return cached;
+
+  final future = _initializeFirebaseApp();
+  _firebaseAppFuture = future;
+  try {
+    return await future;
+  } catch (_) {
+    // Allow a later attempt after a transient WebKit/module-loader failure.
+    if (identical(_firebaseAppFuture, future)) _firebaseAppFuture = null;
+    rethrow;
+  }
 }
