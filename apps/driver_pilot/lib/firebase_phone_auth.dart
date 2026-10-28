@@ -205,8 +205,9 @@ Future<bool> initializeFirebasePhoneAuth() async {
     firebasePhoneAuthAvailable = true;
     return true;
   } catch (_) {
-    firebasePhoneAuthDiagnostic =
-        "Firebase phone sign-in is unavailable. Check Firebase Android configuration.";
+    firebasePhoneAuthDiagnostic = kIsWeb
+        ? "Firebase phone sign-in is unavailable in this browser. Reload and try again."
+        : "Firebase phone sign-in is unavailable. Check Firebase Android configuration.";
     return false;
   }
 }
