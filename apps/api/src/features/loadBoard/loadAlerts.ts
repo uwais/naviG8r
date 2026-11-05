@@ -36,9 +36,9 @@ export function setLoadAlerts(store: Store, userId: string, on: boolean, nowUtcM
   store.loadAlertSettings.set(userId, { userId, loadAlertsOn: on, updatedAtUtcMs: nowUtcMs });
 }
 
+// No check for an earlier copy: each event id names a load or route just made, and memberships hold each person
+// once per company, so a repeat cannot exist.
 function notify(store: Store, load: PostedLoad, recipient: { userId: string; orgId: string; audience: "SHIPPER" | "CARRIER" }, eventKey: string, eventId: string, title: string, body: string, nowUtcMs: number): void {
-  const duplicate = [...store.notifications.values()].some((n) => n.eventId === eventId && n.recipientUserId === recipient.userId && n.recipientOrgId === recipient.orgId);
-  if (duplicate) return;
   const notification: Notification = {
     id: randomUUID(), recipientSequence: ++store.notificationSequence,
     eventId, eventKey, recipientUserId: recipient.userId, recipientOrgId: recipient.orgId,
