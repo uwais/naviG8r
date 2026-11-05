@@ -23,7 +23,10 @@ meet, fold these sections into it. Until then this file covers only what the Loa
 | `routeForPostedLoad.ts` | A carrier answering a load: checks before today's route form publishes the trip, then records it on the load and tells the shipper |
 | `postedLoadLifecycle.ts` | Booked when its own shipper books a route made for it; the sweep that reopens a load whose booking fell through and expires loads past their pickup window |
 | `loadAlerts.ts` | The two Load Board notices and their words, and each carrier user's load-alerts choice |
-| `tests/` | `loadBoardVisibility.test.ts` (who sees what), `loadBoardRules.test.ts` (every rule), `loadBoardPersistence.test.ts`; `loadBoardSetup.ts` is their shared set-up, not a test |
+| `tests/` | `loadBoardVisibility.test.ts` (who sees what), `loadBoardRules.test.ts` (every rule), `loadBoardPersistence.test.ts`, `opsPostedLoadsCard.test.ts` (the staff card); `loadBoardSetup.ts` is their shared set-up, not a test |
+
+The staff view is the "Load Board" card on `/ops/beta`, in `apps/api/src/opsConsoleBetaPostedLoads.ts` beside the
+page's other cards. Read only; it reads `GET /ops/posted-loads`.
 
 ## Entry points
 
