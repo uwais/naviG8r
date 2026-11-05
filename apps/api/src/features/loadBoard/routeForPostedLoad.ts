@@ -13,6 +13,8 @@ import { requireBoardViewer } from "./loadBoardAudience.ts";
 import { MAX_ROUTES_PER_CARRIER_PER_HOUR, type PostedLoad } from "./postedLoad.ts";
 
 const sameCity = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+/** Two decimal places: a square about 1.1 km on a side. */
+const roundedPoint = ({ lat, lng }: GeoPoint): GeoPoint => ({ lat: Math.round(lat * 100) / 100, lng: Math.round(lng * 100) / 100 });
 
 /** Runs before the route is published, so a refused route is never made. Returns the load it is for. */
 export function checkRouteForPostedLoad(store: Store, postedLoadId: unknown, route: {
@@ -29,11 +31,12 @@ export function checkRouteForPostedLoad(store: Store, postedLoadId: unknown, rou
   if (madeThisHour.length >= MAX_ROUTES_PER_CARRIER_PER_HOUR) throw new ApiError("rate_limited", { retryAfterMs: Math.max(1000, Math.min(...madeThisHour.map((made) => made.madeAtUtcMs)) - since) }, 429);
   if (!sameCity(load.from.city, route.originCity) || !sameCity(load.to.city, route.destCity)) throw new ApiError("route_cities_do_not_match_load");
   if (!(route.capacityKg >= load.weightKg)) throw new ApiError("route_too_small_for_load", { weightKg: load.weightKg });
-  // The shipper books it exactly as today, and booking refuses a route whose ends are too far from the load's. The
-  // distances are not passed on: they would tell the carrier where the shipper's points are.
+  // The shipper books it exactly as today, and booking refuses a route whose ends are too far from the load's. Here
+  // the route is held to the load's points rounded to about 1 km, as a carrier sees only the town, and no distance
+  // is passed on. Booking checks the exact points later.
   if (route.origin && route.destination) {
     try {
-      assertPhaseABookingEligible({ trip: { origin: route.origin, destination: route.destination } as AnchorTrip, pickup: load.from, drop: load.to });
+      assertPhaseABookingEligible({ trip: { origin: route.origin, destination: route.destination } as AnchorTrip, pickup: roundedPoint(load.from), drop: roundedPoint(load.to) });
     } catch {
       throw new ApiError("route_too_far_from_load", { detail: "Start the route near the load's pickup city and end it near its drop city." });
     }

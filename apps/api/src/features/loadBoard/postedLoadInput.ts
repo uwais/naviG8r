@@ -16,6 +16,9 @@ import {
 } from "./postedLoad.ts";
 
 const MAX_CITY_LENGTH = 80;
+// A town name: letters in any script with their vowel signs, spaces, dots, apostrophes and hyphens. Carriers see it
+// on the board and in alerts, so it holds the town only, never a street address or a phone number.
+const TOWN_NAME = /^[\p{L}\p{M} .'-]+$/u;
 const MAX_PACKAGE_COUNT = 10_000;
 // Generous: a 40-foot container is about 1,200 cm or 480 inches long, and about 68 cubic metres.
 const MAX_PACKAGE_SIDE = 10_000;
@@ -28,7 +31,7 @@ function place(raw: any, name: "from" | "to"): PostedLoadPlace {
   const { lat, lng } = raw ?? {};
   const pointOk = typeof lat === "number" && Number.isFinite(lat) && lat >= -90 && lat <= 90
     && typeof lng === "number" && Number.isFinite(lng) && lng >= -180 && lng <= 180;
-  if (!city || city.length > MAX_CITY_LENGTH || /[\u0000-\u001f\u007f]/.test(city) || !pointOk) throw new Error(`invalid_${name}`);
+  if (!city || city.length > MAX_CITY_LENGTH || !TOWN_NAME.test(city) || !pointOk) throw new Error(`invalid_${name}`);
   return { city, lat, lng };
 }
 

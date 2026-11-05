@@ -1,4 +1,4 @@
-import { AuthorizationError, principalFor, recordAudit, requirePermission } from "./rbac.ts";
+import { authorizationContext, AuthorizationError, principalFor, recordAudit, requirePermission } from "./rbac.ts";
 import { withoutEwayBill } from "./ewayBillVisibility.ts";
 import { withoutPodPhotos } from "./podPhotos.ts";
 import { withoutTripAssignment } from "./tripAssignmentRules.ts";
@@ -39,6 +39,7 @@ import {
   shipmentTrackingUrl,
 } from "./integrationWebhooks.ts";
 import { razorpayPaymentsEnabled } from "./razorpayPayments.ts";
+import { markPostedLoadBooked } from "./features/loadBoard/postedLoadLifecycle.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -304,6 +305,10 @@ export async function createIntegrationLoad(
     integrationConnectionId: conn.id,
     metadata: params.metadata,
   });
+  // As the app's booking does: the company's own booking of a route made for its open load books that load. An ERP
+  // request has no signed-in user, so the load's audit row names the ERP booking as its actor.
+  const requestId = authorizationContext.getStore()?.requestId ?? crypto.randomUUID();
+  authorizationContext.run({ requestId, system: true, systemActor: "system:erp-booking" }, () => markPostedLoadBooked(store, shipment));
 
   if (conn.paymentPolicy === "portal_checkout" && razorpayPaymentsEnabled()) {
     await attachRazorpayOrderForShipment(store, shipment.id);

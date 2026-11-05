@@ -4,6 +4,9 @@ import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { UNPAID_BOOKING_EXPIRY_MS, UNPAID_BOOKING_GRACE_MS } from "../../../config.ts";
+import { distanceBetweenGeoPointsKm } from "../../../services.ts";
+import { createIntegrationApiKey, createIntegrationLoad } from "../../../integrationServices.ts";
+import { resolveIntegrationAuth } from "../../../integrationAuth.ts";
 import { indiaDay, loadBoardFixture, loadBody } from "./loadBoardSetup.ts";
 
 type Fixture = Awaited<ReturnType<typeof loadBoardFixture>>;
@@ -29,7 +32,7 @@ function bookRoute(fx: Fixture, tripId: string, token: string, weightKg = 400) {
   }, token);
 }
 
-test("posting refuses pickup days outside the rules, a long note and a bad package size", async t => {
+test("posting refuses pickup days outside the rules, a long note, a bad package size and a town that is not a town name", async t => {
   const fx = await loadBoardFixture(t);
   const refused = async (extra: Record<string, unknown>, error: string) => {
     const out = await fx.post(loadBody(extra));
@@ -46,6 +49,8 @@ test("posting refuses pickup days outside the rules, a long note and a bad packa
   await refused({ packages: { kind: "TOTAL_VOLUME", volume: -1, unit: "CUBIC_METRES" } }, "invalid_packages");
   await refused({ from: { city: "", lat: 1, lng: 1 } }, "invalid_from");
   await refused({ to: { city: "Mumbai", lat: 200, lng: 1 } }, "invalid_to");
+  await refused({ from: { city: "Pune call 9800000010", lat: 18.52, lng: 73.85 } }, "invalid_from");
+  await refused({ to: { city: "Plot 22, MIDC Bhosari", lat: 19.07, lng: 72.87 } }, "invalid_to");
   await refused({ weightKg: 0 }, "invalid_weightKg");
   assert.equal(fx.f.store.postedLoads.size, 0, "nothing refused was kept");
 
@@ -55,6 +60,8 @@ test("posting refuses pickup days outside the rules, a long note and a bad packa
   assert.equal(edges.body.load.state, "OPEN");
   const noNote = await fx.post(loadBody({ note: "   " }));
   assert.equal(noNote.body.load.note, undefined, "a blank note is no note");
+  const townNames = await fx.post(loadBody({ from: { city: "Pimpri-Chinchwad", lat: 18.62, lng: 73.8 }, to: { city: "पुणे", lat: 18.52, lng: 73.85 } }));
+  assert.equal(townNames.status, 201, "a town name may have a hyphen, or be written in Devanagari");
 });
 
 test("a company may have at most 10 open loads, and posting is held at 10 an hour per user", async t => {
@@ -290,3 +297,31 @@ function withPushQueue(t: TestContext): void {
     else process.env.PUSH_ENQUEUE_ENABLED = saved;
   });
 }
+
+test("a route for a load is checked against the load's points rounded to about 1 km, not its exact points", async t => {
+  const fx = await loadBoardFixture(t);
+  const loadId = await postedLoadId(fx);
+  const exact = loadBody().from, rounded = { lat: 18.52, lng: 73.86 };
+  // Due east of the rounded pickup point: inside 15 km of it, outside 15 km of the exact one.
+  const origin = { lat: 18.52, lng: 74.0012 };
+  assert.ok(distanceBetweenGeoPointsKm(origin, rounded) < 15 && distanceBetweenGeoPointsKm(origin, exact) > 15, "the test point sits between the two");
+  const made = await fx.makeRoute(loadId, fx.tokens.carrierB, { origin });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+});
+
+test("a booking from the posting company's ERP connection books the load too", async t => {
+  const fx = await loadBoardFixture(t);
+  const loadId = await postedLoadId(fx);
+  const tripId = await routeFor(fx, loadId);
+  const { token } = createIntegrationApiKey(fx.f.store, fx.f.shipperA.org.id);
+  const ctx = resolveIntegrationAuth(fx.f.store, { bearerToken: token });
+  const body = loadBody();
+  const { shipment } = await createIntegrationLoad(fx.f.store, ctx, {
+    externalLoadId: "ERP-LOAD-1", weightKg: 400, pickupAddress: "Synthetic pickup", dropAddress: "Synthetic drop",
+    pickup: { lat: body.from.lat, lng: body.from.lng }, drop: { lat: body.to.lat, lng: body.to.lng }, lanePreference: "explicit", anchorTripId: tripId,
+  });
+  const load = fx.f.store.postedLoads.get(loadId)!;
+  assert.deepEqual([load.state, load.booking?.shipmentId], ["BOOKED", shipment.id]);
+  assert.ok([...fx.f.store.auditEvents.values()].some((row) => row.action === "POSTED_LOAD_BOOKED" && row.actorUserId === "system:erp-booking"),
+    "an ERP request has no signed-in user, so the audit row names the ERP booking");
+});
