@@ -218,9 +218,14 @@ Future<void> _openPushNotification(String notificationId) async {
     if (!identityIsCurrent()) return;
     final organizationId = route['organizationId']?.toString();
     final shipmentId = route['shipmentId']?.toString();
-    // A driver's new-trip notice opens the trip instead of a shipment.
+    // A driver's new-trip notice opens the trip instead of a shipment, and a Load Board notice the screen the
+    // server names: My loads for a shipper, the Load Board for a carrier office.
     final tripId = route['tripId']?.toString();
-    if (organizationId == null || (shipmentId == null && tripId == null)) return;
+    final postedLoadId = route['postedLoadId']?.toString();
+    if (organizationId == null ||
+        (shipmentId == null && tripId == null && postedLoadId == null)) {
+      return;
+    }
     if (!AuthorizationSession.organizations
         .any((org) => org['id'] == organizationId)) {
       await AuthorizationSession.refresh();
@@ -246,6 +251,12 @@ Future<void> _openPushNotification(String notificationId) async {
     if (tripId != null) {
       await openTripNotice(context,
           notificationId: notificationId, tripId: tripId);
+      return;
+    }
+    if (postedLoadId != null) {
+      await openPostedLoadNotice(context,
+          notificationId: notificationId,
+          forShipper: route['screen'] == 'MY_LOADS');
       return;
     }
     if (!AuthorizationSession.can('conversation.read')) return;

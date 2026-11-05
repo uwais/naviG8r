@@ -114,9 +114,24 @@ class NotificationWatch {
     }
     final bell = _newestMountedBell();
     final tripId = notice['tripId']?.toString() ?? '';
+    final postedLoadId = notice['postedLoadId']?.toString() ?? '';
     final words = noticeWords(eventKey, forShipper: forShipper) ??
         (forShipper ? 'New update on a shipment.' : 'New update on a booking.');
     if (bell == null) return;
+    // A Load Board notice has no shipment either: View opens My loads or the Load Board.
+    if (postedLoadId.isNotEmpty) {
+      final notificationId = notice['id']?.toString() ?? '';
+      final data = notice['data'];
+      final toShipper = data is Map && data['audience'] == 'SHIPPER';
+      bell._showBanner(words, () {
+        final shown = _newestMountedBell();
+        if (shown != null) {
+          openPostedLoadNotice(shown.context,
+              notificationId: notificationId, forShipper: toShipper);
+        }
+      });
+      return;
+    }
     // A new-trip notice has no shipment: View opens the trip and marks the notice read.
     if (tripId.isNotEmpty) {
       final notificationId = notice['id']?.toString() ?? '';

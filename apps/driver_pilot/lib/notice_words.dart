@@ -11,6 +11,7 @@ String? noticeWords(String eventKey, {required bool forShipper}) {
       'shipment.pod_accepted' => 'Delivery accepted.',
       'payment.status_changed' => 'Your payment was updated.',
       'conversation.message' => 'New message on a shipment.',
+      'posted_load.route_made' => 'A carrier added a trip for your load.',
       _ => null,
     };
   }
@@ -24,6 +25,7 @@ String? noticeWords(String eventKey, {required bool forShipper}) {
     'payment.status_changed' => 'A payment was updated.',
     'conversation.message' => 'New message on a booking.',
     'trip.assigned' => 'You have a new trip.',
+    'posted_load.new' => 'New load on the Load Board.',
     _ => null,
   };
 }
