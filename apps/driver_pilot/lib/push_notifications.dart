@@ -53,7 +53,7 @@ class PushPayload {
 /// Board notice). The lock-screen words for the same pushes are chosen in the API's push.ts.
 (String, String) localPushWords(String? notice) => switch (notice) {
       'LOAD_BOARD' => ('New load on the Load Board', 'Open the Load Board to see it.'),
-      'MY_LOADS' => ('A carrier made a route for your load', 'Open My loads to see it.'),
+      'MY_LOADS' => ('A carrier added a trip for your load', 'Open My loads to see it.'),
       _ => ('Shipment update', 'There is a new update about one of your shipments.'),
     };
 

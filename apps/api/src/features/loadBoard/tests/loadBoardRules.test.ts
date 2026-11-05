@@ -141,8 +141,8 @@ test("a route made for a load tells the posting shipper, not the carrier who mad
   const [notice, ...more] = (await fx.notices(fx.tokens.shipperA)).filter((n) => n.eventKey === "posted_load.route_made");
   assert.ok(notice);
   assert.equal(more.length, 0);
-  assert.equal(notice.data.title, "A carrier made a route for your load");
-  assert.equal(notice.data.body, `Synthetic Carrier B made a route from Pune to Mumbai, leaves ${shortDay(indiaDay(1))}. Open My loads to book it.`);
+  assert.equal(notice.data.title, "A carrier added a trip for your load");
+  assert.equal(notice.data.body, `Synthetic Carrier B added a trip from Pune to Mumbai, leaves ${shortDay(indiaDay(1))}. Open My loads to book it.`);
   assert.ok(!/Paise|₹/.test(JSON.stringify(notice)));
   for (const who of ["carrierB", "dispatcher", "shipperB", "driver"] as const) {
     assert.deepEqual((await fx.notices(fx.tokens[who])).filter((n) => n.eventKey === "posted_load.route_made"), [], who);

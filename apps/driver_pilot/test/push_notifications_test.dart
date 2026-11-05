@@ -35,7 +35,7 @@ void main() {
       expect(localPushWords('LOAD_BOARD'),
           ('New load on the Load Board', 'Open the Load Board to see it.'));
       expect(localPushWords('MY_LOADS'),
-          ('A carrier made a route for your load', 'Open My loads to see it.'));
+          ('A carrier added a trip for your load', 'Open My loads to see it.'));
       expect(localPushWords('SOMETHING_ELSE'),
           ('Shipment update', 'There is a new update about one of your shipments.'));
     });

@@ -296,7 +296,7 @@ function lockScreenWords(notification: Notification): Pick<FcmDeliveryMessage, "
   if (!notification.postedLoadId) return { title: "Shipment update", body: "There is an update for a shipment." };
   return notification.data?.audience === "CARRIER"
     ? { title: "New load on the Load Board", body: "Open the Load Board to see it.", notice: "LOAD_BOARD" }
-    : { title: "A carrier made a route for your load", body: "Open My loads to see it.", notice: "MY_LOADS" };
+    : { title: "A carrier added a trip for your load", body: "Open My loads to see it.", notice: "MY_LOADS" };
 }
 
 export function pushFcmMessage(claim: PushDeliveryClaim, token: string, now = Date.now()): FcmDeliveryMessage {

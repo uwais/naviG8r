@@ -64,10 +64,10 @@ export function alertShipperOfRoute(store: Store, load: PostedLoad, trip: Anchor
   const carrierName = store.organizations.get(trip.carrierId)?.displayName?.trim() || "A carrier";
   const leavesUtcMs = Date.parse(trip.windowStart);
   const leaves = Number.isNaN(leavesUtcMs) ? "" : `, leaves ${shortDay(indiaToday(leavesUtcMs))}`;
-  const body = `${carrierName} made a route from ${trip.originCity} to ${trip.destCity}${leaves}. Open My loads to book it.`;
+  const body = `${carrierName} added a trip from ${trip.originCity} to ${trip.destCity}${leaves}. Open My loads to book it.`;
   for (const membership of store.memberships.values()) {
     const { userId, orgId } = membership;
     if (orgId !== load.shipperOrgId || userId === madeByUserId || !isShipperMember(store, userId, orgId)) continue;
-    notify(store, load, { userId, orgId, audience: "SHIPPER" }, POSTED_LOAD_ROUTE_MADE_EVENT, `${POSTED_LOAD_ROUTE_MADE_EVENT}:${trip.id}`, "A carrier made a route for your load", body, nowUtcMs);
+    notify(store, load, { userId, orgId, audience: "SHIPPER" }, POSTED_LOAD_ROUTE_MADE_EVENT, `${POSTED_LOAD_ROUTE_MADE_EVENT}:${trip.id}`, "A carrier added a trip for your load", body, nowUtcMs);
   }
 }

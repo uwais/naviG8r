@@ -328,6 +328,6 @@ test("the lock screen names a Load Board notice for what it is, and still says n
   assert.deepEqual(words({ shipmentId: "ship-1" }), { title: "Shipment update", body: "There is an update for a shipment.", notice: undefined });
   assert.deepEqual(words({ postedLoadId: "load_1", data: { audience: "CARRIER", body: "Pune to Mumbai, 400 kg" } }),
     { title: "New load on the Load Board", body: "Open the Load Board to see it.", notice: "LOAD_BOARD" });
-  assert.deepEqual(words({ postedLoadId: "load_1", data: { audience: "SHIPPER", body: "Synthetic Carrier B made a route" } }),
-    { title: "A carrier made a route for your load", body: "Open My loads to see it.", notice: "MY_LOADS" });
+  assert.deepEqual(words({ postedLoadId: "load_1", data: { audience: "SHIPPER", body: "Synthetic Carrier B added a trip" } }),
+    { title: "A carrier added a trip for your load", body: "Open My loads to see it.", notice: "MY_LOADS" });
 });
