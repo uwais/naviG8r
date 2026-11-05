@@ -23,7 +23,6 @@ export type PostedLoad = {
   /** Calendar days in India, YYYY-MM-DD. */
   earliestPickupDate: string;
   latestPickupDate: string;
-  note?: string;
   state: PostedLoadState;
   postedAtUtcMs: number;
   /** Set when it leaves OPEN; cleared if a failed booking puts it back on the board. */
@@ -39,7 +38,6 @@ export type LoadAlertSetting = { userId: string; loadAlertsOn: boolean; updatedA
 export const MAX_OPEN_LOADS_PER_SHIPPER = 10;
 export const MAX_DAYS_TO_EARLIEST_PICKUP = 7;
 export const MAX_PICKUP_WINDOW_DAYS = 3;
-export const MAX_NOTE_LENGTH = 300;
 // Each post alerts every carrier office and each route alerts the shipper, so both are capped per hour. Counted from
 // what was made, as conversation messages are, so a refused attempt never uses one up.
 export const MAX_POSTS_PER_USER_PER_HOUR = 10;

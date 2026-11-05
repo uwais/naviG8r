@@ -31,11 +31,6 @@ List<Map> postsTo(FakeServer server, String path) => [
           request.data as Map
     ];
 
-/// The optional Note field, whose label reads "Note (optional)".
-final noteField = find.descendant(
-    of: find.byWidgetPredicate((widget) => widget is NvField && widget.label == 'Note'),
-    matching: find.byType(TextField));
-
 Future<void> tapButton(WidgetTester tester, String label) async {
   final button = find.text(label);
   await tester.ensureVisible(button);
@@ -67,7 +62,6 @@ Map<String, dynamic> myLoad(
       },
       'earliestPickupDate': '2026-11-05',
       'latestPickupDate': '2026-11-06',
-      'note': 'Fragile cartons',
       'state': state,
       'postedAtUtcMs': 1793000000000,
       'routes': routes,
@@ -130,7 +124,6 @@ void main() {
       await tester.enterText(field('Width'), '30');
       await tester.enterText(field('Height'), '20.5');
       await tapButton(tester, 'cm');
-      await tester.enterText(noteField, '  Fragile cartons  ');
       await tester.tap(find.text('Post load'));
       await tester.pumpAndSettle();
 
@@ -150,16 +143,19 @@ void main() {
         },
         'earliestPickupDate': today,
         'latestPickupDate': today,
-        'note': 'Fragile cartons',
       });
       expect(find.text('My loads'), findsWidgets,
           reason: 'after posting, the shipper sees the load under My loads');
     });
 
-    testWidgets('a total volume is sent with its unit, and no note is sent when empty',
+    testWidgets('a total volume is sent with its unit; the form has no note',
         (tester) async {
       final server = await searchWithNothingFound(tester);
       await tapButton(tester, 'Post a load');
+      expect(
+          find.byWidgetPredicate(
+              (widget) => widget is NvField && widget.label == 'Note'),
+          findsNothing);
       await tapButton(tester, 'Total volume');
       await tester.enterText(field('Total volume'), '3.5');
       await tapButton(tester, 'Cubic metres');
@@ -235,16 +231,20 @@ void main() {
 
   group('My loads', () {
     testWidgets(
-        'each load shows its state, size, days, note and the trips added, with no amount',
+        'each load shows its state, size, days and the trips added, with no amount and no note',
         (tester) async {
       final server = await showShipperApp(tester, '/customer/loads');
       server.answer('/v1/posted-loads', {
         'loads': [
-          myLoad(routes: [
-            routeFor('trip-a'),
-            routeFor('trip-b',
-                canBook: false, whyNotBookable: 'NOT_ENOUGH_ROOM')
-          ]),
+          {
+            ...myLoad(routes: [
+              routeFor('trip-a'),
+              routeFor('trip-b',
+                  canBook: false, whyNotBookable: 'NOT_ENOUGH_ROOM')
+            ]),
+            // As an older server might still send it.
+            'note': 'Fragile cartons',
+          },
           myLoad(id: 'load-2', state: 'EXPIRED'),
         ]
       });
@@ -255,8 +255,9 @@ void main() {
       expect(find.text('Pickup days passed'), findsOneWidget);
       final words = wordsOnScreen(tester);
       expect(words, contains('12 packages, each 40 by 30 by 20 inches'));
-      expect(words, contains('Fragile cartons'),
-          reason: 'the posting company sees its own note');
+      expect(words, isNot(contains('Fragile cartons')),
+          reason: 'a posted load has no note');
+      expect(words, isNot(contains('Your note')));
       expect(find.text('Trips for this load (2)'), findsOneWidget);
       expect(find.text('Deccan Movers'), findsNWidgets(2));
       expect(words, contains('Medium truck'),

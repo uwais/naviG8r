@@ -1,12 +1,12 @@
 /**
  * Reads a shipper's "Post a load" form into the fields of a posted load, refusing anything outside the rules agreed on
- * 4 Nov 2026: earliest pickup from today to 7 days ahead, a window of at most 3 days, a note of at most 300 characters.
- * Each refusal is a plain error code, as the route form's are.
+ * 4 Nov 2026: earliest pickup from today to 7 days ahead, a window of at most 3 days. Each refusal is a plain error
+ * code, as the route form's are. Fields it does not read, such as the note an older app sends, are ignored, as the
+ * route form ignores them.
  */
 import { MAX_WEIGHT_KG } from "../../config.ts";
 import {
   MAX_DAYS_TO_EARLIEST_PICKUP,
-  MAX_NOTE_LENGTH,
   MAX_PICKUP_WINDOW_DAYS,
   daysBetween,
   indiaToday,
@@ -23,8 +23,6 @@ const MAX_PACKAGE_COUNT = 10_000;
 // Generous: a 40-foot container is about 1,200 cm or 480 inches long, and about 68 cubic metres.
 const MAX_PACKAGE_SIDE = 10_000;
 const MAX_TOTAL_VOLUME = 100_000;
-// Line breaks and tabs are allowed in the note; other control characters are not.
-const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 
 function place(raw: any, name: "from" | "to"): PostedLoadPlace {
   const city = typeof raw?.city === "string" ? raw.city.trim() : "";
@@ -61,15 +59,7 @@ function calendarDay(raw: unknown, name: string): string {
   return raw;
 }
 
-function note(raw: unknown): string | undefined {
-  if (raw == null) return undefined;
-  if (typeof raw !== "string" || CONTROL_CHARACTERS.test(raw)) throw new Error("invalid_note");
-  const trimmed = raw.trim();
-  if ([...trimmed].length > MAX_NOTE_LENGTH) throw new Error("note_too_long");
-  return trimmed || undefined;
-}
-
-export type PostedLoadFields = Pick<PostedLoad, "from" | "to" | "weightKg" | "packages" | "earliestPickupDate" | "latestPickupDate" | "note">;
+export type PostedLoadFields = Pick<PostedLoad, "from" | "to" | "weightKg" | "packages" | "earliestPickupDate" | "latestPickupDate">;
 
 export function readPostedLoadInput(body: any, nowUtcMs: number): PostedLoadFields {
   const from = place(body?.from, "from");
@@ -83,6 +73,5 @@ export function readPostedLoadInput(body: any, nowUtcMs: number): PostedLoadFiel
   if (daysBetween(today, earliestPickupDate) > MAX_DAYS_TO_EARLIEST_PICKUP) throw new Error("earliest_pickup_too_far_ahead");
   if (latestPickupDate < earliestPickupDate) throw new Error("latest_pickup_before_earliest");
   if (daysBetween(earliestPickupDate, latestPickupDate) > MAX_PICKUP_WINDOW_DAYS) throw new Error("pickup_window_too_long");
-  const shipperNote = note(body?.note);
-  return { from, to, weightKg, packages: packages(body?.packages), earliestPickupDate, latestPickupDate, ...(shipperNote ? { note: shipperNote } : {}) };
+  return { from, to, weightKg, packages: packages(body?.packages), earliestPickupDate, latestPickupDate };
 }

@@ -21,7 +21,6 @@ export function loadBody(extra: Record<string, unknown> = {}) {
     packages: { kind: "SIZES", count: 4, length: 40, width: 30, height: 20, unit: "INCHES" },
     earliestPickupDate: indiaDay(0),
     latestPickupDate: indiaDay(1),
-    note: "Fragile glassware, handle with care",
     ...extra,
   };
 }

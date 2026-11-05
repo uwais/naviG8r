@@ -21,6 +21,6 @@ test("/ops/beta lists each posted load with its state, shipper, pickup days and 
     assert.ok(body.textContent.includes(words), `the card shows: ${words}`);
   }
   assert.equal(page.byId("postedLoadsCount").textContent, "2 loads, 1 on the board");
-  assert.ok(!/₹|Fragile/.test(body.textContent), "no amount and no note");
+  assert.ok(!/₹/.test(body.textContent), "no amount");
   assert.equal(page.visibleButton("Withdraw", body), undefined, "read only");
 });

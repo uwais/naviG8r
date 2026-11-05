@@ -13,7 +13,7 @@ const load: PostedLoad = {
   id: "load_synthetic", shipperOrgId: "org_shipper", postedByUserId: "user_shipper",
   from: { city: "Pune", lat: 18.52, lng: 73.85 }, to: { city: "Mumbai", lat: 19.07, lng: 72.87 },
   weightKg: 400, packages: { kind: "SIZES", count: 4, length: 40, width: 30, height: 20, unit: "INCHES" },
-  earliestPickupDate: "2026-11-05", latestPickupDate: "2026-11-06", note: "Synthetic note", state: "BOOKED",
+  earliestPickupDate: "2026-11-05", latestPickupDate: "2026-11-06", state: "BOOKED",
   postedAtUtcMs: 1, closedAtUtcMs: 3, routes: [{ tripId: "trip_synthetic", carrierOrgId: "org_carrier", madeAtUtcMs: 2 }],
   booking: { shipmentId: "shp_synthetic", bookedAtUtcMs: 3 },
 };

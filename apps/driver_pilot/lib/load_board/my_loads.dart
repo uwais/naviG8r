@@ -170,8 +170,6 @@ class _MyLoadsScreenState extends State<MyLoadsScreen> {
       if (loadWeightWords(load) case final weight?) ("Weight", weight),
       if (packagesWords(load["packages"]) case final size?) ("Size", size),
       if (pickupDaysWords(load) case final days?) ("Pickup", days),
-      if (load["note"] case final String note when note.isNotEmpty)
-        ("Your note", note),
     ];
     final withdrawError = _withdrawErrors[id];
     return Padding(

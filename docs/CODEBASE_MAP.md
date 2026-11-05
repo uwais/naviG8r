@@ -17,7 +17,7 @@ meet, fold these sections into it. Until then this file covers only what the Loa
 | File | What it does |
 |---|---|
 | `postedLoad.ts` | The posted-load record, its four states, the limits agreed on 4 Nov 2026, and India-day date helpers |
-| `postedLoadInput.ts` | Reads the "Post a load" form, refusing anything outside the rules (pickup days, note length, package sizes) |
+| `postedLoadInput.ts` | Reads the "Post a load" form, refusing anything outside the rules (pickup days, package sizes). There is no note: a `note` sent by an older app is ignored, as the route form ignores fields it does not read |
 | `loadBoardAudience.ts` | Who may post, who may read the board (approved carrier owners and dispatchers only), and whether a stored Load Board notice still belongs to its reader |
 | `postedLoadViews.ts` | Who sees what: one response builder per audience (posting shipper, carrier office, staff). Every field is picked by name |
 | `postedLoads.ts` | The requests: post, list my company's loads, withdraw, read the board, staff list |
@@ -63,8 +63,7 @@ Wiring outside the folder: the Post a load button is in `_NoMatchBox` (`shipper/
 
 **To show a carrier one more field of a posted load:** add it to `loadForCarrier` in `postedLoadViews.ts`, then add its
 name to the exact key list in the first test of `tests/loadBoardVisibility.test.ts`. You should see that test fail until
-both are changed, and pass after. Never add an amount, the shipper's name, a map point or the note: the same test checks
-for each.
+both are changed, and pass after. Never add an amount, the shipper's name or a map point: the same test checks for each.
 
 **To add a rule to posting:** put the check in `readPostedLoadInput` (`postedLoadInput.ts`) with its own error code, and
 a refused case in the first test of `tests/loadBoardRules.test.ts`. You should see `{ status: 400, error: "<your code>" }`

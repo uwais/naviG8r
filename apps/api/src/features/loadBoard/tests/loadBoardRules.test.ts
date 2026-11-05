@@ -32,7 +32,7 @@ function bookRoute(fx: Fixture, tripId: string, token: string, weightKg = 400) {
   }, token);
 }
 
-test("posting refuses pickup days outside the rules, a long note, a bad package size and a town that is not a town name", async t => {
+test("posting refuses pickup days outside the rules, a bad package size and a town that is not a town name", async t => {
   const fx = await loadBoardFixture(t);
   const refused = async (extra: Record<string, unknown>, error: string) => {
     const out = await fx.post(loadBody(extra));
@@ -43,7 +43,6 @@ test("posting refuses pickup days outside the rules, a long note, a bad package 
   await refused({ earliestPickupDate: indiaDay(2), latestPickupDate: indiaDay(1) }, "latest_pickup_before_earliest");
   await refused({ earliestPickupDate: indiaDay(0), latestPickupDate: indiaDay(4) }, "pickup_window_too_long");
   await refused({ earliestPickupDate: "2026-02-30", latestPickupDate: "2026-03-01" }, "invalid_earliestPickupDate");
-  await refused({ note: "x".repeat(301) }, "note_too_long");
   await refused({ packages: { kind: "SIZES", count: 0, length: 1, width: 1, height: 1, unit: "INCHES" } }, "invalid_packages");
   await refused({ packages: { kind: "SIZES", count: 2, length: 1, width: 1, height: 1, unit: "FEET" } }, "invalid_packages");
   await refused({ packages: { kind: "TOTAL_VOLUME", volume: -1, unit: "CUBIC_METRES" } }, "invalid_packages");
@@ -54,12 +53,10 @@ test("posting refuses pickup days outside the rules, a long note, a bad package 
   await refused({ weightKg: 0 }, "invalid_weightKg");
   assert.equal(fx.f.store.postedLoads.size, 0, "nothing refused was kept");
 
-  const edges = await fx.post(loadBody({ earliestPickupDate: indiaDay(7), latestPickupDate: indiaDay(10), note: "y".repeat(300), packages: { kind: "TOTAL_VOLUME", volume: 12.5, unit: "CUBIC_METRES" } }));
-  assert.equal(edges.status, 201, "7 days ahead, a 3-day window and a 300-character note are allowed");
+  const edges = await fx.post(loadBody({ earliestPickupDate: indiaDay(7), latestPickupDate: indiaDay(10), packages: { kind: "TOTAL_VOLUME", volume: 12.5, unit: "CUBIC_METRES" } }));
+  assert.equal(edges.status, 201, "7 days ahead and a 3-day window are allowed");
   assert.deepEqual(edges.body.load.packages, { kind: "TOTAL_VOLUME", volume: 12.5, unit: "CUBIC_METRES" }, "kept as entered, with its unit");
   assert.equal(edges.body.load.state, "OPEN");
-  const noNote = await fx.post(loadBody({ note: "   " }));
-  assert.equal(noNote.body.load.note, undefined, "a blank note is no note");
   const townNames = await fx.post(loadBody({ from: { city: "Pimpri-Chinchwad", lat: 18.62, lng: 73.8 }, to: { city: "पुणे", lat: 18.52, lng: 73.85 } }));
   assert.equal(townNames.status, 201, "a town name may have a hyphen, or be written in Devanagari");
 });

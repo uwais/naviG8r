@@ -1,7 +1,7 @@
 /**
  * Who sees what of a posted load, one builder per audience. Each picks its fields by name, so a field added to the
  * record later reaches nobody until it is added here. No builder has an amount: a posted load has none.
- * Carriers never get the shipper's name, map points, poster or note (who-sees-what table, 4 Nov 2026).
+ * Carriers never get the shipper's name, map points or poster (who-sees-what table, 4 Nov 2026).
  */
 import { isActiveEntity } from "../../softDelete.ts";
 import { tripForPublicListing } from "../../services.ts";
@@ -19,7 +19,6 @@ export function loadForShipper(store: Store, load: PostedLoad) {
     packages: load.packages,
     earliestPickupDate: load.earliestPickupDate,
     latestPickupDate: load.latestPickupDate,
-    ...(load.note ? { note: load.note } : {}),
     state: load.state,
     postedAtUtcMs: load.postedAtUtcMs,
     ...(load.closedAtUtcMs != null ? { closedAtUtcMs: load.closedAtUtcMs } : {}),

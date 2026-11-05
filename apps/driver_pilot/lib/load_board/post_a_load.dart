@@ -34,7 +34,6 @@ class LoadToPost {
 // The server's rules (features/loadBoard/postedLoad.ts).
 const _daysAheadForFirstPickup = 7;
 const _daysInPickupWindow = 3;
-const _maxNoteLength = 300;
 const _maxTownLength = 80;
 const _maxPackageCount = 10000;
 const _maxPackageSide = 10000;
@@ -68,8 +67,6 @@ String? _refusalSentence(Object error) {
       "The last pickup day must be on or after the first.",
     "pickup_window_too_long" =>
       "The last pickup day can be at most 3 days after the first.",
-    "note_too_long" => "The note can be up to 300 characters.",
-    "invalid_note" => "The note has characters that cannot be saved. Remove them.",
     "invalid_from" => "Type the pickup town only, like Pune.",
     "invalid_to" => "Type the drop town only, like Mumbai.",
     "invalid_weightKg" => "Check the weight.",
@@ -99,7 +96,6 @@ class _PostALoadScreenState extends State<PostALoadScreen> {
   final _width = TextEditingController();
   final _height = TextEditingController();
   final _volume = TextEditingController();
-  final _note = TextEditingController();
   _SizeKind? _sizeKind;
   String? _sideUnit;
   String? _volumeUnit;
@@ -119,8 +115,7 @@ class _PostALoadScreenState extends State<PostALoadScreen> {
       _length,
       _width,
       _height,
-      _volume,
-      _note
+      _volume
     ]) {
       field.dispose();
     }
@@ -183,9 +178,6 @@ class _PostALoadScreenState extends State<PostALoadScreen> {
           ? "Enter how many packages, the size of each, and inches or cm."
           : "Enter the total volume, and cubic feet or cubic metres.";
     }
-    if (_note.text.trim().characters.length > _maxNoteLength) {
-      return "The note can be up to 300 characters.";
-    }
     return null;
   }
 
@@ -242,7 +234,6 @@ class _PostALoadScreenState extends State<PostALoadScreen> {
     }
     final pickup = widget.search.pickup.point!;
     final drop = widget.search.drop.point!;
-    final note = _note.text.trim();
     setState(() {
       _posting = true;
       _error = null;
@@ -263,7 +254,6 @@ class _PostALoadScreenState extends State<PostALoadScreen> {
         "packages": _packages,
         "earliestPickupDate": calendarDayText(_firstPickupDay),
         "latestPickupDate": calendarDayText(_lastPickupDay),
-        if (note.isNotEmpty) "note": note,
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -423,13 +413,6 @@ class _PostALoadScreenState extends State<PostALoadScreen> {
           const Text(
               "The first day can be up to 7 days ahead. The last can be up to 3 days after the first.",
               style: NvText.caption),
-          gap,
-          NvField(
-              label: "Note",
-              controller: _note,
-              optional: true,
-              help: "Only your company sees this note. Up to 300 characters.",
-              readOnly: _posting),
           gap,
           const Text(
               "No price yet. You see the price when you book a trip a carrier adds.",

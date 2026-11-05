@@ -1,12 +1,13 @@
 // Who sees what on the Load Board (owner, 4 Nov 2026): a posted load carries no amount of any kind; carriers see the
-// cities, weight, size and pickup days, never who posted it, where exactly, or the note; drivers never see the board.
+// cities, weight, size and pickup days, never who posted it or where exactly; drivers never see the board. A posted
+// load has no note (owner, 4 Nov 2026).
 import test from "node:test";
 import assert from "node:assert/strict";
 import { allKeys, loadBoardFixture, loadBody } from "./loadBoardSetup.ts";
 
 const AMOUNT_KEY = /paise|price|payout|fee|rate|amount|gross|commission|net|earning/i;
 
-test("a carrier office reads the board with only the cities, weight, size and pickup days: no amount, shipper, map point, poster or note", async t => {
+test("a carrier office reads the board with only the cities, weight, size and pickup days: no amount, shipper, map point or poster", async t => {
   const { f, tokens, post, board } = await loadBoardFixture(t);
   const posted = await post();
   assert.equal(posted.status, 201, JSON.stringify(posted.body));
@@ -20,7 +21,7 @@ test("a carrier office reads the board with only the cities, weight, size and pi
     assert.deepEqual([load.fromCity, load.toCity, load.weightKg], ["Pune", "Mumbai", 400]);
     const text = JSON.stringify(read.body);
     assert.equal(allKeys(read.body).filter((key) => AMOUNT_KEY.test(key)).length, 0, `${who}: no amount field`);
-    for (const secret of ["Synthetic Shipper A", f.shipperA.org.id, f.shipperA.user.id, f.shipperA.user.phone, "Fragile glassware", "18.5204", "73.8567"]) {
+    for (const secret of ["Synthetic Shipper A", f.shipperA.org.id, f.shipperA.user.id, f.shipperA.user.phone, "18.5204", "73.8567"]) {
       assert.ok(!text.includes(secret), `${who} must not see ${secret}`);
     }
   }
@@ -74,7 +75,6 @@ test("the poster sees everything it entered and the routes made for it, with no 
   const mine = await f.request("/v1/posted-loads", "GET", undefined, tokens.shipperA);
   assert.equal(mine.status, 200);
   const [load] = mine.body.loads;
-  assert.equal(load.note, "Fragile glassware, handle with care");
   assert.deepEqual(load.from, { city: "Pune", lat: 18.5204, lng: 73.8567 });
   assert.equal(load.routes.length, 1);
   assert.equal(load.routes[0].trip.carrierDisplayName, "Synthetic Carrier B");
@@ -101,11 +101,30 @@ test("a new load alerts every approved carrier office member who has load alerts
     assert.equal(notice.data.title, "New load on the Load Board");
     assert.equal(allKeys(notice).filter((key) => AMOUNT_KEY.test(key)).length, 0);
     assert.ok(!JSON.stringify(notice).includes("Synthetic Shipper A"), "no shipper name");
-    assert.ok(!JSON.stringify(notice).includes("Fragile"), "no note");
   }
   for (const who of ["carrierA", "driver", "unapproved", "shipperA", "shipperB"] as const) {
     assert.deepEqual(told(await notices(tokens[who])), [], `${who} is not told`);
   }
   const stored = [...f.store.notifications.values()].filter((n) => n.eventKey === "posted_load.new");
   assert.deepEqual(stored.map((n) => n.recipientUserId).sort(), [f.carrierB.user.id, [...f.store.users.values()].find((u) => u.phone === "8000000021")!.id].sort(), "exactly the two office members");
+});
+
+test("a note sent by an older app is ignored, as the route form ignores fields it does not read: not kept, shown to nobody", async t => {
+  const { f, tokens, post, makeRoute, notices } = await loadBoardFixture(t);
+  const posted = await post(loadBody({ note: "Synthetic old-app note" }));
+  assert.equal(posted.status, 201, JSON.stringify(posted.body));
+  const loadId = posted.body.load.id as string;
+  assert.equal((await makeRoute(loadId)).status, 201);
+  assert.equal("note" in f.store.postedLoads.get(loadId)!, false, "not stored");
+  const seen = [
+    posted.body,
+    (await f.request("/v1/posted-loads", "GET", undefined, tokens.shipperA)).body,
+    (await f.request("/v1/load-board", "GET", undefined, tokens.carrierB)).body,
+    (await f.request("/ops/posted-loads", "GET", undefined, tokens.ops)).body,
+    await notices(tokens.carrierB),
+    await notices(tokens.shipperA),
+  ];
+  for (const body of seen) {
+    assert.ok(!allKeys(body).includes("note") && !JSON.stringify(body).includes("old-app note"), JSON.stringify(body));
+  }
 });
