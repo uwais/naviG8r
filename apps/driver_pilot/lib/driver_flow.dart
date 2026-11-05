@@ -5407,7 +5407,7 @@ String _publishDraftOwner() =>
 
 /// ca-publish: every field starts empty (or as left on another tab), the truck size is a choice, and Publish stays
 /// visible at the bottom. With [forLoad] it is a trip for a posted load: filled in from the load, kept apart from the
-/// draft, and sent with the load's id and towns.
+/// draft, and sent with the load's id and no places, since the server sets the trip's towns and ends from the load.
 class DriverPublishTripScreen extends StatefulWidget {
   const DriverPublishTripScreen(
       {super.key,
@@ -5448,10 +5448,8 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     final draft = _publishDraft;
     final load = widget.forLoad;
     if (load != null) {
-      // The towns go in the place boxes for a search; the leaving days start inside the load's pickup days.
+      // The leaving days start inside the load's pickup days.
       final today = _todayInIndia();
-      _origin.text = load.fromCity;
-      _dest.text = load.toCity;
       _firstLeavingDay =
           load.firstPickupDay.isBefore(today) ? today : load.firstPickupDay;
       _lastLeavingDay =
@@ -5538,10 +5536,11 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
 
   /// What is missing before the trip can be published, or null.
   String? _missing() {
-    if (_origin.text.trim().isEmpty || _originPos == null) {
+    final load = widget.forLoad;
+    if (load == null && (_origin.text.trim().isEmpty || _originPos == null)) {
       return "Search for the From place so shippers can find this trip.";
     }
-    if (_dest.text.trim().isEmpty || _destPos == null) {
+    if (load == null && (_dest.text.trim().isEmpty || _destPos == null)) {
       return "Search for the To place so shippers can find this trip.";
     }
     if (_firstLeavingDay == null) {
@@ -5553,7 +5552,6 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     if (_truckSize == null) return _chooseTruckSizeSentence;
     final room = int.tryParse(_room.text.trim()) ?? 0;
     if (room <= 0) return "Enter the capacity in kg.";
-    final load = widget.forLoad;
     if (load != null && room < load.weightKg) {
       return "The capacity must be at least ${formatKg(load.weightKg)} for this load.";
     }
@@ -5591,19 +5589,21 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
         "/v1/pilot/anchor-trips",
         data: {
           "orgId": orgId,
-          // A place search writes Google's name in the box ("Pune, Maharashtra"); the server matches the load's towns.
-          "originCity": load?.fromCity ?? _origin.text.trim(),
-          "destCity": load?.toCity ?? _dest.text.trim(),
-          if (load != null) "postedLoadId": load.id,
-          "origin": {
-            "lat": _originPos!.latitude,
-            "lng": _originPos!.longitude,
-            "label": _origin.text.trim()
-          },
-          "destination": {
-            "lat": _destPos!.latitude,
-            "lng": _destPos!.longitude,
-            "label": _dest.text.trim()
+          if (load != null)
+            "postedLoadId": load.id
+          else ...{
+            "originCity": _origin.text.trim(),
+            "destCity": _dest.text.trim(),
+            "origin": {
+              "lat": _originPos!.latitude,
+              "lng": _originPos!.longitude,
+              "label": _origin.text.trim()
+            },
+            "destination": {
+              "lat": _destPos!.latitude,
+              "lng": _destPos!.longitude,
+              "label": _dest.text.trim()
+            },
           },
           "windowStart": formatIstIsoFromUtc(windowStart),
           "windowEnd": formatIstIsoFromUtc(windowEnd),
@@ -5669,55 +5669,58 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 NvMessage(_error!, tone: NvMessageTone.problem),
                 gap,
               ],
+              // A trip for a load has no place search: the server sets its towns and ends from the load.
               if (widget.forLoad case final load?)
                 LoadForTripSummary(load)
-              else
+              else ...[
                 const Text("Shippers can book it once you add it.",
                     style: NvText.body),
-              gap,
-              // Each map shows once its place has a point, so the form stays short while typing.
-              LocationEndpointEditor(
-                title: "From",
-                hint: "City or area",
-                labelController: _origin,
-                markerId: "pub_origin",
-                markerHue: BitmapDescriptor.hueOrange,
-                position: _originPos ?? pinNotPlacedYet,
-                onPositionChanged: (p) => setState(() => _originPos = p),
-                onPinStale: () => setState(() => _originPos = null),
-                onPinNaming: (naming) =>
-                    setState(() => _namingOriginPin = naming),
-                readOnly: _submitting,
-                showMap: _originPos != null,
-                findPlace: widget.findPlace,
-                namePin: widget.namePin,
-              ),
-              gap,
-              LocationEndpointEditor(
-                title: "To",
-                hint: "City or area",
-                labelController: _dest,
-                markerId: "pub_dest",
-                markerHue: BitmapDescriptor.hueAzure,
-                position: _destPos ?? pinNotPlacedYet,
-                onPositionChanged: (p) => setState(() => _destPos = p),
-                onPinStale: () => setState(() => _destPos = null),
-                onPinNaming: (naming) => setState(() => _namingDestPin = naming),
-                readOnly: _submitting,
-                showMap: _destPos != null,
-                findPlace: widget.findPlace,
-                namePin: widget.namePin,
-              ),
-              if (_originPos != null && _destPos != null) ...[
                 gap,
-                NvMap(
-                  map: routePreviewMap(
-                      a: _originPos!,
-                      b: _destPos!,
-                      aPinHue: BitmapDescriptor.hueOrange,
-                      bPinHue: BitmapDescriptor.hueAzure),
-                  pinsLabel: "From and To",
+                // Each map shows once its place has a point, so the form stays short while typing.
+                LocationEndpointEditor(
+                  title: "From",
+                  hint: "City or area",
+                  labelController: _origin,
+                  markerId: "pub_origin",
+                  markerHue: BitmapDescriptor.hueOrange,
+                  position: _originPos ?? pinNotPlacedYet,
+                  onPositionChanged: (p) => setState(() => _originPos = p),
+                  onPinStale: () => setState(() => _originPos = null),
+                  onPinNaming: (naming) =>
+                      setState(() => _namingOriginPin = naming),
+                  readOnly: _submitting,
+                  showMap: _originPos != null,
+                  findPlace: widget.findPlace,
+                  namePin: widget.namePin,
                 ),
+                gap,
+                LocationEndpointEditor(
+                  title: "To",
+                  hint: "City or area",
+                  labelController: _dest,
+                  markerId: "pub_dest",
+                  markerHue: BitmapDescriptor.hueAzure,
+                  position: _destPos ?? pinNotPlacedYet,
+                  onPositionChanged: (p) => setState(() => _destPos = p),
+                  onPinStale: () => setState(() => _destPos = null),
+                  onPinNaming: (naming) =>
+                      setState(() => _namingDestPin = naming),
+                  readOnly: _submitting,
+                  showMap: _destPos != null,
+                  findPlace: widget.findPlace,
+                  namePin: widget.namePin,
+                ),
+                if (_originPos != null && _destPos != null) ...[
+                  gap,
+                  NvMap(
+                    map: routePreviewMap(
+                        a: _originPos!,
+                        b: _destPos!,
+                        aPinHue: BitmapDescriptor.hueOrange,
+                        bPinHue: BitmapDescriptor.hueAzure),
+                    pinsLabel: "From and To",
+                  ),
+                ],
               ],
               gap,
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [

@@ -24,8 +24,7 @@ async function routeFor(fx: Fixture, loadId: string, extra: Record<string, unkno
 }
 
 /** Books a route as today's booking flow does: the load's weight and map points. */
-function bookRoute(fx: Fixture, tripId: string, token: string, weightKg = 400) {
-  const body = loadBody();
+function bookRoute(fx: Fixture, tripId: string, token: string, weightKg = 400, body: { from: { lat: number; lng: number }; to: { lat: number; lng: number } } = loadBody()) {
   return fx.f.request("/shipments/book", "POST", {
     anchorTripId: tripId, customerOrgName: "ignored", weightKg, pickupAddress: "Synthetic pickup", dropAddress: "Synthetic drop",
     pickup: { lat: body.from.lat, lng: body.from.lng }, drop: { lat: body.to.lat, lng: body.to.lng },
@@ -78,7 +77,7 @@ test("a company may have at most 10 open loads, and posting is held at 10 an hou
 test("a carrier may make at most 20 routes for posted loads an hour; a refused attempt does not count", async t => {
   const fx = await loadBoardFixture(t);
   const loadId = await postedLoadId(fx);
-  assert.equal((await fx.makeRoute(loadId, fx.tokens.carrierB, { originCity: "Nashik" })).status, 400);
+  assert.equal((await fx.makeRoute(loadId, fx.tokens.carrierB, { capacityKg: 399 })).status, 400);
   for (let i = 0; i < 20; i++) await routeFor(fx, loadId);
   const held = await fx.makeRoute(loadId);
   assert.deepEqual([held.status, held.body.error], [429, "rate_limited"]);
@@ -109,26 +108,51 @@ test("the board lists open loads only, the soonest pickup first", async t => {
   assert.deepEqual((await fx.board(fx.tokens.dispatcher)).body.loads.map((load: any) => load.id), [sooner, later]);
 });
 
-test("a route for a load must start and end in its cities, near its points, with room for its weight", async t => {
+test("a trip for a load needs room for its weight; NaviG8r sets its ends from the load whatever the carrier sends", async t => {
   const fx = await loadBoardFixture(t);
   const loadId = await postedLoadId(fx);
   const refused = async (extra: Record<string, unknown>, status: number, error: string) => {
     const out = await fx.makeRoute(loadId, fx.tokens.carrierB, extra);
     assert.deepEqual([out.status, out.body.error], [status, error], JSON.stringify(extra));
-    return out;
   };
-  await refused({ originCity: "Nashik" }, 400, "route_cities_do_not_match_load");
-  await refused({ destCity: "Pune", originCity: "Mumbai" }, 400, "route_cities_do_not_match_load");
   await refused({ capacityKg: 399 }, 400, "route_too_small_for_load");
-  const far = await refused({ origin: { lat: 18.9, lng: 73.85 } }, 400, "route_too_far_from_load");
-  assert.ok(!/Distance|Km/.test(JSON.stringify(far.body)), "no distances: they would place the shipper's points");
   await refused({ postedLoadId: "load_unknown" }, 404, "posted_load_not_found");
   assert.equal(fx.f.store.anchorTrips.size, 1, "a refused route is never made (the fixture's own trip only)");
 
-  const tripId = await routeFor(fx, loadId, { originCity: " pune ", destCity: "MUMBAI" });
+  // The load's points 18.5204, 73.8567 and 19.076, 72.8777 rounded to 0.05 degrees.
+  const ends = { originCity: "Pune", destCity: "Mumbai", origin: { lat: 18.5, lng: 73.85 }, destination: { lat: 19.1, lng: 72.9 } };
+  const tripEnds = (tripId: string) => {
+    const trip = fx.f.store.anchorTrips.get(tripId)!;
+    return { originCity: trip.originCity, destCity: trip.destCity, origin: trip.origin, destination: trip.destination };
+  };
+  const elsewhere = await routeFor(fx, loadId, { originCity: "Nashik", destCity: "Surat", origin: { lat: 20, lng: 73.79, label: "Nashik" }, destination: { lat: 21.17, lng: 72.83 } });
+  assert.deepEqual(tripEnds(elsewhere), ends, "the carrier's towns and points are ignored");
+  const placeless = await fx.f.request("/v1/pilot/anchor-trips", "POST", {
+    orgId: fx.carrierOrgId, postedLoadId: loadId, windowStart: `${indiaDay(1)}T09:00:00.000Z`, windowEnd: `${indiaDay(1)}T18:00:00.000Z`, vehicleClass: "MEDIUM", capacityKg: 1000,
+  }, fx.tokens.carrierB);
+  assert.equal(placeless.status, 201, JSON.stringify(placeless.body));
+  assert.deepEqual(tripEnds(placeless.body.trip.id), ends, "a trip sent with no places at all gets the same ends");
+
   const load = fx.f.store.postedLoads.get(loadId)!;
-  assert.deepEqual(load.routes.map((route) => [route.tripId, route.carrierOrgId]), [[tripId, fx.carrierOrgId]], "recorded on the load");
+  assert.deepEqual(load.routes.map((route) => [route.tripId, route.carrierOrgId]), [[elsewhere, fx.carrierOrgId], [placeless.body.trip.id, fx.carrierOrgId]], "recorded on the load");
   assert.equal(load.state, "OPEN", "still on the board: other carriers may make routes too");
+});
+
+test("a load whose points sit near a rounding edge: the trip ends are under 4 km away, and the shipper books it", async t => {
+  const fx = await loadBoardFixture(t);
+  // 0.0249 degrees from a 0.05 line on both axes: about as far as rounding can move a point.
+  const edge = { from: { city: "Pune", lat: 18.5249, lng: 73.8749 }, to: { city: "Mumbai", lat: 19.0749, lng: 72.8749 } };
+  const loadId = await postedLoadId(fx, edge);
+  const tripId = await routeFor(fx, loadId);
+  const trip = fx.f.store.anchorTrips.get(tripId)!;
+  assert.deepEqual([trip.origin, trip.destination], [{ lat: 18.5, lng: 73.85 }, { lat: 19.05, lng: 72.85 }]);
+  for (const [point, end] of [[edge.from, trip.origin!], [edge.to, trip.destination!]] as const) {
+    const km = distanceBetweenGeoPointsKm(point, end);
+    assert.ok(km > 3.5 && km < 4, `${km} km: near the worst case, inside booking's 15 km`);
+  }
+  const booked = await bookRoute(fx, tripId, fx.tokens.shipperA, 400, edge);
+  assert.equal(booked.status, 201, JSON.stringify(booked.body));
+  assert.equal(fx.f.store.postedLoads.get(loadId)?.state, "BOOKED");
 });
 
 test("a route made for a load tells the posting shipper, not the carrier who made it, with no amount", async t => {
@@ -308,17 +332,6 @@ function withPushQueue(t: TestContext): void {
     else process.env.PUSH_ENQUEUE_ENABLED = saved;
   });
 }
-
-test("a route for a load is checked against the load's points rounded to about 1 km, not its exact points", async t => {
-  const fx = await loadBoardFixture(t);
-  const loadId = await postedLoadId(fx);
-  const exact = loadBody().from, rounded = { lat: 18.52, lng: 73.86 };
-  // Due east of the rounded pickup point: inside 15 km of it, outside 15 km of the exact one.
-  const origin = { lat: 18.52, lng: 74.0012 };
-  assert.ok(distanceBetweenGeoPointsKm(origin, rounded) < 15 && distanceBetweenGeoPointsKm(origin, exact) > 15, "the test point sits between the two");
-  const made = await fx.makeRoute(loadId, fx.tokens.carrierB, { origin });
-  assert.equal(made.status, 201, JSON.stringify(made.body));
-});
 
 test("a booking from the posting company's ERP connection books the load too", async t => {
   const fx = await loadBoardFixture(t);

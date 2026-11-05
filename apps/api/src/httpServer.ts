@@ -22,7 +22,7 @@ import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import { FixedWindowRateLimiter } from "./http/rateLimit.ts";
 import { createSignUpRateLimit } from "./http/signUpRateLimit.ts";
 import { listBoard, listLoadsForOps, listMyLoads, postLoad, withdrawLoad } from "./features/loadBoard/postedLoads.ts";
-import { checkRouteForPostedLoad, recordRouteForPostedLoad } from "./features/loadBoard/routeForPostedLoad.ts";
+import { checkRouteForPostedLoad, recordRouteForPostedLoad, tripEndsForPostedLoad } from "./features/loadBoard/routeForPostedLoad.ts";
 import { markPostedLoadBooked, sweepPostedLoads } from "./features/loadBoard/postedLoadLifecycle.ts";
 import { loadAlertsOn, setLoadAlerts } from "./features/loadBoard/loadAlerts.ts";
 import {
@@ -1009,7 +1009,7 @@ export async function createApp(options: {
         const forPostedLoad = body?.postedLoadId != null;
         if (forPostedLoad && !consumeLoadBoardRateLimit(res, loadBoardRateLimiter, userId)) return;
         const postedLoad = forPostedLoad ? checkRouteForPostedLoad(store, body.postedLoadId, route) : undefined;
-        const trip = publishAnchorTripAsPilotDriver(store, route);
+        const trip = publishAnchorTripAsPilotDriver(store, postedLoad ? { ...route, ...tripEndsForPostedLoad(postedLoad) } : route);
         if (postedLoad) recordRouteForPostedLoad(store, postedLoad, trip, userId);
         await persist();
         return json(res, 201, { trip: tripWithCarrierDisplay(store, trip) });

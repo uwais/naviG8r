@@ -55,7 +55,7 @@ class LoadForTrip {
   int get weightKgRoundedUp => weightKg.ceil();
 }
 
-/// Above the form: which load the trip is for, and the rule the server holds it to.
+/// Above the form, in place of the place search: which load the trip is for, its towns as words only.
 class LoadForTripSummary extends StatelessWidget {
   const LoadForTripSummary(this.load, {super.key});
   final LoadForTrip load;
@@ -79,7 +79,7 @@ class LoadForTripSummary extends StatelessWidget {
                   style: NvText.body),
               const SizedBox(height: NvSpace.s2),
               const Text(
-                  "Start near the pickup town and end near the drop town. The shipper may book your trip, another carrier's, or none. Other shippers can book any capacity left.",
+                  "NaviG8r sets the pickup and drop area from the load. The shipper may book your trip, another carrier's, or none. Other shippers can book any capacity left.",
                   style: NvText.caption),
             ],
           ),
@@ -96,14 +96,9 @@ String? tripForLoadRefusal(Object error) {
     "posted_load_not_open" =>
       "This load is no longer on the Load Board. The shipper booked or withdrew it, or its pickup days passed.",
     "posted_load_not_found" => "This load is no longer on the Load Board.",
-    "route_cities_do_not_match_load" =>
-      "The trip must go from the load's pickup town to its drop town.",
     "route_too_small_for_load" => weight is num
         ? "The capacity must be at least ${formatKg(weight)} for this load."
         : "The capacity is too small for this load.",
-    "route_too_far_from_load" => body is Map && body["detail"] is String
-        ? body["detail"] as String
-        : "Start the trip near the load's pickup town and end it near its drop town.",
     _ => null,
   };
 }

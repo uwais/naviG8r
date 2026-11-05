@@ -21,7 +21,7 @@ meet, fold these sections into it. Until then this file covers only what the Loa
 | `loadBoardAudience.ts` | Who may post, who may read the board (approved carrier owners and dispatchers only), and whether a stored Load Board notice still belongs to its reader |
 | `postedLoadViews.ts` | Who sees what: one response builder per audience (posting shipper, carrier office, staff). Every field is picked by name |
 | `postedLoads.ts` | The requests: post, list my company's loads, withdraw, read the board, staff list |
-| `routeForPostedLoad.ts` | A carrier answering a load: checks before today's route form publishes the trip, then records it on the load and tells the shipper |
+| `routeForPostedLoad.ts` | A carrier answering a load: checks before today's route form publishes the trip, sets the trip's towns and ends from the load, then records it on the load and tells the shipper |
 | `postedLoadLifecycle.ts` | Booked when its own shipper books a route made for it; the sweep that reopens a load whose booking fell through and expires loads past their pickup window |
 | `loadAlerts.ts` | The two Load Board notices and their words, and each carrier user's load-alerts choice |
 | `tests/` | `loadBoardVisibility.test.ts` (who sees what), `loadBoardRules.test.ts` (every rule), `loadBoardPersistence.test.ts`, `opsPostedLoadsCard.test.ts` (the staff card); `loadBoardSetup.ts` is their shared set-up, not a test |
@@ -92,19 +92,18 @@ should see the new line on the card in the test, and `flutter test` pass.
   The database inbox query was changed but has not been run against Postgres: those tests skip without a database.
 - **`trip.publish` includes drivers.** The board and making a route for a load check the carrier office role
   themselves (`requireBoardViewer`), since the route guard's permission alone would let a driver through.
-- **A trip for a load sends the load's towns, not the place box's words.** A place search rewrites the box to Google's
-  name ("Pune, Maharashtra"), and the server matches the load's towns, so `DriverPublishTripScreen` sends
-  `forLoad.fromCity` and `forLoad.toCity` as `originCity` and `destCity`. Sending the box text gets
-  `route_cities_do_not_match_load`.
+- **The server sets a trip for a load's towns and ends, never the carrier.** `tripEndsForPostedLoad`
+  (`routeForPostedLoad.ts`) replaces whatever `originCity`, `destCity`, `origin` and `destination` were sent with the
+  load's towns and its points rounded to 0.05 degrees, so `DriverPublishTripScreen` with `forLoad` shows no place
+  search and sends no places.
 - **Post a load and a trip for a load take their data as the router's extra.** A reload has none, so
   `/customer/post-load` goes back to the route search and `/driver/load-board/trip` back to the board.
 - **The Load Board sweep runs before every request**, right after the unpaid-booking expiry in `httpServer.ts`, so a
   load whose booking just expired is back on the board in the same request. There is no timer.
-- **A route for a load is checked against the booking radius, around rounded points.** Booking refuses a route whose
-  ends are more than 15 km (`PHASE_A_MAX_PICKUP_KM`) from the shipper's points. Making the route checks the same
-  radius around the load's points rounded to two decimals (about 1 km), as carriers see only the town, and answers
-  with no distances. The cost: a route made right at the edge can pass here and still be refused at booking, by up
-  to about 0.8 km.
+- **The 0.05-degree rounding must stay inside booking's radius.** Booking refuses a route whose ends are more than
+  15 km (`PHASE_A_MAX_PICKUP_KM`) from the shipper's points. Rounding to 0.05 degrees (a square about 5 km on a side)
+  moves a point under 4 km, so the shipper can always book. Coarser rounding, or that radius set below 4 km, would let
+  a route made for a load be refused at booking; the "near a rounding edge" test in `loadBoardRules.test.ts` catches it.
 - **A posted load's town is letters only** (`TOWN_NAME` in `postedLoadInput.ts`): any script, spaces, dots,
   apostrophes and hyphens. Carriers see it on the board and in alerts, so digits and commas are refused with
   `invalid_from` or `invalid_to`. The app fills the box from the pin's Google address (`townToPost` in

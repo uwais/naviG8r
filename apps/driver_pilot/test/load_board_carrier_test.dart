@@ -3,7 +3,6 @@
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_session.dart';
-import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/load_board/posted_load_words.dart';
 import 'package:driver_pilot/load_board/trip_for_load.dart';
 import 'package:driver_pilot/location_editor.dart';
@@ -12,7 +11,6 @@ import 'package:driver_pilot/ui/format.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'support/carrier_app.dart' as app;
 import 'support/carrier_office_screens.dart' as office;
@@ -147,13 +145,15 @@ void main() {
               "The shipper may book your trip, another carrier's, or none."),
           findsOneWidget,
           reason: 'adding a trip does not promise the load');
-      final placeTexts = [
-        for (final field in tester.widgetList<TextField>(find.descendant(
-            of: find.byType(LocationEndpointEditor),
-            matching: find.byType(TextField))))
-          field.controller!.text
-      ];
-      expect(placeTexts, ['Bengaluru', 'Chennai']);
+      expect(find.text('Bengaluru to Chennai'), findsOneWidget,
+          reason: 'the towns, as words only');
+      expect(
+          find.textContaining(
+              'NaviG8r sets the pickup and drop area from the load.'),
+          findsOneWidget);
+      expect(find.byType(LocationEndpointEditor), findsNothing,
+          reason: 'no place search for a trip for a load');
+      expect(find.byTooltip('Search for place'), findsNothing);
       expect(find.text('Choose a date'), findsNothing,
           reason: 'both leaving days start inside the pickup days');
       expect(
@@ -167,33 +167,26 @@ void main() {
   });
 
   group('adding the trip', () {
-    Widget form() => DriverPublishTripScreen(
-        forLoad: loadForTrip(),
-        findPlace: (place) async =>
-            GeocodeOutcome.ok(const LatLng(12.97, 77.59), '$place, Karnataka'));
+    Widget form() => DriverPublishTripScreen(forLoad: loadForTrip());
 
-    Future<void> searchBothAndChooseSize(WidgetTester tester) async {
-      for (final index in [0, 1]) {
-        await tester.tap(find.byTooltip('Search for place').at(index));
-        await tester.pumpAndSettle();
-      }
+    Future<void> chooseTruckSize(WidgetTester tester) async {
       await tester.tap(find.widgetWithText(ChoiceChip, 'Medium'));
       await tester.pumpAndSettle();
     }
 
-    testWidgets("Add trip sends the load's id and towns, not the place search's words",
+    testWidgets("Add trip sends the load's id and no places: NaviG8r sets them",
         (tester) async {
       final server = office.signInWith(office.Server(allowed: office.ownerAllowed));
       await office.mount(tester, form(), size: const Size(800, 3000));
-      await searchBothAndChooseSize(tester);
+      await chooseTruckSize(tester);
       await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
       await tester.pumpAndSettle();
 
       final sent = server.sent.single.data as Map;
       expect(sent['postedLoadId'], 'load-1');
-      expect(sent['originCity'], 'Bengaluru',
-          reason: 'the server matches the towns; the search wrote "Bengaluru, Karnataka"');
-      expect(sent['destCity'], 'Chennai');
+      for (final place in ['originCity', 'destCity', 'origin', 'destination']) {
+        expect(sent.containsKey(place), isFalse, reason: place);
+      }
       expect(sent['capacityKg'], 500);
       expect(sent['windowStart'],
           startsWith(dayAhead(1)), reason: 'leaves on the first pickup day');
@@ -205,7 +198,7 @@ void main() {
         (tester) async {
       final server = office.signInWith(office.Server(allowed: office.ownerAllowed));
       await office.mount(tester, form(), size: const Size(800, 3000));
-      await searchBothAndChooseSize(tester);
+      await chooseTruckSize(tester);
       final capacity = find.descendant(
           of: find.widgetWithText(Column, 'Capacity'),
           matching: find.byType(TextField));
@@ -223,7 +216,7 @@ void main() {
           refusesWrites: true,
           refusal: const {'error': 'posted_load_not_open', 'state': 'BOOKED'}));
       await office.mount(tester, form(), size: const Size(800, 3000));
-      await searchBothAndChooseSize(tester);
+      await chooseTruckSize(tester);
       await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
       await tester.pumpAndSettle();
       expect(
