@@ -92,7 +92,7 @@ void main() {
       expect(find.byType(GoogleMap), findsNothing,
           reason: 'tester: the maps left no room while typing');
       expect(
-          find.text('Drag the pin to the exact spot, or search for a place.'),
+          find.text('Tap the map or drag the pin, or search for a place.'),
           findsNothing);
 
       await tester.enterText(find.byType(TextField).first, 'Bengaluru');

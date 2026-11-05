@@ -693,6 +693,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor>
                     onDragEnd: _onDragEnd,
                   ),
                 },
+                // A tap on the map moves the pin there, just as a drag would.
+                onTap: widget.readOnly ? null : _onDragEnd,
                 onMapCreated: (c) => _map = c,
                 zoomControlsEnabled: true,
                 myLocationButtonEnabled: false,
@@ -700,7 +702,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor>
             ),
           ),
           const SizedBox(height: 4),
-          Text("Drag the pin to the exact spot, or search for a place.", style: caption),
+          Text("Tap the map or drag the pin, or search for a place.", style: caption),
         ],
       ],
     );

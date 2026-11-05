@@ -249,7 +249,8 @@ void main() {
     Future<TextEditingController> mountEditor(WidgetTester tester,
         {PlaceFinder? findPlace,
         required PinNamer namePin,
-        VoidCallback? onPinStale}) async {
+        VoidCallback? onPinStale,
+        bool readOnly = false}) async {
       final field = TextEditingController();
       await tester.pumpWidget(MaterialApp(
           home: Scaffold(
@@ -263,6 +264,7 @@ void main() {
         position: const LatLng(13.07, 77.79),
         onPositionChanged: (_) {},
         onPinStale: onPinStale,
+        readOnly: readOnly,
         findPlace: findPlace ?? (place) async => GeocodeOutcome.fail('ZERO_RESULTS'),
         namePin: namePin,
       )))));
@@ -288,6 +290,30 @@ void main() {
           findsOneWidget);
       expect(find.textContaining('ZERO_RESULTS'), findsNothing,
           reason: 'no raw codes');
+    });
+
+    testWidgets('a tap on the map moves the pin there and names the place, like a drag',
+        (tester) async {
+      LatLng? named;
+      final field = await mountEditor(tester, namePin: (point) async {
+        named = point;
+        return GeocodeOutcome.ok(point, 'Kolar, Karnataka, India', 'Kolar');
+      });
+      field.text = 'Hoskote';
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      map.onTap!(const LatLng(13.2, 78.1));
+      await tester.pumpAndSettle();
+      expect(named, const LatLng(13.2, 78.1));
+      expect(tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.single.position,
+          const LatLng(13.2, 78.1));
+      expect(field.text, 'Kolar');
+    });
+
+    testWidgets('a read-only map ignores taps', (tester) async {
+      await mountEditor(tester,
+          readOnly: true,
+          namePin: (point) async => GeocodeOutcome.fail('ZERO_RESULTS'));
+      expect(tester.widget<GoogleMap>(find.byType(GoogleMap)).onTap, isNull);
     });
 
     testWidgets('a pin dragged to a town takes its name, with the address below',
