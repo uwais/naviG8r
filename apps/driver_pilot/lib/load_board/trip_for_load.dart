@@ -99,6 +99,13 @@ String? tripForLoadRefusal(Object error) {
     "route_too_small_for_load" => weight is num
         ? "The capacity must be at least ${formatKg(weight)} for this load."
         : "The capacity is too small for this load.",
+    "trip_leaves_outside_pickup_days" => switch (
+          body is Map<String, dynamic> ? pickupDaysWords(body) : null) {
+        final days? =>
+          "The first day the truck can leave must be one of the pickup days of this load: $days.",
+        null =>
+          "The first day the truck can leave must be one of the pickup days of this load.",
+      },
     _ => null,
   };
 }

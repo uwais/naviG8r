@@ -138,6 +138,31 @@ test("a trip for a load needs room for its weight; NaviG8r sets its ends from th
   assert.equal(load.state, "OPEN", "still on the board: other carriers may make routes too");
 });
 
+test("a trip for a load must leave, by India date, on one of the load's pickup days", async t => {
+  const fx = await loadBoardFixture(t);
+  const loadId = await postedLoadId(fx, { earliestPickupDate: indiaDay(1), latestPickupDate: indiaDay(3) });
+  const leaving = (windowStart: string) => fx.makeRoute(loadId, fx.tokens.carrierB, { windowStart, windowEnd: `${indiaDay(4)}T23:59:59+05:30` });
+  for (const [windowStart, why] of [
+    [`${indiaDay(0)}T23:59:59+05:30`, "the last second of the day before"],
+    [`${indiaDay(4)}T00:00:00+05:30`, "the first second of the day after"],
+  ] as const) {
+    const out = await leaving(windowStart);
+    assert.deepEqual([out.status, out.body.error, out.body.earliestPickupDate, out.body.latestPickupDate],
+      [400, "trip_leaves_outside_pickup_days", indiaDay(1), indiaDay(3)], why);
+  }
+  const unreadable = await leaving("not a time");
+  assert.deepEqual([unreadable.status, unreadable.body.error], [400, "invalid_windowStart"]);
+  assert.equal(fx.f.store.postedLoads.get(loadId)?.routes.length, 0, "no refused trip was made");
+
+  for (const [windowStart, why] of [
+    [`${indiaDay(1)}T00:00:00+05:30`, "the first second of the first pickup day"],
+    [`${indiaDay(3)}T23:59:59+05:30`, "the last second of the last pickup day"],
+  ] as const) {
+    const out = await leaving(windowStart);
+    assert.equal(out.status, 201, `${why}: ${JSON.stringify(out.body)}`);
+  }
+});
+
 test("a load whose points sit near a rounding edge: the trip ends are under 4 km away, and the shipper books it", async t => {
   const fx = await loadBoardFixture(t);
   // 0.0249 degrees from a 0.05 line on both axes: about as far as rounding can move a point.

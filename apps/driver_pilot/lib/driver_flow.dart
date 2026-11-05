@@ -5510,14 +5510,27 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
 
   Future<void> _chooseDay({required bool firstDay}) async {
     final today = _todayInIndia();
-    final earliest = firstDay ? today : (_firstLeavingDay ?? today);
+    // A trip for a load leaves on one of its pickup days: the server refuses any other day.
+    final load = widget.forLoad;
+    final soonest = load != null && load.firstPickupDay.isAfter(today)
+        ? load.firstPickupDay
+        : today;
+    final latest = load?.lastPickupDay ?? today.add(const Duration(days: 365));
+    final earliest = firstDay ? soonest : (_firstLeavingDay ?? soonest);
+    if (latest.isBefore(earliest)) {
+      _showError("The pickup days of this load have passed.");
+      return;
+    }
     final current = firstDay ? _firstLeavingDay : _lastLeavingDay;
     final picked = await showDatePicker(
       context: context,
-      initialDate:
-          current != null && !current.isBefore(earliest) ? current : earliest,
+      initialDate: current != null &&
+              !current.isBefore(earliest) &&
+              !current.isAfter(latest)
+          ? current
+          : earliest,
       firstDate: earliest,
-      lastDate: today.add(const Duration(days: 365)),
+      lastDate: latest,
     );
     if (picked == null || !mounted) return;
     final day = DateTime.utc(picked.year, picked.month, picked.day);

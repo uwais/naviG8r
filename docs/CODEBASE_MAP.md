@@ -104,6 +104,10 @@ should see the new line on the card in the test, and `flutter test` pass.
   15 km (`PHASE_A_MAX_PICKUP_KM`) from the shipper's points. Rounding to 0.05 degrees (a square about 5 km on a side)
   moves a point under 4 km, so the shipper can always book. Coarser rounding, or that radius set below 4 km, would let
   a route made for a load be refused at booking; the "near a rounding edge" test in `loadBoardRules.test.ts` catches it.
+- **A trip for a load must leave on one of the load's pickup days.** The server reads the India date of `windowStart`
+  (`indiaToday`, as the shipper's alert words it) and refuses any other day with `trip_leaves_outside_pickup_days`,
+  which carries the load's `earliestPickupDate` and `latestPickupDate` for the app's sentence. Only the leaving day is
+  checked, not `windowEnd`; the app's two date pickers (`_chooseDay` in `driver_flow.dart`) offer only the pickup days.
 - **A posted load's town is letters only** (`TOWN_NAME` in `postedLoadInput.ts`): any script, spaces, dots,
   apostrophes and hyphens. Carriers see it on the board and in alerts, so digits and commas are refused with
   `invalid_from` or `invalid_to`. The app fills the box from the pin's Google address (`townToPost` in

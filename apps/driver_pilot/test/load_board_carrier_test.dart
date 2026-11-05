@@ -225,6 +225,46 @@ void main() {
           findsOneWidget);
     });
 
+    testWidgets('both leaving-day pickers offer only the load pickup days',
+        (tester) async {
+      office.signInWith(office.Server(allowed: office.ownerAllowed));
+      await office.mount(tester, form(), size: const Size(800, 3000));
+      String day(DateTime date) => '${date.year}-${date.month}-${date.day}';
+      final first = today.add(const Duration(days: 1));
+      final last = today.add(const Duration(days: 2));
+      for (final shown in [first, last]) {
+        await tester.tap(find.text(formatDate(shown, withYear: true)));
+        await tester.pumpAndSettle();
+        final picker =
+            tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+        expect([day(picker.firstDate), day(picker.lastDate)],
+            [day(first), day(last)],
+            reason: 'the picker opened from ${day(shown)}');
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+      }
+    });
+
+    testWidgets('a leaving day outside the pickup days, refused by the server, is said in words',
+        (tester) async {
+      office.signInWith(office.Server(
+          allowed: office.ownerAllowed,
+          refusesWrites: true,
+          refusal: {
+            'error': 'trip_leaves_outside_pickup_days',
+            'earliestPickupDate': dayAhead(1),
+            'latestPickupDate': dayAhead(2),
+          }));
+      await office.mount(tester, form(), size: const Size(800, 3000));
+      await chooseTruckSize(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Add trip'));
+      await tester.pumpAndSettle();
+      expect(
+          find.text(
+              'The first day the truck can leave must be one of the pickup days of this load: ${pickupDaysWords(boardLoad())}.'),
+          findsOneWidget);
+    });
+
     testWidgets("a trip for a load leaves the carrier's own Add a trip draft alone",
         (tester) async {
       office.signInWith(office.Server(allowed: office.ownerAllowed));

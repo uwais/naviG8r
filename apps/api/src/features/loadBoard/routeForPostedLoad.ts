@@ -1,7 +1,7 @@
 /**
  * A carrier office answers a posted load by making an ordinary route with today's route form, naming the load
- * (owner, 4 Nov 2026). The server checks the load is still open and the route has room for it, sets the route's ends
- * itself from the load, then records the route on the load and tells the shipper. Other shippers may still book the
+ * (owner, 4 Nov 2026). The server checks the load is still open, the route has room for it and leaves on one of its
+ * pickup days, sets the route's ends itself from the load, then records the route on the load and tells the shipper. Other shippers may still book the
  * route's leftover room.
  */
 import { ApiError } from "../../services.ts";
@@ -11,7 +11,7 @@ import type { Store } from "../../store.ts";
 import type { AnchorTrip, GeoPoint } from "../../types.ts";
 import { alertShipperOfRoute } from "./loadAlerts.ts";
 import { requireBoardViewer } from "./loadBoardAudience.ts";
-import { MAX_ROUTES_PER_CARRIER_PER_HOUR, type PostedLoad, type PostedLoadPlace } from "./postedLoad.ts";
+import { MAX_ROUTES_PER_CARRIER_PER_HOUR, indiaToday, type PostedLoad, type PostedLoadPlace } from "./postedLoad.ts";
 
 /**
  * To 0.05 degrees: a square about 5 km on a side, so a trip end never places the shipper's point. The farthest a
@@ -21,7 +21,7 @@ import { MAX_ROUTES_PER_CARRIER_PER_HOUR, type PostedLoad, type PostedLoadPlace 
 const roundedPoint = ({ lat, lng }: PostedLoadPlace): GeoPoint => ({ lat: Math.round(lat * 20) / 20, lng: Math.round(lng * 20) / 20 });
 
 /** Runs before the route is published, so a refused route is never made. Returns the load it is for. */
-export function checkRouteForPostedLoad(store: Store, postedLoadId: unknown, route: { orgId: string; capacityKg: number }, nowUtcMs = Date.now()): PostedLoad {
+export function checkRouteForPostedLoad(store: Store, postedLoadId: unknown, route: { orgId: string; capacityKg: number; windowStart: string }, nowUtcMs = Date.now()): PostedLoad {
   const office = requireBoardViewer(store);
   if (office.organizationId !== route.orgId) throw new AuthorizationError("not_found", 404);
   const load = typeof postedLoadId === "string" ? store.postedLoads.get(postedLoadId) : undefined;
@@ -32,6 +32,13 @@ export function checkRouteForPostedLoad(store: Store, postedLoadId: unknown, rou
   const madeThisHour = [...store.postedLoads.values()].flatMap((posted) => posted.routes).filter((made) => made.carrierOrgId === route.orgId && made.madeAtUtcMs > since);
   if (madeThisHour.length >= MAX_ROUTES_PER_CARRIER_PER_HOUR) throw new ApiError("rate_limited", { retryAfterMs: Math.max(1000, Math.min(...madeThisHour.map((made) => made.madeAtUtcMs)) - since) }, 429);
   if (!(route.capacityKg >= load.weightKg)) throw new ApiError("route_too_small_for_load", { weightKg: load.weightKg });
+  // The day the truck leaves is the India date of the window's start, as the shipper's alert words it.
+  const leavesUtcMs = Date.parse(route.windowStart);
+  if (Number.isNaN(leavesUtcMs)) throw new ApiError("invalid_windowStart");
+  const leavesOn = indiaToday(leavesUtcMs);
+  if (leavesOn < load.earliestPickupDate || leavesOn > load.latestPickupDate) {
+    throw new ApiError("trip_leaves_outside_pickup_days", { earliestPickupDate: load.earliestPickupDate, latestPickupDate: load.latestPickupDate });
+  }
   return load;
 }
 
