@@ -1,6 +1,7 @@
 // Load Board phase 1, the shipper side (4 Nov 2026): Post a load from a search that found nothing, and My loads
 // with the trips carriers added. Names and places are synthetic. No amount may show before today's booking.
 import 'package:driver_pilot/authorization_session.dart';
+import 'package:driver_pilot/load_board/post_a_load.dart' show townToPost;
 import 'package:driver_pilot/load_board/posted_load_words.dart';
 import 'package:driver_pilot/ui/nv_field.dart';
 import 'package:flutter/material.dart';
@@ -73,10 +74,13 @@ Map<String, dynamic> myLoad(
       if (booking != null) 'booking': booking,
     };
 
-Map<String, dynamic> routeFor(String tripId, {bool canBook = true}) => {
+Map<String, dynamic> routeFor(String tripId,
+        {bool canBook = true, String? whyNotBookable}) =>
+    {
       'tripId': tripId,
       'madeAtUtcMs': 1793000100000,
       'canBook': canBook,
+      if (whyNotBookable != null) 'whyNotBookable': whyNotBookable,
       'trip': lane(id: tripId, carrier: 'Deccan Movers'),
     };
 
@@ -104,6 +108,10 @@ void main() {
       expect(fieldText('Pickup town'), 'Bengaluru',
           reason: 'carriers get the town of the searched address, never the address');
       expect(fieldText('Drop town'), 'Chennai');
+      expect(
+          find.text(
+              'Carriers on the Load Board see what you type here. Type the town only, not your street address.'),
+          findsNWidgets(2));
       expect(fieldText('Weight'), '500');
       expect(find.textContaining('₹'), findsNothing,
           reason: 'no price before the booking');
@@ -232,7 +240,11 @@ void main() {
       final server = await showShipperApp(tester, '/customer/loads');
       server.answer('/v1/posted-loads', {
         'loads': [
-          myLoad(routes: [routeFor('trip-a'), routeFor('trip-b', canBook: false)]),
+          myLoad(routes: [
+            routeFor('trip-a'),
+            routeFor('trip-b',
+                canBook: false, whyNotBookable: 'NOT_ENOUGH_ROOM')
+          ]),
           myLoad(id: 'load-2', state: 'EXPIRED'),
         ]
       });
@@ -251,7 +263,9 @@ void main() {
           reason: 'the truck as the route search shows it');
       expect(find.widgetWithText(FilledButton, 'Book'), findsOneWidget,
           reason: 'only a trip the server says can be booked has Book');
-      expect(find.text('Not open for booking.'), findsOneWidget);
+      expect(find.text('Not enough room left on this trip for this load.'),
+          findsOneWidget,
+          reason: 'a trip without Book says why');
       expect(words, isNot(contains('₹')), reason: 'no amount on My loads');
       expect(find.text('Withdraw'), findsOneWidget,
           reason: 'only an open load can be withdrawn');
@@ -305,12 +319,28 @@ void main() {
         'loads': [
           myLoad(
               state: 'BOOKED',
-              routes: [routeFor('trip-a', canBook: false)],
+              routes: [
+                routeFor('trip-a',
+                    canBook: false, whyNotBookable: 'YOU_BOOKED_IT'),
+                routeFor('trip-b',
+                    canBook: false, whyNotBookable: 'LOAD_CLOSED'),
+                routeFor('trip-c',
+                    canBook: false, whyNotBookable: 'TRIP_CLOSED'),
+              ],
               booking: {'shipmentId': 'ship-7', 'bookedAtUtcMs': 1793000200000})
         ]
       });
       await tester.pumpAndSettle();
       expect(find.text('Booked'), findsOneWidget);
+      expect(find.text('You booked this trip.'), findsOneWidget);
+      expect(
+          find.text(
+              'This load is closed. You can still book this trip from Book a trip.'),
+          findsOneWidget,
+          reason: 'a trip with room is still an ordinary trip');
+      expect(find.text('This trip is no longer taking bookings.'),
+          findsOneWidget);
+      expect(find.text('Not open for booking.'), findsNothing);
       await tapButton(tester, 'Open shipment');
       expect(find.text('Shipment ship-7'), findsOneWidget);
     });
@@ -321,6 +351,32 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('No loads posted yet.'), findsOneWidget);
     });
+  });
+
+  test('the town box is filled from the pin, never from a one-part typed address', () {
+    const point = LatLng(18.63, 73.85);
+    expect(
+        townToPost((
+          words: 'Plot 22 MIDC Bhosari Pune',
+          point: point,
+          pinAddress: (
+            address: 'Plot 22, MIDC, Bhosari, Pune, Maharashtra 411026, India',
+            lookupFailed: false
+          )
+        )),
+        'Pune');
+    expect(
+        townToPost((
+          words: 'Bommasandra, Bengaluru',
+          point: point,
+          pinAddress: (address: null, lookupFailed: true)
+        )),
+        'Bengaluru',
+        reason: 'no pin address: the town of typed words with more than one part');
+    expect(
+        townToPost((words: 'Plot 22 MIDC Bhosari Pune', point: point, pinAddress: null)),
+        '',
+        reason: 'one part could be a whole street address, so the shipper types the town');
   });
 
   test('a posted load is worded without amounts', () {

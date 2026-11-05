@@ -20,6 +20,16 @@ import "../ui/nv_section_card.dart";
 import "../ui/tokens.dart";
 import "posted_load_words.dart";
 
+/// Why a trip has no Book button, from the server's reason (features/loadBoard/postedLoadViews.ts).
+String _notBookableSentence(Object? reason) => switch (reason) {
+      "YOU_BOOKED_IT" => "You booked this trip.",
+      "LOAD_CLOSED" =>
+        "This load is closed. You can still book this trip from Book a trip.",
+      "TRIP_CLOSED" => "This trip is no longer taking bookings.",
+      "NOT_ENOUGH_ROOM" => "Not enough room left on this trip for this load.",
+      _ => "Not open for booking.",
+    };
+
 class MyLoadsScreen extends StatefulWidget {
   const MyLoadsScreen({super.key});
 
@@ -139,7 +149,8 @@ class _MyLoadsScreenState extends State<MyLoadsScreen> {
                   fullWidth: true,
                   onPressed: () => _book(load, route))
             else
-              const Text("Not open for booking.", style: NvText.caption),
+              Text(_notBookableSentence(route["whyNotBookable"]),
+                  style: NvText.caption),
           ],
         ),
       ),

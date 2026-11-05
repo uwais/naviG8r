@@ -170,6 +170,20 @@ test("only the poster's own booking books the load; another shipper may book lef
   assert.deepEqual((await fx.notices(fx.tokens.carrierB)).filter((n) => n.eventKey.startsWith("posted_load.") && n.eventKey !== "posted_load.new"), [], "no carrier is told the load was booked");
   const listed = (await fx.f.request("/v1/posted-loads", "GET", undefined, fx.tokens.shipperA)).body.loads[0];
   assert.equal(listed.routes.every((route: any) => route.canBook === false), true, "a booked load offers no more Book buttons");
+  assert.deepEqual(listed.routes.map((route: any) => [route.tripId, route.whyNotBookable]), [[tripId, "YOU_BOOKED_IT"], [other, "LOAD_CLOSED"]],
+    "each route says why it has no Book button: the one booked, and one still open but for a closed load");
+});
+
+test("a route for an open load with too little room left says so", async t => {
+  const fx = await loadBoardFixture(t);
+  const loadId = await postedLoadId(fx);
+  const tripId = await routeFor(fx, loadId);
+  assert.equal((await bookRoute(fx, tripId, fx.tokens.shipperB, 700)).status, 201);
+  const [route] = (await fx.f.request("/v1/posted-loads", "GET", undefined, fx.tokens.shipperA)).body.loads[0].routes;
+  assert.deepEqual([route.canBook, route.whyNotBookable], [false, "NOT_ENOUGH_ROOM"]);
+  const open = await routeFor(fx, loadId);
+  const bookable = (await fx.f.request("/v1/posted-loads", "GET", undefined, fx.tokens.shipperA)).body.loads[0].routes.find((row: any) => row.tripId === open);
+  assert.equal("whyNotBookable" in bookable, false, "a bookable route gives no reason");
 });
 
 /** As the unpaid-booking tests do: the booking is old and its Razorpay checkout never finished. */

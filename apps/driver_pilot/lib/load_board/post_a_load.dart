@@ -42,6 +42,17 @@ const _maxTotalVolume = 100000;
 
 enum _SizeKind { sizes, totalVolume }
 
+/// The town to fill in for a searched place: from the pin's Google address, else from typed words with more
+/// than one part. Empty otherwise, so the shipper types it: [townOfAddress] gives a one-part address back
+/// whole, and that could be a street address carriers would then see.
+String townToPost(SearchedPlace place) {
+  for (final address in [place.pinAddress?.address, place.words]) {
+    final parts = address?.split(",").where((part) => part.trim().isNotEmpty);
+    if (parts != null && parts.length > 1) return townOfAddress(address!);
+  }
+  return "";
+}
+
 /// A refusal from the server in words, or null for one this form has no sentence for.
 String? _refusalSentence(Object error) {
   final body = error is DioException ? error.response?.data : null;
@@ -59,8 +70,8 @@ String? _refusalSentence(Object error) {
       "The last pickup day can be at most 3 days after the first.",
     "note_too_long" => "The note can be up to 300 characters.",
     "invalid_note" => "The note has characters that cannot be saved. Remove them.",
-    "invalid_from" => "Check the pickup town.",
-    "invalid_to" => "Check the drop town.",
+    "invalid_from" => "Type the pickup town only, like Pune.",
+    "invalid_to" => "Type the drop town only, like Mumbai.",
     "invalid_weightKg" => "Check the weight.",
     "invalid_packages" => "Check the package sizes or the total volume.",
     _ => null,
@@ -77,10 +88,10 @@ class PostALoadScreen extends StatefulWidget {
 }
 
 class _PostALoadScreenState extends State<PostALoadScreen> {
-  late final _fromTown = TextEditingController(
-      text: townOfAddress(widget.search.pickup.words));
+  late final _fromTown =
+      TextEditingController(text: townToPost(widget.search.pickup));
   late final _toTown =
-      TextEditingController(text: townOfAddress(widget.search.drop.words));
+      TextEditingController(text: townToPost(widget.search.drop));
   late final _weightKg =
       TextEditingController(text: "${widget.search.weightKg}");
   final _count = TextEditingController();
@@ -370,13 +381,15 @@ class _PostALoadScreenState extends State<PostALoadScreen> {
           NvField(
               label: "Pickup town",
               controller: _fromTown,
-              help: "Carriers see the town, never your address.",
+              help:
+                  "Carriers on the Load Board see what you type here. Type the town only, not your street address.",
               readOnly: _posting),
           gap,
           NvField(
               label: "Drop town",
               controller: _toTown,
-              help: "Carriers see the town, never your address.",
+              help:
+                  "Carriers on the Load Board see what you type here. Type the town only, not your street address.",
               readOnly: _posting),
           gap,
           NvField(

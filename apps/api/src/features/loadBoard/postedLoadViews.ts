@@ -6,6 +6,7 @@
 import { isActiveEntity } from "../../softDelete.ts";
 import { tripForPublicListing } from "../../services.ts";
 import type { Store } from "../../store.ts";
+import type { AnchorTrip } from "../../types.ts";
 import type { PostedLoad } from "./postedLoad.ts";
 
 /** The posting shipper company: everything it entered, and each route made for it as today's route search shows a route. */
@@ -26,10 +27,19 @@ export function loadForShipper(store: Store, load: PostedLoad) {
     routes: load.routes.flatMap((route) => {
       const trip = store.anchorTrips.get(route.tripId);
       if (!trip || !isActiveEntity(trip)) return [];
-      const canBook = load.state === "OPEN" && trip.status === "OPEN" && trip.capacityKg - trip.reservedKg >= load.weightKg;
-      return [{ tripId: route.tripId, madeAtUtcMs: route.madeAtUtcMs, canBook, trip: tripForPublicListing(store, trip) }];
+      const whyNot = whyNotBookable(store, load, trip);
+      return [{ tripId: route.tripId, madeAtUtcMs: route.madeAtUtcMs, canBook: whyNot == null, ...(whyNot ? { whyNotBookable: whyNot } : {}), trip: tripForPublicListing(store, trip) }];
     }),
   };
+}
+
+/** Why My loads shows no Book button on this route, so the app can say so; undefined when it can be booked. */
+function whyNotBookable(store: Store, load: PostedLoad, trip: AnchorTrip) {
+  if (load.booking && store.shipments.get(load.booking.shipmentId)?.anchorTripId === trip.id) return "YOU_BOOKED_IT";
+  if (trip.status !== "OPEN") return "TRIP_CLOSED";
+  if (trip.capacityKg - trip.reservedKg < load.weightKg) return "NOT_ENOUGH_ROOM";
+  if (load.state !== "OPEN") return "LOAD_CLOSED";
+  return undefined;
 }
 
 /** An approved carrier office reading the board. */
