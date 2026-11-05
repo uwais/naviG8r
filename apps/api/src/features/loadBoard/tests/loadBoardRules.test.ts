@@ -255,6 +255,45 @@ test("a booking not paid in time puts the load back on the board while its windo
   assert.ok([...fx.f.store.auditEvents.values()].some((row) => row.action === "POSTED_LOAD_REOPENED" && row.actorUserId === "system:posted-load-sweep"));
 });
 
+test("another live booking keeps the load booked when the one it recorded is not paid", async t => {
+  const fx = await loadBoardFixture(t);
+  const loadId = await postedLoadId(fx);
+  const firstTrip = await routeFor(fx, loadId);
+  const secondTrip = await routeFor(fx, loadId);
+  const first = await bookRoute(fx, firstTrip, fx.tokens.shipperA);
+  const second = await bookRoute(fx, secondTrip, fx.tokens.shipperA);
+  assert.equal(fx.f.store.postedLoads.get(loadId)?.booking?.shipmentId, first.body.shipment.id, "the first booking is the one My loads recorded");
+  leaveUnpaid(fx, first.body.shipment.id);
+  // The pickup days are already over. That must not expire a load that still has a booking.
+  const posted = fx.f.store.postedLoads.get(loadId)!;
+  fx.f.store.postedLoads.set(loadId, { ...posted, earliestPickupDate: indiaDay(-3), latestPickupDate: indiaDay(-1) });
+
+  assert.deepEqual((await fx.board(fx.tokens.carrierB)).body.loads, [], "a booked load stays off the board");
+  const load = fx.f.store.postedLoads.get(loadId)!;
+  assert.equal(fx.f.store.shipments.get(first.body.shipment.id)?.status, "FAILED_CARRIER_REFUNDED");
+  assert.deepEqual([load.state, load.booking?.shipmentId], ["BOOKED", second.body.shipment.id]);
+  assert.equal(typeof load.closedAtUtcMs, "number");
+  const mine = (await fx.f.request("/v1/posted-loads", "GET", undefined, fx.tokens.shipperA)).body.loads[0];
+  assert.equal(mine.booking.shipmentId, second.body.shipment.id, "My loads opens the booking that is still live");
+  assert.ok([...fx.f.store.auditEvents.values()].some((row) =>
+    row.action === "POSTED_LOAD_BOOKING_KEPT" && row.actorUserId === "system:posted-load-sweep"
+    && row.previousState === first.body.shipment.id && row.newState === second.body.shipment.id));
+});
+
+test("another company's booking of a route does not keep the load when the posting company's booking falls through", async t => {
+  const fx = await loadBoardFixture(t);
+  const loadId = await postedLoadId(fx);
+  const firstTrip = await routeFor(fx, loadId);
+  const secondTrip = await routeFor(fx, loadId);
+  const first = await bookRoute(fx, firstTrip, fx.tokens.shipperA);
+  assert.equal((await bookRoute(fx, secondTrip, fx.tokens.shipperB)).status, 201);
+  leaveUnpaid(fx, first.body.shipment.id);
+
+  const board = await fx.board(fx.tokens.carrierB);
+  assert.deepEqual(board.body.loads.map((load: any) => load.id), [loadId], "the other company's booking leaves this load open");
+  assert.deepEqual([fx.f.store.postedLoads.get(loadId)?.state, fx.f.store.postedLoads.get(loadId)?.booking], ["OPEN", undefined]);
+});
+
 test("a booking that falls through after the pickup window closes the load as expired", async t => {
   const fx = await loadBoardFixture(t);
   const loadId = await postedLoadId(fx);
