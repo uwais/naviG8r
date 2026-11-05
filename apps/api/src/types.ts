@@ -60,10 +60,12 @@ export type Notification = {
   eventKey: string;
   recipientUserId: string;
   recipientOrgId: string;
-  /** "" for a trip notice, which has tripId instead (the database column cannot be empty). */
+  /** "" for a trip or posted-load notice, which has tripId or postedLoadId instead (the database column cannot be empty). */
   shipmentId: string;
   /** Set only on a driver's new-trip notice (trip.assigned). */
   tripId?: string;
+  /** Set only on a Load Board notice (features/loadBoard/loadAlerts.ts). */
+  postedLoadId?: string;
   conversationId?: string;
   messageId?: string;
   createdAtUtcMs: number;

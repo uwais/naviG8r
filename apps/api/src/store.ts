@@ -27,9 +27,10 @@ import type {
   User,
   Vehicle,
 } from "./types.ts";
+import type { LoadAlertSetting, PostedLoad } from "./features/loadBoard/postedLoad.ts";
 
 export type Store = {
-  version: 7;
+  version: 8;
   notificationSequence: number;
   membershipRoles: Map<string, Role[]>;
   auditEvents: Map<string, AuditEvent>;
@@ -59,11 +60,13 @@ export type Store = {
   pushDevices: Map<string, PushDevice>;
   pushIntents: Map<string, PushIntent>;
   pushDeliveries: Map<string, PushDelivery>;
+  postedLoads: Map<string, PostedLoad>;
+  loadAlertSettings: Map<string, LoadAlertSetting>; // key: userId
 };
 
 export function createStore(): Store {
   return {
-    version: 7,
+    version: 8,
     notificationSequence: 0,
     membershipRoles: new Map(),
     auditEvents: new Map(),
@@ -93,5 +96,7 @@ export function createStore(): Store {
     pushDevices: new Map(),
     pushIntents: new Map(),
     pushDeliveries: new Map(),
+    postedLoads: new Map(),
+    loadAlertSettings: new Map(),
   };
 }

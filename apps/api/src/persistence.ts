@@ -30,6 +30,7 @@ import type {
   User,
   Vehicle,
 } from "./types.ts";
+import type { LoadAlertSetting, PostedLoad } from "./features/loadBoard/postedLoad.ts";
 
 function normalizeHydratedPayment(raw: Payment): Payment {
   const p = raw as Payment & { provider?: Payment["provider"] };
@@ -109,10 +110,15 @@ type StoreJsonV7 = Omit<StoreJsonV6, "version" | "notifications"> & {
   pushIntents?: PushIntent[];
   pushDeliveries?: PushDelivery[];
 };
+type StoreJsonV8 = Omit<StoreJsonV7, "version"> & {
+  version: 8;
+  postedLoads: PostedLoad[];
+  loadAlertSettings: LoadAlertSetting[];
+};
 
-export function dumpStore(store: Store): StoreJsonV7 {
+export function dumpStore(store: Store): StoreJsonV8 {
   return {
-    version: 7,
+    version: 8,
     notificationSequence: store.notificationSequence,
     membershipRoles: [...store.membershipRoles],
     auditEvents: [...store.auditEvents.values()],
@@ -142,6 +148,8 @@ export function dumpStore(store: Store): StoreJsonV7 {
     pushDevices: [...store.pushDevices.values()],
     pushIntents: [...store.pushIntents.values()],
     pushDeliveries: [...store.pushDeliveries.values()],
+    postedLoads: [...store.postedLoads.values()],
+    loadAlertSettings: [...store.loadAlertSettings.values()],
   };
 }
 
@@ -285,10 +293,19 @@ function hydrateStoreV7(json: StoreJsonV7): Store {
   return store;
 }
 
+/** Version 7 files had no Load Board, so they load with no posted loads and every load alert on. */
+function hydrateStoreV8(json: StoreJsonV8): Store {
+  const store = hydrateStoreV7({ ...json, version: 7 });
+  for (const load of json.postedLoads ?? []) store.postedLoads.set(load.id, load);
+  for (const setting of json.loadAlertSettings ?? []) store.loadAlertSettings.set(setting.userId, setting);
+  return store;
+}
+
 export function loadStoreFromDisk(dataFilePath: string): Store {
   try {
     const raw = fs.readFileSync(dataFilePath, "utf8");
-    const parsed = JSON.parse(raw) as StoreJsonV1 | StoreJsonV2 | StoreJsonV3 | StoreJsonV4 | StoreJsonV5 | StoreJsonV6 | StoreJsonV7;
+    const parsed = JSON.parse(raw) as StoreJsonV1 | StoreJsonV2 | StoreJsonV3 | StoreJsonV4 | StoreJsonV5 | StoreJsonV6 | StoreJsonV7 | StoreJsonV8;
+    if (parsed?.version === 8) return hydrateStoreV8(parsed);
     if (parsed?.version === 7) return hydrateStoreV7(parsed);
     if (parsed?.version === 6) return hydrateStoreV6(parsed);
     if (parsed?.version === 1) return migrateV1ToStore(parsed);
