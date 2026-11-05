@@ -4,6 +4,8 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
+import 'package:driver_pilot/load_board/my_loads.dart';
+import 'package:driver_pilot/load_board/post_a_load.dart';
 import 'package:driver_pilot/location_editor.dart';
 import 'package:driver_pilot/shipper/book_a_lane.dart';
 import 'package:driver_pilot/shipper/find_a_lane.dart';
@@ -159,6 +161,11 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
                   findPlace: findPlace,
                   namePin: namePin,
                   mapsApiKey: mapsApiKey)),
+          GoRoute(
+              path: 'post-load',
+              builder: (_, state) =>
+                  PostALoadScreen(search: state.extra as LoadToPost)),
+          GoRoute(path: 'loads', builder: (_, __) => const MyLoadsScreen()),
           GoRoute(
               path: 'shipments',
               builder: (_, __) => const Text('Shipments list')),

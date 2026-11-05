@@ -7,8 +7,10 @@ import "package:flutter/material.dart";
 import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
+import "../authorization_session.dart";
 import "../google_geocoding.dart";
 import "../customer_layout.dart";
+import "../load_board/post_a_load.dart";
 import "../location_editor.dart";
 import "../pilot_api.dart";
 import "../ui/format.dart";
@@ -537,6 +539,15 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             title: _emptyTitle(_searchedWeightKg!),
             onChangeWeight: () => setState(() => _editing = true),
             onBrowseAll: widget.onBrowseAll,
+            // The search is open to anyone; posting is for a signed-in shipper who may book.
+            onPostLoad: AuthorizationSession.signedIn &&
+                    AuthorizationSession.can("load.create")
+                ? () => context.go("/customer/post-load",
+                    extra: LoadToPost(
+                        pickup: _searchedPickup!,
+                        drop: _searchedDrop!,
+                        weightKg: _searchedWeightKg!))
+                : null,
           )
         else ...[
           Semantics(
@@ -550,15 +561,20 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
       ];
 }
 
-/// Match found nothing: say so, and offer a lower weight or every lane (sh-lanes-empty).
+/// Match found nothing: say so, and offer a lower weight, every lane (sh-lanes-empty), or posting the load
+/// for carriers (Load Board, 4 Nov 2026).
 class _NoMatchBox extends StatelessWidget {
   const _NoMatchBox(
       {required this.title,
       required this.onChangeWeight,
-      required this.onBrowseAll});
+      required this.onBrowseAll,
+      required this.onPostLoad});
   final String title;
   final VoidCallback onChangeWeight;
   final VoidCallback onBrowseAll;
+
+  /// Null when this person cannot post a load, as when signed out.
+  final VoidCallback? onPostLoad;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -594,6 +610,18 @@ class _NoMatchBox extends StatelessWidget {
                 kind: NvButtonKind.secondary,
                 fullWidth: true,
                 onPressed: onBrowseAll),
+            if (onPostLoad != null) ...[
+              const SizedBox(height: NvSpace.s4),
+              const Text(
+                  "Or post your load. Carriers going your way can add a trip for it.",
+                  style: NvText.body),
+              const SizedBox(height: NvSpace.s2),
+              NvButton(
+                  label: "Post a load",
+                  kind: NvButtonKind.secondary,
+                  fullWidth: true,
+                  onPressed: onPostLoad),
+            ],
           ],
         ),
       );

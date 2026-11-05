@@ -2,6 +2,8 @@ import "package:flutter/widgets.dart";
 import "package:go_router/go_router.dart";
 
 import "shipper_home.dart";
+import "../load_board/my_loads.dart";
+import "../load_board/post_a_load.dart";
 import "../sign_in_screen.dart";
 import "shipper_register.dart";
 import "shipper_team.dart";
@@ -52,6 +54,15 @@ List<RouteBase> customerFlowRoutes() {
             builder: (_, state) =>
                 CustomerBookShipmentScreen.fromQuery(state.uri.queryParameters,
                     extra: state.extra)),
+        // Post a load opens from a search that found nothing, which hands over its places in memory; a reload has
+        // none, so it goes back to the search.
+        GoRoute(
+            path: "post-load",
+            redirect: (_, state) =>
+                state.extra is LoadToPost ? null : "/customer/trips?tab=match",
+            builder: (_, state) =>
+                PostALoadScreen(search: state.extra as LoadToPost)),
+        GoRoute(path: "loads", builder: (_, __) => const MyLoadsScreen()),
         GoRoute(
           path: "eligible",
           redirect: (_, __) => "/customer/trips?tab=match",

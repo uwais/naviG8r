@@ -22,6 +22,9 @@ import "eway_bill_words.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
 import "google_geocoding.dart";
+import "load_board/load_alerts_switch.dart";
+import "load_board/load_board_screen.dart";
+import "load_board/trip_for_load.dart";
 import "location_editor.dart";
 import "maps_config.dart";
 import "pilot_api.dart";
@@ -59,6 +62,8 @@ final GlobalKey<NavigatorState> driverShellNavigatorKey =
 String driverShellTitle(String path, {bool forDriver = false}) {
   if (path == "/driver") return "Home";
   if (path.startsWith("/driver/shipments")) return "Bookings";
+  if (path.startsWith("/driver/load-board/")) return "Add a trip";
+  if (path.startsWith("/driver/load-board")) return "Load Board";
   if (path.startsWith("/driver/loads")) return "Trips";
   if (path.startsWith("/driver/publish")) return "Add a trip";
   if (path.startsWith("/driver/track")) return "Track";
@@ -1408,6 +1413,8 @@ class _OfficeHomeState extends State<_OfficeHome> {
               child: NvRefreshButton(loading: _loading, onPressed: _load)),
           const SizedBox(height: NvSpace.s2),
           ...content,
+          const SizedBox(height: NvSpace.s6),
+          LoadBoardHomeCard(onOpen: () => _open("/driver/load-board")),
         ],
       ),
     );
@@ -3089,6 +3096,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             // Owners only: dispatchers and drivers never see bank details or payments (spec: ca-profile).
             if (_seesPaymentAmounts) ...[gap, _bankDetails()],
             if (DriverSession.canInviteDrivers) ...[gap, _team()],
+            if (seesLoadBoard()) ...[gap, const LoadAlertsSwitch()],
           ] else ...[
             _aboutYou(phone),
             gap,
@@ -5398,13 +5406,16 @@ String _publishDraftOwner() =>
     "${AuthorizationSession.identityGeneration}:${AuthorizationSession.scopeKey}";
 
 /// ca-publish: every field starts empty (or as left on another tab), the truck size is a choice, and Publish stays
-/// visible at the bottom.
+/// visible at the bottom. With [forLoad] it is a trip for a posted load: filled in from the load, kept apart from the
+/// draft, and sent with the load's id and towns.
 class DriverPublishTripScreen extends StatefulWidget {
   const DriverPublishTripScreen(
       {super.key,
+      this.forLoad,
       this.findPlace = GoogleGeocodingService.forwardAddress,
       this.namePin = GoogleGeocodingService.reverseLatLng});
 
+  final LoadForTrip? forLoad;
   final PlaceFinder findPlace;
   final PinNamer namePin;
 
@@ -5435,7 +5446,18 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   void initState() {
     super.initState();
     final draft = _publishDraft;
-    if (draft != null && draft.owner == _draftOwner) {
+    final load = widget.forLoad;
+    if (load != null) {
+      // The towns go in the place boxes for a search; the leaving days start inside the load's pickup days.
+      final today = _todayInIndia();
+      _origin.text = load.fromCity;
+      _dest.text = load.toCity;
+      _firstLeavingDay =
+          load.firstPickupDay.isBefore(today) ? today : load.firstPickupDay;
+      _lastLeavingDay =
+          load.lastPickupDay.isBefore(today) ? null : load.lastPickupDay;
+      _room.text = "${load.weightKgRoundedUp}";
+    } else if (draft != null && draft.owner == _draftOwner) {
       // A draft kept past midnight can hold a day that has gone; the form only checks that one was chosen.
       final today = _todayInIndia();
       bool notGone(DateTime? day) => day != null && !day.isBefore(today);
@@ -5455,20 +5477,23 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
 
   @override
   void dispose() {
-    // A publish still sending may yet land; its draft would let the same trip be sent again.
-    _publishDraft = _published || _submitting || _publishDraftOwner() != _draftOwner
-        ? null
-        : (
-            owner: _draftOwner,
-            from: _origin.text,
-            fromPoint: _originPos,
-            to: _dest.text,
-            toPoint: _destPos,
-            firstLeavingDay: _firstLeavingDay,
-            lastLeavingDay: _lastLeavingDay,
-            truckSize: _truckSize,
-            room: _room.text,
-          );
+    // A publish still sending may yet land; its draft would let the same trip be sent again. A trip for a load
+    // leaves the carrier's own draft as it was.
+    if (widget.forLoad == null) {
+      _publishDraft = _published || _submitting || _publishDraftOwner() != _draftOwner
+          ? null
+          : (
+              owner: _draftOwner,
+              from: _origin.text,
+              fromPoint: _originPos,
+              to: _dest.text,
+              toPoint: _destPos,
+              firstLeavingDay: _firstLeavingDay,
+              lastLeavingDay: _lastLeavingDay,
+              truckSize: _truckSize,
+              room: _room.text,
+            );
+    }
     _origin.dispose();
     _dest.dispose();
     _room.dispose();
@@ -5528,6 +5553,10 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     if (_truckSize == null) return _chooseTruckSizeSentence;
     final room = int.tryParse(_room.text.trim()) ?? 0;
     if (room <= 0) return "Enter the capacity in kg.";
+    final load = widget.forLoad;
+    if (load != null && room < load.weightKg) {
+      return "The capacity must be at least ${formatKg(load.weightKg)} for this load.";
+    }
     return null;
   }
 
@@ -5557,12 +5586,15 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
           .add(const Duration(days: 1))
           .subtract(india)
           .subtract(const Duration(seconds: 1));
+      final load = widget.forLoad;
       await api.post<Map<String, dynamic>>(
         "/v1/pilot/anchor-trips",
         data: {
           "orgId": orgId,
-          "originCity": _origin.text.trim(),
-          "destCity": _dest.text.trim(),
+          // A place search writes Google's name in the box ("Pune, Maharashtra"); the server matches the load's towns.
+          "originCity": load?.fromCity ?? _origin.text.trim(),
+          "destCity": load?.toCity ?? _dest.text.trim(),
+          if (load != null) "postedLoadId": load.id,
           "origin": {
             "lat": _originPos!.latitude,
             "lng": _originPos!.longitude,
@@ -5581,12 +5613,14 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
       );
       // Both: the screen may already be gone, having kept the draft, when the publish lands.
       _published = true;
-      _publishDraft = null;
+      if (load == null) _publishDraft = null;
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(tripPublishedMessage());
+      ScaffoldMessenger.of(context).showSnackBar(load == null
+          ? tripPublishedMessage()
+          : const SnackBar(content: Text("Trip added. We told the shipper.")));
       context.go("/driver/loads");
     } catch (e) {
-      if (mounted) _showError(ewayBillErrorSentence(e));
+      if (mounted) _showError(tripForLoadRefusal(e) ?? ewayBillErrorSentence(e));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -5635,8 +5669,11 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 NvMessage(_error!, tone: NvMessageTone.problem),
                 gap,
               ],
-              const Text("Shippers can book it once you add it.",
-                  style: NvText.body),
+              if (widget.forLoad case final load?)
+                LoadForTripSummary(load)
+              else
+                const Text("Shippers can book it once you add it.",
+                    style: NvText.body),
               gap,
               // Each map shows once its place has a point, so the form stays short while typing.
               LocationEndpointEditor(
@@ -5778,6 +5815,21 @@ List<RouteBase> driverFlowRoutes() {
             GoRoute(
                 path: "publish",
                 builder: (_, __) => const DriverPublishTripScreen()),
+            GoRoute(
+              path: "load-board",
+              builder: (_, __) => const LoadBoardScreen(),
+              routes: [
+                // The board hands over its load in memory; a reload has none, so it goes back to the board.
+                GoRoute(
+                  path: "trip",
+                  redirect: (_, state) => state.extra is LoadForTrip
+                      ? null
+                      : "/driver/load-board",
+                  builder: (_, state) => DriverPublishTripScreen(
+                      forLoad: state.extra as LoadForTrip),
+                ),
+              ],
+            ),
             GoRoute(
                 path: "track", builder: (_, __) => const DriverTrackScreen()),
             GoRoute(

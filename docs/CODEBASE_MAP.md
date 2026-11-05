@@ -10,6 +10,7 @@ meet, fold these sections into it. Until then this file covers only what the Loa
 | Directory | What lives there and why |
 |---|---|
 | `apps/api/src/features/loadBoard/` | The Load Board: a shipper posts a load that fit no route, approved carrier offices answer with an ordinary route. Its own folder because it is a feature with its own record, rules and audiences, not a change to booking |
+| `apps/driver_pilot/lib/load_board/` | The Load Board's app screens for both sides: the shipper's Post a load and My loads, the carrier office's board and Load alerts switch. One folder for the feature, not split into `shipper/` and the carrier file, because both sides share its words |
 
 ### `apps/api/src/features/loadBoard/`
 
@@ -28,10 +29,30 @@ meet, fold these sections into it. Until then this file covers only what the Loa
 The staff view is the "Load Board" card on `/ops/beta`, in `apps/api/src/opsConsoleBetaPostedLoads.ts` beside the
 page's other cards. Read only; it reads `GET /ops/posted-loads`.
 
+### `apps/driver_pilot/lib/load_board/`
+
+| File | What it does |
+|---|---|
+| `posted_load_words.dart` | The plain words both sides use for a posted load: route, size, pickup days, state label, and India calendar days |
+| `post_a_load.dart` | Shipper: the Post a load form, opened from a route search that found nothing (`LoadToPost` carries the search in memory) |
+| `my_loads.dart` | Shipper: My loads, each load with the trips carriers added; Book opens today's `/customer/book` for that trip |
+| `load_board_screen.dart` | Carrier office: the board, and the Home card that opens it. `seesLoadBoard()` is the office check (`trip.assign`) |
+| `trip_for_load.dart` | Carrier office: what today's Add a trip form gets for a load (`LoadForTrip`), the line above the form, and the server's refusals in words |
+| `load_alerts_switch.dart` | Carrier office: the Load alerts on or off switch on the Company screen |
+
+Wiring outside the folder: the Post a load button is in `_NoMatchBox` (`shipper/find_a_lane.dart`); the routes
+`/customer/post-load` and `/customer/loads` are in `shipper/shipper_routes.dart`, `/driver/load-board` and
+`/driver/load-board/trip` in `driverFlowRoutes` (`driver_flow.dart`), which also takes `forLoad` on
+`DriverPublishTripScreen`; access is in `organization_access.dart`; notice taps go through `openPostedLoadNotice`
+(`notification_center.dart`) from the Updates rows, the bell banner (`notification_bell.dart`) and a push
+(`_openPushNotification` in `main.dart`).
+
 ## Entry points
 
 - API server: `apps/api/src/index.ts`, which calls `createApp` in `httpServer.ts`.
 - API tests, from the repo root: `node --experimental-strip-types --test $(find apps/api/src packages -name '*.test.ts')`.
+- App tests, from `apps/driver_pilot`: `flutter test` and `flutter analyze`. The Load Board's are
+  `test/load_board_shipper_test.dart`, `test/load_board_carrier_test.dart` and `test/load_board_notices_test.dart`.
 - Load Board routes, all in the `httpServer.ts` route table next to `POST /v1/pilot/anchor-trips`, and allowed in
   `rbacRoutes.ts`: `POST|GET /v1/posted-loads`, `POST /v1/posted-loads/:id/withdraw`, `GET /v1/load-board`,
   `GET|PATCH /v1/me/settings`, `GET /ops/posted-loads`. A route for a load is today's `POST /v1/pilot/anchor-trips`
@@ -52,6 +73,11 @@ and nothing stored.
 add the key to the `IN (...)` list in `readGroupedInboxPageFromDatabase` (`persistenceDb.ts`). In file mode you should
 see it in `GET /v1/notifications` and `GET /v1/notifications/shipments` (a row with `postedLoadId` and `loadRoute`).
 
+**To show one more field of a posted load in the app:** word it in `posted_load_words.dart`, add it to the facts list
+in `_loadCard` of `my_loads.dart` (shipper) or `load_board_screen.dart` (carrier, only if the server's `loadForCarrier`
+sends it), and check for its words in `test/load_board_shipper_test.dart` or `test/load_board_carrier_test.dart`. You
+should see the new line on the card in the test, and `flutter test` pass.
+
 ## Gotchas learned the hard way
 
 - **The data file is version 8.** `persistence.ts` reads versions 1 to 8 and always writes 8. A server built before the
@@ -63,6 +89,12 @@ see it in `GET /v1/notifications` and `GET /v1/notifications/shipments` (a row w
   The database inbox query was changed but has not been run against Postgres: those tests skip without a database.
 - **`trip.publish` includes drivers.** The board and making a route for a load check the carrier office role
   themselves (`requireBoardViewer`), since the route guard's permission alone would let a driver through.
+- **A trip for a load sends the load's towns, not the place box's words.** A place search rewrites the box to Google's
+  name ("Pune, Maharashtra"), and the server matches the load's towns, so `DriverPublishTripScreen` sends
+  `forLoad.fromCity` and `forLoad.toCity` as `originCity` and `destCity`. Sending the box text gets
+  `route_cities_do_not_match_load`.
+- **Post a load and a trip for a load take their data as the router's extra.** A reload has none, so
+  `/customer/post-load` goes back to the route search and `/driver/load-board/trip` back to the board.
 - **The Load Board sweep runs before every request**, right after the unpaid-booking expiry in `httpServer.ts`, so a
   load whose booking just expired is back on the board in the same request. There is no timer.
 - **A route for a load is checked against the booking radius.** Booking refuses a route whose ends are more than
