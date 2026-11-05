@@ -49,6 +49,14 @@ class PushPayload {
   }
 }
 
+/// The title and body for a push shown while the app is open, from the push's notice (sent only for a Load
+/// Board notice). The lock-screen words for the same pushes are chosen in the API's push.ts.
+(String, String) localPushWords(String? notice) => switch (notice) {
+      'LOAD_BOARD' => ('New load on the Load Board', 'Open the Load Board to see it.'),
+      'MY_LOADS' => ('A carrier made a route for your load', 'Open My loads to see it.'),
+      _ => ('Shipment update', 'There is a new update about one of your shipments.'),
+    };
+
 AndroidNotificationDetails shipmentUpdateNotificationDetails(String tag) =>
     AndroidNotificationDetails(
       _channelId,
@@ -463,10 +471,11 @@ class PushNotifications {
     final data = message.data;
     final payload = PushPayload.parse(data, requirePresentationKey: true);
     if (payload == null) return;
+    final (title, body) = localPushWords(data['notice']?.toString());
     await _local.show(
       shipmentUpdateNotificationId,
-      'Shipment update',
-      'There is a new update about one of your shipments.',
+      title,
+      body,
       NotificationDetails(
           android: shipmentUpdateNotificationDetails(payload.presentationKey!)),
       payload: jsonEncode(

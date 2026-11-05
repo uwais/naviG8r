@@ -142,6 +142,11 @@ void main() {
 
       expect(find.text('Add a trip'), findsOneWidget);
       expect(find.text('FOR A POSTED LOAD'), findsOneWidget);
+      expect(
+          find.textContaining(
+              "The shipper may book your trip, another carrier's, or none."),
+          findsOneWidget,
+          reason: 'adding a trip does not promise the load');
       final placeTexts = [
         for (final field in tester.widgetList<TextField>(find.descendant(
             of: find.byType(LocationEndpointEditor),

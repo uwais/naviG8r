@@ -56,7 +56,8 @@ Wiring outside the folder: the Post a load button is in `_NoMatchBox` (`shipper/
 - Load Board routes, all in the `httpServer.ts` route table next to `POST /v1/pilot/anchor-trips`, and allowed in
   `rbacRoutes.ts`: `POST|GET /v1/posted-loads`, `POST /v1/posted-loads/:id/withdraw`, `GET /v1/load-board`,
   `GET|PATCH /v1/me/settings`, `GET /ops/posted-loads`. A route for a load is today's `POST /v1/pilot/anchor-trips`
-  with a `postedLoadId`. Booking is today's `POST /shipments/book`, unchanged apart from `markPostedLoadBooked`.
+  with a `postedLoadId`. Booking is today's `POST /shipments/book`, unchanged apart from `markPostedLoadBooked`,
+  which the ERP booking (`createIntegrationLoad` in `integrationServices.ts`) also calls.
 
 ## Change recipes
 
@@ -70,8 +71,11 @@ a refused case in the first test of `tests/loadBoardRules.test.ts`. You should s
 and nothing stored.
 
 **To add a Load Board notice kind:** add its event key and words in `loadAlerts.ts`, call `notify` with the audience, and
-add the key to the `IN (...)` list in `readGroupedInboxPageFromDatabase` (`persistenceDb.ts`). In file mode you should
-see it in `GET /v1/notifications` and `GET /v1/notifications/shipments` (a row with `postedLoadId` and `loadRoute`).
+add the key to the `IN (...)` list in `readGroupedInboxPageFromDatabase` (`persistenceDb.ts`). Its lock-screen words
+are picked by audience in `lockScreenWords` (`features/push/push.ts`) and, while the app is open, `localPushWords`
+(`push_notifications.dart`); a third kind for the same audience needs its own case in both. In file mode you should
+see it in `GET /v1/notifications` and `GET /v1/notifications/shipments` (a row with `postedLoadId` and `loadRoute`),
+and the "the lock screen names a Load Board notice" test in `features/push/tests/push.test.ts` pass.
 
 **To show one more field of a posted load in the app:** word it in `posted_load_words.dart`, add it to the facts list
 in `_loadCard` of `my_loads.dart` (shipper) or `load_board_screen.dart` (carrier, only if the server's `loadForCarrier`
@@ -97,6 +101,12 @@ should see the new line on the card in the test, and `flutter test` pass.
   `/customer/post-load` goes back to the route search and `/driver/load-board/trip` back to the board.
 - **The Load Board sweep runs before every request**, right after the unpaid-booking expiry in `httpServer.ts`, so a
   load whose booking just expired is back on the board in the same request. There is no timer.
-- **A route for a load is checked against the booking radius.** Booking refuses a route whose ends are more than
-  15 km (`PHASE_A_MAX_PICKUP_KM`) from the shipper's points, so making the route refuses that first, with no distances
-  in the answer: they would tell the carrier where the shipper's points are.
+- **A route for a load is checked against the booking radius, around rounded points.** Booking refuses a route whose
+  ends are more than 15 km (`PHASE_A_MAX_PICKUP_KM`) from the shipper's points. Making the route checks the same
+  radius around the load's points rounded to two decimals (about 1 km), as carriers see only the town, and answers
+  with no distances. The cost: a route made right at the edge can pass here and still be refused at booking, by up
+  to about 0.8 km.
+- **A posted load's town is letters only** (`TOWN_NAME` in `postedLoadInput.ts`): any script, spaces, dots,
+  apostrophes and hyphens. Carriers see it on the board and in alerts, so digits and commas are refused with
+  `invalid_from` or `invalid_to`. The app fills the box from the pin's Google address (`townToPost` in
+  `post_a_load.dart`), never from a one-part typed address.

@@ -79,7 +79,7 @@ class LoadForTripSummary extends StatelessWidget {
                   style: NvText.body),
               const SizedBox(height: NvSpace.s2),
               const Text(
-                  "Start near the pickup town and end near the drop town. Other shippers can book any capacity left.",
+                  "Start near the pickup town and end near the drop town. The shipper may book your trip, another carrier's, or none. Other shippers can book any capacity left.",
                   style: NvText.caption),
             ],
           ),

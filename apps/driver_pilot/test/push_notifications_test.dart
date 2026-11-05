@@ -29,6 +29,17 @@ void main() {
       );
     });
 
+    test('a Load Board push shown while the app is open says what it is about', () {
+      expect(localPushWords(null),
+          ('Shipment update', 'There is a new update about one of your shipments.'));
+      expect(localPushWords('LOAD_BOARD'),
+          ('New load on the Load Board', 'Open the Load Board to see it.'));
+      expect(localPushWords('MY_LOADS'),
+          ('A carrier made a route for your load', 'Open My loads to see it.'));
+      expect(localPushWords('SOMETHING_ELSE'),
+          ('Shipment update', 'There is a new update about one of your shipments.'));
+    });
+
     test('foreground local notification uses the server replacement tag', () {
       final details = shipmentUpdateNotificationDetails('opaque-group-key');
 
