@@ -5,6 +5,11 @@ export type FcmDeliveryMessage = {
   notificationId: string;
   presentationKey: string;
   ttlMs: number;
+  /** The lock-screen words, chosen in push.ts. */
+  title: string;
+  body: string;
+  /** A Load Board notice only: the screen it is about, so the app shows the same words while open. */
+  notice?: "LOAD_BOARD" | "MY_LOADS";
 };
 
 export type FcmSendResult =
@@ -66,13 +71,14 @@ export class HttpV1FcmSender implements FcmSender {
       message: {
         token: message.token,
         notification: {
-          title: "Shipment update",
-          body: "There is an update for a shipment.",
+          title: message.title,
+          body: message.body,
         },
         data: {
           schemaVersion: "1",
           notificationId: message.notificationId,
           presentationKey: message.presentationKey,
+          ...(message.notice ? { notice: message.notice } : {}),
         },
         android: {
           priority: "HIGH",

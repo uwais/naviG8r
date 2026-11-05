@@ -14,6 +14,7 @@ import {
   revokePushDevice,
 } from "../push.ts";
 import { HttpV1FcmSender } from "../fcmSender.ts";
+import type { PushDeliveryClaim } from "../push.ts";
 import type { AnchorTrip, Membership, Notification, Organization, Shipment, User } from "../../../types.ts";
 
 const env = {
@@ -273,7 +274,7 @@ test("a payment push queued for an owner is dropped at send time once the owner 
   assert.deepEqual([...nowDispatcher.pushDeliveries.values()].map((delivery) => delivery.status), ["SUPPRESSED"]);
 });
 
-test("FCM HTTP v1 payload uses generic copy, shipment tag, fixed SDK notification id contract, and remaining TTL", async () => {
+test("FCM HTTP v1 payload uses the words it is given, shipment tag, fixed SDK notification id contract, and remaining TTL", async () => {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   process.env.FCM_SERVICE_ACCOUNT_JSON = JSON.stringify({
     project_id: "navig8r-dev", client_email: "fcm@navig8r-dev.iam.gserviceaccount.com", private_key: privateKey.export({ type: "pkcs8", format: "pem" }),
@@ -286,7 +287,8 @@ test("FCM HTTP v1 payload uses generic copy, shipment tag, fixed SDK notificatio
     return new Response(JSON.stringify({ name: "projects/navig8r-dev/messages/123" }), { status: 200 });
   };
   const sender = new HttpV1FcmSender(fetcher);
-  const result = await sender.send({ token: "raw-token-for-test", notificationId: "note-1", presentationKey: "stable-key", ttlMs: 90_000 });
+  const generic = { title: "Shipment update", body: "There is an update for a shipment." };
+  const result = await sender.send({ token: "raw-token-for-test", notificationId: "note-1", presentationKey: "stable-key", ttlMs: 90_000, ...generic });
   assert.deepEqual(result, { kind: "accepted", providerMessageId: "projects/navig8r-dev/messages/123" });
   const fcmRequest = requests[1]!;
   const payload = JSON.parse(String(fcmRequest.init.body)) as { message: { notification: { title: string; body: string }; data: Record<string, string>; android: { ttl: string; priority: string; notification: { tag: string; channel_id: string } } } };
@@ -296,9 +298,15 @@ test("FCM HTTP v1 payload uses generic copy, shipment tag, fixed SDK notificatio
   assert.equal(payload.message.android.notification.channel_id, "shipment_updates");
   assert.equal(payload.message.android.ttl, "90s");
   assert.equal(payload.message.data.notificationId, "note-1");
+  assert.equal("notice" in payload.message.data, false, "a shipment push names no Load Board screen");
   assert.equal(JSON.stringify(payload.message.notification).includes("raw-token-for-test"), false);
   assert.equal(JSON.stringify(payload.message.data).includes("raw-token-for-test"), false);
   assert.ok(fcmRequest.init.signal instanceof AbortSignal);
+
+  await sender.send({ token: "raw-token-for-test", notificationId: "note-2", presentationKey: "load-key", ttlMs: 90_000, title: "New load on the Load Board", body: "Open the Load Board to see it.", notice: "LOAD_BOARD" });
+  const loadPayload = JSON.parse(String(requests.at(-1)!.init.body)) as { message: { notification: { title: string; body: string }; data: Record<string, string> } };
+  assert.deepEqual(loadPayload.message.notification, { title: "New load on the Load Board", body: "Open the Load Board to see it." });
+  assert.equal(loadPayload.message.data.notice, "LOAD_BOARD", "the app shows the same words while it is open");
 });
 
 test.after(() => {
@@ -306,4 +314,20 @@ test.after(() => {
     const name = ({ registration: "PUSH_DEVICE_REGISTRATION_ENABLED", enqueue: "PUSH_ENQUEUE_ENABLED", environment: "PUSH_ENVIRONMENT", encryptionKey: "PUSH_TOKEN_ENCRYPTION_KEY", fcmServiceAccount: "FCM_SERVICE_ACCOUNT_JSON" } as const)[key as keyof typeof env];
     if (value == null) delete process.env[name]; else process.env[name] = value;
   }
+});
+
+test("the lock screen names a Load Board notice for what it is, and still says nothing of a shipment", () => {
+  const claimFor = (notification: Partial<Notification>) => ({
+    notification: { id: "note-1", shipmentId: "", ...notification },
+    intent: { presentationKey: "stable-key", expiresAtUtcMs: 100_000 },
+  }) as unknown as PushDeliveryClaim;
+  const words = (notification: Partial<Notification>) => {
+    const { title, body, notice } = pushFcmMessage(claimFor(notification), "token", 1000);
+    return { title, body, notice };
+  };
+  assert.deepEqual(words({ shipmentId: "ship-1" }), { title: "Shipment update", body: "There is an update for a shipment.", notice: undefined });
+  assert.deepEqual(words({ postedLoadId: "load_1", data: { audience: "CARRIER", body: "Pune to Mumbai, 400 kg" } }),
+    { title: "New load on the Load Board", body: "Open the Load Board to see it.", notice: "LOAD_BOARD" });
+  assert.deepEqual(words({ postedLoadId: "load_1", data: { audience: "SHIPPER", body: "Synthetic Carrier B made a route" } }),
+    { title: "A carrier made a route for your load", body: "Open My loads to see it.", notice: "MY_LOADS" });
 });

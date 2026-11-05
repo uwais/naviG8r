@@ -288,12 +288,24 @@ function eligibleCurrentRecipient(store: Store, notification: Notification, devi
   return stillOnTrip && !mustNotHearPaymentEvent(membership!.role, notification.eventKey) && roles.includes(role) && effectivePermissions(roles, membership!.role).includes("notification.read");
 }
 
+/**
+ * What the lock screen says. A shipment's push says nothing of the shipment; a Load Board notice says only which kind
+ * it is, never a town, weight or name. The app's words for the same notices are in push_notifications.dart.
+ */
+function lockScreenWords(notification: Notification): Pick<FcmDeliveryMessage, "title" | "body" | "notice"> {
+  if (!notification.postedLoadId) return { title: "Shipment update", body: "There is an update for a shipment." };
+  return notification.data?.audience === "CARRIER"
+    ? { title: "New load on the Load Board", body: "Open the Load Board to see it.", notice: "LOAD_BOARD" }
+    : { title: "A carrier made a route for your load", body: "Open My loads to see it.", notice: "MY_LOADS" };
+}
+
 export function pushFcmMessage(claim: PushDeliveryClaim, token: string, now = Date.now()): FcmDeliveryMessage {
   return {
     token,
     notificationId: claim.notification.id,
     presentationKey: claim.intent.presentationKey,
     ttlMs: Math.max(0, Math.min(PUSH_INTENT_TTL_MS, claim.intent.expiresAtUtcMs - now)),
+    ...lockScreenWords(claim.notification),
   };
 }
 
