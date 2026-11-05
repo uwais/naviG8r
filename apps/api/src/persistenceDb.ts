@@ -29,6 +29,7 @@ import type {
   Vehicle,
 } from "./types.ts";
 import { TRIP_ASSIGNED_EVENT, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
+import { POSTED_LOAD_NEW_EVENT, POSTED_LOAD_ROUTE_MADE_EVENT } from "./features/loadBoard/loadAlerts.ts";
 
 const prisma = new PrismaClient();
 
@@ -368,10 +369,12 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     store.conversationReadStates.set(`${value.conversationId}:${value.userId}:${value.orgId}`, value);
   }
   for (const row of notifications) {
-    // A new-trip notice has no shipment; its trip is kept in data, as the table has no column for it.
+    // A new-trip or Load Board notice has no shipment; its trip or load is kept in data, as the table has no column for it.
     const tripId = row.shipmentId === "" ? (row.data as Notification["data"])?.tripId : undefined;
+    const postedLoadId = row.shipmentId === "" ? (row.data as Notification["data"])?.postedLoadId : undefined;
     const value: Notification = {
       ...(typeof tripId === "string" && tripId !== "" ? { tripId } : {}),
+      ...(typeof postedLoadId === "string" && postedLoadId !== "" ? { postedLoadId } : {}),
       id: row.id, recipientSequence: Number(row.recipientSequence), eventId: row.eventId, eventKey: row.eventKey, recipientUserId: row.recipientUserId,
       recipientOrgId: row.recipientOrgId, shipmentId: row.shipmentId, conversationId: row.conversationId ?? undefined,
       messageId: row.messageId ?? undefined, createdAtUtcMs: Number(row.createdAtUtcMs),
@@ -402,12 +405,13 @@ export async function loadStoreFromDatabase(): Promise<Store> {
   const integration = await prisma.integrationState.findUnique({ where: { key: "snapshot" } });
   if (integration) {
     const data = integration.data as Record<string, any[]>;
-    for (const name of integrationMaps) for (const row of data[name] ?? []) (store[name] as Map<string, any>).set(name === "integrationIdempotency" ? row.key : row.id, row);
+    for (const name of integrationMaps) for (const row of data[name] ?? []) (store[name] as Map<string, any>).set(name === "integrationIdempotency" ? row.key : name === "loadAlertSettings" ? row.userId : row.id, row);
   }
   migrateAuthorization(store);
   return store;
 }
 
+// Kept as JSON in the one IntegrationState row, so these lists need no table of their own.
 const integrationMaps = [
   "integrationConnections",
   "integrationApiKeys",
@@ -417,6 +421,8 @@ const integrationMaps = [
   "pushDevices",
   "pushIntents",
   "pushDeliveries",
+  "postedLoads",
+  "loadAlertSettings",
 ] as const;
 export async function closeDatabase(): Promise<void> { await prisma.$disconnect(); }
 
@@ -473,10 +479,11 @@ export const readGroupedInboxPageFromDatabase: GroupedInboxPageReader = async re
   const notificationSequence = request.notificationSequence ?? Number((await prisma.notificationRow.aggregate({ _max: { recipientSequence: true } }))._max.recipientSequence ?? 0n);
   // mustNotHearPaymentEvent in SQL, so a group of only payment notices, and their unread count, never appear.
   const paymentNotices = request.hidePaymentNotices ? Prisma.sql`AND n."eventKey" NOT LIKE 'payment.%'` : Prisma.empty;
-  // One row per shipment, and one per new-trip notice (shipmentId "", the trip in data) while its trip is still
-  // the recipient's to drive. "key" orders the rows and is the cursor: the shipment id, or "notice:<id>".
+  // One row per shipment, one per new-trip notice (shipmentId "", the trip in data) while its trip is still
+  // the recipient's to drive, and one per Load Board notice (the load in data; whether it is still the
+  // recipient's is checked in listGroupedNotifications). "key" orders the rows and is the cursor: the shipment id, or "notice:<id>".
   const rows = Prisma.sql`
-    SELECT n."shipmentId" AS "key", n."shipmentId", NULL::text AS "tripId", NULL::text AS "notificationId",
+    SELECT n."shipmentId" AS "key", n."shipmentId", NULL::text AS "tripId", NULL::text AS "notificationId", NULL::text AS "postedLoadId",
       MAX(n."createdAtUtcMs") AS "latestAtUtcMs",
       COUNT(*) FILTER (WHERE n."readAtUtcMs" IS NULL) AS "unreadCount",
       COALESCE(MAX(s."externalLoadId"), LEFT(UPPER(n."shipmentId"), 8)) AS "shipmentReference"
@@ -491,7 +498,7 @@ export const readGroupedInboxPageFromDatabase: GroupedInboxPageReader = async re
         OR (${request.isCarrier} = TRUE AND s."carrierId" = ${request.orgId}))
     GROUP BY n."shipmentId"
     UNION ALL
-    SELECT 'notice:' || n."id", n."shipmentId", t."id", n."id",
+    SELECT 'notice:' || n."id", n."shipmentId", t."id", n."id", NULL::text,
       n."createdAtUtcMs",
       CASE WHEN n."readAtUtcMs" IS NULL THEN 1::bigint ELSE 0::bigint END,
       NULL::text
@@ -503,9 +510,19 @@ export const readGroupedInboxPageFromDatabase: GroupedInboxPageReader = async re
       AND n."recipientSequence" <= ${BigInt(notificationSequence)}
       AND ${request.isCarrier} = TRUE
       AND t."inactiveAtUtcMs" IS NULL AND t."carrierId" = ${request.orgId} AND t."assignedDriverUserId" = ${request.userId}
+    UNION ALL
+    SELECT 'notice:' || n."id", n."shipmentId", NULL::text, n."id", n."data"->>'postedLoadId',
+      n."createdAtUtcMs",
+      CASE WHEN n."readAtUtcMs" IS NULL THEN 1::bigint ELSE 0::bigint END,
+      NULL::text
+    FROM "NotificationRow" n
+    WHERE n."shipmentId" = '' AND n."eventKey" IN (${POSTED_LOAD_NEW_EVENT}, ${POSTED_LOAD_ROUTE_MADE_EVENT})
+      AND n."recipientUserId" = ${request.userId}
+      AND n."recipientOrgId" = ${request.orgId}
+      AND n."recipientSequence" <= ${BigInt(notificationSequence)}
   `;
   const [groupRows, unreadRow] = await Promise.all([
-    prisma.$queryRaw<Array<{ key: string; shipmentId: string; tripId: string | null; notificationId: string | null; latestAtUtcMs: bigint; unreadCount: bigint; shipmentReference: string | null }>>(Prisma.sql`
+    prisma.$queryRaw<Array<{ key: string; shipmentId: string; tripId: string | null; notificationId: string | null; postedLoadId: string | null; latestAtUtcMs: bigint; unreadCount: bigint; shipmentReference: string | null }>>(Prisma.sql`
       SELECT * FROM (${rows}) AS inbox
       ${request.before ? Prisma.sql`WHERE inbox."latestAtUtcMs" < ${BigInt(request.before.latestAt)} OR (inbox."latestAtUtcMs" = ${BigInt(request.before.latestAt)} AND inbox."key" COLLATE "C" < ${request.before.shipmentId})` : Prisma.empty}
       ORDER BY inbox."latestAtUtcMs" DESC, inbox."key" COLLATE "C" DESC
@@ -518,7 +535,9 @@ export const readGroupedInboxPageFromDatabase: GroupedInboxPageReader = async re
   return {
     notificationSequence,
     unreadCount: Number(unreadRow[0]?.unreadCount ?? 0n),
-    groups: groupRows.map(row => row.tripId && row.notificationId
+    groups: groupRows.map(row => row.postedLoadId && row.notificationId
+      ? { shipmentId: "", postedLoadId: row.postedLoadId, notificationId: row.notificationId, latestAtUtcMs: Number(row.latestAtUtcMs), unreadCount: Number(row.unreadCount) }
+      : row.tripId && row.notificationId
       ? { shipmentId: "", tripId: row.tripId, notificationId: row.notificationId, latestAtUtcMs: Number(row.latestAtUtcMs), unreadCount: Number(row.unreadCount) }
       : {
         shipmentId: row.shipmentId,

@@ -1,6 +1,7 @@
 /**
  * What the people on a shipment are told and say to each other: notifications, their words, and the shipment
- * conversation, plus the one notice with no shipment, a driver's new trip, which shares the inbox and its checks.
+ * conversation, plus the notices with no shipment, a driver's new trip and the Load Board's (written in
+ * features/loadBoard/loadAlerts.ts), which share the inbox and its checks.
  * Over 500 lines and still one file because these share one timeline and one read watermark, and a message creates
  * its notification here; split, each half would need the other's private helpers to work.
  */
@@ -12,6 +13,7 @@ import { BOOKING_EXPIRED_MONEY_SENTENCE, BOOKING_EXPIRED_SENTENCE } from "./conf
 import type { Store } from "./store.ts";
 import type { EwayBillStartBlockReason } from "./ewayBillStartGate.ts";
 import { enqueuePushIntentForNotification } from "./features/push/push.ts";
+import { postedLoadNoticeStillTheirs } from "./features/loadBoard/loadBoardAudience.ts";
 import type { AnchorTrip, Conversation, ConversationEscalationGrant, ConversationMessage, Notification, Shipment } from "./types.ts";
 
 const MAX_MESSAGE_LENGTH = 4000;
@@ -403,6 +405,7 @@ export function listNotifications(store: Store, limit = 30, before?: string) {
   const all = [...store.notifications.values()].filter(n => n.recipientUserId === principal.userId && n.recipientOrgId === principal.organizationId && !mustNotHearPaymentEvent(principal.subrole, n.eventKey))
     .filter(n => {
       if (n.tripId) return tripNoticeStillTheirs(store, n);
+      if (n.postedLoadId) return postedLoadNoticeStillTheirs(store, n);
       const shipment = store.shipments.get(n.shipmentId);
       if (!shipment || !isActiveEntity(shipment)) return false;
       try { requireShipmentActor(store, shipment, "conversation.read"); return true; } catch { return false; }
@@ -417,12 +420,17 @@ export function resolveNotificationOpenRoute(store: Store, notificationId: strin
   organizationId: string;
   shipmentId: string;
   conversationId: string;
-} | { organizationId: string; tripId: string } {
+} | { organizationId: string; tripId: string } | { organizationId: string; postedLoadId: string; screen: "MY_LOADS" | "LOAD_BOARD" } {
   const notification = store.notifications.get(notificationId);
   if (!notification || notification.recipientUserId !== userId) throw new CommunicationError("notification_not_found", 404);
   if (notification.tripId) {
     if (!tripNoticeStillTheirs(store, notification)) throw new CommunicationError("notification_not_found", 404);
     return { organizationId: notification.recipientOrgId, tripId: notification.tripId };
+  }
+  if (notification.postedLoadId) {
+    if (!postedLoadNoticeStillTheirs(store, notification)) throw new CommunicationError("notification_not_found", 404);
+    const screen = notification.data?.audience === "SHIPPER" ? "MY_LOADS" : "LOAD_BOARD";
+    return { organizationId: notification.recipientOrgId, postedLoadId: notification.postedLoadId, screen };
   }
   const shipment = store.shipments.get(notification.shipmentId);
   if (!shipment || !isActiveEntity(shipment)) throw new CommunicationError("notification_not_found", 404);
@@ -474,8 +482,8 @@ export type GroupedInboxPageRequest = {
 export type GroupedInboxPageSource = {
   notificationSequence: number;
   unreadCount: number;
-  /** A trip notice's row has shipmentId "", its tripId and notificationId, and no shipmentReference. */
-  groups: Array<{ shipmentId: string; latestAtUtcMs: number; unreadCount: number; shipmentReference?: string; tripId?: string; notificationId?: string }>;
+  /** A trip or Load Board notice's row has shipmentId "", its tripId or postedLoadId and notificationId, and no shipmentReference. */
+  groups: Array<{ shipmentId: string; latestAtUtcMs: number; unreadCount: number; shipmentReference?: string; tripId?: string; postedLoadId?: string; notificationId?: string }>;
 };
 export type GroupedInboxPageReader = (request: GroupedInboxPageRequest) => Promise<GroupedInboxPageSource>;
 
@@ -625,6 +633,11 @@ export async function listGroupedNotifications(store: Store, limit = 30, before?
       : null;
     // The database reader ignores trip assignments: drop a driver's other groups after the cursor, so paging advances.
     const shown = shipments.flatMap((group) => {
+      if (group.postedLoadId) {
+        const notice = group.notificationId ? store.notifications.get(group.notificationId) : undefined;
+        const load = store.postedLoads.get(group.postedLoadId);
+        return notice && load && postedLoadNoticeStillTheirs(store, notice) ? [{ ...group, loadRoute: `${load.from.city} to ${load.to.city}` }] : [];
+      }
       if (group.tripId) {
         const notice = group.notificationId ? store.notifications.get(group.notificationId) : undefined;
         const trip = store.anchorTrips.get(group.tripId);
@@ -637,10 +650,16 @@ export async function listGroupedNotifications(store: Store, limit = 30, before?
   }
   // A row per shipment, and a row per trip notice, which has no shipment to group under. The cursor's
   // shipmentId holds the row's key: the shipment id, or "notice:<id>" for a trip notice.
-  type InboxRow = { key: string; shipmentId: string; latestAtUtcMs: number; unreadCount: number; tripId?: string; notificationId?: string };
+  type InboxRow = { key: string; shipmentId: string; latestAtUtcMs: number; unreadCount: number; tripId?: string; postedLoadId?: string; notificationId?: string };
   const groups = new Map<string, InboxRow>();
   for (const n of store.notifications.values()) {
     if (n.recipientUserId !== principal.userId || n.recipientOrgId !== principal.organizationId || n.recipientSequence > notificationSequence || mustNotHearPaymentEvent(principal.subrole, n.eventKey)) continue;
+    if (n.postedLoadId) {
+      if (!postedLoadNoticeStillTheirs(store, n)) continue;
+      const key = `notice:${n.id}`;
+      groups.set(key, { key, shipmentId: "", latestAtUtcMs: n.createdAtUtcMs, unreadCount: n.readAtUtcMs == null ? 1 : 0, postedLoadId: n.postedLoadId, notificationId: n.id });
+      continue;
+    }
     if (n.tripId) {
       if (!tripNoticeStillTheirs(store, n)) continue;
       const key = `notice:${n.id}`;
@@ -662,6 +681,10 @@ export async function listGroupedNotifications(store: Store, limit = 30, before?
   const hasMore = selected.length > pageSize;
   const page = selected.slice(0, pageSize);
   const shipments = page.map(({ key: _key, ...group }) => {
+    if (group.postedLoadId) {
+      const load = store.postedLoads.get(group.postedLoadId)!;
+      return { ...group, loadRoute: `${load.from.city} to ${load.to.city}` };
+    }
     if (group.tripId) {
       const trip = store.anchorTrips.get(group.tripId)!;
       return { ...group, tripRoute: `${trip.originCity} to ${trip.destCity}` };
@@ -700,6 +723,8 @@ export function markNotificationRead(store: Store, notificationId: string): Noti
   if (mustNotHearPaymentEvent(principal.subrole, notification.eventKey)) throw new CommunicationError("not_found", 404);
   if (notification.tripId) {
     if (!tripNoticeStillTheirs(store, notification)) throw new CommunicationError("not_found", 404);
+  } else if (notification.postedLoadId) {
+    if (!postedLoadNoticeStillTheirs(store, notification)) throw new CommunicationError("not_found", 404);
   } else {
     const shipment = store.shipments.get(notification.shipmentId);
     if (!shipment || !isActiveEntity(shipment)) throw new CommunicationError("not_found", 404);

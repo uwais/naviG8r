@@ -65,13 +65,19 @@ const rules: [string, RegExp, Permission][] = [
   ["POST", /^\/v1\/organizations\/[^/]+\/kyc$/, "kyc.verify"],
   ["GET", /^\/ops\/compliance\/pending$/, "kyc.verify"],
   ["GET", /^\/v1\/audit$/, "audit.read"],
+  // The Load Board (features/loadBoard): shippers post and read their own; the board's own check keeps out drivers and staff.
+  ["*", /^\/v1\/posted-loads$/, "load.create"],
+  ["POST", /^\/v1\/posted-loads\/[^/]+\/withdraw$/, "load.create"],
+  ["GET", /^\/v1\/load-board$/, "trip.publish"],
+  ["GET", /^\/ops\/posted-loads$/, "load.read"],
 ];
 export function guardRequest(req: http.IncomingMessage, store: Store, url: URL): void {
   const method = req.method ?? "GET", path = url.pathname;
   if (method === "OPTIONS") return;
   if ((method === "PUT" && path === "/v1/me/push-devices") ||
       (method === "DELETE" && /^\/v1\/me\/push-devices\/[^/]+$/.test(path)) ||
-      (method === "POST" && /^\/v1\/notifications\/[^/]+\/open$/.test(path))) {
+      (method === "POST" && /^\/v1\/notifications\/[^/]+\/open$/.test(path)) ||
+      ((method === "GET" || method === "PATCH") && path === "/v1/me/settings")) {
     verifyBearer(store, /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization ?? ""))?.[1] ?? null);
     return; // Bearer-only user scope; selected organization is resolved by the endpoint against the canonical notification/device.
   }

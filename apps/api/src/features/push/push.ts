@@ -4,6 +4,7 @@ import { effectivePermissions, legacyRoles } from "../../rbac.ts";
 import { isActiveEntity } from "../../softDelete.ts";
 import { assignedDriverMaySee } from "../../tripAssignmentRules.ts";
 import { mustNotHearPaymentEvent, tripNoticeStillTheirs } from "../../notifications.ts";
+import { postedLoadNoticeStillTheirs } from "../loadBoard/loadBoardAudience.ts";
 import type { Notification, PushDevice, PushDelivery, PushIntent } from "../../types.ts";
 import type { FcmDeliveryMessage, FcmSendResult } from "./fcmSender.ts";
 
@@ -162,7 +163,8 @@ export function revokePushDevice(store: Store, input: {
 }
 
 function presentationKey(notification: Notification): string {
-  const value = `${notification.recipientUserId}\n${notification.recipientOrgId}\n${notification.tripId ? `trip:${notification.tripId}` : notification.shipmentId}`;
+  const subject = notification.tripId ? `trip:${notification.tripId}` : notification.postedLoadId ? `load:${notification.postedLoadId}` : notification.shipmentId;
+  const value = `${notification.recipientUserId}\n${notification.recipientOrgId}\n${subject}`;
   return createHash("sha256").update(value).digest("hex").slice(0, 32);
 }
 
@@ -265,6 +267,12 @@ function eligibleCurrentRecipient(store: Store, notification: Notification, devi
       device.environment !== pushEnvironment() || !device.permissionGrantedHint || !device.channelEnabledHint || !device.consentedAtUtcMs) return false;
   // A new-trip notice has no shipment; it goes only while the trip is still this driver's.
   if (notification.tripId) return tripNoticeStillTheirs(store, notification);
+  // A Load Board notice goes only while its recipient is still in its audience; a carrier who turned load alerts
+  // off since it was queued does not get it.
+  if (notification.postedLoadId) {
+    const alertsOff = notification.data?.audience === "CARRIER" && store.loadAlertSettings.get(notification.recipientUserId)?.loadAlertsOn === false;
+    return !alertsOff && postedLoadNoticeStillTheirs(store, notification);
+  }
   const shipment = store.shipments.get(notification.shipmentId);
   const membership = store.memberships.get(`${notification.recipientUserId}:${notification.recipientOrgId}`);
   const organization = store.organizations.get(notification.recipientOrgId);
