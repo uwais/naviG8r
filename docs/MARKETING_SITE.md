@@ -31,7 +31,9 @@ FormSubmit (`formsubmit.co`) was retired after a multi-day Cloudflare **522 orig
    - optional: enable Formspree dashboard reCAPTCHA / domain allowlist for `navig8r.org` + `www.navig8r.org` + `*.onrender.com`
 5. Redeploy (image services pick up env on restart; static builds need a rebuild only if you use `VITE_FORMSPREE_FORM_ID` instead).
 
-Until `FORMSPREE_FORM_ID` is set, submit shows a mailto fallback message instead of posting to a dead backend.
+Until `FORMSPREE_FORM_ID` is set, the Send button stays disabled until JS loads, then submit shows a hello@ fallback message instead of posting to a dead backend.
+
+A sync bootstrap (right after `runtime-config.js`) sets `action` to the Formspree endpoint when the id is present, so a submit before the deferred module / Turnstile finishes still POSTs to Formspree instead of this origin. With JS, submit uses AJAX and stays on-page.
 
 **Turnstile (optional):** set `VITE_TURNSTILE_SITE_KEY` / runtime `TURNSTILE_SITE_KEY`. Without it, contact uses the on-page checkbox + math challenge.
 

@@ -23,7 +23,7 @@ npm run build
 
 The contact form posts AJAX to [Formspree](https://formspree.io) → `hello@navig8r.org`.
 
-Set `FORMSPREE_FORM_ID` (runtime, Docker) or `VITE_FORMSPREE_FORM_ID` (Vite build) to the id from `https://formspree.io/f/<id>`. Until it is set, submit asks visitors to email `hello@` instead of calling a dead backend.
+Set `FORMSPREE_FORM_ID` (runtime, Docker) or `VITE_FORMSPREE_FORM_ID` (Vite build) to the id from `https://formspree.io/f/<id>`. Prefer the runtime env so the sync bootstrap can set `form.action` before the module loads (avoids a silent same-origin POST). Until it is set, submit asks visitors to email `hello@` instead of calling a dead backend.
 
 Bot check: Cloudflare Turnstile when `VITE_TURNSTILE_SITE_KEY` is set; otherwise checkbox + math. See [`docs/MARKETING_SITE.md`](../../docs/MARKETING_SITE.md).
 

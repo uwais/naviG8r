@@ -318,19 +318,33 @@ async function initContactHuman() {
   };
 }
 
-function initContactForm(contactHuman) {
+function applyContactFormAction(form) {
+  const endpoint = contactEndpoint();
+  if (endpoint) {
+    form.setAttribute("action", endpoint);
+  } else {
+    // Never native-POST to this origin — that silently drops the lead.
+    form.removeAttribute("action");
+  }
+  return endpoint;
+}
+
+/**
+ * Wire the contact form immediately (before Turnstile finishes).
+ * contactHumanPromise resolves when the human-check UI is ready.
+ */
+function initContactForm(contactHumanPromise) {
   const form = qs("[data-contact-form]");
   if (!form) return;
   const status = qs("[data-form-status]", form);
   const submitBtn = qs("[data-submit]", form);
-  const endpoint = contactEndpoint();
+  const endpoint = applyContactFormAction(form);
   let openedAt = Date.now();
+  let contactHuman = null;
 
-  if (endpoint) {
-    form.setAttribute("action", endpoint);
-  } else {
-    form.removeAttribute("action");
-  }
+  // Re-enable when we have an endpoint (sync bootstrap may have left it on),
+  // or when JS can show the hello@ upgrade path without a backend.
+  if (submitBtn) submitBtn.disabled = false;
 
   form.addEventListener(
     "focusin",
@@ -344,6 +358,8 @@ function initContactForm(contactHuman) {
   );
 
   form.addEventListener("submit", async (event) => {
+    // Always take over once the module is live — AJAX when configured,
+    // hello@ message when not. Native Formspree only runs if this never loads.
     event.preventDefault();
     status.textContent = "";
     status.classList.remove("is-error");
@@ -372,6 +388,19 @@ function initContactForm(contactHuman) {
         "Contact form is being upgraded. Email us directly at hello@navig8r.org.";
       status.classList.add("is-error");
       return;
+    }
+
+    if (!contactHuman) {
+      status.textContent = "One moment — finishing the human check…";
+      try {
+        contactHuman = await contactHumanPromise;
+      } catch (err) {
+        console.warn(err);
+        status.textContent =
+          "Couldn’t load the human check. Email us directly at hello@navig8r.org.";
+        status.classList.add("is-error");
+        return;
+      }
     }
 
     const proof = await contactHuman.getProof();
@@ -566,10 +595,14 @@ async function boot() {
   initYear();
   initPortalLinks();
 
-  const contactHuman = await initContactHuman();
+  // Attach the submit handler before awaiting Turnstile so a mid-load click
+  // never native-POSTs to this origin. Form action is also set by the sync
+  // bootstrap in index.html when FORMSPREE_FORM_ID is present.
+  const contactHumanPromise = initContactHuman();
+  initContactForm(contactHumanPromise);
   const humanGate = initHumanGate();
-  initContactForm(contactHuman);
   initPortalGate(humanGate);
+  await contactHumanPromise;
 }
 
 boot();
