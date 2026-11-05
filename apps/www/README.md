@@ -21,11 +21,11 @@ npm run build
 
 ## Contact form
 
-The contact form posts to [FormSubmit](https://formsubmit.co) using their random string (not a naked email). Mail lands at `hello@navig8r.org`.
+The contact form posts AJAX to [Formspree](https://formspree.io) → `hello@navig8r.org`.
 
-Until Cloudflare Turnstile is configured (`VITE_TURNSTILE_SITE_KEY`), submit uses **FormSubmit’s reCAPTCHA**. After Turnstile is set, contact stays on-page and skips that captcha screen.
+Set `FORMSPREE_FORM_ID` (runtime, Docker) or `VITE_FORMSPREE_FORM_ID` (Vite build) to the id from `https://formspree.io/f/<id>`. Until it is set, submit asks visitors to email `hello@` instead of calling a dead backend.
 
-Next backend if we leave FormSubmit: **Formspree** (Render integration). See [`docs/MARKETING_SITE.md`](../../docs/MARKETING_SITE.md).
+Bot check: Cloudflare Turnstile when `VITE_TURNSTILE_SITE_KEY` is set; otherwise checkbox + math. See [`docs/MARKETING_SITE.md`](../../docs/MARKETING_SITE.md).
 
 ## Preview vs production
 

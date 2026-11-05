@@ -9,25 +9,31 @@ Owner sign-off received. Ship by merging this work to `main`, deploying Render s
 | App | `apps/www` (Vite static) |
 | Render service | `navig8r-www` |
 | Deploy branch | `main` (after merge) |
-| Contact | In-page form → FormSubmit hash → `hello@navig8r.org` (FormSubmit reCAPTCHA until Turnstile) |
+| Contact | In-page form → [Formspree](https://formspree.io) → `hello@navig8r.org` |
 | Explore CTA | Human check gate → `https://navig8r-customer.onrender.com/` |
 | Registrar | OpenSRS |
 | Logo / brand | Typographic wordmark in layout; official files in `apps/www/public/brand/` for selective manual use |
 | Claims | Soft / professional; do not overstate unshipped features |
 | Domains | `navig8r.org` + `www.navig8r.org` |
-| Bot guard | Contact: FormSubmit reCAPTCHA now; Cloudflare Turnstile when `VITE_TURNSTILE_SITE_KEY` is set. Explore: Turnstile or math/checkbox. Next backend contender: Formspree (Render integration). |
+| Bot guard | Contact: Turnstile when `VITE_TURNSTILE_SITE_KEY` is set, else checkbox + math. Explore: same. |
 
-## Contact form (FormSubmit → Turnstile → Formspree)
+## Contact form (Formspree)
 
-Contact is the in-page NaviG8r form again (not Zoho Forms). Submissions go to [FormSubmit](https://formsubmit.co) using the random string (not a naked email) and land in `hello@navig8r.org`.
+FormSubmit (`formsubmit.co`) was retired after a multi-day Cloudflare **522 origin timeout** outage (Nov 2026) that blocked every marketing-site submission. Contact now posts AJAX to **Formspree** and stays on-page.
 
-**Bot check today:** FormSubmit’s own reCAPTCHA. Submit leaves the page briefly for that captcha, then `_next` returns to `#contact?sent=1`.
+### One-time Formspree setup
 
-**Turnstile cutover:** set `VITE_TURNSTILE_SITE_KEY` on Render `navig8r-www` and redeploy. Contact then stays on-page (AJAX) and skips FormSubmit’s captcha page. Explore portal already uses the same key.
+1. Create a free account at [formspree.io](https://formspree.io) (or use the [Render Formspree integration](https://render.com/docs/formspree)).
+2. New form → notification email **`hello@navig8r.org`**.
+3. Copy the form id from the endpoint `https://formspree.io/f/<FORM_ID>`.
+4. On each `navig8r-www*` Render service → **Environment**, set:
+   - `FORMSPREE_FORM_ID` = `<FORM_ID>` (runtime; preferred for image deploys)
+   - optional: enable Formspree dashboard reCAPTCHA / domain allowlist for `navig8r.org` + `www.navig8r.org` + `*.onrender.com`
+5. Redeploy (image services pick up env on restart; static builds need a rebuild only if you use `VITE_FORMSPREE_FORM_ID` instead).
 
-**Next backend (not wired):** [Formspree](https://formspree.io) if we leave FormSubmit. It has a [Render integration](https://render.com/docs/formspree) / marketplace path and keeps the same in-page form; swap the POST endpoint and env key. Do not iframe a builder that injects a “create your own form” ad.
+Until `FORMSPREE_FORM_ID` is set, submit shows a mailto fallback message instead of posting to a dead backend.
 
-Zoho Forms Free was dropped because the post-submit upsell cannot be removed without a paid Forms plan.
+**Turnstile (optional):** set `VITE_TURNSTILE_SITE_KEY` / runtime `TURNSTILE_SITE_KEY`. Without it, contact uses the on-page checkbox + math challenge.
 
 ## Explore portal human check
 
@@ -53,7 +59,7 @@ Without the key, Explore uses a checkbox + simple math challenge, honeypot, and 
 - [ ] PR merged to `main` + Render deploy green
 - [ ] Custom domains added on Render `navig8r-www`
 - [ ] OpenSRS DNS records live + TLS issued
-- [ ] Contact submit: FormSubmit captcha → mail at `hello@navig8r.org`
+- [ ] `FORMSPREE_FORM_ID` set on `navig8r-www*` + contact submit → mail at `hello@navig8r.org`
 
 ## Production cutover (Render + OpenSRS)
 
@@ -105,7 +111,7 @@ If OpenSRS has no ALIAS/ANAME for apex, use the **A** records Render provides fo
 
 - [ ] `https://www.navig8r.org` loads
 - [ ] `https://navig8r.org` loads (and redirects or serves same site as preferred)
-- [ ] Contact form: submit once; complete FormSubmit captcha; confirm mail at `hello@`
+- [ ] Contact form: submit once via Formspree; confirm mail at `hello@`
 - [ ] Mobile + desktop smoke on Products / Contact
 - [ ] Optional: set preferred canonical to `https://navig8r.org` or `www` consistently
 
