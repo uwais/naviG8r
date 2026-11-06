@@ -2559,6 +2559,8 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   _TripGroup _shown = _TripGroup.open;
   GoRouter? _router;
   bool _wasShown = false;
+  // A load already running may have started before the trip was added, so it runs once more after.
+  bool _reloadWhenDone = false;
 
   @override
   void initState() {
@@ -2586,7 +2588,13 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
 
   void _routeChanged() {
     final shown = _shownNow;
-    if (shown && !_wasShown && !_loading) _load();
+    if (shown && !_wasShown) {
+      if (_loading) {
+        _reloadWhenDone = true;
+      } else {
+        _load();
+      }
+    }
     _wasShown = shown;
   }
 
@@ -2629,6 +2637,10 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
       if (mounted) setState(() => _error = _listLoadFailedWords("trips", e));
     } finally {
       if (mounted) setState(() => _loading = false);
+      if (mounted && _reloadWhenDone) {
+        _reloadWhenDone = false;
+        _load();
+      }
     }
   }
 
