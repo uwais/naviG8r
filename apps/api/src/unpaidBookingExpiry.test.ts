@@ -150,6 +150,28 @@ test("a payment that arrives after the booking closed sends no payment status no
   assert.equal(paymentNotices(), afterClose);
 });
 
+test("webhooks after the booking expired: a capture marks it CAPTURED and a failure records FAILED, with no after-cancel audit row", () => {
+  const store = createStore();
+  const { shipment } = tripWithBooking(store, { weightKg: 200, ageMs: UNPAID_BOOKING_CLOSES_AFTER_MS + 1000 });
+  expireUnpaidBookings(store);
+  applyRazorpayWebhookPayload(store, {
+    event: "payment.failed",
+    payload: { payment: { entity: { id: "pay_late_failed", order_id: `order_${shipment.id}`, status: "failed" } } },
+  });
+  let payment = store.payments.get(shipment.paymentId)!;
+  assert.equal(payment.status, "FAILED");
+  assert.equal(payment.razorpayPaymentId, "pay_late_failed");
+
+  applyRazorpayWebhookPayload(store, {
+    event: "payment.captured",
+    payload: { payment: { entity: { id: "pay_late_captured", order_id: `order_${shipment.id}`, status: "captured" } } },
+  });
+  payment = store.payments.get(shipment.paymentId)!;
+  assert.equal(payment.status, "CAPTURED");
+  assert.equal(payment.razorpayPaymentId, "pay_late_captured");
+  assert.equal([...store.auditEvents.values()].some((row) => row.action === "PAYMENT_AFTER_CANCEL"), false);
+});
+
 test("a booking paid in the 10 minutes after its 30-minute window is still confirmed", () => {
   const store = createStore();
   const { trip, shipment } = tripWithBooking(store, { weightKg: 200, ageMs: UNPAID_BOOKING_WINDOW_MS + 5 * 60_000 });

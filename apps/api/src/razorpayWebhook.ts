@@ -20,9 +20,13 @@ function findPaymentByRazorpayPaymentId(store: Store, razorpayPayId: string): Pa
   }
 }
 
-/** A cancelled shipment's payment says how it ended (refunded, hold released); a late event must not bring it back. */
+/**
+ * A cancelled shipment's payment says how it ended; a late event must not bring it back.
+ * An expired unpaid booking has the same status but keeps main's webhook handling, so it is left out.
+ */
 function shipmentCancelled(store: Store, pay: Payment): boolean {
-  return store.shipments.get(pay.shipmentId)?.status === "FAILED_CARRIER_REFUNDED";
+  const shipment = store.shipments.get(pay.shipmentId);
+  return shipment?.status === "FAILED_CARRIER_REFUNDED" && shipment.unpaidBookingExpiredAtUtcMs == null;
 }
 
 /**
