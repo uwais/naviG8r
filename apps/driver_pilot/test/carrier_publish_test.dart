@@ -95,7 +95,7 @@ void main() {
       expect(find.text('Tap the map to move the From pin.'), findsNothing);
 
       await tester.enterText(find.byType(TextField).first, 'Bengaluru');
-      await tester.tap(find.byTooltip('Search for place').first);
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       expect(find.byType(GoogleMap), findsOneWidget,
           reason: 'From has a point, To does not yet');
@@ -112,7 +112,7 @@ void main() {
                   const LatLng(13.07, 77.8), '$place, Karnataka')),
           size: const Size(800, 3000));
       await tester.enterText(find.byType(TextField).first, 'Hoskote');
-      await tester.tap(find.byTooltip('Search for place').first);
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       expect(find.byType(GoogleMap), findsOneWidget);
 
@@ -142,7 +142,7 @@ void main() {
         await mount(tester, publish(), size: const Size(800, 3000));
         expect(find.byType(NvMap), findsNothing, reason: 'no point yet');
         await tester.enterText(find.byType(TextField).at(0), 'Hoskote');
-        await tester.tap(find.byTooltip('Search for place').at(0));
+        await tester.tap(find.byTooltip('Search for From'));
         await tester.pumpAndSettle();
         expect(find.byType(GoogleMap), findsOneWidget,
             reason: 'owner, 5 Nov 2026: one map per screen, shown once a place has a point');
@@ -150,7 +150,7 @@ void main() {
         expect(oneMap(tester).polylines, isEmpty,
             reason: 'with one point there is no line to draw');
         await tester.enterText(find.byType(TextField).at(1), 'Kolar');
-        await tester.tap(find.byTooltip('Search for place').at(1));
+        await tester.tap(find.byTooltip('Search for To'));
         await tester.pumpAndSettle();
 
         expect(find.byType(GoogleMap), findsOneWidget,
@@ -174,7 +174,7 @@ void main() {
       Future<void> findBoth(WidgetTester tester) async {
         for (final (index, place) in [(0, 'Hoskote'), (1, 'Kolar')]) {
           await tester.enterText(find.byType(TextField).at(index), place);
-          await tester.tap(find.byTooltip('Search for place').at(index));
+          await tester.tap(find.byTooltip(index == 0 ? 'Search for From' : 'Search for To'));
           await tester.pumpAndSettle();
         }
       }
@@ -253,7 +253,7 @@ void main() {
           size: const Size(800, 3000));
       for (final (index, place) in [(0, 'Hoskote'), (1, 'Kolar')]) {
         await tester.enterText(find.byType(TextField).at(index), place);
-        await tester.tap(find.byTooltip('Search for place').at(index));
+        await tester.tap(find.byTooltip(index == 0 ? 'Search for From' : 'Search for To'));
         await tester.pumpAndSettle();
       }
       for (final _ in [1, 2]) {
@@ -304,7 +304,7 @@ void main() {
               findPlace: (place) async => GeocodeOutcome.fail('ZERO_RESULTS')),
           size: const Size(800, 3000));
       await tester.enterText(find.byType(TextField).first, 'Kurudumale');
-      await tester.tap(find.byTooltip('Search for place').first);
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       expect(find.byType(GoogleMap), findsOneWidget,
           reason: 'without the map, a place Google cannot find could never be set');
@@ -339,7 +339,7 @@ void main() {
                 findPlace: (place) async => GeocodeOutcome.fail(status)),
             size: const Size(800, 3000));
         await tester.enterText(find.byType(TextField).first, 'Hoskote');
-        await tester.tap(find.byTooltip('Search for place').first);
+        await tester.tap(find.byTooltip('Search for From'));
         await tester.pumpAndSettle();
         expect(find.text(sentence), findsOneWidget,
             reason: 'tester: the first Hoskote search said it could not find the place');
@@ -365,10 +365,10 @@ void main() {
           size: const Size(800, 3000));
       final fields = find.byType(TextField);
       await tester.enterText(fields.at(0), 'hoskote');
-      await tester.tap(find.byTooltip('Search for place').at(0));
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       await tester.enterText(fields.at(1), 'kolar');
-      await tester.tap(find.byTooltip('Search for place').at(1));
+      await tester.tap(find.byTooltip('Search for To'));
       await tester.pumpAndSettle();
 
       expect(tester.widget<TextField>(fields.at(0)).controller!.text, 'Hoskote');
@@ -412,7 +412,7 @@ void main() {
           size: const Size(800, 3000));
       final from = find.byType(TextField).first;
       await tester.enterText(from, 'Hoskote');
-      await tester.tap(find.byTooltip('Search for place').first);
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(from).controller!.text, 'Hoskote');
     });

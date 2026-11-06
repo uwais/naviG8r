@@ -82,7 +82,7 @@ Future<void> _drag(WidgetTester tester, LatLng to) async {
 }
 
 Future<void> _search(WidgetTester tester) async {
-  await tester.tap(find.byTooltip('Search for place'));
+  await tester.tap(find.byTooltip('Search for pickup'));
   await tester.pumpAndSettle();
 }
 
@@ -204,7 +204,7 @@ void main() {
       final answer = Completer<GeocodeOutcome>();
       final box = await _mountPickup(tester, findPlace: (place) => answer.future);
       await tester.enterText(find.byType(TextField), 'Bommasandra');
-      await tester.tap(find.byTooltip('Search for place'));
+      await tester.tap(find.byTooltip('Search for pickup'));
       await tester.pump();
       await tester.enterText(find.byType(TextField), 'Plot 12, Bommasandra, Bengaluru');
       answer.complete(GeocodeOutcome.ok(const LatLng(12.8, 77.7), _searchedAddress, 'Bengaluru'));
@@ -219,7 +219,7 @@ void main() {
       final answer = Completer<GeocodeOutcome>();
       final box = await _mountPickup(tester, findPlace: (place) => answer.future);
       await tester.enterText(find.byType(TextField), 'Bommasandra');
-      await tester.tap(find.byTooltip('Search for place'));
+      await tester.tap(find.byTooltip('Search for pickup'));
       await tester.pump();
       await tester.enterText(find.byType(TextField), '');
       answer.complete(GeocodeOutcome.ok(const LatLng(12.8, 77.7), _searchedAddress, 'Bengaluru'));
@@ -319,7 +319,7 @@ void main() {
     })))));
     expect(searching, [false], reason: 'a new box first tells the screen nothing is out');
     searching.clear();
-    await tester.tap(find.byTooltip('Search for place'));
+    await tester.tap(find.byTooltip('Search for drop'));
     await tester.pump();
     expect(searching, [true], reason: 'the screen hears a search is out');
     rebuild(() => readOnly = true);

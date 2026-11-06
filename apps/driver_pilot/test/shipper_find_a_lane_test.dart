@@ -268,8 +268,10 @@ void main() {
           find.widgetWithText(FilledButton, 'Find trips'));
       expect(findLanes().onPressed, isNull,
           reason: 'review: a lane card would carry the old town name to Book with the new pin');
-      expect(find.text('Updating address from pin…'), findsNWidgets(2),
-          reason: 'under the place box, and under the disabled button to say why');
+      expect(find.text('Looking up the address at the pin.'), findsOneWidget,
+          reason: 'under the place box');
+      expect(find.text('Updating address from pin…'), findsOneWidget,
+          reason: 'under the disabled button to say why');
 
       town.complete(GeocodeOutcome.ok(
           const LatLng(12.85, 77.65), 'Electronic City, Bengaluru', 'Electronic City'));
@@ -457,7 +459,7 @@ void main() {
       await tester.enterText(field('Weight'), '80');
       await tester.enterText(placeField('Drop'), 'Adyar, Chennai');
       await tester.tap(find.descendant(
-          of: placeBox('Drop'), matching: find.byTooltip('Search for place')));
+          of: placeBox('Drop'), matching: find.byTooltip('Search for drop')));
       await pumpWhileWaiting(tester);
       FilledButton findTrips() => tester.widget<FilledButton>(
           find.widgetWithText(FilledButton, 'Find trips'));

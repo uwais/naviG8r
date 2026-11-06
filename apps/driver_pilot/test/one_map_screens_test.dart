@@ -81,7 +81,7 @@ void main() {
           size: const Size(800, 3000));
       for (final (index, place) in [(0, 'Hoskote'), (1, 'Kolar')]) {
         await tester.enterText(find.byType(TextField).at(index), place);
-        await tester.tap(find.byTooltip('Search for place').at(index));
+        await tester.tap(find.byTooltip(index == 0 ? 'Search for From' : 'Search for To'));
         await tester.pumpAndSettle();
       }
       expect(find.byType(GoogleMap), findsOneWidget);

@@ -72,7 +72,7 @@ void placeSearchFailureTests() {
     await tester.pumpAndSettle();
     for (final title in ['Pickup', 'Drop']) {
       await tester.tap(find.descendant(
-          of: placeBox(title), matching: find.byTooltip('Search for place')));
+          of: placeBox(title), matching: find.byTooltip('Search for ${title.toLowerCase()}')));
       await tester.pumpAndSettle();
     }
     return server;

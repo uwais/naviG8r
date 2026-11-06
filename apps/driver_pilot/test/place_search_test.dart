@@ -387,12 +387,12 @@ void main() {
       map.markers.single.onDragEnd!(const LatLng(13.2, 78.1));
       await tester.pump();
       await tester.enterText(find.byType(TextField), 'Hoskote');
-      await tester.tap(find.byTooltip('Search for place'));
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       answer.complete(GeocodeOutcome.ok(const LatLng(13.2, 78.1), 'Malur, Karnataka, India', 'Malur'));
       await tester.pumpAndSettle();
       expect(field.text, 'Hoskote');
-      expect(find.text('Updating address from pin…'), findsNothing);
+      expect(find.text('Looking up the address at the pin.'), findsNothing);
     });
 
     testWidgets('a slow search does not overwrite a newer drag', (tester) async {
@@ -402,7 +402,7 @@ void main() {
           namePin: (point) async =>
               GeocodeOutcome.ok(point, 'Kolar, Karnataka, India', 'Kolar'));
       await tester.enterText(find.byType(TextField), 'Hoskote');
-      await tester.tap(find.byTooltip('Search for place'));
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pump();
       // Pumped by hand: the search's spinner never settles while it waits.
       tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.single.onDragEnd!(const LatLng(13.2, 78.1));
@@ -427,7 +427,7 @@ void main() {
           namePin: (point) async => GeocodeOutcome.fail('NO_API_KEY'),
           onPinStale: () => stale++);
       await tester.enterText(find.byType(TextField), 'hoskote');
-      await tester.tap(find.byTooltip('Search for place'));
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       expect(field.text, 'Hoskote');
       expect(stale, 0, reason: 'the search names the place it found');
@@ -472,7 +472,7 @@ void main() {
           findPlace: (place) async => GeocodeOutcome.fail('NETWORK'),
           namePin: (point) async => GeocodeOutcome.fail('NO_API_KEY'));
       await tester.enterText(find.byType(TextField), 'Hoskote');
-      await tester.tap(find.byTooltip('Search for place'));
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       const sentence =
           'Could not reach the map service. Check your connection, then search again.';

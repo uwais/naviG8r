@@ -528,8 +528,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor>
     // A failed search still opens the map, so the pin can be put at a place Google cannot find.
     widget.pins.markSearched(widget.place, true);
     if (!outcome.isOk) {
-      setState(() => _hintLine =
-          placeSearchFailureSentence(outcome.failure, pinOnMap: widget.pins.mapCanDraw));
+      setState(() => _hintLine = placeSearchFailureSentence(outcome.failure,
+          pinOnMap: widget.pins.mapCanDraw, keepsFullAddress: widget.keepsFullAddress));
       if (outcome.status == "NO_API_KEY" && mounted && widget.showApiKeyHint && kDebugMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -604,6 +604,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    // Pickup and drop read as plain words mid-sentence; From and To stay as their boxes name them.
+    final placeInSentence = widget.keepsFullAddress ? widget.title.toLowerCase() : widget.title;
     final scheme = Theme.of(context).colorScheme;
     final caption = Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     return Column(
@@ -631,7 +633,7 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor>
                       child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
                     )
                   : IconButton(
-                      tooltip: "Search for place",
+                      tooltip: "Search for $placeInSentence",
                       icon: const Icon(Icons.search),
                       onPressed: widget.readOnly ? null : _lookup,
                     ),
@@ -642,6 +644,17 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor>
             },
           ),
         ),
+        // The spinner says nothing to a screen reader, so the search is announced in words.
+        if (_lookupBusy) ...[
+          const SizedBox(height: 6),
+          Semantics(
+              liveRegion: true,
+              child: Text(
+                  widget.keepsFullAddress
+                      ? "Searching for the $placeInSentence."
+                      : "Searching for $placeInSentence.",
+                  style: caption)),
+        ],
         if (_hintLine != null) ...[
           const SizedBox(height: 6),
           Semantics(liveRegion: true, child: Text(_hintLine!, style: caption)),
@@ -652,7 +665,10 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor>
         ],
         if (_reverseBusy) ...[
           const SizedBox(height: 4),
-          Text("Updating address from pin…", style: Theme.of(context).textTheme.bodySmall),
+          Semantics(
+              liveRegion: true,
+              child: Text("Looking up the address at the pin.",
+                  style: Theme.of(context).textTheme.bodySmall)),
         ],
       ],
     );

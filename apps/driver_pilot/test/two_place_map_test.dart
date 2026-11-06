@@ -95,7 +95,8 @@ Finder _box(String title) => find.widgetWithText(LocationEndpointEditor, title);
 Future<void> _search(WidgetTester tester, String title, String words) async {
   await tester.enterText(
       find.descendant(of: _box(title), matching: find.byType(TextField)), words);
-  await tester.tap(find.descendant(of: _box(title), matching: find.byTooltip('Search for place')));
+  await tester.tap(find.descendant(
+      of: _box(title), matching: find.byTooltip('Search for ${title.toLowerCase()}')));
   await tester.pumpAndSettle();
 }
 
@@ -216,7 +217,7 @@ void main() {
                           ),
                         ]))))));
     await tester.enterText(find.byType(TextField), 'Kurudumale');
-    await tester.tap(find.byTooltip('Search for place'));
+    await tester.tap(find.byTooltip('Search for drop'));
     await tester.pumpAndSettle();
     expect(find.byType(GoogleMap), findsOneWidget);
     expect(find.text('Tap the map to put the drop pin.'), findsOneWidget,

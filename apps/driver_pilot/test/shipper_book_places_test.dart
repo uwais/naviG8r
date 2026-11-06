@@ -231,7 +231,7 @@ void main() {
       expect(find.text('To see the price, search for the pickup.'),
           findsOneWidget);
       await tester.tap(find.descendant(
-          of: placeBox('Pickup'), matching: find.byTooltip('Search for place')));
+          of: placeBox('Pickup'), matching: find.byTooltip('Search for pickup')));
       await tester.pumpAndSettle();
       expect((server.sentTo('/shipments/quote').single['pickup'] as Map)['lat'],
           12.8,
@@ -313,7 +313,7 @@ void main() {
       expect(bookButton(tester).onPressed, isNotNull);
       await tester.enterText(placeField('Drop'), 'Adyar, Chennai');
       await tester.tap(find.descendant(
-          of: placeBox('Drop'), matching: find.byTooltip('Search for place')));
+          of: placeBox('Drop'), matching: find.byTooltip('Search for drop')));
       await pumpWhileWaiting(tester);
       expect(bookButton(tester).onPressed, isNull,
           reason: 'review: the answer would move the pin after paying');

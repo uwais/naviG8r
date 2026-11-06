@@ -40,7 +40,7 @@ void main() {
       );
     }))));
     await tester.pump();
-    await tester.tap(find.byTooltip('Search for place'));
+    await tester.tap(find.byTooltip('Search for pickup'));
     await tester.pump();
     expect(searching, isTrue, reason: 'the search is out');
 

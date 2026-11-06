@@ -9,9 +9,13 @@ enum PlaceSearchFailure { nothingTyped, notFound, unreachable, notWorking }
 
 /// The sentence for a failed place search. [pinOnMap] is whether the screen has a map the
 /// person can tap to put the pin at the place instead; without one, the map advice would be untrue.
-String placeSearchFailureSentence(PlaceSearchFailure? failure, {required bool pinOnMap}) =>
+/// [keepsFullAddress] is true for a pickup or drop box, which asks for an address, not a town.
+String placeSearchFailureSentence(PlaceSearchFailure? failure,
+        {required bool pinOnMap, bool keepsFullAddress = false}) =>
     switch (failure) {
-      PlaceSearchFailure.nothingTyped => "Type a town or area, then search.",
+      PlaceSearchFailure.nothingTyped => keepsFullAddress
+          ? "Type the address, then search."
+          : "Type a town or area, then search.",
       PlaceSearchFailure.notFound => pinOnMap
           ? "Could not find this place. Try a nearby town, or tap the map at the place."
           : "Could not find this place. Try a nearby town.",

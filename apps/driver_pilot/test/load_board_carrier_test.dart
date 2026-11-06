@@ -154,7 +154,9 @@ void main() {
           findsOneWidget);
       expect(find.byType(LocationEndpointEditor), findsNothing,
           reason: 'no place search for a trip for a load');
-      expect(find.byTooltip('Search for place'), findsNothing);
+      for (final title in ['From', 'To']) {
+        expect(find.byTooltip('Search for $title'), findsNothing);
+      }
       expect(find.text('Choose a date'), findsNothing,
           reason: 'both leaving days start inside the pickup days');
       expect(
