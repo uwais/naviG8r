@@ -288,8 +288,8 @@ void main() {
       expect(tester.widget<TextField>(field('Weight')).controller!.text, '500');
       expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
           'Bengaluru');
-      expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7));
-      expect(pinIn(tester, 'Drop').position, const LatLng(13.0, 80.2));
+      expect(pinOnMap(tester, 'Pickup').position, const LatLng(12.8, 77.7));
+      expect(pinOnMap(tester, 'Drop').position, const LatLng(13.0, 80.2));
     });
 
     testWidgets('Withdraw is one tap, and the list shows the load withdrawn',

@@ -4,15 +4,17 @@ import 'dart:async';
 
 import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/location_editor.dart';
+import 'package:driver_pilot/two_place_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 void main() {
   testWidgets('a box built again clears the searching and naming its old box left',
       (tester) async {
     final words = TextEditingController(text: 'Bommasandra');
     addTearDown(words.dispose);
+    final pins = TwoPlaceMapPins();
+    addTearDown(pins.dispose);
     final search = Completer<GeocodeOutcome>();
     var boxNumber = 0;
     var searching = false;
@@ -27,13 +29,12 @@ void main() {
         title: 'Pickup',
         hint: 'Address for the driver',
         labelController: words,
-        markerId: 'pickup',
-        markerHue: BitmapDescriptor.hueGreen,
+        pins: pins,
+        place: MapPlace.start,
         position: pinNotPlacedYet,
         onPositionChanged: (_) {},
         onSearching: (value) => searching = value,
         onPinNaming: (value) => naming = value,
-        showMap: false,
         findPlace: (_) => search.future,
         keepsFullAddress: true,
       );

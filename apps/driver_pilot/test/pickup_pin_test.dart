@@ -7,9 +7,12 @@ import 'dart:async';
 
 import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/location_editor.dart';
+import 'package:driver_pilot/two_place_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+import 'support/one_map.dart';
 
 const _pinAddress =
     '14, Lattice Bridge Rd, Adyar, Chennai, Tamil Nadu 600020, India';
@@ -31,36 +34,50 @@ Future<_Box> _mountPickup(WidgetTester tester,
     PinNamer? namePin}) async {
   final box = _Box(TextEditingController(text: startingWords))..pin = startingPin;
   addTearDown(box.words.dispose);
+  final pins = TwoPlaceMapPins();
+  addTearDown(pins.dispose);
   await tester.pumpWidget(MaterialApp(
       home: Scaffold(
           body: SingleChildScrollView(
               child: StatefulBuilder(
-                  builder: (context, setState) => LocationEndpointEditor(
-                        title: 'Pickup',
-                        hint: 'City or area',
-                        labelController: box.words,
-                        markerId: 'pickup',
-                        markerHue: BitmapDescriptor.hueGreen,
-                        position: box.pin ?? pinNotPlacedYet,
-                        onPositionChanged: (pin) => setState(() => box.pin = pin),
-                        onPinStale: () => setState(() {
-                          box.pin = null;
-                          box.staleCount++;
-                        }),
-                        showMap: box.pin != null,
-                        findPlace: findPlace ??
-                            (place) async => GeocodeOutcome.ok(
-                                const LatLng(12.8, 77.7), _searchedAddress, 'Bengaluru'),
-                        namePin: namePin ??
-                            (point) async => GeocodeOutcome.ok(point, _pinAddress, 'Chennai'),
-                        keepsFullAddress: keepsFullAddress,
-                      ))))));
+                  builder: (context, setState) => Column(children: [
+                        LocationEndpointEditor(
+                          title: 'Pickup',
+                          hint: 'City or area',
+                          labelController: box.words,
+                          pins: pins,
+                          place: MapPlace.start,
+                          position: box.pin ?? pinNotPlacedYet,
+                          onPositionChanged: (pin) => setState(() => box.pin = pin),
+                          onPinStale: () => setState(() {
+                            box.pin = null;
+                            box.staleCount++;
+                          }),
+                          findPlace: findPlace ??
+                              (place) async => GeocodeOutcome.ok(
+                                  const LatLng(12.8, 77.7), _searchedAddress, 'Bengaluru'),
+                          namePin: namePin ??
+                              (point) async => GeocodeOutcome.ok(point, _pinAddress, 'Chennai'),
+                          keepsFullAddress: keepsFullAddress,
+                        ),
+                        TwoPlaceMap(
+                          pins: pins,
+                          start: box.pin,
+                          end: null,
+                          startTitle: 'Pickup',
+                          endTitle: 'Drop',
+                          pinsLabel: 'Pickup and drop',
+                          failedHelp: 'Your pickup and drop are still set.',
+                          pinsAreAddresses: keepsFullAddress,
+                        ),
+                      ]))))));
   await tester.pumpAndSettle();
   return box;
 }
 
+/// A tap on the map moves the chosen pin, as a drag of it does; with no pin yet, only a tap can place it.
 Future<void> _drag(WidgetTester tester, LatLng to) async {
-  tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.single.onDragEnd!(to);
+  oneMap(tester).onTap!(to);
   await tester.pumpAndSettle();
 }
 
@@ -274,6 +291,8 @@ void main() {
       (tester) async {
     final found = Completer<GeocodeOutcome>();
     final words = TextEditingController(text: 'Guindy, Chennai');
+    final pins = TwoPlaceMapPins();
+    addTearDown(pins.dispose);
     addTearDown(words.dispose);
     var readOnly = false;
     LatLng? movedTo;
@@ -288,8 +307,8 @@ void main() {
         title: 'Drop',
         hint: 'Address for the driver',
         labelController: words,
-        markerId: 'drop',
-        markerHue: BitmapDescriptor.hueRed,
+        pins: pins,
+        place: MapPlace.end,
         position: const LatLng(13.0, 80.2),
         onPositionChanged: (pin) => movedTo = pin,
         onSearching: searching.add,
@@ -310,7 +329,5 @@ void main() {
     expect(searching, [true, false], reason: 'and that it is over');
     expect(movedTo, isNull, reason: 'review: the place being sent must not move under it');
     expect(words.text, 'Guindy, Chennai');
-    expect(tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.single.position,
-        const LatLng(13.0, 80.2));
   });
 }

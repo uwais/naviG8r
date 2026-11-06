@@ -25,13 +25,13 @@ void placeSearchFailureTests() {
       kind: 'no maps key',
       findPlace: findWithNoMapsKey,
       sentence:
-          'Place search is not working right now. Drag the pin on the map to the place.'
+          'Place search is not working right now. Tap the map at the place.'
     ),
     (
       kind: 'no match',
       findPlace: failsWith('ZERO_RESULTS'),
       sentence:
-          'Could not find this place. Try a nearby town, or drag the pin on the map to it.'
+          'Could not find this place. Try a nearby town, or tap the map at the place.'
     ),
     (
       kind: 'no connection',
@@ -43,7 +43,7 @@ void placeSearchFailureTests() {
       kind: 'a refused key',
       findPlace: failsWith('REQUEST_DENIED'),
       sentence:
-          'Place search is not working right now. Drag the pin on the map to the place.'
+          'Place search is not working right now. Tap the map at the place.'
     ),
   ];
 
@@ -84,8 +84,8 @@ void placeSearchFailureTests() {
         final server = await fillMatch(tester, failure.findPlace);
         expect(find.text(failure.sentence), findsNWidgets(2),
             reason: 'one sentence under Pickup and one under Drop');
-        expect(find.byType(GoogleMap), findsNWidgets(2),
-            reason: 'the map the sentence offers is there to drag the pin on');
+        expect(find.byType(GoogleMap), findsOneWidget,
+            reason: 'the one map the sentence offers is there to tap the pin onto');
         expect(server.countOf('/v1/customer/eligible-anchor-trips'), 0);
         expect(find.textContaining('dart-define'), findsNothing,
             reason: 'no developer hint on a shipper screen');
@@ -100,8 +100,8 @@ void placeSearchFailureTests() {
         final server = await fillBook(tester, failure.findPlace);
         expect(find.text(failure.sentence), findsNWidgets(2),
             reason: 'one sentence under Pickup and one under Drop');
-        expect(find.byType(GoogleMap), findsNWidgets(2),
-            reason: 'the map the sentence offers is there to drag the pin on');
+        expect(find.byType(GoogleMap), findsOneWidget,
+            reason: 'the one map the sentence offers is there to tap the pin onto');
         expect(server.countOf('/shipments/quote'), 0);
         expect(find.textContaining('dart-define'), findsNothing,
             reason: 'no developer hint on a shipper screen');

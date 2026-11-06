@@ -6,3 +6,7 @@ const String kMapsApiKey = String.fromEnvironment(
   "MAPS_API_KEY",
   defaultValue: "",
 );
+
+/// The phone apps draw maps with the Google Maps SDK built into them, so there is no script that can fail
+/// to load.
+bool get mapsCanDraw => true;

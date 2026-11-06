@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/location_editor.dart';
+import 'package:driver_pilot/two_place_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -252,22 +253,40 @@ void main() {
         VoidCallback? onPinStale,
         bool readOnly = false}) async {
       final field = TextEditingController();
+      final pins = TwoPlaceMapPins();
+      addTearDown(pins.dispose);
+      var pin = const LatLng(13.07, 77.79);
+      // The box with the screen's one map under it, which shows the box's pin where the box last put it.
       await tester.pumpWidget(MaterialApp(
           home: Scaffold(
               body: SingleChildScrollView(
-                  child: LocationEndpointEditor(
-        title: 'From',
-        hint: 'City or area',
-        labelController: field,
-        markerId: 'from',
-        markerHue: BitmapDescriptor.hueOrange,
-        position: const LatLng(13.07, 77.79),
-        onPositionChanged: (_) {},
-        onPinStale: onPinStale,
-        readOnly: readOnly,
-        findPlace: findPlace ?? (place) async => GeocodeOutcome.fail('ZERO_RESULTS'),
-        namePin: namePin,
-      )))));
+                  child: StatefulBuilder(
+                      builder: (context, setState) => Column(children: [
+                            LocationEndpointEditor(
+                              title: 'From',
+                              hint: 'City or area',
+                              labelController: field,
+                              pins: pins,
+                              place: MapPlace.start,
+                              position: pin,
+                              onPositionChanged: (moved) => setState(() => pin = moved),
+                              onPinStale: onPinStale,
+                              readOnly: readOnly,
+                              findPlace: findPlace ??
+                                  (place) async => GeocodeOutcome.fail('ZERO_RESULTS'),
+                              namePin: namePin,
+                            ),
+                            TwoPlaceMap(
+                              pins: pins,
+                              start: pin,
+                              end: null,
+                              startTitle: 'From',
+                              endTitle: 'To',
+                              pinsLabel: 'From and To',
+                              failedHelp: 'Your From and To are still set.',
+                              readOnly: readOnly,
+                            ),
+                          ]))))));
       return field;
     }
 

@@ -11,7 +11,8 @@ import "../ui/tokens.dart";
 /// whether a dragged pin is still being named.
 typedef BookPlace = ({String words, LatLng pin, PinAddress? pinAddress, bool naming});
 
-/// Both pins on one map, each with the words typed for it and its Pin line, below the place boxes.
+/// Each pin's typed words and its Pin line, below the place boxes. The pins themselves are on the screen's
+/// one map, under the boxes (owner, 5 Nov 2026: one map per screen).
 class BookPinsCheck extends StatelessWidget {
   const BookPinsCheck({required this.pickup, required this.drop, super.key});
   final BookPlace pickup;
@@ -28,10 +29,6 @@ class BookPinsCheck extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text("Check the pins before you pay", style: NvText.heading),
-            const SizedBox(height: NvSpace.s3),
-            // The same pin colours as the place boxes: pickup green, drop red.
-            routePreviewMap(
-                a: pickup.pin, b: drop.pin, aLabel: "Pickup", bLabel: "Drop"),
             for (final (title, place) in [("Pickup", pickup), ("Drop", drop)]) ...[
               const SizedBox(height: NvSpace.s3),
               Text("$title: ${place.words}", style: NvText.bodyStrong),

@@ -13,6 +13,7 @@ import "../customer_layout.dart";
 import "../load_board/post_a_load.dart";
 import "../location_editor.dart";
 import "../pilot_api.dart";
+import "../two_place_map.dart";
 import "../ui/format.dart";
 import "../ui/nv_button.dart";
 import "../ui/nv_field.dart";
@@ -266,6 +267,7 @@ class _CustomerMatchTripsTab extends StatefulWidget {
 class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   final _pickupName = TextEditingController();
   final _dropName = TextEditingController();
+  final _mapPins = TwoPlaceMapPins();
   LatLng? _pickupPin;
   LatLng? _dropPin;
   PinAddress? _pickupPinAddress;
@@ -291,6 +293,7 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   void dispose() {
     _pickupName.dispose();
     _dropName.dispose();
+    _mapPins.dispose();
     _weightKg.dispose();
     super.dispose();
   }
@@ -435,15 +438,14 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
       );
 
   List<Widget> _form() => [
-        // Each map shows once its place has a pin, so the form stays short while typing.
         _placeWithError(
           LocationEndpointEditor(
             title: "Pickup",
             hint: "Address for the driver",
             example: "House or plot, street, area",
             labelController: _pickupName,
-            markerId: "match_pickup",
-            markerHue: BitmapDescriptor.hueGreen,
+            pins: _mapPins,
+            place: MapPlace.start,
             position: _pickupPin ?? pinNotPlacedYet,
             onPositionChanged: (pin) => setState(() {
               _pickupPin = pin;
@@ -456,7 +458,6 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             onPinAddress: (address) =>
                 setState(() => _pickupPinAddress = address),
             readOnly: _searching,
-            showMap: _pickupPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
             namePin: widget.namePin,
@@ -473,8 +474,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             hint: "Address for the driver",
             example: "House or plot, street, area",
             labelController: _dropName,
-            markerId: "match_drop",
-            markerHue: BitmapDescriptor.hueRed,
+            pins: _mapPins,
+            place: MapPlace.end,
             position: _dropPin ?? pinNotPlacedYet,
             onPositionChanged: (pin) => setState(() {
               _dropPin = pin;
@@ -487,7 +488,6 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             onPinAddress: (address) =>
                 setState(() => _dropPinAddress = address),
             readOnly: _searching,
-            showMap: _dropPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
             namePin: widget.namePin,
@@ -496,6 +496,20 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             staysAliveOffScreen: true,
           ),
           _dropError,
+        ),
+        // Always in the list, empty until a place has a pin or a search, so the rows below keep their
+        // places and their state.
+        TwoPlaceMap(
+          pins: _mapPins,
+          start: _pickupPin,
+          end: _dropPin,
+          startTitle: "Pickup",
+          endTitle: "Drop",
+          pinsLabel: "Pickup and drop",
+          failedHelp:
+              "Your pickup and drop are still set. You can search without the map.",
+          pinsAreAddresses: true,
+          readOnly: _searching,
         ),
         const SizedBox(height: NvSpace.s4),
         NvField(

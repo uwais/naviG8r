@@ -60,8 +60,8 @@ void main() {
         expect(fieldTexts(tester),
             ['Hoskote', 'Kolar', '1000'],
             reason: 'owner run: leaving Publish wiped the form');
-        expect(find.byType(GoogleMap), findsNWidgets(3),
-            reason: 'both places keep their points, so their maps and the route map show');
+        expect(find.byType(GoogleMap), findsOneWidget,
+            reason: 'both places keep their points, so the one map shows');
         expect(find.text('Choose a date'), findsNothing,
             reason: 'both leaving days are kept');
         expect(

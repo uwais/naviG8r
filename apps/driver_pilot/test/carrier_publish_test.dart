@@ -18,6 +18,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'support/carrier_office_screens.dart';
 import 'support/mock_api.dart';
+import 'support/one_map.dart';
 
 void main() {
   setUp(() => GeolocatorPlatform.instance = NoLocation());
@@ -91,9 +92,7 @@ void main() {
           size: const Size(800, 3000));
       expect(find.byType(GoogleMap), findsNothing,
           reason: 'tester: the maps left no room while typing');
-      expect(
-          find.text('Tap the map or drag the pin, or search for a place.'),
-          findsNothing);
+      expect(find.text('Tap the map to move the From pin.'), findsNothing);
 
       await tester.enterText(find.byType(TextField).first, 'Bengaluru');
       await tester.tap(find.byTooltip('Search for place').first);
@@ -137,7 +136,7 @@ void main() {
           findPlace: (place) async => GeocodeOutcome.ok(
               place == 'Hoskote' ? hoskote : kolar, '$place, Karnataka'));
 
-      testWidgets('shows both pins and the line once From and To both have a point',
+      testWidgets('one map shows the first point found, then both pins and the line',
           (tester) async {
         signInWith(Server(allowed: ownerAllowed));
         await mount(tester, publish(), size: const Size(800, 3000));
@@ -145,19 +144,22 @@ void main() {
         await tester.enterText(find.byType(TextField).at(0), 'Hoskote');
         await tester.tap(find.byTooltip('Search for place').at(0));
         await tester.pumpAndSettle();
-        expect(find.byType(NvMap), findsNothing,
-            reason: 'with one point there is no route to show');
+        expect(find.byType(GoogleMap), findsOneWidget,
+            reason: 'owner, 5 Nov 2026: one map per screen, shown once a place has a point');
+        expect(oneMap(tester).markers.map((pin) => pin.position), [hoskote]);
+        expect(oneMap(tester).polylines, isEmpty,
+            reason: 'with one point there is no line to draw');
         await tester.enterText(find.byType(TextField).at(1), 'Kolar');
         await tester.tap(find.byTooltip('Search for place').at(1));
         await tester.pumpAndSettle();
 
-        expect(find.byType(NvMap), findsOneWidget,
-            reason: 'Uwais: one map with both places');
+        expect(find.byType(GoogleMap), findsOneWidget,
+            reason: 'still one map, now with both places');
         expect(find.text('From and To'), findsOneWidget,
             reason: 'the pins are named in words, not by colour alone');
-        final map = tester.widget<GoogleMap>(find.descendant(
-            of: find.byType(NvMap), matching: find.byType(GoogleMap)));
+        final map = oneMap(tester);
         expect(map.markers.map((pin) => pin.position), [hoskote, kolar]);
+        expect(map.markers.map((pin) => pin.infoWindow.title), ['From', 'To']);
         expect(map.polylines.single.points, [hoskote, kolar],
             reason: 'a straight line between the two places');
         final toBox = tester.getRect(find.byType(LocationEndpointEditor).at(1));
@@ -174,47 +176,29 @@ void main() {
         }
       }
 
-      Finder routeMap() =>
-          find.descendant(of: find.byType(NvMap), matching: find.byType(GoogleMap));
-
-      testWidgets('its pins are the colours of the From and To place pins',
+      testWidgets('From and To pins look different, not only by name',
           (tester) async {
         signInWith(Server(allowed: ownerAllowed));
         await mount(tester, publish(), size: const Size(800, 3000));
         await findBoth(tester);
-        expect(
-            tester
-                .widget<GoogleMap>(routeMap())
-                .markers
-                .map((pin) => pin.icon.toJson()),
-            [
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange)
-                  .toJson(),
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)
-                  .toJson(),
-            ],
-            reason: 'review: green and red on the route, orange and azure above');
+        final icons = oneMap(tester).markers.map((pin) => pin.icon.toJson()).toList();
+        expect(icons.first, isNot(equals(icons.last)),
+            reason: 'October design: navy dot for From, gold dot with a navy ring for To');
       });
 
-      testWidgets('a dragged pin makes a new route map, so its view fits the new route',
+      testWidgets('a dragged To pin moves only the To pin, on the same map',
           (tester) async {
         signInWith(Server(allowed: ownerAllowed));
         await mount(tester, publish(), size: const Size(800, 3000));
         await findBoth(tester);
-        final before = tester.state(routeMap());
+        final before = tester.state(oneMapFinder());
         const nearKolar = LatLng(13.2, 78.3);
-        tester
-            .widget<GoogleMap>(find.descendant(
-                of: find.byType(LocationEndpointEditor).at(1),
-                matching: find.byType(GoogleMap)))
-            .markers
-            .single
-            .onDragEnd!(nearKolar);
+        await dragPinOnMap(tester, 'To', nearKolar);
         await tester.pumpAndSettle();
-        expect(tester.widget<GoogleMap>(routeMap()).markers.last.position,
-            nearKolar);
-        expect(identical(tester.state(routeMap()), before), isFalse,
-            reason: 'review: the view is fitted only when the map is made');
+        expect(pinOnMap(tester, 'To').position, nearKolar);
+        expect(pinOnMap(tester, 'From').position, hoskote);
+        expect(identical(tester.state(oneMapFinder()), before), isTrue,
+            reason: 'the camera moves to fit both pins; the map is not made again');
       });
 
       testWidgets('after a pin drag, Add trip waits until the pin has its town name',
@@ -229,13 +213,7 @@ void main() {
                 namePin: (_) => town.future),
             size: const Size(800, 3000));
         await findBoth(tester);
-        tester
-            .widget<GoogleMap>(find.descendant(
-                of: find.byType(LocationEndpointEditor).at(1),
-                matching: find.byType(GoogleMap)))
-            .markers
-            .single
-            .onDragEnd!(const LatLng(13.2, 78.3));
+        await dragPinOnMap(tester, 'To', const LatLng(13.2, 78.3));
         await tester.pumpAndSettle();
         FilledButton publish() =>
             tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Add trip'));
@@ -301,14 +279,10 @@ void main() {
                 .widget<IconButton>(inPlaceBox(index, find.byType(IconButton)))
                 .onPressed,
             isNull);
-        expect(
-            tester
-                .widget<GoogleMap>(inPlaceBox(index, find.byType(GoogleMap)))
-                .markers
-                .single
-                .draggable,
-            isFalse);
       }
+      expect(oneMap(tester).markers.where((pin) => pin.draggable), isEmpty);
+      expect(oneMap(tester).onTap, isNull,
+          reason: 'read-only: the map shows both pins and moves neither');
 
       publishAnswer.complete(jsonResponse({'error': 'internal_error'}, 500));
       await tester.pumpAndSettle();
@@ -333,7 +307,7 @@ void main() {
           reason: 'without the map, a place Google cannot find could never be set');
       expect(
           find.text(
-              'Could not find this place. Try a nearby town, or drag the pin on the map to it.'),
+              'Could not find this place. Try a nearby town, or tap the map at the place.'),
           findsOneWidget);
       expect(find.textContaining('ZERO_RESULTS'), findsNothing,
           reason: 'no raw codes');
@@ -346,11 +320,11 @@ void main() {
       ),
       (
         'REQUEST_DENIED',
-        'Place search is not working right now. Drag the pin on the map to the place.'
+        'Place search is not working right now. Tap the map at the place.'
       ),
       (
         'OVER_QUERY_LIMIT',
-        'Place search is not working right now. Drag the pin on the map to the place.'
+        'Place search is not working right now. Tap the map at the place.'
       ),
     ]) {
       testWidgets('a search that fails with $status says what went wrong',

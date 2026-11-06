@@ -26,6 +26,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'mock_api.dart';
 
+export 'one_map.dart';
+
 /// A lane with no town pins, so Book's 15 km rule leaves the synthetic places where they are, as the
 /// server does for such a trip. Tests of the rule add the pins (shipper_book_far_pin_test.dart).
 Map<String, dynamic> lane(
@@ -87,13 +89,6 @@ Future<void> searchPlace(
   await tester.tap(search);
   await tester.pumpAndSettle();
 }
-
-/// The map pin inside the place box titled [title].
-Marker pinIn(WidgetTester tester, String title) => tester
-    .widget<GoogleMap>(
-        find.descendant(of: placeBox(title), matching: find.byType(GoogleMap)))
-    .markers
-    .single;
 
 /// Lets requests that are answered run while one is still waiting; pumpAndSettle would wait
 /// forever on the waiting button's progress ring.

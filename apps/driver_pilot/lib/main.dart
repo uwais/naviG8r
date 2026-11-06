@@ -19,6 +19,7 @@ import "notification_center.dart";
 import "pilot_api.dart";
 import "shipment_conversation.dart";
 import "push_notifications.dart";
+import "two_place_map.dart";
 
 Future<void> _copyToClipboard(
     BuildContext context, String label, String value) async {
@@ -1106,6 +1107,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   final _orgId = TextEditingController();
   final _origin = TextEditingController(text: "Gurugram, Haryana");
   final _dest = TextEditingController(text: "Jaipur, Rajasthan");
+  final _mapPins = TwoPlaceMapPins();
   LatLng _originPos = const LatLng(28.4595, 77.0266);
   LatLng _destPos = const LatLng(26.9124, 75.7873);
   final _w1 = TextEditingController();
@@ -1135,6 +1137,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     _orgId.dispose();
     _origin.dispose();
     _dest.dispose();
+    _mapPins.dispose();
     _w1.dispose();
     _w2.dispose();
     _vehClass.dispose();
@@ -1308,29 +1311,39 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
             title: "Origin",
             hint: "Origin city or address",
             labelController: _origin,
-            markerId: "publish_origin",
-            markerHue: BitmapDescriptor.hueGreen,
+            pins: _mapPins,
+            place: MapPlace.start,
             position: _originPos,
             onPositionChanged: (p) {
               setState(() => _originPos = p);
               _scheduleRateFetch();
             },
+            staysAliveOffScreen: true,
           ),
           const SizedBox(height: 20),
           LocationEndpointEditor(
             title: "Destination",
             hint: "Destination city or address",
             labelController: _dest,
-            markerId: "publish_dest",
-            markerHue: BitmapDescriptor.hueRed,
+            pins: _mapPins,
+            place: MapPlace.end,
             position: _destPos,
             onPositionChanged: (p) {
               setState(() => _destPos = p);
               _scheduleRateFetch();
             },
+            staysAliveOffScreen: true,
+          ),
+          TwoPlaceMap(
+            pins: _mapPins,
+            start: _originPos,
+            end: _destPos,
+            startTitle: "Origin",
+            endTitle: "Destination",
+            pinsLabel: "Origin and destination",
+            failedHelp: "Your origin and destination are still set. You can publish without the map.",
           ),
           const SizedBox(height: 12),
-          routePreviewMap(a: _originPos, b: _destPos),
           TextField(
             controller: _vehClass,
             decoration: const InputDecoration(

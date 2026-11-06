@@ -5,7 +5,6 @@ import 'dart:async';
 
 import 'package:dio/dio.dart' show ResponseBody;
 import 'package:driver_pilot/shipper/book_a_lane.dart';
-import 'package:driver_pilot/shipper/book_pins_check.dart';
 import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/ui/nv_action_bar.dart';
 import 'package:flutter/material.dart';
@@ -25,11 +24,14 @@ void main() {
       expect(placeBox('Pickup'), findsOneWidget,
           reason: 'Rishabh: Book gets the place box Publish uses');
       expect(placeBox('Drop'), findsOneWidget);
-      expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7),
+      expect(pinOnMap(tester, 'Pickup').position, const LatLng(12.8, 77.7),
           reason: 'the pickup pin is where the match search put it');
-      expect(pinIn(tester, 'Drop').position, const LatLng(13.0, 80.2),
+      expect(pinOnMap(tester, 'Drop').position, const LatLng(13.0, 80.2),
           reason: 'the drop pin is where the match search put it');
-      expect(pinIn(tester, 'Drop').draggable, isTrue);
+      expect(pinOnMap(tester, 'Pickup').draggable, isTrue,
+          reason: 'owner, 5 Nov 2026: the map moves the pickup first');
+      expect(pinOnMap(tester, 'Drop').draggable, isFalse,
+          reason: 'one pin at a time');
     });
 
     testWidgets('moving a pin gets a new price, and the pin is what is booked',
@@ -39,7 +41,7 @@ void main() {
         'shipment': {'id': 'shipment-9'},
         'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
       });
-      pinIn(tester, 'Drop').onDragEnd!(const LatLng(13.05, 80.25));
+      await dragPinOnMap(tester, 'Drop', const LatLng(13.05, 80.25));
       await tester.pumpAndSettle();
       expect(server.countOf('/shipments/quote'), 2,
           reason: 'a moved pin is a new place to price');
@@ -63,7 +65,7 @@ void main() {
       });
       await tester.enterText(placeField('Pickup'), 'Gate 2, Plot 12, Hosur Road');
       await tester.pumpAndSettle();
-      expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7),
+      expect(pinOnMap(tester, 'Pickup').position, const LatLng(12.8, 77.7),
           reason: 'owner, 21 Oct 2026: typing never moves or drops the pin');
       expect(bookButton(tester).label, 'Book and pay ₹2,640',
           reason: 'the pin decides the price, so the price stays');
@@ -98,12 +100,9 @@ void main() {
               .descendant(
                   of: find.byType(ListView), matching: find.byType(Scrollable))
               .first);
-      final bothPins = tester
-          .widgetList<GoogleMap>(find.byType(GoogleMap))
-          .where((map) => map.markers.length == 2)
-          .single
-          .markers
-          .map((pin) => pin.position);
+      expect(find.byType(GoogleMap), findsOneWidget,
+          reason: 'owner, 5 Nov 2026: one map per screen');
+      final bothPins = oneMap(tester).markers.map((pin) => pin.position);
       expect(bothPins, containsAll(const [LatLng(12.8, 77.7), LatLng(13.0, 80.2)]),
           reason: 'owner, 21 Oct 2026: Book shows both pins on a map to check');
       for (final address in [
@@ -111,7 +110,7 @@ void main() {
         'Pin: Guindy, Chennai, Tamil Nadu 600032, India',
       ]) {
         expect(find.text(address), findsNWidgets(2),
-            reason: 'under its place box, and again in the check by the map');
+            reason: 'under its place box, and again in the check card');
       }
       expect(find.text('Pickup: Plot 12, Bommasandra'), findsOneWidget,
           reason: 'the check shows the typed words beside the pin they go with');
@@ -124,7 +123,7 @@ void main() {
         'shipment': {'id': 'shipment-9'},
         'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
       });
-      pinIn(tester, 'Drop').onDragEnd!(const LatLng(13.05, 80.25));
+      await dragPinOnMap(tester, 'Drop', const LatLng(13.05, 80.25));
       await tester.pumpAndSettle();
       await tester.enterText(placeField('Drop'), 'Adyar, Chennai');
       await tester.pumpAndSettle();
@@ -150,7 +149,7 @@ void main() {
         'payment': {'status': 'CAPTURED', 'amountPaise': 264000},
       });
       await tester.pumpAndSettle();
-      pinIn(tester, 'Drop').onDragEnd!(const LatLng(13.05, 80.25));
+      await dragPinOnMap(tester, 'Drop', const LatLng(13.05, 80.25));
       await tester.pumpAndSettle();
       expect(server.countOf('/shipments/quote'), 2,
           reason: 'the moved pin is priced at once');
@@ -279,14 +278,14 @@ void main() {
       expect(button.top - drop.bottom, lessThan(40),
           reason: 'directly above the button, nothing between');
       expect(find.text('Check the pins before you pay'), findsOneWidget,
-          reason: 'the map card stays, below the place boxes');
+          reason: 'the check card stays, below the place boxes');
       semantics.dispose();
     });
 
-    testWidgets('a new price keeps the pins check map instead of building a new one',
+    testWidgets('a new price keeps the map instead of building a new one',
         (tester) async {
       final server = await showPricedBook(tester, height: 4000);
-      final check = tester.element(find.byType(BookPinsCheck));
+      final map = tester.element(oneMapFinder());
       final newPrice = Completer<ResponseBody>();
       server.answers['/shipments/quote'] = (_) => newPrice.future;
       await tester.enterText(field('Weight'), '90');
@@ -299,7 +298,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Book and pay ₹2,970'), findsOneWidget,
           reason: 'the price card is back with the new price');
-      expect(tester.element(find.byType(BookPinsCheck)), same(check),
+      expect(tester.element(oneMapFinder()), same(map),
           reason: 'review: the map was rebuilt on every price change');
     });
 
@@ -334,15 +333,11 @@ void main() {
 
     testWidgets('the pins on Book are labelled Pickup and Drop', (tester) async {
       await showPricedBook(tester, height: 4000);
-      final bothPins = tester
-          .widgetList<GoogleMap>(find.byType(GoogleMap))
-          .where((map) => map.markers.length == 2)
-          .single
-          .markers;
+      final bothPins = oneMap(tester).markers;
       expect(bothPins.map((pin) => pin.infoWindow.title), unorderedEquals(['Pickup', 'Drop']),
           reason: 'review: which pin is which, when tapped');
-      expect(pinIn(tester, 'Pickup').infoWindow.title, 'Pickup');
-      expect(pinIn(tester, 'Drop').infoWindow.title, 'Drop');
+      expect(pinOnMap(tester, 'Pickup').infoWindow.title, 'Pickup');
+      expect(pinOnMap(tester, 'Drop').infoWindow.title, 'Drop');
     });
 
     testWidgets('the place boxes ask for the address for the driver', (tester) async {
@@ -365,9 +360,8 @@ void main() {
       server.answer('/anchor-trips/lane-1', {'trip': lane()});
       server.answers['/shipments/quote'] = priceByWeight;
       await tester.pumpAndSettle();
-      await scrollTo(tester,
-          find.descendant(of: placeBox('Pickup'), matching: find.byType(GoogleMap)));
-      pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.85, 77.65));
+      await scrollTo(tester, oneMapFinder());
+      await dragPinOnMap(tester, 'Pickup', const LatLng(12.85, 77.65));
       await tester.pumpAndSettle();
       expect(bookButton(tester).onPressed, isNull,
           reason: 'waiting for the pin to be named');

@@ -37,6 +37,7 @@ import "sign_in_screen.dart";
 import "transporter_id_section.dart";
 import "trip_assignment_card.dart";
 import "trip_cancel_card.dart";
+import "two_place_map.dart";
 import "ui/format.dart";
 import "ui/nv_action_bar.dart";
 import "ui/nv_button.dart";
@@ -5477,6 +5478,7 @@ class DriverPublishTripScreen extends StatefulWidget {
 class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   final _origin = TextEditingController();
   final _dest = TextEditingController();
+  final _mapPins = TwoPlaceMapPins();
   LatLng? _originPos;
   LatLng? _destPos;
   bool _namingOriginPin = false;
@@ -5544,6 +5546,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     }
     _origin.dispose();
     _dest.dispose();
+    _mapPins.dispose();
     _room.dispose();
     _form.dispose();
     super.dispose();
@@ -5739,51 +5742,51 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 const Text("Shippers can book it once you add it.",
                     style: NvText.body),
                 gap,
-                // Each map shows once its place has a point, so the form stays short while typing.
                 LocationEndpointEditor(
                   title: "From",
                   hint: "City or area",
                   labelController: _origin,
-                  markerId: "pub_origin",
-                  markerHue: BitmapDescriptor.hueOrange,
+                  pins: _mapPins,
+                  place: MapPlace.start,
                   position: _originPos ?? pinNotPlacedYet,
                   onPositionChanged: (p) => setState(() => _originPos = p),
                   onPinStale: () => setState(() => _originPos = null),
                   onPinNaming: (naming) =>
                       setState(() => _namingOriginPin = naming),
                   readOnly: _submitting,
-                  showMap: _originPos != null,
                   findPlace: widget.findPlace,
                   namePin: widget.namePin,
+                  // The one map below moves this pin even when the box has scrolled off screen.
+                  staysAliveOffScreen: true,
                 ),
                 gap,
                 LocationEndpointEditor(
                   title: "To",
                   hint: "City or area",
                   labelController: _dest,
-                  markerId: "pub_dest",
-                  markerHue: BitmapDescriptor.hueAzure,
+                  pins: _mapPins,
+                  place: MapPlace.end,
                   position: _destPos ?? pinNotPlacedYet,
                   onPositionChanged: (p) => setState(() => _destPos = p),
                   onPinStale: () => setState(() => _destPos = null),
                   onPinNaming: (naming) =>
                       setState(() => _namingDestPin = naming),
                   readOnly: _submitting,
-                  showMap: _destPos != null,
                   findPlace: widget.findPlace,
                   namePin: widget.namePin,
+                  staysAliveOffScreen: true,
                 ),
-                if (_originPos != null && _destPos != null) ...[
-                  gap,
-                  NvMap(
-                    map: routePreviewMap(
-                        a: _originPos!,
-                        b: _destPos!,
-                        aPinHue: BitmapDescriptor.hueOrange,
-                        bPinHue: BitmapDescriptor.hueAzure),
-                    pinsLabel: "From and To",
-                  ),
-                ],
+                TwoPlaceMap(
+                  pins: _mapPins,
+                  start: _originPos,
+                  end: _destPos,
+                  startTitle: "From",
+                  endTitle: "To",
+                  pinsLabel: "From and To",
+                  failedHelp:
+                      "Your From and To are still set. You can add the trip without the map.",
+                  readOnly: _submitting,
+                ),
               ],
               gap,
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [

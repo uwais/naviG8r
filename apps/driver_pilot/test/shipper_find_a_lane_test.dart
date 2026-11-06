@@ -210,7 +210,7 @@ void main() {
       expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
           'Bommasandra, Bengaluru',
           reason: 'screens.md: Book starts at the searched pickup');
-      expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7),
+      expect(pinOnMap(tester, 'Pickup').position, const LatLng(12.8, 77.7),
           reason: 'Rishabh: Book keeps the places Match found, pins placed');
       expect(
           find.descendant(
@@ -233,11 +233,11 @@ void main() {
 
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
       expect(find.byType(GoogleMap), findsOneWidget,
-          reason: 'the pickup map opens on its found place');
-      expect(pinIn(tester, 'Pickup').draggable, isTrue,
+          reason: 'the one map opens on the found pickup');
+      expect(pinOnMap(tester, 'Pickup').draggable, isTrue,
           reason: 'the pin can be dragged to the exact spot');
 
-      pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.85, 77.65));
+      await dragPinOnMap(tester, 'Pickup', const LatLng(12.85, 77.65));
       await tester.pumpAndSettle();
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(field('Weight'), '80');
@@ -262,7 +262,7 @@ void main() {
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
       await tester.enterText(field('Weight'), '80');
-      pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.85, 77.65));
+      await dragPinOnMap(tester, 'Pickup', const LatLng(12.85, 77.65));
       await tester.pumpAndSettle();
       FilledButton findLanes() => tester.widget<FilledButton>(
           find.widgetWithText(FilledButton, 'Find trips'));
@@ -291,7 +291,7 @@ void main() {
       await tester.tap(find.text('Find trips'));
       await tester.pumpAndSettle();
       expect(find.text('Could not load trips.'), findsOneWidget);
-      pinIn(tester, 'Pickup').onDragEnd!(const LatLng(12.85, 77.65));
+      await dragPinOnMap(tester, 'Pickup', const LatLng(12.85, 77.65));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Try again'));
       await tester.pumpAndSettle();
@@ -364,7 +364,7 @@ void main() {
       for (final title in ['Pickup', 'Drop']) {
         expect(tester.widget<TextField>(placeField(title)).readOnly, isTrue,
             reason: 'review: the words could change under a match being sent');
-        expect(pinIn(tester, title).draggable, isFalse);
+        expect(pinOnMap(tester, title).draggable, isFalse);
       }
       answer.complete(jsonResponse({
         'trips': [
@@ -381,7 +381,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(placeField('Pickup')).controller!.text,
           'Bommasandra, Bengaluru');
-      expect(pinIn(tester, 'Pickup').position, const LatLng(12.8, 77.7));
+      expect(pinOnMap(tester, 'Pickup').position, const LatLng(12.8, 77.7));
     });
 
     testWidgets('Match with no lanes offers a lower weight or every lane',
