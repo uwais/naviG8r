@@ -639,7 +639,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
         ),
         const SizedBox(height: 8),
         const Text(
-          "The driver must register their mobile number first.",
+          "The driver must register their mobile number first. Someone at another carrier cannot be added yet.",
           style: TextStyle(color: DriverTheme.muted, height: 1.4),
         ),
         if (!DriverSession.canInviteDrivers) ...[

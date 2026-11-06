@@ -56,7 +56,10 @@ class PhoneForSignIn {
 /// server exchanges its token; otherwise the server's own code is used.
 class SignInScreen extends StatefulWidget {
   const SignInScreen(
-      {this.startingPhone, this.startingCountryCode, this.phoneAuth, super.key});
+      {this.startingPhone,
+      this.startingCountryCode,
+      this.phoneAuth,
+      super.key});
 
   /// The number a carrier just registered with, filled in so they only tap Send code.
   final String? startingPhone;
@@ -90,7 +93,8 @@ class _SignInScreenState extends State<SignInScreen> {
   bool _firebaseCodeSent = false;
 
   bool get _codeRequested =>
-      _challengePhone != null && (_useFirebase ? _firebaseCodeSent : _challengeId != null);
+      _challengePhone != null &&
+      (_useFirebase ? _firebaseCodeSent : _challengeId != null);
 
   bool _isChallengeFor(String phone) =>
       _challengePhone == phone && _challengeCountryCode == _countryCode;
@@ -368,7 +372,8 @@ class _SignInScreenState extends State<SignInScreen> {
       );
     }
     return SignInCodePage(
-      phone: _shownNumber(challengePhone, _challengeCountryCode ?? _countryCode),
+      phone:
+          _shownNumber(challengePhone, _challengeCountryCode ?? _countryCode),
       code: _code,
       verifying: _verifying,
       sendingNewCode: _sending,

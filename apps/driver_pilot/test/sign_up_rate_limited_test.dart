@@ -1,4 +1,4 @@
-// The server limits sign-ups per phone, and per IP behind a trusted proxy, and answers 429 rate_limited with its wait.
+// The server limits sign-ups per phone, and per IP behind a trusted proxy, and answers 429 sign_up_rate_limited with its wait.
 import 'package:driver_pilot/authorization_session.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/pilot_api.dart';
@@ -22,7 +22,7 @@ void main() {
     api.dio.httpClientAdapter = MockApiAdapter((request) =>
         request.path == '/v1/pilot/customer/register'
             ? jsonResponse(
-                {'error': 'rate_limited', 'retryAfterMs': 2999000}, 429)
+                {'error': 'sign_up_rate_limited', 'retryAfterMs': 2999000}, 429)
             : jsonResponse({}));
     final router = GoRouter(initialLocation: '/customer/register', routes: [
       GoRoute(

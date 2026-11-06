@@ -59,97 +59,103 @@ class SignInPhonePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: ListView(
+        // Built whole rather than lazily: the page is short, and the country choice can push the
+        // account links below the first screen, where a lazy list would not build them.
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(
               NvSpace.gutter, NvSpace.s6, NvSpace.gutter, NvSpace.s6),
-          children: [
-            // The wordmark is a picture of the name, so screen readers get the name once.
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Semantics(
-                label: "NaviG8r",
-                image: true,
-                child: Image.asset("assets/brand/navig8r-logo.png",
-                    height: 52, excludeFromSemantics: true),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // The wordmark is a picture of the name, so screen readers get the name once.
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Semantics(
+                  label: "NaviG8r",
+                  image: true,
+                  child: Image.asset("assets/brand/navig8r-logo.png",
+                      height: 52, excludeFromSemantics: true),
+                ),
               ),
-            ),
-            const SizedBox(height: NvSpace.s6),
-            Semantics(
-              header: true,
-              child:
-                  const Text("Sign in with your phone", style: NvText.display),
-            ),
-            const SizedBox(height: NvSpace.s2),
-            Text("We send a 6-digit code to this number by SMS.",
-                style: NvText.body.copyWith(fontSize: 16)),
-            const SizedBox(height: NvSpace.s6),
-            if (onCountryChanged != null) ...[
-              NvChoiceChips<String>(
-                label: "Country",
-                options: _countries,
-                selected: countryCode,
-                onChanged: onCountryChanged,
-              ),
-              const SizedBox(height: NvSpace.s3),
-            ],
-            NvField(
-              label: "Mobile number",
-              controller: phone,
-              prefix: countryCode,
-              help: "10 digits. Standard SMS rates may apply.",
-              errorText: errorText,
-              keyboardType: TextInputType.phone,
-              autofillHints: const [AutofillHints.telephoneNumberNational],
-              onChanged: onPhoneChanged,
-            ),
-            if (onUseFirebaseChanged != null)
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text("Use Firebase phone verification",
-                    style: NvText.body),
-                subtitle: const Text("Turn off only if Firebase is unavailable.",
-                    style: NvText.body),
-                value: useFirebase,
-                onChanged: sending ? null : onUseFirebaseChanged,
-              ),
-            if (firebaseDiagnostic != null) ...[
-              const SizedBox(height: NvSpace.s2),
-              Text(firebaseDiagnostic!, style: NvText.body),
-            ],
-            const SizedBox(height: NvSpace.s5),
-            NvButton(
-                label: "Send code",
-                onPressed: onSend,
-                loading: sending,
-                fullWidth: true),
-            if (newAccountLinks.isNotEmpty) ...[
-              const SizedBox(height: NvSpace.s8),
+              const SizedBox(height: NvSpace.s6),
               Semantics(
                 header: true,
-                child: const Text("New to NaviG8r?", style: NvText.heading),
+                child: const Text("Sign in with your phone",
+                    style: NvText.display),
               ),
-            ],
-            for (final link in newAccountLinks.entries) ...[
               const SizedBox(height: NvSpace.s2),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: NvButton(
-                    label: link.key,
-                    kind: NvButtonKind.quiet,
-                    onPressed: link.value),
-              ),
-            ],
-            if (onOpenDeveloperLab != null) ...[
+              Text("We send a 6-digit code to this number by SMS.",
+                  style: NvText.body.copyWith(fontSize: 16)),
               const SizedBox(height: NvSpace.s6),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: NvButton(
-                    label: "Developer lab",
-                    kind: NvButtonKind.quiet,
-                    onPressed: onOpenDeveloperLab),
+              if (onCountryChanged != null) ...[
+                NvChoiceChips<String>(
+                  label: "Country",
+                  options: _countries,
+                  selected: countryCode,
+                  onChanged: onCountryChanged,
+                ),
+                const SizedBox(height: NvSpace.s3),
+              ],
+              NvField(
+                label: "Mobile number",
+                controller: phone,
+                prefix: countryCode,
+                help: "10 digits. Standard SMS rates may apply.",
+                errorText: errorText,
+                keyboardType: TextInputType.phone,
+                autofillHints: const [AutofillHints.telephoneNumberNational],
+                onChanged: onPhoneChanged,
               ),
+              if (onUseFirebaseChanged != null)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text("Use Firebase phone verification",
+                      style: NvText.body),
+                  subtitle: const Text(
+                      "Turn off only if Firebase is unavailable.",
+                      style: NvText.body),
+                  value: useFirebase,
+                  onChanged: sending ? null : onUseFirebaseChanged,
+                ),
+              if (firebaseDiagnostic != null) ...[
+                const SizedBox(height: NvSpace.s2),
+                Text(firebaseDiagnostic!, style: NvText.body),
+              ],
+              const SizedBox(height: NvSpace.s5),
+              NvButton(
+                  label: "Send code",
+                  onPressed: onSend,
+                  loading: sending,
+                  fullWidth: true),
+              if (newAccountLinks.isNotEmpty) ...[
+                const SizedBox(height: NvSpace.s8),
+                Semantics(
+                  header: true,
+                  child: const Text("New to NaviG8r?", style: NvText.heading),
+                ),
+              ],
+              for (final link in newAccountLinks.entries) ...[
+                const SizedBox(height: NvSpace.s2),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: NvButton(
+                      label: link.key,
+                      kind: NvButtonKind.quiet,
+                      onPressed: link.value),
+                ),
+              ],
+              if (onOpenDeveloperLab != null) ...[
+                const SizedBox(height: NvSpace.s6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: NvButton(
+                      label: "Developer lab",
+                      kind: NvButtonKind.quiet,
+                      onPressed: onOpenDeveloperLab),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
