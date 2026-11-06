@@ -282,6 +282,12 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [ ] **Pilot build (completion)**: versioning cadence + chosen distribution channel + crash reporting (**B2**, **B3**).
 - [ ] **10-device rollout** + weekly feedback triage.
 
+### Not for now (decided)
+
+- **Shippers cancelling a booking in the app** (Rishabh, 17 Oct 2026). Today a shipper cannot cancel anywhere; only
+  Finance can cancel, and only before the trip starts. Until this is built, the shipment screen names who to contact and promises no refund
+  amount. Open: which contact it names. Brief: `docs/CLAUDE-DESIGN-BRIEF-mobile-app.md`, step A.5.
+
 ---
 
 ## D) Shipper ERP integration (v1 shipped → Phase 2 planned)
