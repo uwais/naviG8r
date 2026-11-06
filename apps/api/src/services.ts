@@ -2304,8 +2304,12 @@ export function confirmRazorpayCheckoutAuthorization(
   if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
     return { payment: pay };
   }
-  // Closed by expireUnpaidBookings; a payment Razorpay still reports goes through the webhook's cancelled-shipment path.
+  // Closed by expireUnpaidBookings. The signed payment id is kept, status unchanged, so staff can find the hold
+  // when the webhook lags or is unset; the HTTP route saves it.
   if (s.unpaidBookingExpiredAtUtcMs != null) {
+    if (pay.status === "CREATED" || pay.status === "FAILED") {
+      store.payments.set(pay.id, { ...pay, razorpayPaymentId: params.razorpayPaymentId, updatedAtUtcMs: nowUtcMs() });
+    }
     throw new ApiError("booking_expired_unpaid", { detail: `${BOOKING_EXPIRED_SENTENCE} ${BOOKING_EXPIRED_MONEY_SENTENCE}` }, 409);
   }
   refuseCheckoutIfTripLeft(store, s);

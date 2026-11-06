@@ -116,6 +116,7 @@ test("a payment confirm that arrives after the booking expired is refused with t
         "If your bank shows a payment, it comes back within 3 days of when you paid. Your bank may take 5-7 more working days.",
   );
   assert.equal(store.payments.get(shipment.paymentId)!.status, "CREATED");
+  assert.equal(store.payments.get(shipment.paymentId)!.razorpayPaymentId, paymentId);
   assert.equal(store.shipments.get(shipment.id)!.status, "FAILED_CARRIER_REFUNDED");
 });
 
@@ -218,7 +219,7 @@ test("GET /anchor-trips/:id shows the space an expired unpaid booking held as fr
   assert.equal(body.trip.status, "OPEN");
 });
 
-test("POST /v1/payments/razorpay/confirm after the booking expired is refused and the closed booking is saved", async (t) => {
+test("POST /v1/payments/razorpay/confirm after the booking expired is refused and saves the closed booking and the payment id", async (t) => {
   const f = await httpFixture(t);
   t.after(() => { process.env.PAYMENT_PROVIDER = "RAZORPAY"; });
   const booked = bookTestShipment(f.store, {
@@ -250,5 +251,6 @@ test("POST /v1/payments/razorpay/confirm after the booking expired is refused an
 
   const saved = loadStoreFromDisk(process.env.DATA_FILE!);
   assert.equal(saved.payments.get(payment.id)!.status, "CREATED");
+  assert.equal(saved.payments.get(payment.id)!.razorpayPaymentId, paymentId);
   assert.equal(saved.shipments.get(booked.id)!.status, "FAILED_CARRIER_REFUNDED");
 });
