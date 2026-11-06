@@ -35,11 +35,23 @@ String _sendCodeErrorSentence(Object error) {
   };
 }
 
-/// Firebase answers in its own errors; the code exchange with the server answers like any API call.
-String _firebaseErrorSentence(Object error, String fallback) =>
-    error is DioException
-        ? plainErrorSentence(error, fallback)
-        : formatFirebaseAuthError(error);
+/// Firebase answers in its own errors. The server checks the account only at the token exchange,
+/// after the code, so its refusals are worded for the code page here.
+String _firebaseErrorSentence(Object error, String fallback) {
+  if (error is! DioException) return formatFirebaseAuthError(error);
+  final body = error.response?.data;
+  return switch (body is Map ? body["error"] : null) {
+    "user_not_found" =>
+      "No account uses this number. Tap Change number, then register.",
+    "account_inactive" =>
+      "This account is no longer active, so it cannot sign in. Contact NaviG8r if this is wrong.",
+    "firebase_identity_conflict" =>
+      "This number is linked to a different account. Contact NaviG8r to sign in.",
+    "firebase_exchange_rate_limited" =>
+      "Too many tries. Wait a few minutes, then try again.",
+    _ => plainErrorSentence(error, fallback),
+  };
+}
 
 /// The number a carrier just registered with, handed to the sign-in as the router's extra and never
 /// put in the link. A class, not a String: go_router 14 writes an extra it can turn into JSON into

@@ -463,6 +463,43 @@ void main() {
     expect(find.text('Home'), findsOneWidget);
   });
 
+  testWidgets(
+      'with Firebase, a number with no account is told so after the code, not blamed on the connection',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    final firebase = _FakePhoneAuth();
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/firebase/exchange') {
+        return jsonResponse({'error': 'user_not_found'}, 400);
+      }
+      return jsonResponse({});
+    });
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+          path: '/customer/login',
+          builder: (_, __) => SignInScreen(phoneAuth: firebase)),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '9876543210');
+    await tester.tap(find.text('Send code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect(
+        find.text(
+            'No account uses this number. Tap Change number, then register.'),
+        findsOneWidget);
+    expect(find.textContaining('connection'), findsNothing);
+  });
+
   testWidgets('resend replaces stale debug code and challenge state',
       (tester) async {
     FlutterSecureStorage.setMockInitialValues({});
