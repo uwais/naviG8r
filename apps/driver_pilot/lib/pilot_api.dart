@@ -193,15 +193,13 @@ String formatApiError(Object e) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
     final code = body is Map ? body["error"] : null;
-    // A code check and a sign-up count tries, not code requests, so they say so, with the wait in whole minutes.
-    if ((code == "otp_rate_limited" &&
-            e.requestOptions.path.endsWith("/v1/auth/otp/verify")) ||
-        (code == "sign_up_rate_limited" && body["retryAfterMs"] is num)) {
+    if (code == "otp_rate_limited" &&
+        e.requestOptions.path.endsWith("/v1/auth/otp/verify")) {
       final retry = body["retryAfterMs"];
       if (retry is! num) {
         return "Too many tries. Please wait a few minutes and try again.";
       }
-      final minutes = retry > 0 ? (retry / 60000).ceil() : 1;
+      final minutes = retry > 60000 ? (retry / 60000).ceil() : 1;
       return "Too many tries. Please wait $minutes ${minutes == 1 ? "minute" : "minutes"} and try again.";
     }
     if (code == "otp_rate_limited") {
@@ -253,7 +251,7 @@ String formatApiError(Object e) {
       // A 409 from every register screen; without it the screen blamed the connection.
       "phone_already_registered":
           "This number already has an account. Sign in instead.",
-      // A 429 that carries no wait. Sign-ups answer sign_up_rate_limited with their wait, worded above.
+      // A 429 that carries no wait.
       "rate_limited": "Too many tries. Wait a few minutes, then try again.",
       // Invite refusals. The other one, user_not_found, is worded on the invite screens, which can
       // say "invite"; sign-in words it its own way.
@@ -285,7 +283,6 @@ String formatApiError(Object e) {
       "shipment_not_deliverable": "Delivery already confirmed.",
       // Confirm delivery or a delivery photo before the trip has started.
       "trip_not_started": "Start the trip first.",
-      // Sign-ups send their wait and are worded above; this is for an answer without one.
       "sign_up_rate_limited":
           "Too many sign-up tries. Please wait a few minutes and try again.",
     };

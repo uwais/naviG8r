@@ -277,10 +277,8 @@ function consumePushRateLimit(
 }
 
 const SIGN_UP_IP_LIMIT = 30;
-const SIGN_UP_IP_WINDOW_MS = 600_000;
 const SIGN_UP_PHONE_LIMIT = 5;
-/** The same window as sign-in code requests per phone. */
-const SIGN_UP_PHONE_WINDOW_MS = 3_600_000;
+const SIGN_UP_WINDOW_MS = 600_000;
 
 /**
  * The three sign-up routes share one budget per phone number, and one per connecting address only when
@@ -303,16 +301,15 @@ function consumeSignUpRateLimit(
     // The registration function returns the validation error; invalid input gets no phone budget.
   }
   const ipLimit = trustProxy
-    ? limiters.byAddress.consume(`sign-up:ip:${clientIp(req, trustProxy)}`, SIGN_UP_IP_LIMIT, SIGN_UP_IP_WINDOW_MS, now)
+    ? limiters.byAddress.consume(`sign-up:ip:${clientIp(req, trustProxy)}`, SIGN_UP_IP_LIMIT, SIGN_UP_WINDOW_MS, now)
     : { allowed: true, retryAfterSeconds: 0 };
   const phoneLimit = ipLimit.allowed && phoneKey
-    ? limiters.byPhone.consume(`sign-up:phone:${phoneKey}`, SIGN_UP_PHONE_LIMIT, SIGN_UP_PHONE_WINDOW_MS, now)
+    ? limiters.byPhone.consume(`sign-up:phone:${phoneKey}`, SIGN_UP_PHONE_LIMIT, SIGN_UP_WINDOW_MS, now)
     : null;
   const blocked = !ipLimit.allowed ? ipLimit : phoneLimit && !phoneLimit.allowed ? phoneLimit : null;
   if (!blocked) return true;
   res.setHeader("retry-after", String(blocked.retryAfterSeconds));
-  // The app states the real wait from retryAfterMs.
-  json(res, 429, { error: "sign_up_rate_limited", retryAfterMs: blocked.retryAfterSeconds * 1000 });
+  json(res, 429, { error: "sign_up_rate_limited" });
   return false;
 }
 
