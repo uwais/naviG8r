@@ -180,7 +180,6 @@ export function listIntegrationApiKeys(store: Store, orgId: string): Integration
   return [...store.integrationApiKeys.values()].filter((k) => k.orgId === orgId && k.status === "ACTIVE");
 }
 
-/** This and the lookup by idempotency key skip a booking the unpaid expiry closed, so a retry books again. */
 function findShipmentByExternalLoadId(store: Store, orgId: string, externalLoadId: string): Shipment | null {
   const ext = externalLoadId.trim();
   if (!ext) return null;

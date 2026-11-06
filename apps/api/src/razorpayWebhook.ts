@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { authorizationContext, recordAudit } from "./rbac.ts";
 import type { Store } from "./store.ts";
 import type { Payment } from "./types.ts";
+import { expireUnpaidBooking, keepPaymentAfterExpiry } from "./unpaidBookingExpiry.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -78,6 +79,13 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     if (!pay || pay.provider !== "RAZORPAY") return;
     const rid = ent.id ?? pay.razorpayPaymentId;
     if (!rid) return;
+    // A payment that arrives after the booking expired does not reopen it.
+    const shipment = store.shipments.get(pay.shipmentId);
+    if (shipment) expireUnpaidBooking(store, shipment, now);
+    if (store.shipments.get(pay.shipmentId)?.unpaidBookingExpiredAtUtcMs != null) {
+      keepPaymentAfterExpiry(store, pay.id, rid, now);
+      return;
+    }
     if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") return;
     if (shipmentCancelled(store, pay)) return recordPaymentAfterCancel(store, pay, "AUTHORIZED", rid);
     store.payments.set(pay.id, {

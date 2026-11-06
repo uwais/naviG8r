@@ -1,177 +1,248 @@
-import test from "node:test";
-import type { TestContext } from "node:test";
+import { asUser, bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { httpFixture } from "../test/httpFixtures.ts";
-import { BOOKING_EXPIRED_EVENT } from "./notifications.ts";
+import test from "node:test";
+import { once } from "node:events";
+import { createStore } from "./store.ts";
+import { createApp } from "./httpServer.ts";
+import { confirmRazorpayCheckoutAuthorization, publishAnchorTripAsPilotDriver } from "./services.ts";
+import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
+import { serializeResponse } from "./rbacResponses.ts";
+import { captureWorkflowNotifications, workflowSnapshot } from "./notifications.ts";
+import { expireUnpaidBookings, UNPAID_BOOKING_CLOSES_AFTER_MS, UNPAID_BOOKING_WINDOW_MS } from "./unpaidBookingExpiry.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
-import { UNPAID_BOOKING_EXPIRY_MS, UNPAID_BOOKING_GRACE_MS } from "./config.ts";
-import { createIntegrationApiKey, createIntegrationLoad } from "./integrationServices.ts";
-import { resolveIntegrationAuth } from "./integrationAuth.ts";
-import type { Payment } from "./types.ts";
+import { httpFixture } from "../test/httpFixtures.ts";
 
-type Fixture = Awaited<ReturnType<typeof httpFixture>>;
+process.env.PAYMENT_PROVIDER = "RAZORPAY";
+process.env.RAZORPAY_KEY_ID = "rzp_test_expiry";
+process.env.RAZORPAY_KEY_SECRET = "expiry_test_secret";
 
-/** Old enough to be closed: past the 30 minutes the shipper is told and the 10 minutes after. */
-const closedAgeMs = UNPAID_BOOKING_EXPIRY_MS + UNPAID_BOOKING_GRACE_MS + 1000;
+const GURGAON = { lat: 28.4595, lng: 77.0266, label: "Gurugram" };
+const JAIPUR = { lat: 26.9124, lng: 75.7873, label: "Jaipur" };
 
-const moneyLine = "If your bank shows a payment, it comes back within 3 days of when you paid. Your bank may take 5-7 more working days.";
-
-async function book(f: Fixture, token: string, weightKg = 10): Promise<string> {
-  const booked = await f.book(token, { weightKg });
-  assert.equal(booked.status, 201, JSON.stringify(booked.body));
-  return booked.body.shipment.id as string;
+function tripWithBooking(store: ReturnType<typeof createStore>, params: { weightKg: number; ageMs: number }) {
+  const carrier = registerCompliantCarrier(store, {
+    fullName: "Expiry Carrier",
+    phone: "9876500101",
+    orgDisplayName: "Expiry Carrier",
+    vehicleRegistrationNumber: "HR26EX0101",
+    vehicleClass: "MEDIUM",
+    vehicleCapacityKg: 5000,
+  });
+  const trip = publishAnchorTripAsPilotDriver(store, {
+    userId: carrier.user.id,
+    orgId: carrier.org.id,
+    originCity: "Gurugram",
+    destCity: "Jaipur",
+    origin: GURGAON,
+    destination: JAIPUR,
+    windowStart: "2026-04-24T00:00:00+05:30",
+    windowEnd: "2026-04-25T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+  });
+  const booked = bookTestShipment(store, {
+    anchorTripId: trip.id,
+    customerOrgName: "Expiry Buyer",
+    weightKg: params.weightKg,
+    pickupAddress: "Gurugram",
+    dropAddress: "Jaipur",
+    pickup: GURGAON,
+    drop: JAIPUR,
+  });
+  const shipment = { ...booked, createdAtUtcMs: Date.now() - params.ageMs };
+  store.shipments.set(shipment.id, shipment);
+  const payment = store.payments.get(shipment.paymentId)!;
+  store.payments.set(payment.id, { ...payment, razorpayOrderId: `order_${shipment.id}` });
+  return { trip, shipment };
 }
 
-/** The fixture books with the mock provider, which collects at once; this leaves the payment as Razorpay checkout does. */
-function waitingForPayment(f: Fixture, shipmentId: string, ageMs: number, fields: Partial<Payment> = {}): void {
-  const shipment = f.store.shipments.get(shipmentId)!;
-  f.store.shipments.set(shipmentId, { ...shipment, createdAtUtcMs: Date.now() - ageMs });
-  const payment = f.store.payments.get(shipment.paymentId)!;
-  f.store.payments.set(payment.id, { ...payment, provider: "RAZORPAY", status: "CREATED", razorpayOrderId: `order_${shipmentId}`, ...fields });
-}
-const paymentOf = (f: Fixture, shipmentId: string) => f.store.payments.get(f.store.shipments.get(shipmentId)!.paymentId)!;
-const inbox = async (f: Fixture, token: string) =>
-  (await f.request("/v1/notifications", "GET", undefined, token)).body.notifications as Array<{ eventKey: string; shipmentId: string; data: { title: string; body: string } }>;
+test("an unpaid booking stops holding trip space 10 minutes after its 30-minute payment window ends", () => {
+  const store = createStore();
+  const { trip, shipment } = tripWithBooking(store, { weightKg: 1000, ageMs: UNPAID_BOOKING_CLOSES_AFTER_MS + 1000 });
+  assert.equal(store.anchorTrips.get(trip.id)!.status, "FULL");
 
-function withRazorpay(t: TestContext): void {
-  const saved = { provider: process.env.PAYMENT_PROVIDER, secret: process.env.RAZORPAY_KEY_SECRET };
+  expireUnpaidBookings(store);
+
+  const closed = store.shipments.get(shipment.id)!;
+  assert.equal(closed.status, "FAILED_CARRIER_REFUNDED");
+  assert.equal(typeof closed.unpaidBookingExpiredAtUtcMs, "number");
+  assert.equal(store.payments.get(shipment.paymentId)!.status, "FAILED");
+  assert.equal(store.anchorTrips.get(trip.id)!.reservedKg, 0);
+  assert.equal(store.anchorTrips.get(trip.id)!.status, "OPEN");
+});
+
+test("a booking under 30 minutes old, or one already paid, keeps its trip space", () => {
+  const young = createStore();
+  const recent = tripWithBooking(young, { weightKg: 300, ageMs: UNPAID_BOOKING_WINDOW_MS - 60_000 });
+  expireUnpaidBookings(young);
+  assert.equal(young.shipments.get(recent.shipment.id)!.status, "PENDING_CARRIER_ACCEPT");
+  assert.equal(young.anchorTrips.get(recent.trip.id)!.reservedKg, 300);
+
+  const paid = createStore();
+  const old = tripWithBooking(paid, { weightKg: 300, ageMs: UNPAID_BOOKING_CLOSES_AFTER_MS + 60_000 });
+  const payment = paid.payments.get(old.shipment.paymentId)!;
+  paid.payments.set(payment.id, { ...payment, status: "AUTHORIZED", razorpayPaymentId: "pay_paid_in_time" });
+  expireUnpaidBookings(paid);
+  assert.equal(paid.shipments.get(old.shipment.id)!.status, "PENDING_CARRIER_ACCEPT");
+  assert.equal(paid.anchorTrips.get(old.trip.id)!.reservedKg, 300);
+});
+
+test("a payment confirm that arrives after the booking expired is refused and its payment id is kept", () => {
+  const store = createStore();
+  const { shipment } = tripWithBooking(store, { weightKg: 200, ageMs: UNPAID_BOOKING_CLOSES_AFTER_MS + 1000 });
+  const orderId = `order_${shipment.id}`;
+  const paymentId = "pay_late_confirm";
+  const signature = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
+    .update(`${orderId}|${paymentId}`)
+    .digest("hex");
+
+  assert.throws(
+    () => confirmRazorpayCheckoutAuthorization(store, {
+      shipmentId: shipment.id,
+      razorpayOrderId: orderId,
+      razorpayPaymentId: paymentId,
+      razorpaySignature: signature,
+    }),
+    (e: Error & { extra?: Record<string, unknown>; httpStatus?: number }) =>
+      e.message === "booking_expired_unpaid" &&
+      e.httpStatus === 409 &&
+      e.extra?.detail === "This booking expired because it was not paid within 30 minutes. " +
+        "If your bank shows a payment, it comes back within 3 days of when you paid. Your bank may take 5-7 more working days.",
+  );
+  const payment = store.payments.get(shipment.paymentId)!;
+  assert.equal(payment.status, "FAILED");
+  assert.equal(payment.razorpayPaymentId, paymentId);
+  assert.equal(store.shipments.get(shipment.id)!.status, "FAILED_CARRIER_REFUNDED");
+});
+
+test("a payment.authorized webhook after the booking expired leaves it closed and keeps the payment id", () => {
+  const store = createStore();
+  const { trip, shipment } = tripWithBooking(store, { weightKg: 200, ageMs: UNPAID_BOOKING_CLOSES_AFTER_MS + 1000 });
+  applyRazorpayWebhookPayload(store, {
+    event: "payment.authorized",
+    payload: { payment: { entity: { id: "pay_late_webhook", order_id: `order_${shipment.id}`, status: "authorized" } } },
+  });
+  const payment = store.payments.get(shipment.paymentId)!;
+  assert.equal(payment.status, "FAILED");
+  assert.equal(payment.razorpayPaymentId, "pay_late_webhook");
+  assert.equal(store.shipments.get(shipment.id)!.status, "FAILED_CARRIER_REFUNDED");
+  assert.equal(store.anchorTrips.get(trip.id)!.reservedKg, 0);
+});
+
+test("a payment that arrives after the booking closed sends no payment status notice", () => {
+  const store = createStore();
+  const { shipment } = tripWithBooking(store, { weightKg: 200, ageMs: UNPAID_BOOKING_CLOSES_AFTER_MS + 1000 });
+  const snapshot = workflowSnapshot(store);
+  const paymentNotices = () =>
+    [...store.notifications.values()].filter((n) => n.shipmentId === shipment.id && n.eventKey === "payment.status_changed").length;
+
+  expireUnpaidBookings(store);
+  captureWorkflowNotifications(store, snapshot);
+  const afterClose = paymentNotices();
+  assert.ok(afterClose > 0, "closing the booking tells the shipper, so the shipper is a recipient");
+
+  applyRazorpayWebhookPayload(store, {
+    event: "payment.authorized",
+    payload: { payment: { entity: { id: "pay_late_notice", order_id: `order_${shipment.id}`, status: "authorized" } } },
+  });
+  captureWorkflowNotifications(store, snapshot);
+  assert.equal(paymentNotices(), afterClose);
+});
+
+test("a booking paid in the 10 minutes after its 30-minute window is still confirmed", () => {
+  const store = createStore();
+  const { trip, shipment } = tripWithBooking(store, { weightKg: 200, ageMs: UNPAID_BOOKING_WINDOW_MS + 5 * 60_000 });
+  expireUnpaidBookings(store);
+  assert.equal(store.shipments.get(shipment.id)!.status, "PENDING_CARRIER_ACCEPT");
+
+  const orderId = `order_${shipment.id}`;
+  const paymentId = "pay_in_grace";
+  const signature = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
+    .update(`${orderId}|${paymentId}`)
+    .digest("hex");
+  const { payment } = confirmRazorpayCheckoutAuthorization(store, {
+    shipmentId: shipment.id,
+    razorpayOrderId: orderId,
+    razorpayPaymentId: paymentId,
+    razorpaySignature: signature,
+  });
+  assert.equal(payment.status, "AUTHORIZED");
+  assert.equal(store.anchorTrips.get(trip.id)!.reservedKg, 200);
+});
+
+test("a load booked through the ERP integration is not closed by the unpaid expiry", () => {
+  const store = createStore();
+  const { trip, shipment } = tripWithBooking(store, { weightKg: 200, ageMs: UNPAID_BOOKING_CLOSES_AFTER_MS + 60 * 60_000 });
+  store.shipments.set(shipment.id, { ...shipment, integrationConnectionId: "intconn_erp" });
+  expireUnpaidBookings(store);
+  const kept = store.shipments.get(shipment.id)!;
+  assert.equal(kept.status, "PENDING_CARRIER_ACCEPT");
+  assert.equal(kept.unpaidBookingExpiredAtUtcMs, undefined);
+  assert.equal(store.payments.get(shipment.paymentId)!.status, "CREATED");
+  assert.equal(store.anchorTrips.get(trip.id)!.reservedKg, 200);
+});
+
+test("the shipper sees when an unpaid booking expired", () => {
+  const store = createStore();
+  const { shipment } = tripWithBooking(store, { weightKg: 200, ageMs: UNPAID_BOOKING_CLOSES_AFTER_MS + 1000 });
+  expireUnpaidBookings(store);
+  const closed = store.shipments.get(shipment.id)!;
+  const shipper = [...store.memberships.values()].find((m) => m.orgId === closed.customerOrgId)!;
+  const shown = asUser(store, shipper.userId, () => serializeResponse(closed), shipper.orgId) as Record<string, unknown>;
+  assert.equal(shown.unpaidBookingExpiredAtUtcMs, closed.unpaidBookingExpiredAtUtcMs);
+});
+
+test("GET /anchor-trips/:id shows the space an expired unpaid booking held as free", async (t) => {
+  const previousDataFile = process.env.DATA_FILE;
+  t.after(() => { process.env.DATA_FILE = previousDataFile; });
+  process.env.DATA_FILE = `/tmp/navig8r-unpaid-expiry-${Date.now()}-${Math.random()}.json`;
+  const app = await createApp();
+  app.server.listen(0, "127.0.0.1");
+  await once(app.server, "listening");
+  t.after(() => app.server.close());
+  const address = app.server.address();
+  assert.ok(address && typeof address === "object");
+  const { trip } = tripWithBooking(app.store, { weightKg: 1000, ageMs: UNPAID_BOOKING_CLOSES_AFTER_MS + 1000 });
+
+  const res = await fetch(`http://127.0.0.1:${address.port}/anchor-trips/${trip.id}`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { trip: { reservedKg: number; status: string } };
+  assert.equal(body.trip.reservedKg, 0);
+  assert.equal(body.trip.status, "OPEN");
+});
+
+test("POST /v1/payments/razorpay/confirm after the booking expired saves the payment id", async (t) => {
+  const f = await httpFixture(t);
+  t.after(() => { process.env.PAYMENT_PROVIDER = "RAZORPAY"; });
+  const booked = bookTestShipment(f.store, {
+    anchorTripId: f.trip.id,
+    customerOrg: { id: f.shipperA.org.id, displayName: f.shipperA.org.displayName },
+    customerOrgName: f.shipperA.org.displayName,
+    weightKg: 10,
+    pickupAddress: "Synthetic A",
+    dropAddress: "Synthetic B",
+  });
+  const orderId = `order_${booked.id}`;
+  const paymentId = "pay_late_http_confirm";
+  f.store.shipments.set(booked.id, { ...booked, createdAtUtcMs: Date.now() - UNPAID_BOOKING_CLOSES_AFTER_MS - 1000 });
+  const payment = f.store.payments.get(booked.paymentId)!;
+  f.store.payments.set(payment.id, { ...payment, provider: "RAZORPAY", status: "CREATED", razorpayOrderId: orderId });
   process.env.PAYMENT_PROVIDER = "RAZORPAY";
-  process.env.RAZORPAY_KEY_SECRET = "synthetic_checkout_secret";
-  t.after(() => {
-    process.env.PAYMENT_PROVIDER = saved.provider;
-    if (saved.secret === undefined) delete process.env.RAZORPAY_KEY_SECRET;
-    else process.env.RAZORPAY_KEY_SECRET = saved.secret;
-  });
-}
-const signed = (orderId: string, paymentId: string) =>
-  crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!).update(`${orderId}|${paymentId}`).digest("hex");
 
-test("a booking not paid within 30 minutes closes on the next request: room freed, shipper told, no money moved", async t => {
-  const f = await httpFixture(t);
-  assert.deepEqual([UNPAID_BOOKING_EXPIRY_MS, UNPAID_BOOKING_GRACE_MS], [30 * 60 * 1000, 10 * 60 * 1000]);
-  const expired = await book(f, f.tokens.shipperB, 1000);
-  waitingForPayment(f, expired, closedAgeMs);
-  assert.equal(f.store.anchorTrips.get(f.trip.id)?.status, "FULL", "precondition: the unpaid booking fills the trip");
-
-  const read = await f.request(`/shipments/${expired}`, "GET", undefined, f.tokens.shipperB);
-  assert.equal(read.status, 200);
-  assert.equal(read.body.shipment.status, "FAILED_CARRIER_REFUNDED");
-  assert.equal(typeof read.body.shipment.unpaidBookingExpiredAtUtcMs, "number", "the shipper app reads why it was closed");
-  assert.deepEqual([f.store.anchorTrips.get(f.trip.id)?.status, f.store.anchorTrips.get(f.trip.id)?.reservedKg], ["OPEN", 0], "its room is freed");
-  assert.equal(paymentOf(f, expired).status, "CREATED", "no money moved, so nothing is refunded");
-
-  const saved = loadStoreFromDisk(process.env.DATA_FILE!);
-  assert.equal(saved.shipments.get(expired)?.status, "FAILED_CARRIER_REFUNDED", "saved");
-  assert.deepEqual([...saved.auditEvents.values()].filter((row) => row.action === "BOOKING_EXPIRED_UNPAID").map((row) => [row.resourceId, row.previousState, row.newState, row.actorUserId]),
-    [[expired, "PENDING_CARRIER_ACCEPT", "FAILED_CARRIER_REFUNDED", "system:unpaid-booking-expiry"]]);
-
-  const told = (await inbox(f, f.tokens.shipperB)).filter((n) => n.shipmentId === expired && n.eventKey !== "payment.status_changed");
-  assert.deepEqual(told.map((n) => [n.eventKey, n.data.title, n.data.body]),
-    [[BOOKING_EXPIRED_EVENT, "This booking expired", `This booking expired because it was not paid within 30 minutes. ${moneyLine}`]], "no Shipment cancelled notice; Razorpay may hold a payment, so the money line");
-  assert.deepEqual((await inbox(f, f.tokens.carrierA)).filter((n) => n.shipmentId === expired && n.eventKey === BOOKING_EXPIRED_EVENT), []);
-
-  const rebooked = await f.book(f.tokens.shipperA, { weightKg: 1000 });
-  assert.equal(rebooked.status, 201, "another shipper can book the freed room");
-});
-
-test("a booking younger than 30 minutes, or already paid, keeps its room", async t => {
-  const f = await httpFixture(t);
-  const young = await book(f, f.tokens.shipperB, 300);
-  const authorized = await book(f, f.tokens.shipperB, 300);
-  const collected = await book(f, f.tokens.shipperB, 300);
-  waitingForPayment(f, young, UNPAID_BOOKING_EXPIRY_MS - 60_000);
-  waitingForPayment(f, authorized, closedAgeMs, { status: "AUTHORIZED", razorpayPaymentId: "pay_held" });
-  const collectedShipment = f.store.shipments.get(collected)!;
-  f.store.shipments.set(collected, { ...collectedShipment, createdAtUtcMs: Date.now() - closedAgeMs });
-
-  assert.equal((await f.request("/anchor-trips", "GET")).status, 200);
-  for (const id of [young, authorized, collected]) {
-    assert.equal(f.store.shipments.get(id)?.status, "PENDING_CARRIER_ACCEPT", id);
-    assert.equal(f.store.shipments.get(id)?.unpaidBookingExpiredAtUtcMs, undefined, id);
-  }
-  assert.equal(f.store.anchorTrips.get(f.trip.id)?.reservedKg, 900);
-});
-
-test("a payment confirmed after the booking expired is refused with the server's sentence", async t => {
-  const f = await httpFixture(t);
-  const late = await book(f, f.tokens.shipperB);
-  waitingForPayment(f, late, closedAgeMs, { razorpayOrderId: "order_late" });
-  // Booking itself would ask Razorpay for an order, which tests cannot, so Razorpay is on only from here.
-  withRazorpay(t);
-
-  const refused = await f.request("/v1/payments/razorpay/confirm", "POST",
-    { shipmentId: late, razorpayOrderId: "order_late", razorpayPaymentId: "pay_late", razorpaySignature: signed("order_late", "pay_late") }, f.tokens.shipperB);
+  const signature = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
+    .update(`${orderId}|${paymentId}`)
+    .digest("hex");
+  const refused = await f.request("/v1/payments/razorpay/confirm", "POST", {
+    shipmentId: booked.id,
+    razorpayOrderId: orderId,
+    razorpayPaymentId: paymentId,
+    razorpaySignature: signature,
+  }, f.tokens.shipperA);
   assert.equal(refused.status, 409);
-  assert.deepEqual(refused.body, { error: "booking_expired_unpaid", detail: `This booking expired because it was not paid within 30 minutes. ${moneyLine}` });
-  assert.deepEqual([paymentOf(f, late).status, f.store.shipments.get(late)?.status], ["CREATED", "FAILED_CARRIER_REFUNDED"]);
-});
+  assert.equal(refused.body.error, "booking_expired_unpaid");
 
-test("an ERP load is never closed by the unpaid expiry, and an ERP retry never gets back a booking it closed", async t => {
-  const f = await httpFixture(t);
-  const { token } = createIntegrationApiKey(f.store, f.shipperA.org.id);
-  const ctx = resolveIntegrationAuth(f.store, { bearerToken: token });
-  const load = (externalLoadId: string, idempotencyKey: string) => createIntegrationLoad(f.store, ctx, {
-    externalLoadId, idempotencyKey, weightKg: 10, pickupAddress: "Synthetic A", dropAddress: "Synthetic B",
-    pickup: { lat: 28.4595, lng: 77.0266 }, drop: { lat: 26.9124, lng: 75.7873 }, lanePreference: "explicit", anchorTripId: f.trip.id,
-  });
-  const erp = (await load("ERP-OLD", "key-old")).shipment.id;
-  waitingForPayment(f, erp, 24 * 60 * 60 * 1000);
-  assert.equal((await f.request("/anchor-trips", "GET")).status, 200);
-  assert.deepEqual([f.store.shipments.get(erp)?.status, f.store.shipments.get(erp)?.unpaidBookingExpiredAtUtcMs], ["PENDING_CARRIER_ACCEPT", undefined]);
-
-  // A load closed by the expiry before ERP loads were left out of it.
-  const closedEarlier = (await load("ERP-CLOSED", "key-closed")).shipment;
-  f.store.shipments.set(closedEarlier.id, { ...closedEarlier, status: "FAILED_CARRIER_REFUNDED", unpaidBookingExpiredAtUtcMs: Date.now() });
-  const byKey = await load("ERP-OTHER", "key-closed");
-  const byLoadId = await load("ERP-CLOSED", "key-new");
-  for (const retry of [byKey, byLoadId]) {
-    assert.equal(retry.created, true);
-    assert.notEqual(retry.shipment.id, closedEarlier.id);
-    assert.equal(retry.shipment.status, "PENDING_CARRIER_ACCEPT");
-  }
-});
-
-test("the shipper is told 30 minutes, but a booking closes only 10 minutes after that, so a payment just past 30 still goes through", async t => {
-  const f = await httpFixture(t);
-  const inGrace = await book(f, f.tokens.shipperB);
-  waitingForPayment(f, inGrace, UNPAID_BOOKING_EXPIRY_MS + 9 * 60_000, { razorpayOrderId: "order_in_grace" });
-  withRazorpay(t);
-
-  const confirmed = await f.request("/v1/payments/razorpay/confirm", "POST",
-    { shipmentId: inGrace, razorpayOrderId: "order_in_grace", razorpayPaymentId: "pay_in_grace", razorpaySignature: signed("order_in_grace", "pay_in_grace") }, f.tokens.shipperB);
-  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
-  assert.deepEqual([paymentOf(f, inGrace).status, f.store.shipments.get(inGrace)?.status], ["AUTHORIZED", "PENDING_CARRIER_ACCEPT"]);
-});
-
-test("a payment Razorpay reports after the booking expired leaves it looking unpaid: the id is kept for staff, and no payment notice goes out", async t => {
-  const f = await httpFixture(t);
-  const late = await book(f, f.tokens.shipperB);
-  waitingForPayment(f, late, closedAgeMs, { razorpayOrderId: "order_after_expiry" });
-  assert.equal((await f.request("/anchor-trips", "GET")).status, 200);
-  assert.equal(f.store.shipments.get(late)?.status, "FAILED_CARRIER_REFUNDED", "precondition: expired");
-  const savedSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-  process.env.RAZORPAY_WEBHOOK_SECRET = "synthetic_webhook_secret";
-  t.after(() => { if (savedSecret === undefined) delete process.env.RAZORPAY_WEBHOOK_SECRET; else process.env.RAZORPAY_WEBHOOK_SECRET = savedSecret; });
-
-  // The fixture moving the mock payment back to CREATED made one notice already; only what the webhook adds counts.
-  const paymentNotices = async () => (await inbox(f, f.tokens.shipperB)).filter((n) => n.shipmentId === late && n.eventKey === "payment.status_changed").length;
-  const noticesBefore = await paymentNotices();
-  const event = { event: "payment.authorized", payload: { payment: { entity: { id: "pay_after_expiry", order_id: "order_after_expiry" } } } };
-  const signature = crypto.createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET).update(JSON.stringify(event)).digest("hex");
-  const answered = await f.request("/v1/payments/razorpay/webhook", "POST", event, undefined, { "x-razorpay-signature": signature });
-  assert.equal(answered.status, 200);
-
-  assert.deepEqual([paymentOf(f, late).status, f.store.shipments.get(late)?.status], ["CREATED", "FAILED_CARRIER_REFUNDED"]);
-  assert.deepEqual([...f.store.auditEvents.values()].filter((row) => row.action === "PAYMENT_AFTER_CANCEL" && row.resourceId === late).map((row) => [row.reasonCode, row.razorpayPaymentId]),
-    [["AUTHORIZED", "pay_after_expiry"]], "staff can find the late payment");
-  assert.equal(await paymentNotices(), noticesBefore, "no payment status notice for the late payment");
-});
-
-test("a booking that expired before Razorpay made its order is told only that it expired: nothing could be paid", async t => {
-  const f = await httpFixture(t);
-  const noOrder = await book(f, f.tokens.shipperB);
-  waitingForPayment(f, noOrder, closedAgeMs, { razorpayOrderId: undefined });
-  const told = (await inbox(f, f.tokens.shipperB)).filter((n) => n.shipmentId === noOrder && n.eventKey === BOOKING_EXPIRED_EVENT);
-  assert.deepEqual(told.map((n) => n.data.body), ["This booking expired because it was not paid within 30 minutes."]);
+  const saved = loadStoreFromDisk(process.env.DATA_FILE!).payments.get(payment.id)!;
+  assert.equal(saved.status, "FAILED");
+  assert.equal(saved.razorpayPaymentId, paymentId);
 });

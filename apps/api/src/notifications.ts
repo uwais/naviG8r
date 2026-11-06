@@ -8,7 +8,6 @@ import { randomUUID } from "node:crypto";
 import { authorizationContext, effectivePermissions, legacyRoles, principalFor, recordAudit, requirePermission, type Principal } from "./rbac.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import { assignedDriverMaySee } from "./tripAssignmentRules.ts";
-import { BOOKING_EXPIRED_MONEY_SENTENCE, BOOKING_EXPIRED_SENTENCE } from "./config.ts";
 import type { Store } from "./store.ts";
 import type { EwayBillStartBlockReason } from "./ewayBillStartGate.ts";
 import { enqueuePushIntentForNotification } from "./features/push/push.ts";
@@ -56,8 +55,8 @@ export function captureWorkflowNotifications(store: Store, previous: WorkflowSna
     else if (old.status !== "BOOKED" && shipment.status === "BOOKED") emit(shipment, "shipment.carrier_accepted", shipment.acceptedAtUtcMs ?? shipment.updatedAtUtcMs);
     else if (old.status !== "FAILED_CARRIER_REFUNDED" && shipment.status === "FAILED_CARRIER_REFUNDED") {
       if (shipment.leftBehindAtUtcMs != null) tellShipperTheTripLeft(store, shipment);
-      else if (shipment.unpaidBookingExpiredAtUtcMs != null) notifyShipper(store, shipment, BOOKING_EXPIRED_EVENT, "This booking expired", bookingExpiredBody(store, shipment));
-      else emit(shipment, "shipment.cancelled", shipment.updatedAtUtcMs, undefined, cancelledShipperBody(store, shipment, previous.payments.get(shipment.paymentId)?.status));
+      // An unpaid booking the expiry closed (unpaidBookingExpiry.ts) was never cancelled; its payment notice tells the shipper.
+      else if (shipment.unpaidBookingExpiredAtUtcMs == null) emit(shipment, "shipment.cancelled", shipment.updatedAtUtcMs, undefined, cancelledShipperBody(store, shipment, previous.payments.get(shipment.paymentId)?.status));
     }
     if ((!old?.podAt || old.podAt === 0) && shipment.podAtUtcMs) emit(shipment, "shipment.pod_submitted", shipment.podAtUtcMs);
     if (!old?.podAcceptedAt && shipment.podAcceptedAtUtcMs) emit(shipment, "shipment.pod_accepted", shipment.podAcceptedAtUtcMs);
@@ -205,16 +204,6 @@ function tellShipperTheTripLeft(store: Store, shipment: Shipment): void {
     ? "NaviG8r is refunding your payment. Your bank may take 5-7 working days."
     : "If your bank shows a payment, it comes back within 3 days. Book another trip when you are ready.";
   notifyShipper(store, shipment, SHIPMENT_LEFT_BEHIND_EVENT, "This trip left without your shipment", body);
-}
-
-/** A booking not paid for in time was closed (services.ts). Only the shipper is told: the carrier could not accept it. */
-export const BOOKING_EXPIRED_EVENT = "shipment.booking_expired";
-
-/** Once Razorpay has an order, the shipper may have paid in checkout without the payment reaching NaviG8r. */
-function bookingExpiredBody(store: Store, shipment: Shipment): string {
-  const payment = store.payments.get(shipment.paymentId);
-  const mayBeHeld = payment?.provider === "RAZORPAY" && payment.razorpayOrderId != null;
-  return mayBeHeld ? `${BOOKING_EXPIRED_SENTENCE} ${BOOKING_EXPIRED_MONEY_SENTENCE}` : BOOKING_EXPIRED_SENTENCE;
 }
 
 function createNotifications(store: Store, shipment: Shipment, eventId: string, eventKey: string, createdAtUtcMs: number, messageId?: string, actorUserId?: string, shipperBody?: string): void {
