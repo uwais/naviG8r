@@ -99,7 +99,6 @@ export function updateIntegrationConnection(
     paymentPolicy?: IntegrationConnection["paymentPolicy"];
     displayName?: string;
     regenerateWebhookSecret?: boolean;
-    /** Who asks; only NaviG8r platform OPS or ADMIN may change paymentPolicy. */
     changedByUserId?: string;
   },
 ): IntegrationConnection {
@@ -373,7 +372,6 @@ export function getIntegrationShipmentTracking(store: Store, orgId: string, ship
   const loc = trip.lastLiveLocation ?? null;
   const staleMs = 15 * 60 * 1000;
   const fresh = loc != null && now - loc.recordedAtUtcMs <= staleMs;
-  // The same rule as the app: a shipper sees the truck only while its own goods are on it.
   const shipperMaySeeTruck = shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
   const isLive = fresh && shipperMaySeeTruck;
   return {

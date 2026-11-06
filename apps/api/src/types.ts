@@ -182,7 +182,6 @@ export type OtpChallenge = {
   status: OtpChallengeStatus;
   expiresAtUtcMs: number;
   createdAtUtcMs: number;
-  /** Wrong codes entered so far; absent on challenges saved before the count existed. */
   wrongCodeCount?: number;
 };
 
