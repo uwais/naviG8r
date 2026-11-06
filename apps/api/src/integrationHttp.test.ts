@@ -60,6 +60,19 @@ async function postJson(
   });
 }
 
+async function patchJson(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
 async function customerBearer(baseUrl: string): Promise<{ token: string; orgId: string }> {
   const phone = "9111008800";
   const reg = await postJson(baseUrl, "/v1/pilot/customer/register", {

@@ -321,6 +321,8 @@ test("ERP tracking, snapshot and webhooks give a shipper the truck location only
   store.payments.set(unpaid.id, { ...unpaid, status: "CREATED" });
 
   acceptCarrierShipment(store, { shipmentId: booked.id, userId: driver.user.id });
+  // A trip starts only once every accepted booking's e-way bill is final.
+  addFinalTestEwayBill(store, booked.id);
   startAnchorTripAsPilot(store, { userId: driver.user.id, tripId: trip.id });
   reportAnchorTripLocation(store, driver.user.id, trip.id, { lat: 28.47, lng: 77.04 });
 

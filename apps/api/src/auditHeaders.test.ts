@@ -4,6 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type http from "node:http";
 import { httpFixture } from "../test/httpFixtures.ts";
+import { addTestPodPhoto, startTestTrip } from "../test/fixtures.ts";
 import { authorizationContext } from "./rbac.ts";
 import { guardRequest, requestContext } from "./rbacRoutes.ts";
 
@@ -13,6 +14,9 @@ test("audit rows ignore reason and represented-member headers sent by a carrier 
   const f = await httpFixture(t);
   const id = (await f.book()).body.shipment.id;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  // Delivery needs a started trip and a delivery photo.
+  startTestTrip(f.store, id);
+  addTestPodPhoto(f.store, id);
   assert.equal((await f.request(`/shipments/${id}/driver-pod`, "POST", {}, f.tokens.carrierA, staffHeaders(f.ops.user.id))).status, 200);
   assert.equal((await f.request(`/shipments/${id}/accept-pod`, "POST", {}, f.tokens.shipperA, staffHeaders(f.ops.user.id))).status, 200);
   for (const action of ["POD_UPLOADED", "POD_ACCEPTED"]) {
@@ -28,6 +32,8 @@ test("ops acting for a carrier member still records the reason and the represent
   const f = await httpFixture(t);
   const id = (await f.book()).body.shipment.id;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
+  startTestTrip(f.store, id);
+  addTestPodPhoto(f.store, id);
   assert.equal((await f.request(`/shipments/${id}/driver-pod`, "POST", {}, f.tokens.ops, staffHeaders(f.carrierA.user.id))).status, 200);
   const row = [...f.store.auditEvents.values()].find(e => e.action === "POD_UPLOADED" && e.resourceId === id);
   assert.ok(row);
