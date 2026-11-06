@@ -7,9 +7,7 @@ import type {
 import type { Store } from "./store.ts";
 import { signWebhookPayload } from "./integrationAuth.ts";
 import { randomUUID } from "node:crypto";
-import http from "node:http";
-import https from "node:https";
-import { checkWebhookAddress, lookupOnly, WEBHOOK_ADDRESS_REFUSED_SENTENCE, type CheckedWebhookAddress } from "./integrationWebhookAddress.ts";
+import { postWebhookToPublicAddress } from "./integrationWebhookAddress.ts";
 
 const EVENT_VERSION = "2026-06-01";
 const WEBHOOK_RETRY_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 24 * 60 * 60_000];
@@ -252,49 +250,6 @@ export function outboundWebhooksOff(): boolean {
   return process.env.OUTBOUND_WEBHOOKS_OFF === "1";
 }
 
-const WEBHOOK_ERROR_BODY_MAX_BYTES = 4 * 1024;
-
-// Tests and the local practice server (NODE_ENV=test) send webhooks to a listener on this machine; no deployed API runs with test.
-function privateWebhookAddressesAllowed(): boolean {
-  return process.env.NODE_ENV === "test";
-}
-
-/**
- * POSTs to the addresses the check returned, never resolving the name again; the URL's host name still goes in the
- * Host header and the TLS certificate check. A redirect is not followed, and only the start of an error answer is read.
- */
-function postToCheckedAddress(webhookUrl: string, headers: Record<string, string>, body: string, checked: CheckedWebhookAddress[]): Promise<{ status: number; statusText: string; errorText: string }> {
-  const url = new URL(webhookUrl);
-  return new Promise((resolve, reject) => {
-    const request = (url.protocol === "https:" ? https : http).request(url, {
-      method: "POST",
-      headers: { ...headers, "content-length": String(Buffer.byteLength(body)) },
-      lookup: lookupOnly(checked),
-      signal: AbortSignal.timeout(30_000),
-    }, (res) => {
-      const status = res.statusCode ?? 0;
-      const statusText = res.statusMessage ?? "";
-      if (status >= 200 && status < 300) {
-        res.destroy();
-        return resolve({ status, statusText, errorText: "" });
-      }
-      const chunks: Buffer[] = [];
-      let length = 0;
-      const finish = () => resolve({ status, statusText, errorText: Buffer.concat(chunks).subarray(0, WEBHOOK_ERROR_BODY_MAX_BYTES).toString("utf8") });
-      res.on("data", (chunk: Buffer) => {
-        chunks.push(chunk);
-        length += chunk.length;
-        if (length >= WEBHOOK_ERROR_BODY_MAX_BYTES) res.destroy();
-      });
-      res.on("end", finish);
-      res.on("close", finish);
-      res.on("error", finish);
-    });
-    request.on("error", reject);
-    request.end(body);
-  });
-}
-
 export async function deliverIntegrationWebhook(
   delivery: IntegrationWebhookDelivery,
   webhookSecret: string | undefined,
@@ -309,13 +264,7 @@ export async function deliverIntegrationWebhook(
   }
 
   try {
-    const checked = await checkWebhookAddress(delivery.webhookUrl, privateWebhookAddressesAllowed());
-    if (!checked) return { ok: false, httpStatus: 0, error: WEBHOOK_ADDRESS_REFUSED_SENTENCE };
-    const res = await postToCheckedAddress(delivery.webhookUrl, headers, delivery.payloadJson, checked);
-    if (res.status >= 200 && res.status < 300) {
-      return { ok: true, httpStatus: res.status };
-    }
-    return { ok: false, httpStatus: res.status, error: res.errorText.slice(0, 500) || res.statusText };
+    return await postWebhookToPublicAddress(delivery.webhookUrl, headers, delivery.payloadJson);
   } catch (e: any) {
     return { ok: false, httpStatus: 0, error: String(e?.message ?? e) };
   }
