@@ -76,12 +76,13 @@ void main() {
 
   group('the board', () {
     testWidgets(
-        'the office Home opens the Load Board: towns, weight, size, days, and no amount or shipper',
+        'the Load Board tab opens the board: towns, weight, size, days, and no amount or shipper',
         (tester) async {
       signIn(ownerServer());
       await app.mountCarrierApp(tester, '/driver', size: const Size(360, 2000));
-      expect(find.text('Loads shippers posted. Add a trip for one.'), findsOneWidget);
-      await tapButton(tester, 'Load Board');
+      await tester.tap(find.descendant(
+          of: find.byType(NavigationBar), matching: find.text('Load Board')));
+      await tester.pumpAndSettle();
 
       expect(find.text('Open loads, soonest pickup first.'), findsOneWidget);
       final words = wordsOnScreen(tester);
@@ -93,7 +94,7 @@ void main() {
       expect(find.text('Add a trip for this load'), findsOneWidget);
     });
 
-    testWidgets('a driver gets no Load Board card, and its address sends them Home',
+    testWidgets('a driver gets no Load Board tab, and its address sends them Home',
         (tester) async {
       final asked = signIn(app.CarrierServer(
           allowed: app.driverAllowed,

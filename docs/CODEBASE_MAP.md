@@ -36,7 +36,7 @@ page's other cards. Read only; it reads `GET /ops/posted-loads`.
 | `posted_load_words.dart` | The plain words both sides use for a posted load: route, size, pickup days, state label, and India calendar days |
 | `post_a_load.dart` | Shipper: the Post a load form, opened from a route search that found nothing (`LoadToPost` carries the search in memory) |
 | `my_loads.dart` | Shipper: My loads, each load with the trips carriers added; Book opens today's `/customer/book` for that trip |
-| `load_board_screen.dart` | Carrier office: the board, and the Home card that opens it. `seesLoadBoard()` is the office check (`trip.assign`) |
+| `load_board_screen.dart` | Carrier office: the board, opened from the office's Load Board tab. `seesLoadBoard()` is the office check (`trip.assign`) |
 | `trip_for_load.dart` | Carrier office: what today's Add a trip form gets for a load (`LoadForTrip`), the line above the form, and the server's refusals in words |
 | `load_alerts_switch.dart` | Carrier office: the Load alerts on or off switch on the Company screen |
 
@@ -46,6 +46,11 @@ Wiring outside the folder: the Post a load button is in `_NoMatchBox` (`shipper/
 `DriverPublishTripScreen`; access is in `organization_access.dart`; notice taps go through `openPostedLoadNotice`
 (`notification_center.dart`) from the Updates rows, the bell banner (`notification_bell.dart`) and a push
 (`_openPushNotification` in `main.dart`).
+
+The office tabs (owner, 5 Nov 2026) are Home, Bookings, Trips, Load Board, Profile, in `DriverShell`
+(`_officeTabPaths`, `_officeTabs`, `_indexForPath` in `driver_flow.dart`); a driver keeps Home, Trips, Profile.
+Add trip is no longer a tab: it is a button on the office Home and at the top of Trips, and `/driver/publish` lights
+the Trips tab. `test/office_tabs_test.dart` covers the tabs and both buttons.
 
 ## Entry points
 
@@ -96,6 +101,10 @@ should see the new line on the card in the test, and `flutter test` pass.
   (`routeForPostedLoad.ts`) replaces whatever `originCity`, `destCity`, `origin` and `destination` were sent with the
   load's towns and its points rounded to 0.05 degrees, so `DriverPublishTripScreen` with `forLoad` shows no place
   search and sends no places.
+- **A pushed page leaves the router's address as it was.** With Add trip pushed over Trips,
+  `currentConfiguration.uri` still says `/driver/loads`, and the form's closing `go("/driver/loads")` keeps the Trips
+  screen as it was, so the new trip would not show. Trips reloads when `currentConfiguration.lastOrNull` (the top
+  page) is itself again; checking the address instead never fires.
 - **Post a load and a trip for a load take their data as the router's extra.** A reload has none, so
   `/customer/post-load` goes back to the route search and `/driver/load-board/trip` back to the board.
 - **The Load Board sweep runs before every request**, right after the unpaid-booking expiry in `httpServer.ts`, so a

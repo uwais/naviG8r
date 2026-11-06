@@ -22,20 +22,6 @@ bool seesLoadBoard() =>
     AuthorizationSession.can("trip.assign") &&
     AuthorizationSession.can("trip.publish");
 
-/// On the office's Home. "Trips" there already means the carrier's own trips, so this keeps its own name.
-class LoadBoardHomeCard extends StatelessWidget {
-  const LoadBoardHomeCard({required this.onOpen, super.key});
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) => !seesLoadBoard()
-      ? const SizedBox.shrink()
-      : NvListCard(
-          title: "Load Board",
-          subtitle: "Loads shippers posted. Add a trip for one.",
-          onOpen: onOpen);
-}
-
 class LoadBoardScreen extends StatefulWidget {
   const LoadBoardScreen({super.key});
 

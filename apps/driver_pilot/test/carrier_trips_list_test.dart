@@ -33,7 +33,9 @@ void main() {
         (tester) async {
       signInWith(
           Server(allowed: ownerAllowed, trips: trips, bookings: bookings));
-      await mount(tester, const DriverLoadsScreen());
+      // Tall enough that all three open cards are built under the Add trip button.
+      await mount(tester, const DriverLoadsScreen(),
+          size: const Size(360, 1000));
       for (final chip in ['Open', 'On the way', 'Done']) {
         expect(find.widgetWithText(ChoiceChip, chip), findsOneWidget,
             reason: 'copy.md Trips list chips');

@@ -95,14 +95,15 @@ class DriverShell extends StatelessWidget {
   final Widget child;
   final bool showBottomNav;
 
-  // Drivers do not publish or manage bookings, so they get three tabs; the office gets five.
+  // Drivers do not manage bookings or see the Load Board, so they get three tabs; the office gets five.
+  // Add trip is a button on the office Home and Trips, not a tab (owner, 5 Nov 2026).
   static bool get _forDriver => DriverSession.carrierRole == "DRIVER";
 
   static const _officeTabPaths = [
     "/driver",
     "/driver/shipments",
     "/driver/loads",
-    "/driver/publish",
+    "/driver/load-board",
     "/driver/profile",
   ];
   static const _driverTabPaths = [
@@ -125,9 +126,9 @@ class DriverShell extends StatelessWidget {
         selectedIcon: Icon(Icons.local_shipping),
         label: "Trips"),
     NavigationDestination(
-        icon: Icon(Icons.add_road_outlined),
-        selectedIcon: Icon(Icons.add_road),
-        label: "Add trip"),
+        icon: Icon(Icons.list_alt_outlined),
+        selectedIcon: Icon(Icons.list_alt),
+        label: "Load Board"),
     NavigationDestination(
         icon: Icon(Icons.person_outline),
         selectedIcon: Icon(Icons.person),
@@ -170,11 +171,13 @@ class DriverShell extends StatelessWidget {
         path.startsWith("/driver/shipment/")) {
       return 1;
     }
-    if (path.startsWith("/driver/loads") || path.startsWith("/driver/trip/")) {
+    if (path.startsWith("/driver/loads") ||
+        path.startsWith("/driver/trip/") ||
+        path.startsWith("/driver/publish") ||
+        path.startsWith("/driver/track")) {
       return 2;
     }
-    if (path.startsWith("/driver/publish")) return 3;
-    if (path.startsWith("/driver/track")) return 3;
+    if (path.startsWith("/driver/load-board")) return 3;
     if (path.startsWith("/driver/profile") ||
         path.startsWith("/driver/earnings") ||
         path.startsWith("/driver/payout")) {
@@ -1408,13 +1411,17 @@ class _OfficeHomeState extends State<_OfficeHome> {
             NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
         children: [
           // A web browser cannot pull down, so Refresh is a button too, as on a driver's Home.
-          Align(
-              alignment: Alignment.centerRight,
-              child: NvRefreshButton(loading: _loading, onPressed: _load)),
+          Row(children: [
+            if (AuthorizationSession.can("trip.publish"))
+              NvButton(
+                  label: "Add trip",
+                  kind: NvButtonKind.secondary,
+                  onPressed: () => _open("/driver/publish")),
+            const Spacer(),
+            NvRefreshButton(loading: _loading, onPressed: _load),
+          ]),
           const SizedBox(height: NvSpace.s2),
           ...content,
-          const SizedBox(height: NvSpace.s6),
-          LoadBoardHomeCard(onOpen: () => _open("/driver/load-board")),
         ],
       ),
     );
@@ -2549,11 +2556,43 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   bool _loaded = false;
   String? _error;
   _TripGroup _shown = _TripGroup.open;
+  GoRouter? _router;
+  bool _wasShown = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  // Add trip opens over this screen and, once the trip is added, goes back to /driver/loads. That keeps
+  // this screen as it was under the form, so it loads again whenever it is the top page again.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final router = GoRouter.maybeOf(context);
+    if (router == _router) return;
+    _router?.routerDelegate.removeListener(_routeChanged);
+    _router = router?..routerDelegate.addListener(_routeChanged);
+    _wasShown = _shownNow;
+  }
+
+  // The top page, not the address: a pushed page leaves the address as it was.
+  bool get _shownNow =>
+      _router?.routerDelegate.currentConfiguration.lastOrNull
+          ?.matchedLocation ==
+      "/driver/loads";
+
+  void _routeChanged() {
+    final shown = _shownNow;
+    if (shown && !_wasShown && !_loading) _load();
+    _wasShown = shown;
+  }
+
+  @override
+  void dispose() {
+    _router?.routerDelegate.removeListener(_routeChanged);
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -2619,8 +2658,8 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
 
   Future<void> _open(Map<String, dynamic> trip) async {
     await context.push("/driver/trip/${trip["id"]}/active");
-    // Assigning or starting there moves the trip between groups.
-    if (mounted) _load();
+    // Assigning or starting there moves the trip between groups. Coming back may have started a load already.
+    if (mounted && !_loading) _load();
   }
 
   String? _truckAndDriverWords(Map<String, dynamic> trip) {
@@ -2681,6 +2720,17 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
         padding: const EdgeInsets.fromLTRB(
             NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
         children: [
+          if (AuthorizationSession.can("trip.publish") &&
+              DriverSession.carrierRole != "DRIVER") ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: NvButton(
+                  label: "Add trip",
+                  kind: NvButtonKind.secondary,
+                  onPressed: () => context.push("/driver/publish")),
+            ),
+            const SizedBox(height: NvSpace.s3),
+          ],
           NvChoiceChips<_TripGroup>(
             options: const [
               NvChoice(_TripGroup.open, "Open"),
