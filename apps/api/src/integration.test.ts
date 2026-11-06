@@ -60,7 +60,7 @@ test("integration load create is idempotent by externalLoadId", async () => {
     orgDisplayName: "ERP Shipper Co",
   });
   const { token } = createIntegrationApiKey(store, admin.org.id);
-  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(store, "OPS").userId });
+  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(store, "ADMIN").userId });
 
   const ctx = resolveIntegrationAuth(store, { bearerToken: token });
   const params = {
@@ -130,7 +130,7 @@ test("integration events emit on carrier accept", () => {
   updateIntegrationConnection(store, admin.org.id, {
     webhookUrl: "https://example.com/webhook",
     paymentPolicy: "erp_preauthorized",
-    changedByUserId: internalUser(store, "OPS").userId,
+    changedByUserId: internalUser(store, "ADMIN").userId,
   });
 
   const shipment = bookTestShipment(store, {

@@ -146,7 +146,10 @@ test("POST /v1/integrations/loads creates and idempotently returns shipment", as
     assert.equal(keyRes.status, 201);
     const keyBody = (await keyRes.json()) as { token: string };
 
-    updateIntegrationConnection(app.store, orgId, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(app.store, "OPS").userId });
+    updateIntegrationConnection(app.store, orgId, {
+      paymentPolicy: "erp_preauthorized",
+      changedByUserId: internalUser(app.store, "ADMIN").userId,
+    });
 
     const loadBody = {
       externalLoadId: "ERP-HTTP-001",

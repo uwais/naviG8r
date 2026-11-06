@@ -15,7 +15,6 @@ export class FixedWindowRateLimiter {
     let bucket = this.buckets.get(key);
     if (!bucket || now - bucket.startedAtUtcMs >= windowMs || now < bucket.startedAtUtcMs) {
       bucket = { startedAtUtcMs: now, count: 0 };
-      // Deleted first so the map stays in the order windows started, oldest first.
       this.buckets.delete(key);
       this.buckets.set(key, bucket);
       while (this.buckets.size > this.maxKeys) this.buckets.delete(this.buckets.keys().next().value!);
