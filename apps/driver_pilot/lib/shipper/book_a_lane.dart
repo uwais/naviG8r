@@ -348,7 +348,7 @@ class _CustomerBookShipmentScreenState
         confirmed = true;
       } catch (error) {
         final code = _apiErrorCode(error);
-        if (code == "trip_already_started" || code == "booking_expired") {
+        if (code == "trip_already_started" || code == "booking_expired_unpaid") {
           refusal = plainErrorSentence(error);
         }
       }

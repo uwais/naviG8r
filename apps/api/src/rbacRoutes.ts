@@ -18,8 +18,8 @@ const rules: [string, RegExp, Permission][] = [
   ["GET", /^\/v1\/ops\/dashboard\/[^/]+$/, "organization.profile.read"],
   ["POST", /^\/v1\/ops\/carrier-organizations$/, "carrier.onboard"],
   ["POST", /^\/v1\/ops\/dashboard-access$/, "user.role_manage"],
-  // Any signed-in user passes this rule; setErpPaymentPolicyAsStaff then lets only OPS or ADMIN through, never FINANCE.
-  ["POST", /^\/v1\/ops\/organizations\/[^/]+\/erp-payment-policy$/, "organization.profile.read"],
+  // OPS and ADMIN share no write permission; /v1/ops/ already needs a platform user, and the service allows only OPS or ADMIN.
+  ["PUT", /^\/v1\/ops\/organizations\/[^/]+\/integration-payment-policy$/, "directory.read"],
   ["GET", /^\/v1\/pilot\/me$/, "organization.profile.read"],
   ["PATCH", /^\/v1\/pilot\/me\/vehicle$/, "load.status_update"],
   ["GET", /^\/v1\/pilot\/anchor-trips(?:\/[^/]+)?$/, "load.read"],
@@ -79,7 +79,7 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   if (method === "GET" && /^\/anchor-trips(?:\/[^/]+)?$/.test(path)) return;
   // The practice government site and its guide: public, and only when the demo server turned them on.
   if ((method === "GET" || method === "POST") && process.env.EWAY_DEMO_PORTAL === "1" && (path === "/demo/eway-guide" || path.startsWith("/demo/eway-portal"))) return;
-  if (method === "POST" && ["/v1/auth/otp/start", "/v1/auth/otp/verify", "/v1/pilot/driver/register", "/v1/pilot/customer/register", "/v1/pilot/customer/users/register", "/v1/payments/razorpay/webhook"].includes(path)) return;
+  if (method === "POST" && ["/v1/auth/otp/start", "/v1/auth/otp/verify", "/v1/auth/firebase/exchange", "/v1/pilot/driver/register", "/v1/pilot/customer/register", "/v1/pilot/customer/users/register", "/v1/payments/razorpay/webhook"].includes(path)) return;
   if (path.startsWith("/v1/integrations/")) return; // separately authenticated service principal
   const token = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization ?? ""))?.[1] ?? null;
   if (path === "/v1/auth/me" && method === "GET") { verifyBearer(store, token); return; }
@@ -101,7 +101,7 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   }
   const context = authorizationContext.getStore()!;
   context.principal = p;
-  // Only NaviG8r staff say why they acted, and only ops say for whom; from anyone else these headers would be written into audit rows unchecked.
+  // Both headers end up in audit rows: the reason is kept only from platform staff, the represented member only from ops.
   const actsForMembers = p.internal && p.roles.includes("OPS");
   context.reason = p.internal && typeof req.headers["x-reason-code"] === "string" ? req.headers["x-reason-code"] : undefined;
   context.effectiveActorId = actsForMembers && typeof req.headers["x-effective-actor-id"] === "string" ? req.headers["x-effective-actor-id"] : undefined;

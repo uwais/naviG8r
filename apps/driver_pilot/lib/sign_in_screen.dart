@@ -8,6 +8,8 @@ import "package:go_router/go_router.dart";
 
 import "authorization_session.dart";
 import "customer_session.dart";
+import "firebase_phone_auth.dart";
+import "phone_country.dart";
 import "pilot_api.dart";
 import "plain_error_sentence.dart";
 import "ui/format.dart";
@@ -33,21 +35,35 @@ String _sendCodeErrorSentence(Object error) {
   };
 }
 
+/// Firebase answers in its own errors; the code exchange with the server answers like any API call.
+String _firebaseErrorSentence(Object error, String fallback) =>
+    error is DioException
+        ? plainErrorSentence(error, fallback)
+        : formatFirebaseAuthError(error);
+
 /// The number a carrier just registered with, handed to the sign-in as the router's extra and never
 /// put in the link. A class, not a String: go_router 14 writes an extra it can turn into JSON into
 /// the browser's history. A reload has no extra and opens an empty box.
 class PhoneForSignIn {
-  const PhoneForSignIn(this.number);
+  const PhoneForSignIn(this.number, {this.countryCode = "+91"});
   final String number;
+  final String countryCode;
 }
 
 /// The one sign-in, for shippers and carriers alike. It asks nothing about the person; after the
-/// code the app lands by the account's role (AuthorizationSession.home).
+/// code the app lands by the account's role (AuthorizationSession.home). Where Firebase phone
+/// sign-in started (see initializeFirebasePhoneAuth), Firebase sends and checks the code and the
+/// server exchanges its token; otherwise the server's own code is used.
 class SignInScreen extends StatefulWidget {
-  const SignInScreen({this.startingPhone, super.key});
+  const SignInScreen(
+      {this.startingPhone, this.startingCountryCode, this.phoneAuth, super.key});
 
   /// The number a carrier just registered with, filled in so they only tap Send code.
   final String? startingPhone;
+  final String? startingCountryCode;
+
+  /// Tests pass a stand-in for Firebase.
+  final PhoneAuthClient? phoneAuth;
 
   @override
   State<SignInScreen> createState() => _SignInScreenState();
@@ -56,9 +72,11 @@ class SignInScreen extends StatefulWidget {
 class _SignInScreenState extends State<SignInScreen> {
   final _phone = TextEditingController();
   final _code = TextEditingController();
+  String _countryCode = "+91";
   String? _debugCode;
   String? _challengeId;
   String? _challengePhone;
+  String? _challengeCountryCode;
   // The server spends a code on its first check, so once the token is saved a retry
   // repeats only the account check.
   bool _codeAccepted = false;
@@ -67,6 +85,15 @@ class _SignInScreenState extends State<SignInScreen> {
   Timer? _otpCooldownTimer;
   int _otpCooldownSeconds = 0;
   String? _error;
+  PhoneAuthClient? _firebase;
+  bool _useFirebase = firebasePhoneAuthAvailable;
+  bool _firebaseCodeSent = false;
+
+  bool get _codeRequested =>
+      _challengePhone != null && (_useFirebase ? _firebaseCodeSent : _challengeId != null);
+
+  bool _isChallengeFor(String phone) =>
+      _challengePhone == phone && _challengeCountryCode == _countryCode;
 
   void _startOtpCooldown(dynamic rawMs) {
     _otpCooldownTimer?.cancel();
@@ -83,27 +110,54 @@ class _SignInScreenState extends State<SignInScreen> {
     }
   }
 
+  void _forgetChallenge() {
+    _challengeId = null;
+    _challengePhone = null;
+    _challengeCountryCode = null;
+    _firebaseCodeSent = false;
+    _codeAccepted = false;
+    _debugCode = null;
+    _code.clear();
+    _otpCooldownSeconds = 0;
+    _otpCooldownTimer?.cancel();
+    _otpCooldownTimer = null;
+  }
+
   void _phoneChanged(String value) {
     // An error about the old number must not sit under a number that may now be right.
     if (_error != null) setState(() => _error = null);
     final phone = digitsOnly(value.trim());
-    if (_challengePhone == null || phone == _challengePhone) return;
+    if (_challengePhone == null || _isChallengeFor(phone)) return;
+    setState(_forgetChallenge);
+  }
+
+  void _countryChanged(String value) {
+    if (_countryCode == value) return;
     setState(() {
-      _challengeId = null;
-      _challengePhone = null;
-      _codeAccepted = false;
-      _debugCode = null;
-      _code.clear();
-      _otpCooldownSeconds = 0;
-      _otpCooldownTimer?.cancel();
-      _otpCooldownTimer = null;
+      _countryCode = value;
+      _error = null;
+      _forgetChallenge();
     });
   }
+
+  void _useFirebaseChanged(bool value) => setState(() {
+        _useFirebase = value;
+        if (value) _firebase ??= widget.phoneAuth ?? FirebasePhoneAuthClient();
+        _error = null;
+        _forgetChallenge();
+      });
 
   @override
   void initState() {
     super.initState();
     _phone.text = widget.startingPhone ?? "";
+    final startingCountryCode = widget.startingCountryCode;
+    if (startingCountryCode != null &&
+        supportedCountryCodes.contains(startingCountryCode)) {
+      _countryCode = startingCountryCode;
+    }
+    if (widget.phoneAuth != null) _useFirebase = true;
+    if (_useFirebase) _firebase = widget.phoneAuth ?? FirebasePhoneAuthClient();
     CustomerSession.refresh().then((_) {
       if (mounted) setState(() {});
     });
@@ -112,10 +166,14 @@ class _SignInScreenState extends State<SignInScreen> {
   @override
   void dispose() {
     _otpCooldownTimer?.cancel();
+    _firebase?.dispose();
     _phone.dispose();
     _code.dispose();
     super.dispose();
   }
+
+  String _shownNumber(String phone, String countryCode) =>
+      countryCode == "+91" ? formatPhone(phone) : "$countryCode $phone";
 
   Future<void> _sendOtp() async {
     setState(() {
@@ -130,16 +188,29 @@ class _SignInScreenState extends State<SignInScreen> {
       });
       return;
     }
+    if (_useFirebase) {
+      await _sendFirebaseCode(phone);
+      return;
+    }
+    if (!legacyOtpFallbackEnabled) {
+      setState(() {
+        _error = firebasePhoneAuthDiagnostic ??
+            "Firebase phone sign-in is unavailable.";
+        _sending = false;
+      });
+      return;
+    }
     try {
       final previousChallengeId = _challengeId;
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
-          data: {"phone": phone});
+          data: {"phone": phone, "countryCode": _countryCode});
       if (!mounted) return;
       _challengeId = r.data?["challengeId"] as String?;
       _challengePhone = phone;
+      _challengeCountryCode = _countryCode;
       _codeAccepted = false;
       _startOtpCooldown(r.data?["retryAfterMs"]);
-      announce(context, "Code sent to ${formatPhone(phone)}.");
+      announce(context, "Code sent to ${_shownNumber(phone, _countryCode)}.");
       final dc = r.data?["debugCode"];
       if (dc is String && dc.isNotEmpty) {
         _debugCode = dc;
@@ -157,6 +228,45 @@ class _SignInScreenState extends State<SignInScreen> {
     }
   }
 
+  Future<void> _sendFirebaseCode(String phone) async {
+    // A failed resend keeps the code already sent for the same number usable.
+    final keepCodeSent = _firebaseCodeSent && _isChallengeFor(phone);
+    setState(() {
+      _challengePhone = phone;
+      _challengeCountryCode = _countryCode;
+      _firebaseCodeSent = false;
+      _codeAccepted = false;
+    });
+    try {
+      await _firebase!.requestCode(
+        firebasePhoneNumber(phone, _countryCode),
+        onCodeSent: (_) {
+          if (mounted) setState(() => _firebaseCodeSent = true);
+        },
+        onAutoVerified: () {
+          if (mounted) setState(() => _firebaseCodeSent = true);
+        },
+      );
+      if (!mounted) return;
+      _startOtpCooldown(firebaseResendCooldownMs);
+      _debugCode = null;
+      _code.clear();
+      announce(context, "Code sent to ${_shownNumber(phone, _countryCode)}.");
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _firebaseCodeSent = keepCodeSent;
+        if (!keepCodeSent) _challengePhone = null;
+        _error = _firebaseErrorSentence(e,
+            "Could not send the code. Check your connection, then try again.");
+      });
+      final retry = firebaseAuthRetryAfterMs(e);
+      if (retry != null) _startOtpCooldown(retry);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   void _showVerifyError(String error) {
     setState(() => _error = error);
     announce(context, error, assertiveness: Assertiveness.assertive);
@@ -165,7 +275,7 @@ class _SignInScreenState extends State<SignInScreen> {
   Future<void> _verify() async {
     final phone = digitsOnly(_phone.text.trim());
     final challengeId = _challengeId;
-    if (challengeId == null || phone != _challengePhone) {
+    if (!_codeRequested || !_isChallengeFor(phone)) {
       _showVerifyError("Request a code for this phone number first.");
       return;
     }
@@ -174,11 +284,16 @@ class _SignInScreenState extends State<SignInScreen> {
       _error = null;
     });
     try {
-      if (!_codeAccepted) {
+      if (!_codeAccepted && _useFirebase) {
+        await _firebase!.verifyCode(_code.text.trim());
+        await exchangeFirebaseToken(await _firebase!.idToken());
+        _codeAccepted = true;
+      } else if (!_codeAccepted) {
         final r = await api.post<Map<String, dynamic>>(
           "/v1/auth/otp/verify",
           data: {
             "phone": phone,
+            "countryCode": _countryCode,
             "challengeId": challengeId,
             "code": _code.text.trim()
           },
@@ -205,8 +320,11 @@ class _SignInScreenState extends State<SignInScreen> {
       context.go(AuthorizationSession.home);
     } catch (e) {
       if (mounted) {
-        _showVerifyError(plainErrorSentence(e,
-            "Could not sign you in. Check your connection, then try again."));
+        const fallback =
+            "Could not sign you in. Check your connection, then try again.";
+        _showVerifyError(_useFirebase
+            ? _firebaseErrorSentence(e, fallback)
+            : plainErrorSentence(e, fallback));
       }
     } finally {
       if (mounted) setState(() => _verifying = false);
@@ -215,24 +333,29 @@ class _SignInScreenState extends State<SignInScreen> {
 
   // Back to the phone step; the code request for the old number no longer applies.
   void _changeNumber() => setState(() {
-        _challengeId = null;
-        _challengePhone = null;
-        _codeAccepted = false;
-        _debugCode = null;
+        _forgetChallenge();
         _error = null;
-        _code.clear();
       });
 
   @override
   Widget build(BuildContext context) {
     final challengePhone = _challengePhone;
-    if (_challengeId == null || challengePhone == null) {
+    if (!_codeRequested || challengePhone == null) {
       return SignInPhonePage(
         phone: _phone,
+        countryCode: _countryCode,
+        onCountryChanged: _countryChanged,
         sending: _sending,
         errorText: _error,
         onSend: _sendOtp,
         onPhoneChanged: _phoneChanged,
+        useFirebase: _useFirebase,
+        // The switch only where both ways work: Firebase started, and the server's own code is allowed.
+        onUseFirebaseChanged:
+            firebasePhoneAuthAvailable && legacyOtpFallbackEnabled
+                ? _useFirebaseChanged
+                : null,
+        firebaseDiagnostic: firebasePhoneAuthDiagnostic,
         newAccountLinks: {
           "Register a shipper company": () => context.go("/customer/register"),
           "Join a shipper company": () => context.go("/customer/register-user"),
@@ -245,7 +368,7 @@ class _SignInScreenState extends State<SignInScreen> {
       );
     }
     return SignInCodePage(
-      phone: formatPhone(challengePhone),
+      phone: _shownNumber(challengePhone, _challengeCountryCode ?? _countryCode),
       code: _code,
       verifying: _verifying,
       sendingNewCode: _sending,

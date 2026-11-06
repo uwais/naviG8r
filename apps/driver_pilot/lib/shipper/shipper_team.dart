@@ -4,6 +4,7 @@ import "package:go_router/go_router.dart";
 
 import "../customer_session.dart";
 import "../driver_theme.dart";
+import "../phone_country.dart";
 import "../pilot_api.dart";
 import "../plain_error_sentence.dart";
 import "../ui/format.dart";
@@ -18,6 +19,7 @@ class CustomerTeamScreen extends StatefulWidget {
 
 class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
   final _phone = TextEditingController();
+  String _countryCode = "+91";
   bool _loading = false;
   bool _inviting = false;
   String? _error;
@@ -88,7 +90,11 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
     try {
       await api.post<Map<String, dynamic>>(
         "/v1/pilot/customer/members/invite",
-        data: {"orgId": orgId, "phone": digitsOnly(_phone.text.trim())},
+        data: {
+          "orgId": orgId,
+          "phone": digitsOnly(_phone.text.trim()),
+          "countryCode": _countryCode,
+        },
       );
       _phone.clear();
       await _loadMembers();
@@ -131,11 +137,12 @@ class _CustomerTeamScreenState extends State<CustomerTeamScreen> {
                 style: const TextStyle(color: Colors.red)),
           ] else ...[
             const SizedBox(height: 16),
-            TextField(
+            PhoneNumberField(
               controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                  labelText: "Teammate's mobile number (10 digits)"),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Teammate's mobile number (10 digits)",
             ),
             const SizedBox(height: 8),
             FilledButton(

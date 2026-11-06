@@ -39,6 +39,7 @@ import type {
   VehicleClass,
 } from "./types.ts";
 import type { Store } from "./store.ts";
+import { normalizePhone, phoneKeyForUser } from "./phone.ts";
 import {
   captureRazorpayPayment,
   createAuthorizeOnlyOrder,
@@ -100,6 +101,11 @@ export class ApiError extends Error {
   }
 }
 
+/** A load weight or capacity: a finite number above zero, at most MAX_WEIGHT_KG. NaN and text fail here. */
+function weightKgInRange(kg: unknown): boolean {
+  return typeof kg === "number" && Number.isFinite(kg) && kg > 0 && kg <= MAX_WEIGHT_KG;
+}
+
 /** Max distance from trip origin / destination for Phase A booking (km). Env overrides for ops. */
 function phaseAEndpointRadiiKm(): { maxPickupKm: number; maxDropKm: number } {
   const p = Number(process.env.PHASE_A_MAX_PICKUP_KM ?? "15");
@@ -159,14 +165,8 @@ function membershipKey(userId: string, orgId: string): string {
   return `${userId}:${orgId}`;
 }
 
-function normalizeInPhone(phone: string): string {
-  const p = String(phone ?? "").trim();
-  if (!p) throw new Error("invalid_phone");
-  // MVP pilot: accept 10-digit Indian mobile numbers, optional +91 prefix.
-  const digits = p.replace(/[^\d]/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(-10);
-  if (digits.length === 10) return digits;
-  throw new Error("invalid_phone");
+function normalizeInPhone(phone: string, countryCode?: string): string {
+  return normalizePhone(phone, countryCode).phone;
 }
 
 function assertVehicleClass(v: any): asserts v is VehicleClass {
@@ -180,16 +180,13 @@ function assertTruckNumberLength(registrationNumber: string): void {
   }
 }
 
-/** Anyone can sign up, so each free-text sign-up field has a cap; real names and phone numbers are far shorter. */
-function assertSignUpLengths(params: { fullName: string; phone: string; orgDisplayName?: string }): void {
-  if (String(params.fullName ?? "").trim().length > 100) {
-    throw new ApiError("invalid_fullName", { detail: "A name can have at most 100 characters.", field: "fullName" });
-  }
-  if (params.orgDisplayName !== undefined && String(params.orgDisplayName).trim().length > 100) {
-    throw new ApiError("invalid_orgDisplayName", { detail: "A company name can have at most 100 characters.", field: "orgDisplayName" });
-  }
-  if (String(params.phone ?? "").trim().length > 20) {
-    throw new ApiError("invalid_phone", { detail: "A phone number can have at most 20 characters.", field: "phone" });
+/** Sign-up needs no account, so each text field it takes has a length cap. */
+function assertSignUpFieldLengths(params: { fullName: string; phone: string; orgDisplayName?: string }): void {
+  const caps = [["fullName", 100, "A name"], ["orgDisplayName", 100, "A company name"], ["phone", 20, "A phone number"]] as const;
+  for (const [field, maxCharacters, label] of caps) {
+    if (String(params[field] ?? "").trim().length > maxCharacters) {
+      throw new ApiError(`invalid_${field}`, { detail: `${label} can have at most ${maxCharacters} characters.`, field });
+    }
   }
 }
 
@@ -291,6 +288,7 @@ export function createCarrier(store: Store, name: string): Carrier {
 export function registerSoloOwnerOperatorDriver(store: Store, params: {
   fullName: string;
   phone: string;
+  countryCode?: string;
   orgDisplayName: string;
   vehicleRegistrationNumber: string;
   vehicleClass: VehicleClass;
@@ -301,19 +299,19 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
   if (!String(params.vehicleRegistrationNumber ?? "").trim()) throw new Error("invalid_vehicleRegistrationNumber");
-  assertSignUpLengths(params);
+  assertSignUpFieldLengths(params);
   assertTruckNumberLength(String(params.vehicleRegistrationNumber));
   assertVehicleClass(params.vehicleClass);
-  if (!kilogramsInRange(params.vehicleCapacityKg)) throw new Error("invalid_vehicleCapacityKg");
+  if (!weightKgInRange(params.vehicleCapacityKg)) throw new Error("invalid_vehicleCapacityKg");
   const transporterIdCheck = checkTransporterId(params.transporterId ?? null);
   if (!transporterIdCheck.ok) throw new ApiError("invalid_transporter_id", { detail: transporterIdCheck.detail, field: transporterIdCheck.field });
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const dup = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (dup) throw new Error("phone_already_registered");
 
   const now = nowUtcMs();
-  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  const user: User = { id: id("usr"), phone: identity.phone, countryCode: identity.countryCode, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
   const org: Organization = {
     id: id("org"),
     kind: "CARRIER_SOLO",
@@ -449,21 +447,22 @@ export function listOpsAdmins(store: Store): OpsAdminEntry[] {
   return out.sort((a, b) => a.phone.localeCompare(b.phone));
 }
 
-function normalizeOpsPhone(raw: string): string {
-  const digits = String(raw ?? "").replace(/[^\d]/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(-10);
-  if (digits.length === 10) return digits;
-  throw new ApiError("invalid_phone", { detail: "Phone must be 10 digits (or +91-prefixed)." });
+function normalizeOpsPhone(raw: string, countryCode?: string): ReturnType<typeof normalizePhone> {
+  try {
+    return normalizePhone(raw, countryCode);
+  } catch {
+    throw new ApiError("invalid_phone", { detail: "Phone must be a supported 10-digit number." });
+  }
 }
 
 /**
  * Grants OPS_ADMIN to the user with the given phone. The user must already exist
  * (registered as a customer/driver/operator). Creates the platform-ops org if needed.
  */
-export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdminEntry {
+export function grantOpsAdmin(store: Store, params: { phone: string; countryCode?: string }): OpsAdminEntry {
   requirePermission(store, "user.role_manage");
-  const phone = normalizeOpsPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizeOpsPhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) {
     throw new ApiError("user_not_found", {
       detail: "Register this phone (customer or driver) before granting ops-admin.",
@@ -506,11 +505,11 @@ export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdmin
  */
 export function revokeOpsAdmin(
   store: Store,
-  params: { phone: string; actingUserId: string },
+  params: { phone: string; countryCode?: string; actingUserId: string },
 ): { revoked: boolean } {
   requirePermission(store, "user.role_manage", undefined, params.actingUserId);
-  const phone = normalizeOpsPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizeOpsPhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) throw new ApiError("user_not_found", {});
   const org = store.organizations.get(PLATFORM_OPS_ORG_ID);
   if (!org) throw new ApiError("ops_admin_not_found", { detail: "No platform-ops org exists." });
@@ -734,7 +733,7 @@ export function opsDeleteUser(
     if (cascadeSet.has(s.carrierId)) return true;
     if (s.customerOrgId && cascadeSet.has(s.customerOrgId)) return true;
     if (s.bookedByUserId === userId) return true;
-    if (s.bookedByPhone && s.bookedByPhone === user.phone) return true;
+    if (s.bookedByPhone && user.countryCode === "+91" && s.bookedByPhone === user.phone) return true;
     return false;
   });
   const activeTrips = [...store.anchorTrips.values()].filter(
@@ -761,7 +760,7 @@ export function opsDeleteUser(
     }
   }
   for (const o of store.otpChallenges.values()) {
-    if (o.phone === user.phone && o.status === "PENDING") {
+    if (o.status === "PENDING" && normalizePhone(o.phone, o.countryCode).key === phoneKeyForUser(user)) {
       store.otpChallenges.set(o.id, { ...o, status: "EXPIRED" });
     }
   }
@@ -822,18 +821,19 @@ export function shipmentVisibleToCustomerUser(store: Store, shipment: Shipment, 
 export function registerCustomerOrgAdmin(store: Store, params: {
   fullName: string;
   phone: string;
+  countryCode?: string;
   orgDisplayName: string;
 }): { user: User; org: Organization; membership: Membership } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
-  assertSignUpLengths(params);
+  assertSignUpFieldLengths(params);
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const dup = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (dup) throw new Error("phone_already_registered");
 
   const now = nowUtcMs();
-  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  const user: User = { id: id("usr"), phone: identity.phone, countryCode: identity.countryCode, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
   const org: Organization = {
     id: id("org"),
     kind: "CUSTOMER",
@@ -861,16 +861,17 @@ export function registerCustomerOrgAdmin(store: Store, params: {
 export function registerCustomerUser(store: Store, params: {
   fullName: string;
   phone: string;
+  countryCode?: string;
 }): { user: User } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
-  assertSignUpLengths(params);
+  assertSignUpFieldLengths(params);
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const dup = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (dup) throw new Error("phone_already_registered");
 
   const now = nowUtcMs();
-  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  const user: User = { id: id("usr"), phone: identity.phone, countryCode: identity.countryCode, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
   store.users.set(user.id, user);
   return { user };
 }
@@ -885,6 +886,7 @@ export function inviteCustomerMember(
   params: {
     orgId: string;
     phone: string;
+    countryCode?: string;
     role?: "CUSTOMER_MEMBER" | "CUSTOMER_ADMIN";
   },
 ): { user: User; membership: Membership; org: Organization } {
@@ -892,8 +894,8 @@ export function inviteCustomerMember(
   const org = getOrgOrThrow(store, params.orgId);
   if (org.kind !== "CUSTOMER") throw new Error("org_not_customer");
 
-  const phone = normalizeInPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) {
     throw new ApiError("user_not_found", {
       detail: "Teammate must register their phone first, then you can invite them to your org.",
@@ -935,9 +937,9 @@ export function listCustomerOrgMembers(
   return rows;
 }
 
-export function pilotLoginDriverByPhone(store: Store, phone: string): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
-  const p = normalizeInPhone(phone);
-  const user = [...store.users.values()].find((u) => u.phone === p);
+export function pilotLoginDriverByPhone(store: Store, phone: string, countryCode?: string): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
+  const identity = normalizePhone(phone, countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) throw new Error("user_not_found");
 
   const selected = authorizationContext.getStore()?.principal?.organizationId;
@@ -1015,7 +1017,7 @@ export function updatePilotDriverVehicle(
   }
   if (hasCap) {
     const cap = Number(params.vehicleCapacityKg);
-    if (!kilogramsInRange(cap)) throw new Error("invalid_vehicleCapacityKg");
+    if (!weightKgInRange(cap)) throw new Error("invalid_vehicleCapacityKg");
     capacityKg = cap;
   }
 
@@ -1268,11 +1270,6 @@ export function getShipmentTripTracking(
   };
 }
 
-/** A weight or capacity the server takes. Routes pass Number(value), which is NaN for text, so finiteness is checked too. */
-function kilogramsInRange(kg: number): boolean {
-  return Number.isFinite(kg) && kg > 0 && kg <= MAX_WEIGHT_KG;
-}
-
 export function publishAnchorTrip(store: Store, params: {
   carrierId: string;
   originCity: string;
@@ -1286,7 +1283,7 @@ export function publishAnchorTrip(store: Store, params: {
 }): AnchorTrip {
   // `carrierId` is legacy naming; it is the Organization id for carrier-side entities.
   getOrgOrThrow(store, params.carrierId);
-  if (!kilogramsInRange(params.capacityKg)) throw new Error("invalid_capacityKg");
+  if (!weightKgInRange(params.capacityKg)) throw new Error("invalid_capacityKg");
   if (params.origin) assertGeoPoint(params.origin, "origin");
   if (params.destination) assertGeoPoint(params.destination, "destination");
   const t: AnchorTrip = {
@@ -1357,7 +1354,7 @@ export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
 }> {
   assertGeoPoint(params.pickup, "pickup");
   assertGeoPoint(params.drop, "drop");
-  if (!kilogramsInRange(params.weightKg)) throw new Error("invalid_weightKg");
+  if (!weightKgInRange(params.weightKg)) throw new Error("invalid_weightKg");
 
   const radii = phaseAEndpointRadiiKm();
   const maxPickup = params.maxPickupDistanceKm ?? radii.maxPickupKm;
@@ -1430,7 +1427,7 @@ export function computeFreightGrossPaise(params: {
   shipmentKm?: number | null;
 }): { grossPaise: number; breakdown: FreightBreakdown } {
   assertVehicleClass(params.vehicleClass);
-  if (!kilogramsInRange(params.weightKg)) throw new Error("invalid_weightKg");
+  if (!weightKgInRange(params.weightKg)) throw new Error("invalid_weightKg");
 
   const laneKm = params.laneKm != null && params.laneKm > 0 ? params.laneKm : null;
   const shipmentKm = params.shipmentKm != null && params.shipmentKm > 0 ? params.shipmentKm : null;
@@ -1477,7 +1474,7 @@ export function quoteShipmentMarketplace(store: Store, params: {
   drop?: unknown;
   anchorTripId?: string;
 }): { grossPaise: number; breakdown: FreightBreakdown } {
-  if (!kilogramsInRange(params.weightKg)) throw new ApiError("invalid_weightKg", {});
+  if (!weightKgInRange(params.weightKg)) throw new ApiError("invalid_weightKg", {});
 
   let vehicleClass: VehicleClass = "MEDIUM";
   let laneKm: number | null = null;
@@ -1547,7 +1544,7 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   if (Array.isArray(body.sampleWeightsKg) && body.sampleWeightsKg.length > 0) {
     const parsed = body.sampleWeightsKg
       .map((w) => Number(w))
-      .filter(kilogramsInRange);
+      .filter(weightKgInRange);
     if (parsed.length > 0) {
       sampleWeights = [...new Set(parsed)].sort((a, b) => a - b).slice(0, 8);
     }
@@ -1629,7 +1626,7 @@ export function bookShipment(store: Store, params: {
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip || !isActiveEntity(trip)) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");
-  if (!kilogramsInRange(params.weightKg)) throw new Error("invalid_weightKg");
+  if (!weightKgInRange(params.weightKg)) throw new Error("invalid_weightKg");
   if (trip.reservedKg + params.weightKg > trip.capacityKg) throw new Error("insufficient_capacity");
 
   assertPhaseABookingEligible({
@@ -1976,7 +1973,7 @@ export function expireUnpaidBookings(store: Store, now = nowUtcMs()): number {
     if (now < s.createdAtUtcMs + UNPAID_BOOKING_EXPIRY_MS + UNPAID_BOOKING_GRACE_MS) continue;
     const payStatus = store.payments.get(s.paymentId)?.status;
     if (payStatus !== "CREATED" && payStatus !== "FAILED") continue;
-    const closed: Shipment = { ...s, status: "FAILED_CARRIER_REFUNDED", expiredUnpaidAtUtcMs: now, updatedAtUtcMs: now };
+    const closed: Shipment = { ...s, status: "FAILED_CARRIER_REFUNDED", unpaidBookingExpiredAtUtcMs: now, updatedAtUtcMs: now };
     store.shipments.set(closed.id, closed);
     const trip = store.anchorTrips.get(s.anchorTripId);
     if (trip) {
@@ -2093,6 +2090,7 @@ export function inviteCarrierDriver(
   params: {
     orgId: string;
     phone: string;
+    countryCode?: string;
     role?: "DRIVER" | "DISPATCHER";
     /** Required for DRIVER; ignored for DISPATCHER (uses org's primary vehicle). */
     vehicleRegistrationNumber?: string;
@@ -2105,8 +2103,8 @@ export function inviteCarrierDriver(
   if (org.kind !== "CARRIER_SOLO" && org.kind !== "CARRIER_FLEET" && org.kind !== "CARRIER_LEGACY") {
     throw new Error("org_not_carrier");
   }
-  const phone = normalizeInPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) {
     throw new ApiError("user_not_found", {
       detail: "Driver must register (OTP) before they can be invited to your carrier org.",
@@ -2116,14 +2114,15 @@ export function inviteCarrierDriver(
   if (existing) {
     throw new ApiError("membership_already_exists", { role: existing.role });
   }
-  // A driver profile is kept per person, not per company: inviting someone another carrier still has would move
-  // their profile and truck away from that carrier.
-  const atAnotherCarrier = [...store.memberships.values()].some((m) => {
-    const otherOrg = store.organizations.get(m.orgId);
-    return m.userId === user.id && m.orgId !== params.orgId && isActiveEntity(m) && isActiveEntity(otherOrg) &&
-      ["CARRIER_SOLO", "CARRIER_FLEET", "CARRIER_LEGACY"].includes(otherOrg!.kind);
+  // Driver profiles are keyed by user alone, so inviting someone from another carrier would move their profile and truck here.
+  const profile = store.driverProfiles.get(user.id);
+  const profileAtAnotherCarrier = isActiveEntity(profile) && profile!.orgId !== params.orgId;
+  const memberOfAnotherCarrier = [...store.memberships.values()].some((m) => {
+    const memberOrg = store.organizations.get(m.orgId);
+    return m.userId === user.id && m.orgId !== params.orgId && isActiveEntity(m) && isActiveEntity(memberOrg) &&
+      (memberOrg!.kind === "CARRIER_SOLO" || memberOrg!.kind === "CARRIER_FLEET" || memberOrg!.kind === "CARRIER_LEGACY");
   });
-  if (atAnotherCarrier) {
+  if (profileAtAnotherCarrier || memberOfAnotherCarrier) {
     throw new ApiError("member_of_another_carrier", { detail: "This number belongs to someone at another carrier and cannot be added yet." }, 409);
   }
   const role = params.role ?? "DRIVER";
@@ -2148,7 +2147,7 @@ export function inviteCarrierDriver(
     vehicle = orgVehicle;
   } else {
     assertVehicleClass(params.vehicleClass);
-    if (!kilogramsInRange(params.vehicleCapacityKg ?? 0)) throw new Error("invalid_vehicleCapacityKg");
+    if (!weightKgInRange(params.vehicleCapacityKg)) throw new Error("invalid_vehicleCapacityKg");
     if (!String(params.vehicleRegistrationNumber ?? "").trim()) {
       throw new Error("invalid_vehicleRegistrationNumber");
     }
@@ -2306,8 +2305,8 @@ export function confirmRazorpayCheckoutAuthorization(
     return { payment: pay };
   }
   // Closed by expireUnpaidBookings; a payment Razorpay still reports goes through the webhook's cancelled-shipment path.
-  if (s.expiredUnpaidAtUtcMs != null) {
-    throw new ApiError("booking_expired", { detail: `${BOOKING_EXPIRED_SENTENCE} ${BOOKING_EXPIRED_MONEY_SENTENCE}` }, 409);
+  if (s.unpaidBookingExpiredAtUtcMs != null) {
+    throw new ApiError("booking_expired_unpaid", { detail: `${BOOKING_EXPIRED_SENTENCE} ${BOOKING_EXPIRED_MONEY_SENTENCE}` }, 409);
   }
   refuseCheckoutIfTripLeft(store, s);
   if (pay.status !== "CREATED") {

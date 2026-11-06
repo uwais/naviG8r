@@ -104,6 +104,7 @@ When `paymentPolicy` is `portal_checkout` and Razorpay is enabled, `checkoutRequ
 | 422 | `no_eligible_lane` | No open trip matches; retry later or pass `anchorTripId` |
 | 400 | `external_load_id_required` | Missing ERP id |
 | 401 | `integration_unauthorized` | Invalid or revoked key |
+| 413 | `payload_too_large` | Request body over 1 MB (also on the portal integration routes) |
 
 ## Poll APIs (reconciliation)
 
@@ -114,7 +115,7 @@ All require `loads:read`.
 | `GET /v1/integrations/loads?externalLoadId=` | Lookup by ERP id |
 | `GET /v1/integrations/loads?updatedSince={utcMs}` | Delta sync (cursor: `updatedAtUtcMs`) |
 | `GET /v1/integrations/shipments/:id` | Full snapshot (shipment, trip, payment, tracking) |
-| `GET /v1/integrations/shipments/:id/tracking` | Live tracking payload |
+| `GET /v1/integrations/shipments/:id/tracking` | Live tracking payload. `liveLocation` (and `tracking.lastLocation` in webhooks) is null unless the shipment is `BOOKED` and its trip is `IN_PROGRESS` |
 | `GET /v1/integrations/events?sinceEventId=` | Missed webhook recovery |
 
 The `trip` object in the snapshot and tracking replies never carries the trip's last live location (`lastLiveLocation`) or the user ids of whoever started or completed it. The truck's position comes only as the tracking reply's `liveLocation`, and only while the shipper's goods are on the moving truck (shipment `BOOKED`, trip `IN_PROGRESS`); otherwise it is `null`.
@@ -132,6 +133,8 @@ X-NaviG8r-Signature: {hex_hmac_sha256}
 ```
 
 Verify with your per-connection webhook secret (shown once when created or after **Rotate secret**).
+
+The callback host must resolve only to public addresses. A private, loopback, link-local, documentation, benchmarking or reserved address, an IPv6 form that carries an IPv4 address (NAT64 `64:ff9b::/96`, 6to4 `2002::/16`, `::/96`), and a host name that does not resolve all fail with the same error: "The webhook address must resolve to a public internet address." NaviG8r connects to the exact address that passed the check, without a second DNS lookup, and still checks the TLS certificate against your host name. Redirects are not followed: a 3xx reply counts as a failed delivery. For a failed delivery NaviG8r reads at most the first 4 KB of your reply and keeps up to 500 characters of it as the error.
 
 ### Event types
 
@@ -202,7 +205,18 @@ Failed deliveries retry with exponential backoff (1m, 5m, 30m, 2h, 24h; max 10 a
 
 ## Payment policies
 
-Every connection starts as `portal_checkout`. Only NaviG8r platform staff (`OPS` or `ADMIN`) can change it, through `POST /v1/ops/organizations/:orgId/erp-payment-policy` with body `{ "paymentPolicy": "portal_checkout" | "erp_preauthorized" }` and the staff bearer token. It answers `200 { "orgId", "paymentPolicy" }`; each change writes an audit row `ERP_PAYMENT_POLICY_CHANGED` (resource `organization`, previous and new policy, the staff user as actor), and setting the current policy again writes none. Refusals: `401` without a bearer token, `403 forbidden` for anyone but platform `OPS` or `ADMIN` (`FINANCE` too), `404 not_found` for an organisation that is not an active shipper, `400 invalid_payment_policy` for any other value. There is no ops page for it. The shipper portal shows the policy read-only ("Set by NaviG8r staff.") and its save (`PATCH /v1/pilot/customer/integrations/connection`) takes `webhookUrl` and `displayName`; a `paymentPolicy` other than the current one answers `403 forbidden` and saves nothing, and an unknown value answers `400 invalid_payment_policy`.
+Only NaviG8r platform staff (OPS or ADMIN in the platform org) change the payment policy. The portal shows it read-only with "Set by NaviG8r staff." Staff set it through the API (there is no ops page for it):
+
+```http
+PUT /v1/ops/organizations/{customerOrgId}/integration-payment-policy
+Authorization: Bearer {platform OPS or ADMIN access token}
+X-Reason-Code: PAYMENT_AGREEMENT_SIGNED
+Content-Type: application/json
+
+{"paymentPolicy":"erp_preauthorized"}
+```
+
+It answers `200 { "connection": { "id", "orgId", "paymentPolicy" } }` and writes an `INTEGRATION_PAYMENT_POLICY_CHANGED` audit event on the organisation with the old and new policy and the reason code. Other answers: `400 reason_required` (no `X-Reason-Code`, which must be 3 to 64 capitals, digits and underscores, starting with a capital), `400 invalid_payment_policy`, `403 forbidden` for a user outside the platform org, `403 payment_policy_staff_only` for platform FINANCE, `404 not_found` when the organisation is not an active shipper organisation. A shipper request to `PATCH /v1/pilot/customer/integrations/connection` that changes it gets `403 { "error": "payment_policy_staff_only" }` and nothing is saved; sending the current value, or leaving it out, is fine, so shippers still change the webhook URL and display name. A value other than the two below gets `400 { "error": "invalid_payment_policy" }`.
 
 | Policy | Behavior |
 |--------|----------|
@@ -237,7 +251,8 @@ node --experimental-strip-types --test apps/api/src/*.test.ts
 node --experimental-strip-types --test \
   apps/api/src/integration.test.ts \
   apps/api/src/integrationHttp.test.ts \
-  apps/api/src/integrationWebhooks.test.ts
+  apps/api/src/integrationWebhooks.test.ts \
+  apps/api/src/integrationWebhookAddress.test.ts
 ```
 
 | Test file | Coverage |

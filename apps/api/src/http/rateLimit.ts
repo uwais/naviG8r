@@ -3,10 +3,11 @@ type Bucket = { startedAtUtcMs: number; count: number };
 /** Small single-process fixed-window limiter for routes on the single-writer API. */
 export class FixedWindowRateLimiter {
   private readonly buckets = new Map<string, Bucket>();
-  private readonly maxKeys: number;
 
-  /** With maxKeys, the oldest windows are dropped first once there are more keys than that. */
-  constructor(maxKeys = Infinity) {
+  /** With a cap, a new key past it drops the key whose window started first. */
+  readonly maxKeys: number;
+
+  constructor(maxKeys = Number.POSITIVE_INFINITY) {
     this.maxKeys = maxKeys;
   }
 

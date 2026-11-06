@@ -5,6 +5,8 @@ import 'package:driver_pilot/pilot_api.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:driver_pilot/shipper/shipper_routes.dart';
+import 'package:driver_pilot/driver_flow.dart';
+import 'package:driver_pilot/firebase_phone_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +16,32 @@ import 'support/mock_api.dart';
 OutlinedButton sendNewCodeButton(WidgetTester tester) =>
     tester.widget<OutlinedButton>(
         find.widgetWithText(OutlinedButton, 'Send a new code'));
+
+/// Stands in for Firebase: every request "sends" a code and every code is right.
+class _FakePhoneAuth implements PhoneAuthClient {
+  final requestedNumbers = <String>[];
+  final verifiedCodes = <String>[];
+
+  @override
+  Future<void> requestCode(String phoneNumber,
+      {required void Function(String) onCodeSent,
+      void Function()? onAutoVerified}) async {
+    requestedNumbers.add(phoneNumber);
+    onCodeSent('verification-1');
+  }
+
+  @override
+  Future<void> verifyCode(String code) async => verifiedCodes.add(code);
+
+  @override
+  Future<String> idToken() async => 'firebase-id-token';
+
+  @override
+  Future<void> signOut() async {}
+
+  @override
+  void dispose() {}
+}
 
 void main() {
   test('OTP API errors are actionable', () {
@@ -92,6 +120,73 @@ void main() {
         reason: 'review: it read "1 seconds"');
   });
 
+  test('too many code checks read as tries, in whole minutes', () {
+    api = Api('http://test');
+    DioException verifyLimited(Object? retryAfterMs) => DioException(
+          requestOptions: RequestOptions(path: '/v1/auth/otp/verify'),
+          response: Response(
+            requestOptions: RequestOptions(path: '/v1/auth/otp/verify'),
+            statusCode: 429,
+            data: {
+              'error': 'otp_rate_limited',
+              if (retryAfterMs != null) 'retryAfterMs': retryAfterMs
+            },
+          ),
+        );
+    expect(formatApiError(verifyLimited(125000)),
+        'Too many tries. Please wait 3 minutes and try again.');
+    expect(formatApiError(verifyLimited(600000)),
+        'Too many tries. Please wait 10 minutes and try again.');
+    expect(formatApiError(verifyLimited(1000)),
+        'Too many tries. Please wait 1 minute and try again.');
+    expect(formatApiError(verifyLimited(null)),
+        'Too many tries. Please wait a few minutes and try again.');
+  });
+
+  testWidgets('customer sign-in offers a new code after too many wrong codes',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    var starts = 0;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') {
+        starts++;
+        return jsonResponse({
+          'challengeId': 'customer-$starts',
+          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
+          'retryAfterMs': 0,
+        });
+      }
+      if (request.uri.path == '/v1/auth/otp/verify') {
+        return jsonResponse({'error': 'otp_too_many_wrong_codes'}, 400);
+      }
+      if (request.uri.path == '/v1/auth/me') return jsonResponse({}, 401);
+      return jsonResponse({});
+    });
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+          path: '/customer/login',
+          builder: (_, __) => const SignInScreen())
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '8000000001');
+    await tester.tap(find.text('Send code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '999999');
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect(find.text('Too many wrong codes. Send a new code.'), findsOneWidget);
+    await tester.tap(find.text('Send a new code'));
+    await tester.pumpAndSettle();
+    expect(starts, 2);
+  });
+
   testWidgets('customer resend cooldown disables button and counts down',
       (tester) async {
     FlutterSecureStorage.setMockInitialValues({});
@@ -117,7 +212,10 @@ void main() {
           builder: (_, __) => const SignInScreen())
     ]);
     addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '8000000001');
     await tester.tap(find.text('Send code'));
@@ -134,6 +232,44 @@ void main() {
     expect(find.textContaining('No SMS yet?'), findsNothing);
     expect(sendNewCodeButton(tester).onPressed, isNotNull,
         reason: 'the new-code button opens once the wait is over');
+  });
+
+  testWidgets('customer country selector sends the selected country code',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    dynamic requestBody;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') {
+        requestBody = request.data;
+        return jsonResponse({
+          'challengeId': 'us-country-challenge',
+          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
+          'retryAfterMs': 0,
+        });
+      }
+      return jsonResponse({}, 401);
+    });
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+        path: '/customer/login',
+        builder: (_, __) => const SignInScreen(),
+      ),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('United States +1'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '2025550100');
+    await tester.tap(find.text('Send code'));
+    await tester.pumpAndSettle();
+    expect(requestBody, isA<Map<String, dynamic>>());
+    expect((requestBody as Map<String, dynamic>)['countryCode'], '+1');
   });
 
   testWidgets('customer resend clears the previous code when debug is absent',
@@ -159,7 +295,10 @@ void main() {
           builder: (_, __) => const SignInScreen())
     ]);
     addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '8000000001');
     await tester.tap(find.text('Send code'));
@@ -199,7 +338,10 @@ void main() {
           builder: (_, __) => const SignInScreen()),
     ]);
     addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '8000000001');
     await tester.tap(find.text('Send code'));
@@ -210,6 +352,115 @@ void main() {
     expect(
         tester.widget<TextField>(find.byType(TextField).last).controller!.text,
         '123456');
+  });
+
+  testWidgets('carrier registration sends the country code and opens the sign-in with it',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    api = Api('http://test');
+    Object? registered;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/pilot/driver/register') {
+        registered = request.data;
+        return jsonResponse({
+          'org': {'id': 'org-registration-test'}
+        });
+      }
+      return jsonResponse({});
+    });
+    final router = GoRouter(
+      initialLocation: '/driver/onboarding/register',
+      routes: [
+        GoRoute(
+          path: '/driver/onboarding/register',
+          builder: (_, __) => const DriverRegisterScreen(),
+        ),
+        GoRoute(
+          path: '/customer/login',
+          builder: (_, state) {
+            final carried = state.extra as PhoneForSignIn?;
+            return Text('sign-in ${carried?.number} ${carried?.countryCode}');
+          },
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
+    await tester.pumpAndSettle();
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'New Carrier Owner');
+    await tester.enterText(fields.at(1), '9876543210');
+    await tester.enterText(fields.at(2), 'New Carrier');
+    await tester.enterText(fields.at(3), 'MH12AB1234');
+    await tester.tap(find.text('Medium'));
+    await tester.enterText(fields.at(4), '1000');
+    await tester.tap(find.text('Create company and continue'));
+    await tester.pumpAndSettle();
+    expect((registered as Map)['countryCode'], '+91');
+    expect(find.text('sign-in 9876543210 +91'), findsOneWidget);
+  });
+
+  testWidgets('with Firebase, the sign-in sends the code through Firebase and exchanges its token',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    final firebase = _FakePhoneAuth();
+    final paths = <String>[];
+    Object? exchanged;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      paths.add(request.uri.path);
+      if (request.uri.path == '/v1/auth/firebase/exchange') {
+        exchanged = request.data;
+        return jsonResponse({'accessToken': 'token-from-exchange'});
+      }
+      if (request.uri.path == '/v1/auth/me') {
+        return jsonResponse({
+          'user': {'id': 'user-1', 'phone': '2025550100'},
+          'organizations': [
+            {'id': 'org-1', 'kind': 'CUSTOMER'}
+          ],
+          'principal': {
+            'organizationId': 'org-1',
+            'roles': ['SHIPPER'],
+            'permissions': []
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+          path: '/customer/login',
+          builder: (_, __) => SignInScreen(phoneAuth: firebase)),
+      GoRoute(path: '/customer', builder: (_, __) => const Text('Home')),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('United States +1'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '2025550100');
+    await tester.tap(find.text('Send code'));
+    await tester.pumpAndSettle();
+    expect(firebase.requestedNumbers, ['+12025550100']);
+    expect(find.text('Enter the code'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    expect(firebase.verifiedCodes, ['123456']);
+    expect((exchanged as Map)['idToken'], 'firebase-id-token');
+    expect(paths.where((path) => path.startsWith('/v1/auth/otp/')), isEmpty,
+        reason: 'Firebase sends and checks the code, not the server');
+    expect(find.text('Home'), findsOneWidget);
   });
 
   testWidgets('resend replaces stale debug code and challenge state',
@@ -408,7 +659,9 @@ void main() {
     });
     AuthorizationSession.clear();
     AuthorizationSession.initialized = false;
-    await tester.pumpWidget(const DriverPilotApp());
+    await tester.pumpWidget(DriverPilotApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+    ));
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }

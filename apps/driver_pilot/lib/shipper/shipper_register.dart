@@ -2,6 +2,7 @@ import "package:flutter/material.dart";
 import "package:go_router/go_router.dart";
 
 import "../driver_theme.dart";
+import "../phone_country.dart";
 import "../pilot_api.dart";
 import "../plain_error_sentence.dart";
 import "shipper_scaffold.dart";
@@ -17,6 +18,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
   final _fullName = TextEditingController();
   final _phone = TextEditingController();
   final _org = TextEditingController();
+  String _countryCode = "+91";
   bool _submitting = false;
   String? _error;
 
@@ -39,6 +41,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
         data: {
           "fullName": _fullName.text.trim(),
           "phone": digitsOnly(_phone.text.trim()),
+          "countryCode": _countryCode,
           "orgDisplayName": _org.text.trim(),
         },
       );
@@ -73,11 +76,13 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
               controller: _fullName,
               maxLength: 100,
               decoration: const InputDecoration(labelText: "Your name")),
-          TextField(
+          PhoneNumberField(
               controller: _phone,
               maxLength: 20,
-              decoration: const InputDecoration(labelText: "Mobile number (10 digits)"),
-              keyboardType: TextInputType.phone),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Mobile number (10 digits)"),
           TextField(
               controller: _org,
               maxLength: 100,
@@ -115,6 +120,7 @@ class _CustomerRegisterUserScreenState
     extends State<CustomerRegisterUserScreen> {
   final _fullName = TextEditingController();
   final _phone = TextEditingController();
+  String _countryCode = "+91";
   bool _submitting = false;
   String? _error;
 
@@ -136,6 +142,7 @@ class _CustomerRegisterUserScreenState
         data: {
           "fullName": _fullName.text.trim(),
           "phone": digitsOnly(_phone.text.trim()),
+          "countryCode": _countryCode,
         },
       );
       if (!mounted) return;
@@ -172,11 +179,13 @@ class _CustomerRegisterUserScreenState
               controller: _fullName,
               maxLength: 100,
               decoration: const InputDecoration(labelText: "Your name")),
-          TextField(
+          PhoneNumberField(
               controller: _phone,
               maxLength: 20,
-              decoration: const InputDecoration(labelText: "Mobile number (10 digits)"),
-              keyboardType: TextInputType.phone),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Mobile number (10 digits)"),
           if (_error != null) ...[
             const SizedBox(height: 8),
             Text(_error!, style: const TextStyle(color: Colors.red)),

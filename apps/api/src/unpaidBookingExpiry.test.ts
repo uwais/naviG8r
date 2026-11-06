@@ -57,7 +57,7 @@ test("a booking not paid within 30 minutes closes on the next request: room free
   const read = await f.request(`/shipments/${expired}`, "GET", undefined, f.tokens.shipperB);
   assert.equal(read.status, 200);
   assert.equal(read.body.shipment.status, "FAILED_CARRIER_REFUNDED");
-  assert.equal(typeof read.body.shipment.expiredUnpaidAtUtcMs, "number", "the shipper app reads why it was closed");
+  assert.equal(typeof read.body.shipment.unpaidBookingExpiredAtUtcMs, "number", "the shipper app reads why it was closed");
   assert.deepEqual([f.store.anchorTrips.get(f.trip.id)?.status, f.store.anchorTrips.get(f.trip.id)?.reservedKg], ["OPEN", 0], "its room is freed");
   assert.equal(paymentOf(f, expired).status, "CREATED", "no money moved, so nothing is refunded");
 
@@ -88,7 +88,7 @@ test("a booking younger than 30 minutes, or already paid, keeps its room", async
   assert.equal((await f.request("/anchor-trips", "GET")).status, 200);
   for (const id of [young, authorized, collected]) {
     assert.equal(f.store.shipments.get(id)?.status, "PENDING_CARRIER_ACCEPT", id);
-    assert.equal(f.store.shipments.get(id)?.expiredUnpaidAtUtcMs, undefined, id);
+    assert.equal(f.store.shipments.get(id)?.unpaidBookingExpiredAtUtcMs, undefined, id);
   }
   assert.equal(f.store.anchorTrips.get(f.trip.id)?.reservedKg, 900);
 });
@@ -103,7 +103,7 @@ test("a payment confirmed after the booking expired is refused with the server's
   const refused = await f.request("/v1/payments/razorpay/confirm", "POST",
     { shipmentId: late, razorpayOrderId: "order_late", razorpayPaymentId: "pay_late", razorpaySignature: signed("order_late", "pay_late") }, f.tokens.shipperB);
   assert.equal(refused.status, 409);
-  assert.deepEqual(refused.body, { error: "booking_expired", detail: `This booking expired because it was not paid within 30 minutes. ${moneyLine}` });
+  assert.deepEqual(refused.body, { error: "booking_expired_unpaid", detail: `This booking expired because it was not paid within 30 minutes. ${moneyLine}` });
   assert.deepEqual([paymentOf(f, late).status, f.store.shipments.get(late)?.status], ["CREATED", "FAILED_CARRIER_REFUNDED"]);
 });
 
@@ -118,11 +118,11 @@ test("an ERP load is never closed by the unpaid expiry, and an ERP retry never g
   const erp = (await load("ERP-OLD", "key-old")).shipment.id;
   waitingForPayment(f, erp, 24 * 60 * 60 * 1000);
   assert.equal((await f.request("/anchor-trips", "GET")).status, 200);
-  assert.deepEqual([f.store.shipments.get(erp)?.status, f.store.shipments.get(erp)?.expiredUnpaidAtUtcMs], ["PENDING_CARRIER_ACCEPT", undefined]);
+  assert.deepEqual([f.store.shipments.get(erp)?.status, f.store.shipments.get(erp)?.unpaidBookingExpiredAtUtcMs], ["PENDING_CARRIER_ACCEPT", undefined]);
 
   // A load closed by the expiry before ERP loads were left out of it.
   const closedEarlier = (await load("ERP-CLOSED", "key-closed")).shipment;
-  f.store.shipments.set(closedEarlier.id, { ...closedEarlier, status: "FAILED_CARRIER_REFUNDED", expiredUnpaidAtUtcMs: Date.now() });
+  f.store.shipments.set(closedEarlier.id, { ...closedEarlier, status: "FAILED_CARRIER_REFUNDED", unpaidBookingExpiredAtUtcMs: Date.now() });
   const byKey = await load("ERP-OTHER", "key-closed");
   const byLoadId = await load("ERP-CLOSED", "key-new");
   for (const retry of [byKey, byLoadId]) {

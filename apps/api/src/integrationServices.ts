@@ -1,4 +1,4 @@
-import { AuthorizationError, principalFor, recordAudit, requirePermission } from "./rbac.ts";
+import { AuthorizationError, recordAudit, requirePermission } from "./rbac.ts";
 import { withoutEwayBill } from "./ewayBillVisibility.ts";
 import { withoutPodPhotos } from "./podPhotos.ts";
 import { withoutTripAssignment } from "./tripAssignmentRules.ts";
@@ -89,7 +89,7 @@ export function getOrCreateIntegrationConnection(
   return conn;
 }
 
-const PAYMENT_POLICIES: readonly IntegrationPaymentPolicy[] = ["portal_checkout", "erp_preauthorized"];
+const INTEGRATION_PAYMENT_POLICIES: IntegrationPaymentPolicy[] = ["erp_preauthorized", "portal_checkout"];
 
 export function updateIntegrationConnection(
   store: Store,
@@ -105,9 +105,11 @@ export function updateIntegrationConnection(
 ): IntegrationConnection {
   const conn = getOrCreateIntegrationConnection(store, orgId);
   if (params.paymentPolicy != null) {
-    if (!PAYMENT_POLICIES.includes(params.paymentPolicy)) throw new Error("invalid_payment_policy");
-    const staff = params.changedByUserId != null && (isOpsAgent(store, params.changedByUserId) || isOpsAdmin(store, params.changedByUserId));
-    if (params.paymentPolicy !== conn.paymentPolicy && !staff) throw new Error("forbidden");
+    if (!INTEGRATION_PAYMENT_POLICIES.includes(params.paymentPolicy)) throw new Error("invalid_payment_policy");
+    // Booking without portal checkout rests on a payment agreement with NaviG8r, so only platform OPS or ADMIN changes it.
+    const changedByStaff = params.changedByUserId != null &&
+      (isOpsAdmin(store, params.changedByUserId) || isOpsAgent(store, params.changedByUserId));
+    if (params.paymentPolicy !== conn.paymentPolicy && !changedByStaff) throw new Error("payment_policy_staff_only");
   }
   const now = nowUtcMs();
   if (params.webhookUrl != null) {
@@ -125,16 +127,21 @@ export function updateIntegrationConnection(
   return conn;
 }
 
-/** POST /v1/ops/organizations/:orgId/erp-payment-policy: platform OPS or ADMIN set it, with an audit row per change. */
-export function setErpPaymentPolicyAsStaff(store: Store, orgId: string, paymentPolicy: unknown): IntegrationConnection {
-  const userId = principalFor(store).userId;
-  if (!isOpsAgent(store, userId) && !isOpsAdmin(store, userId)) throw new AuthorizationError("forbidden");
+/** The staff route for the payment policy: platform OPS or ADMIN only, and every change goes in the audit log. */
+export function setIntegrationPaymentPolicyAsStaff(
+  store: Store,
+  orgId: string,
+  paymentPolicy: IntegrationPaymentPolicy,
+  staffUserId: string,
+): IntegrationConnection {
+  if (!isOpsAdmin(store, staffUserId) && !isOpsAgent(store, staffUserId)) {
+    throw new AuthorizationError("payment_policy_staff_only");
+  }
   const org = store.organizations.get(orgId);
   if (!org || !isActiveEntity(org) || org.kind !== "CUSTOMER") throw new AuthorizationError("not_found", 404);
-  if (!PAYMENT_POLICIES.includes(paymentPolicy as IntegrationPaymentPolicy)) throw new Error("invalid_payment_policy");
-  const previous = getOrCreateIntegrationConnection(store, orgId).paymentPolicy;
-  const conn = updateIntegrationConnection(store, orgId, { paymentPolicy: paymentPolicy as IntegrationPaymentPolicy, changedByUserId: userId });
-  if (conn.paymentPolicy !== previous) recordAudit(store, "ERP_PAYMENT_POLICY_CHANGED", "organization", orgId, previous, conn.paymentPolicy);
+  const previousPolicy = getOrCreateIntegrationConnection(store, orgId).paymentPolicy;
+  const conn = updateIntegrationConnection(store, orgId, { paymentPolicy, changedByUserId: staffUserId });
+  recordAudit(store, "INTEGRATION_PAYMENT_POLICY_CHANGED", "organization", orgId, previousPolicy, conn.paymentPolicy);
   return conn;
 }
 
@@ -179,16 +186,17 @@ function findShipmentByExternalLoadId(store: Store, orgId: string, externalLoadI
   if (!ext) return null;
   return (
     [...store.shipments.values()].find(
-      (s) => s.customerOrgId === orgId && s.externalLoadId === ext && s.expiredUnpaidAtUtcMs == null,
+      (s) => s.customerOrgId === orgId && s.externalLoadId === ext && s.unpaidBookingExpiredAtUtcMs == null,
     ) ?? null
   );
 }
 
+/** A booking the unpaid expiry closed is never handed back; the ERP gets a new booking instead. */
 function findShipmentByIdempotencyKey(store: Store, orgId: string, idempotencyKey: string): Shipment | null {
   const rec = store.integrationIdempotency.get(idempotencyStoreKey(orgId, idempotencyKey));
   if (!rec) return null;
   const shipment = store.shipments.get(rec.shipmentId);
-  return shipment && shipment.expiredUnpaidAtUtcMs == null ? shipment : null;
+  return shipment && shipment.unpaidBookingExpiredAtUtcMs == null ? shipment : null;
 }
 
 function recordIdempotency(store: Store, orgId: string, idempotencyKey: string, shipmentId: string): void {

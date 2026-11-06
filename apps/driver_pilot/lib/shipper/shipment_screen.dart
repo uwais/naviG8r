@@ -500,7 +500,7 @@ class _CustomerShipmentDetailScreenState
     // The trip started before this booking was paid for, so it was closed (owner, 23 Oct 2026).
     final leftBehind = _shipment?["leftBehindAtUtcMs"] != null;
     // Not paid within the server's UNPAID_BOOKING_EXPIRY_MS (30 minutes), so it was closed.
-    final expiredUnpaid = _shipment?["expiredUnpaidAtUtcMs"] != null;
+    final expiredUnpaid = _shipment?["unpaidBookingExpiredAtUtcMs"] != null;
     final bill = _shipment?["ewayBill"];
     final madeBill = bill is Map && bill["kind"] == "BILL";
     // The portal allows a cancel within 24 hours of making the bill. Only its date is known, so a bill dated

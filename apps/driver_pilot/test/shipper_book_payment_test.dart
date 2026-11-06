@@ -301,7 +301,7 @@ void main() {
         (tester) async {
       const sentence = 'This booking expired because it was not paid within 30 minutes. If your bank shows a payment, it comes back within 3 days of when you paid. Your bank may take 5-7 more working days.';
       final (_, announced) = await payThroughCheckout(tester,
-          confirmRefusal: const {'error': 'booking_expired', 'detail': sentence},
+          confirmRefusal: const {'error': 'booking_expired_unpaid', 'detail': sentence},
           checkoutAnswer: {
             'type': 0,
             'data': {

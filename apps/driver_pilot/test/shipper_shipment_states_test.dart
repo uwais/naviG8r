@@ -263,7 +263,7 @@ void main() {
           tester,
           booking(
               status: 'FAILED_CARRIER_REFUNDED',
-              extra: const {'expiredUnpaidAtUtcMs': 1761200000000}),
+              extra: const {'unpaidBookingExpiredAtUtcMs': 1761200000000}),
           trip: lane(),
           payment: {'status': 'CREATED', 'amountPaise': 264000});
       expect(

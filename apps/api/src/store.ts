@@ -25,6 +25,7 @@ import type {
   PushDelivery,
   Shipment,
   User,
+  FirebaseIdentity,
   Vehicle,
 } from "./types.ts";
 
@@ -36,6 +37,7 @@ export type Store = {
   carriers: Map<string, Carrier>;
   organizations: Map<string, Organization>;
   users: Map<string, User>;
+  firebaseIdentities: Map<string, FirebaseIdentity>;
   memberships: Map<string, Membership>; // key: `${userId}:${orgId}`
   vehicles: Map<string, Vehicle>;
   driverProfiles: Map<string, DriverProfile>; // key: userId (pilot assumes one profile per user)
@@ -70,6 +72,7 @@ export function createStore(): Store {
     carriers: new Map(),
     organizations: new Map(),
     users: new Map(),
+    firebaseIdentities: new Map(),
     memberships: new Map(),
     vehicles: new Map(),
     driverProfiles: new Map(),

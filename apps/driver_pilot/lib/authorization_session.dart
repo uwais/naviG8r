@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'firebase_phone_auth.dart';
 import 'pilot_api.dart';
 import 'plain_error_sentence.dart';
 import 'push_notifications.dart';
@@ -75,6 +76,13 @@ abstract final class AuthorizationSession {
   }
 
   static Future<void> signOut() async {
+    if (firebasePhoneAuthAvailable) {
+      try {
+        await FirebasePhoneAuthClient().signOut();
+      } catch (_) {
+        // The server session is still cleared below if Firebase sign-out fails.
+      }
+    }
     if (!signedIn) {
       await PushNotifications.instance.onAuthorizationLost();
       await api.clearToken();

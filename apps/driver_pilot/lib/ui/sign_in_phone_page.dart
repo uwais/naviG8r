@@ -1,8 +1,15 @@
 import "package:flutter/material.dart";
 
 import "nv_button.dart";
+import "nv_choice.dart";
 import "nv_field.dart";
 import "tokens.dart";
+
+/// The country codes the server takes for a phone number, by their chip words.
+const _countries = [
+  NvChoice("+91", "India +91"),
+  NvChoice("+1", "United States +1"),
+];
 
 /// The phone step of signing in, for shippers and carriers alike, and what someone signed out
 /// sees first. The screen that shows it keeps the number and sends the code.
@@ -13,6 +20,11 @@ class SignInPhonePage extends StatelessWidget {
     required this.onSend,
     this.errorText,
     this.onPhoneChanged,
+    this.countryCode = "+91",
+    this.onCountryChanged,
+    this.useFirebase = false,
+    this.onUseFirebaseChanged,
+    this.firebaseDiagnostic,
     this.newAccountLinks = const {},
     this.onOpenDeveloperLab,
     super.key,
@@ -23,6 +35,19 @@ class SignInPhonePage extends StatelessWidget {
   final VoidCallback onSend;
   final String? errorText;
   final ValueChanged<String>? onPhoneChanged;
+
+  final String countryCode;
+
+  /// Null hides the country choice.
+  final ValueChanged<String>? onCountryChanged;
+
+  final bool useFirebase;
+
+  /// Null hides the switch: it shows only where Firebase and the server's own code both work.
+  final ValueChanged<bool>? onUseFirebaseChanged;
+
+  /// Why Firebase sign-in could not start, when it could not.
+  final String? firebaseDiagnostic;
 
   /// Today's ways to make a new account, by their button words.
   final Map<String, VoidCallback> newAccountLinks;
@@ -58,16 +83,39 @@ class SignInPhonePage extends StatelessWidget {
             Text("We send a 6-digit code to this number by SMS.",
                 style: NvText.body.copyWith(fontSize: 16)),
             const SizedBox(height: NvSpace.s6),
+            if (onCountryChanged != null) ...[
+              NvChoiceChips<String>(
+                label: "Country",
+                options: _countries,
+                selected: countryCode,
+                onChanged: onCountryChanged,
+              ),
+              const SizedBox(height: NvSpace.s3),
+            ],
             NvField(
               label: "Mobile number",
               controller: phone,
-              prefix: "+91",
+              prefix: countryCode,
               help: "10 digits. Standard SMS rates may apply.",
               errorText: errorText,
               keyboardType: TextInputType.phone,
               autofillHints: const [AutofillHints.telephoneNumberNational],
               onChanged: onPhoneChanged,
             ),
+            if (onUseFirebaseChanged != null)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text("Use Firebase phone verification",
+                    style: NvText.body),
+                subtitle: const Text("Turn off only if Firebase is unavailable.",
+                    style: NvText.body),
+                value: useFirebase,
+                onChanged: sending ? null : onUseFirebaseChanged,
+              ),
+            if (firebaseDiagnostic != null) ...[
+              const SizedBox(height: NvSpace.s2),
+              Text(firebaseDiagnostic!, style: NvText.body),
+            ],
             const SizedBox(height: NvSpace.s5),
             NvButton(
                 label: "Send code",

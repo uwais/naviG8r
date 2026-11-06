@@ -6,10 +6,13 @@ import "package:flutter_secure_storage/flutter_secure_storage.dart";
 
 import "authorization_session.dart";
 
-/// Production API. Override at run/build time:
+/// API is paired with the bundled Firebase project. Override explicitly at run/build time:
 /// `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000` (Android emulator → host)
 /// `flutter run --dart-define=API_BASE_URL=http://192.168.x.x:3000` (physical device → LAN)
-const String kDefaultBaseUrl = "https://navig8r.onrender.com";
+const bool _releaseBuild = bool.fromEnvironment("dart.vm.product");
+const String kDefaultBaseUrl = _releaseBuild
+    ? "https://navig8r.onrender.com"
+    : "https://navig8r-api-beta.onrender.com";
 
 String normalizeApiBaseUrl(String raw) {
   var value = raw.trim();
@@ -193,9 +196,12 @@ String formatApiError(Object e) {
     // A code check and a sign-up count tries, not code requests, so they say so, with the wait in whole minutes.
     if ((code == "otp_rate_limited" &&
             e.requestOptions.path.endsWith("/v1/auth/otp/verify")) ||
-        (code == "rate_limited" && body["retryAfterMs"] is num)) {
+        (code == "sign_up_rate_limited" && body["retryAfterMs"] is num)) {
       final retry = body["retryAfterMs"];
-      final minutes = retry is num && retry > 0 ? (retry / 60000).ceil() : 1;
+      if (retry is! num) {
+        return "Too many tries. Please wait a few minutes and try again.";
+      }
+      final minutes = retry > 0 ? (retry / 60000).ceil() : 1;
       return "Too many tries. Please wait $minutes ${minutes == 1 ? "minute" : "minutes"} and try again.";
     }
     if (code == "otp_rate_limited") {
@@ -225,7 +231,7 @@ String formatApiError(Object e) {
           "invalid_trip_assignment",
           "trip_cancel_requested",
           "trip_already_started",
-          "booking_expired",
+          "booking_expired_unpaid",
           "pod_photo_required"
         ].contains(code) &&
         detail is String &&
@@ -247,7 +253,7 @@ String formatApiError(Object e) {
       // A 409 from every register screen; without it the screen blamed the connection.
       "phone_already_registered":
           "This number already has an account. Sign in instead.",
-      // A 429 that carries no wait. Sign-ups send their wait, so they are worded above with it.
+      // A 429 that carries no wait. Sign-ups answer sign_up_rate_limited with their wait, worded above.
       "rate_limited": "Too many tries. Wait a few minutes, then try again.",
       // Invite refusals. The other one, user_not_found, is worded on the invite screens, which can
       // say "invite"; sign-in words it its own way.
@@ -279,6 +285,9 @@ String formatApiError(Object e) {
       "shipment_not_deliverable": "Delivery already confirmed.",
       // Confirm delivery or a delivery photo before the trip has started.
       "trip_not_started": "Start the trip first.",
+      // Sign-ups send their wait and are worded above; this is for an answer without one.
+      "sign_up_rate_limited":
+          "Too many sign-up tries. Please wait a few minutes and try again.",
     };
     // An owner-driver is the office, so is not sent to ask it.
     if (code == "checkout_not_completed_for_pod" &&

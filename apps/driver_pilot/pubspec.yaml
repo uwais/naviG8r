@@ -12,8 +12,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   dio: ^5.7.0
   flutter_secure_storage: ^9.2.2
-  firebase_core: 3.4.1
-  firebase_messaging: 15.1.1
+  firebase_core: ^3.15.2
+  firebase_messaging: ^15.2.10
   flutter_local_notifications: 18.0.1
   go_router: ^14.6.2
   google_maps_flutter: ^2.10.1
@@ -22,6 +22,7 @@ dependencies:
   url_launcher: ^6.3.0
   # Photo of the signed delivery note. 1.1.2 is the newest that runs on Flutter 3.22.3 (owner, 22 Oct 2026).
   image_picker: ^1.1.2
+  firebase_auth: ^5.7.0
 
 dev_dependencies:
   flutter_test:

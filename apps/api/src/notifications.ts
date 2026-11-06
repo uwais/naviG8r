@@ -56,7 +56,7 @@ export function captureWorkflowNotifications(store: Store, previous: WorkflowSna
     else if (old.status !== "BOOKED" && shipment.status === "BOOKED") emit(shipment, "shipment.carrier_accepted", shipment.acceptedAtUtcMs ?? shipment.updatedAtUtcMs);
     else if (old.status !== "FAILED_CARRIER_REFUNDED" && shipment.status === "FAILED_CARRIER_REFUNDED") {
       if (shipment.leftBehindAtUtcMs != null) tellShipperTheTripLeft(store, shipment);
-      else if (shipment.expiredUnpaidAtUtcMs != null) notifyShipper(store, shipment, BOOKING_EXPIRED_EVENT, "This booking expired", bookingExpiredBody(store, shipment));
+      else if (shipment.unpaidBookingExpiredAtUtcMs != null) notifyShipper(store, shipment, BOOKING_EXPIRED_EVENT, "This booking expired", bookingExpiredBody(store, shipment));
       else emit(shipment, "shipment.cancelled", shipment.updatedAtUtcMs, undefined, cancelledShipperBody(store, shipment, previous.payments.get(shipment.paymentId)?.status));
     }
     if ((!old?.podAt || old.podAt === 0) && shipment.podAtUtcMs) emit(shipment, "shipment.pod_submitted", shipment.podAtUtcMs);

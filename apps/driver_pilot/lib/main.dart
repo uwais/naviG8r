@@ -19,6 +19,7 @@ import "notification_center.dart";
 import "pilot_api.dart";
 import "shipment_conversation.dart";
 import "push_notifications.dart";
+import "firebase_phone_auth.dart";
 
 Future<void> _copyToClipboard(
     BuildContext context, String label, String value) async {
@@ -74,6 +75,7 @@ void _defaultAnchorTripWindow(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeFirebasePhoneAuth();
   api = Api(resolveApiBaseUrl());
   await PushNotifications.instance.initialize(
     onOpen: _openPushNotification,
@@ -86,7 +88,9 @@ Future<void> main() async {
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class DriverPilotApp extends StatefulWidget {
-  const DriverPilotApp({super.key});
+  const DriverPilotApp({super.key, this.theme});
+
+  final ThemeData? theme;
 
   @override
   State<DriverPilotApp> createState() => _DriverPilotAppState();
@@ -196,7 +200,7 @@ class _DriverPilotAppState extends State<DriverPilotApp>
         onPopPage: (route, result) => route.didPop(result),
       ),
       title: "NaviG8r",
-      theme: DriverTheme.theme(),
+      theme: widget.theme ?? DriverTheme.theme(),
       themeMode: ThemeMode.light,
       routerConfig: router,
     );
@@ -642,6 +646,16 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _verifying = false;
   /** After OTP verify returned an access token (used for customer-flow CTA). */
   bool _verifyIssuedToken = false;
+  PhoneAuthClient? _firebase;
+  bool _useFirebase = firebasePhoneAuthAvailable && !kIsWeb;
+  bool _firebaseCodeSent = false;
+  String? _firebasePhone;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_useFirebase) _firebase = FirebasePhoneAuthClient();
+  }
 
   String? _extractChallengeId(dynamic data) {
     if (data is! Map<String, dynamic>) return null;
@@ -680,6 +694,24 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     try {
+      if (_useFirebase) {
+        _firebasePhone = phone;
+        await _firebase!.requestCode(
+          firebasePhoneNumber(phone),
+          onCodeSent: (_) {
+            if (mounted) setState(() => _firebaseCodeSent = true);
+          },
+          onAutoVerified: () {
+            if (mounted) setState(() => _firebaseCodeSent = true);
+          },
+        );
+        if (mounted) setState(() => _startOut = "Firebase code sent.");
+        return;
+      }
+      if (!legacyOtpFallbackEnabled) {
+        throw StateError(
+            "Legacy OTP is disabled. Enable ALLOW_LEGACY_OTP_FALLBACK explicitly for this pilot-lab surface.");
+      }
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": phone});
       if (!mounted) return;
@@ -704,6 +736,46 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _verify() async {
     setState(() => _verifying = true);
     final phone = digitsOnly(_phone.text.trim());
+    if (_useFirebase) {
+      try {
+        if (!_firebaseCodeSent || _firebasePhone != phone) {
+          throw Exception("Request a code for this phone number first.");
+        }
+        await _firebase!.verifyCode(_code.text.trim());
+        await exchangeFirebaseToken(await _firebase!.idToken());
+        await AuthorizationSession.refresh();
+        await DriverSession.refresh();
+        if (mounted) {
+          setState(() {
+            _verifyOut = "Firebase sign-in successful.";
+            _verifyIssuedToken = true;
+          });
+          if (GoRouterState.of(context).uri.queryParameters["mode"] !=
+              "customer") {
+            context.go(AuthorizationSession.home);
+          }
+        }
+      } catch (e) {
+        if (mounted)
+          setState(() {
+            _verifyOut = formatApiError(e);
+            _verifyIssuedToken = false;
+          });
+      } finally {
+        if (mounted) setState(() => _verifying = false);
+      }
+      return;
+    }
+    if (!legacyOtpFallbackEnabled) {
+      if (mounted) {
+        setState(() {
+          _verifyOut =
+              "Legacy OTP is disabled. Enable ALLOW_LEGACY_OTP_FALLBACK explicitly for this pilot-lab surface.";
+          _verifying = false;
+        });
+      }
+      return;
+    }
     final challengeId = _challengeId.text.trim();
     final code = _code.text.trim();
     if (phone.length != 10 || challengeId.isEmpty || code.isEmpty) {
@@ -737,6 +809,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _firebase?.dispose();
     _phone.dispose();
     _challengeId.dispose();
     _code.dispose();
@@ -766,6 +839,28 @@ class _LoginScreenState extends State<LoginScreen> {
         TextField(
             controller: _phone,
             decoration: const InputDecoration(labelText: "Phone")),
+        if (firebasePhoneAuthAvailable && !kIsWeb && legacyOtpFallbackEnabled)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text("Use Firebase phone verification"),
+            subtitle: const Text("Turn off only if Firebase is unavailable."),
+            value: _useFirebase,
+            onChanged: _starting || _verifying
+                ? null
+                : (value) {
+                    setState(() {
+                      _useFirebase = value;
+                      if (value) _firebase ??= FirebasePhoneAuthClient();
+                      _firebaseCodeSent = false;
+                      _firebasePhone = null;
+                      _challengeId.clear();
+                      _code.clear();
+                    });
+                  },
+          ),
+        if (firebasePhoneAuthDiagnostic != null)
+          Text(firebasePhoneAuthDiagnostic!,
+              style: const TextStyle(color: Colors.red)),
         FilledButton.icon(
           onPressed: _starting ? null : _start,
           icon: _starting
@@ -774,17 +869,20 @@ class _LoginScreenState extends State<LoginScreen> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.sms),
-          label: const Text("POST /v1/auth/otp/start"),
+          label: Text(
+              _useFirebase ? "Send Firebase code" : "POST /v1/auth/otp/start"),
         ),
         const SizedBox(height: 8),
         SelectableText(_startOut),
         const SizedBox(height: 16),
-        TextField(
-            controller: _challengeId,
-            decoration: const InputDecoration(labelText: "challengeId")),
+        if (!_useFirebase)
+          TextField(
+              controller: _challengeId,
+              decoration: const InputDecoration(labelText: "challengeId")),
         TextField(
             controller: _code,
-            decoration: const InputDecoration(labelText: "6-digit code")),
+            decoration:
+                const InputDecoration(labelText: "6-digit verification code")),
         FilledButton.icon(
           onPressed: _verifying ? null : _verify,
           icon: _verifying
@@ -793,7 +891,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.verified_user),
-          label: const Text("POST /v1/auth/otp/verify"),
+          label: Text(_useFirebase
+              ? "Verify Firebase code"
+              : "POST /v1/auth/otp/verify"),
         ),
         const SizedBox(height: 8),
         SelectableText(_verifyOut),

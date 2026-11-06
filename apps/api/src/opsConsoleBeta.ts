@@ -159,6 +159,7 @@ const errorWords = {
   otp_too_many_wrong_codes: 'too many wrong codes, so send a new code',
   otp_expired: 'that code has expired, so send a new one',
   otp_challenge_invalid: "that code request isn't valid any more, so send a new code",
+  otp_too_many_wrong_codes: 'too many wrong codes were entered, so send a new code',
   otp_challenge_mismatch: "that code request isn't valid any more, so send a new code",
   otp_challenge_not_found: "that code request isn't valid any more, so send a new code",
   otp_rate_limited: 'too many codes were asked for, so wait until Send code is ready again',

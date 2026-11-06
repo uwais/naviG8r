@@ -44,3 +44,18 @@ test("with private addresses allowed (NODE_ENV=test) a loopback answer passes", 
   assert.deepEqual(await checkWebhookAddress("http://webhook.invalid:9/hook", true), [{ address: "127.0.0.1", family: 4 }]);
   assert.equal(await checkWebhookAddress("http://webhook.invalid:9/hook", false), null);
 });
+
+test("every loopback, private, shared, metadata, reserved and broadcast address is refused, by literal or by name", async t => {
+  answering(t, { "internal.example.com": ["10.1.2.3"], "mixed.example.com": ["93.184.215.14", "127.0.0.1"] });
+  for (const url of [
+    "http://127.0.0.1:3000/hook", "http://0.0.0.0/hook", "http://[::1]/hook", "http://[::]/hook", "http://[::ffff:127.0.0.1]/hook",
+    "http://[::7f00:1]/hook", "http://10.0.0.5/hook", "http://172.16.0.1/hook", "http://192.168.1.1/hook", "http://100.100.100.200/hook",
+    "http://169.254.169.254/latest/meta-data", "http://192.0.0.8/hook", "http://192.0.2.10/hook", "http://198.18.0.1/hook",
+    "http://198.19.255.1/hook", "http://198.51.100.7/hook", "http://203.0.113.9/hook", "http://240.0.0.1/hook",
+    "http://255.255.255.255/hook", "http://[fe80::1]/hook", "http://[fd00:ec2::254]/hook", "http://[fec0::1]/hook",
+    "http://[64:ff9b::a00:1]/hook", "http://[2002:a00:1::1]/hook", "https://internal.example.com/hook",
+    "https://mixed.example.com/hook", "https://no-such-name.example.com/hook",
+  ]) {
+    assert.equal(await checkWebhookAddress(url, false), null, url);
+  }
+});

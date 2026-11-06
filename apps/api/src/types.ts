@@ -137,9 +137,13 @@ export type Organization = {
 export type User = {
   id: string;
   phone: string;
+  /** National digits; omitted on legacy rows means +91. */
+  countryCode?: string;
   fullName: string;
   createdAtUtcMs: number;
 } & SoftDeleteFields;
+
+export type FirebaseIdentity = { uid: string; userId: string; createdAtUtcMs: number };
 
 export type Membership = {
   userId: string;
@@ -172,12 +176,14 @@ export type OtpChallengeStatus = "PENDING" | "CONSUMED" | "EXPIRED" | "SUPERSEDE
 export type OtpChallenge = {
   id: string;
   phone: string;
+  /** Omitted on legacy challenges means +91. */
+  countryCode?: string;
   code: string;
   status: OtpChallengeStatus;
   expiresAtUtcMs: number;
   createdAtUtcMs: number;
   /** Wrong codes entered so far; absent on challenges saved before the count existed. */
-  failedAttempts?: number;
+  wrongCodeCount?: number;
 };
 
 export type AuthSession = {
@@ -186,6 +192,9 @@ export type AuthSession = {
   createdAtUtcMs: number;
   expiresAtUtcMs: number;
   revokedAtUtcMs: number | null;
+  /** Provider metadata used to keep Firebase exchanges idempotent per token. */
+  authProvider?: "firebase";
+  providerSessionKey?: string;
 };
 
 export type GeoPoint = {
@@ -332,7 +341,7 @@ export type Shipment = {
   /** When its trip started while its checkout was not done, which closed it as FAILED_CARRIER_REFUNDED (owner, 23 Oct 2026). */
   leftBehindAtUtcMs?: number;
   /** When it closed as FAILED_CARRIER_REFUNDED because its payment was not done within UNPAID_BOOKING_EXPIRY_MS. */
-  expiredUnpaidAtUtcMs?: number;
+  unpaidBookingExpiredAtUtcMs?: number;
 } & SoftDeleteFields;
 
 export type PaymentProviderId = "MOCK" | "RAZORPAY";

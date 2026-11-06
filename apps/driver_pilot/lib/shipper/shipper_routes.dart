@@ -24,9 +24,13 @@ List<RouteBase> customerFlowRoutes() {
                 state.uri.hasQuery ? "/customer/login" : null,
             builder: (_, state) => SignInScreen(
                 startingPhone: switch (state.extra) {
-              PhoneForSignIn(:final number) => number,
-              _ => null,
-            })),
+                  PhoneForSignIn(:final number) => number,
+                  _ => null,
+                },
+                startingCountryCode: switch (state.extra) {
+                  PhoneForSignIn(:final countryCode) => countryCode,
+                  _ => null,
+                })),
         GoRoute(
             path: "register",
             builder: (_, __) => const CustomerRegisterScreen()),

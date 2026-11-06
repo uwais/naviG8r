@@ -27,8 +27,10 @@ import type {
   Shipment,
   User,
   Vehicle,
+  FirebaseIdentity,
 } from "./types.ts";
 import { TRIP_ASSIGNED_EVENT, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
+import { storedCountryCode } from "./phone.ts";
 
 const prisma = new PrismaClient();
 
@@ -89,6 +91,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     carriers,
     organizations,
     users,
+    firebaseIdentities,
     memberships,
     vehicles,
     driverProfiles,
@@ -108,6 +111,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     prisma.carrier.findMany(),
     prisma.organization.findMany(),
     prisma.userRow.findMany(),
+    prisma.firebaseIdentityRow.findMany(),
     prisma.membership.findMany(),
     prisma.vehicle.findMany(),
     prisma.driverProfileRow.findMany(),
@@ -156,12 +160,22 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     const user: User = {
       id: u.id,
       phone: u.phone,
+      countryCode: storedCountryCode(u.countryCode),
       fullName: u.fullName,
       createdAtUtcMs: Number(u.createdAtUtcMs),
       inactiveAtUtcMs: u.inactiveAtUtcMs != null ? Number(u.inactiveAtUtcMs) : null,
       inactiveReason: u.inactiveReason ?? null,
     };
     store.users.set(user.id, user);
+  }
+
+  for (const i of firebaseIdentities) {
+    const identity: FirebaseIdentity = {
+      uid: i.uid,
+      userId: i.userId,
+      createdAtUtcMs: Number(i.createdAtUtcMs),
+    };
+    store.firebaseIdentities.set(identity.uid, identity);
   }
 
   for (const m of memberships) {
@@ -206,6 +220,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     const ch: OtpChallenge = {
       id: o.id,
       phone: o.phone,
+      countryCode: storedCountryCode(o.countryCode),
       code: o.code,
       status: o.status as OtpChallenge["status"],
       expiresAtUtcMs: Number(o.expiresAtUtcMs),
@@ -221,6 +236,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       createdAtUtcMs: Number(s.createdAtUtcMs),
       expiresAtUtcMs: Number(s.expiresAtUtcMs),
       revokedAtUtcMs: s.revokedAtUtcMs != null ? Number(s.revokedAtUtcMs) : null,
+      ...(s.authProvider === "firebase" ? { authProvider: "firebase" as const } : {}),
+      ...(s.providerSessionKey ? { providerSessionKey: s.providerSessionKey } : {}),
     };
     store.authSessions.set(sess.id, sess);
   }
@@ -542,7 +559,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
     await tx.vehicle.deleteMany();
     await tx.authSessionRow.deleteMany();
     await tx.otpChallengeRow.deleteMany();
-
+    // Users are communication parents; reconcile them below without deleting every row.
     await tx.carrier.deleteMany();
 
     for (const c of store.carriers.values()) {
@@ -576,11 +593,23 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
     const organizationIds = [...store.organizations.keys()];
     await tx.organization.deleteMany(organizationIds.length ? { where: { id: { notIn: organizationIds } } } : undefined);
     for (const u of store.users.values()) {
-      const data = { id: u.id, phone: u.phone, fullName: u.fullName, createdAtUtcMs: BigInt(u.createdAtUtcMs), ...softToDb(u) };
+      const data = { id: u.id, phone: u.phone, countryCode: storedCountryCode(u.countryCode), fullName: u.fullName, createdAtUtcMs: BigInt(u.createdAtUtcMs), ...softToDb(u) };
       await tx.userRow.upsert({ where: { id: u.id }, create: data, update: data });
     }
     const userIds = [...store.users.keys()];
     await tx.userRow.deleteMany(userIds.length ? { where: { id: { notIn: userIds } } } : undefined);
+    for (const i of store.firebaseIdentities.values()) {
+      const data = {
+        uid: i.uid,
+        userId: i.userId,
+        createdAtUtcMs: BigInt(i.createdAtUtcMs),
+      };
+      await tx.firebaseIdentityRow.upsert({ where: { uid: i.uid }, create: data, update: data });
+    }
+    const firebaseIdentityUids = [...store.firebaseIdentities.keys()];
+    await tx.firebaseIdentityRow.deleteMany(firebaseIdentityUids.length
+      ? { where: { uid: { notIn: firebaseIdentityUids } } }
+      : undefined);
     for (const m of store.memberships.values()) {
       const data = {
         userId: m.userId,
@@ -626,6 +655,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
         data: {
           id: o.id,
           phone: o.phone,
+          countryCode: storedCountryCode(o.countryCode),
           code: o.code,
           status: o.status,
           expiresAtUtcMs: BigInt(o.expiresAtUtcMs),
@@ -641,6 +671,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           createdAtUtcMs: BigInt(s.createdAtUtcMs),
           expiresAtUtcMs: BigInt(s.expiresAtUtcMs),
           revokedAtUtcMs: s.revokedAtUtcMs != null ? BigInt(s.revokedAtUtcMs) : null,
+          authProvider: s.authProvider ?? null,
+          providerSessionKey: s.providerSessionKey ?? null,
         },
       });
     }

@@ -9,11 +9,13 @@ ENV RELEASE_SHA=${RELEASE_SHA}
 
 WORKDIR /app
 
-# The lockfile fixes every package version, so a release builds with the versions that were tested.
+# Every workspace package.json is copied so npm ci can match the whole package-lock.json.
 COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/package.json
+COPY apps/www/package.json ./apps/www/package.json
+COPY packages/core/package.json ./packages/core/package.json
 
-RUN npm ci --workspace apps/api --ignore-scripts
+RUN npm ci --omit=dev --workspace apps/api --include-workspace-root=false --ignore-scripts
 
 COPY packages ./packages
 COPY apps/api ./apps/api
