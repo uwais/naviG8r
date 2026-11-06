@@ -134,6 +134,16 @@ Localhost origins are already allowed for dev. Redeploy the API after changing e
 
 ---
 
+### Testing a branch on alpha
+
+1. GitHub, **Actions**, **NaviG8r Release**, **Run workflow**, pick your branch.
+2. It runs the tests, builds, deploys alpha, and stops. Only a run on `main` goes on to beta and production.
+3. Open `https://navig8r-customer-web-alpha.onrender.com` (driver app: add `/#/driver`). The run summary lists the test phones (from `scripts/alpha-test-accounts.json`); alpha shows the login code on screen.
+
+The next merge to `main` that changes code puts `main` back on alpha. Don't start a branch run while a `main` release is in its alpha step: whichever run is still checking alpha when the other deploys fails, and has to be re-run.
+
+---
+
 ### Troubleshooting
 
 - **Service crashes immediately**: missing/short `AUTH_SECRET` (the API exits on startup).
