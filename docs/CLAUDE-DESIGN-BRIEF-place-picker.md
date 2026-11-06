@@ -138,4 +138,7 @@ Verdict: PASS
 10. Money — PASS — nothing earned from this screen.
 11. Said to face — PASS — "Type each place, check its pin on one map, then book."
 Accepted risks: none.
+Round 2 (section 12), screened 2026-11-05: PASS. Compact spacing keeps 48 dp targets and 200% text (Q6, Q9 unchanged);
+the search page changes no defaults; if suggestions are built, they are listed only by match to the typed words,
+never promoted or sponsored (Q1, Q10).
 ```
