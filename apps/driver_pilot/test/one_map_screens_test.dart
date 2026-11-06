@@ -29,7 +29,7 @@ void main() {
     expect(find.byType(GoogleMap), findsOneWidget);
     expect(oneMap(tester).markers.map((pin) => pin.infoWindow.title), ['Pickup', 'Drop']);
     expect(pinOnMap(tester, 'Drop').position, const LatLng(13.0, 80.2));
-    expect(find.text('Tap the map to move the Drop pin.'), findsOneWidget,
+    expect(find.text('Tap the map to move the drop pin.'), findsOneWidget,
         reason: 'the Drop box was touched last');
   });
 

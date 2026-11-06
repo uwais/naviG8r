@@ -20,20 +20,26 @@ class _Places {
 }
 
 /// Pickup and Drop boxes with the one map under them. Each search finds [_bommasandra] for words with
-/// "Bommasandra" and [_guindy] otherwise; a moved pin is named "Named spot".
+/// "Bommasandra" and [_guindy] otherwise, unless [findsNothing]; a moved pin is named "Named spot".
 Future<_Places> _mount(WidgetTester tester,
-    {LatLng? pickup, LatLng? drop, bool readOnly = false, bool canDraw = true}) async {
+    {LatLng? pickup,
+    LatLng? drop,
+    bool readOnly = false,
+    bool canDraw = true,
+    bool findsNothing = false}) async {
   final places = _Places()
     ..pickup = pickup
     ..drop = drop;
-  final pins = TwoPlaceMapPins();
+  final pins = TwoPlaceMapPins(canDraw: canDraw);
   final pickupWords = TextEditingController(text: pickup == null ? '' : 'Plot 12');
   final dropWords = TextEditingController(text: drop == null ? '' : 'Gate 4');
   addTearDown(pins.dispose);
   addTearDown(pickupWords.dispose);
   addTearDown(dropWords.dispose);
-  Future<GeocodeOutcome> find(String words) async => GeocodeOutcome.ok(
-      words.contains('Bommasandra') ? _bommasandra : _guindy, '$words, India', words);
+  Future<GeocodeOutcome> find(String words) async => findsNothing
+      ? GeocodeOutcome.fail('ZERO_RESULTS')
+      : GeocodeOutcome.ok(
+          words.contains('Bommasandra') ? _bommasandra : _guindy, '$words, India', words);
   Future<GeocodeOutcome> name(LatLng point) async {
     places.named.add(point);
     return GeocodeOutcome.ok(point, 'Named spot, India', 'Named spot');
@@ -78,7 +84,6 @@ Future<_Places> _mount(WidgetTester tester,
                               'Your pickup and drop are still set. You can book without the map.',
                           pinsAreAddresses: true,
                           readOnly: readOnly,
-                          canDraw: canDraw,
                         ),
                       ]))))));
   await tester.pumpAndSettle();
@@ -111,7 +116,7 @@ void main() {
 
   testWidgets('the map moves the pickup first, and says so in words', (tester) async {
     await _mount(tester, pickup: _bommasandra, drop: _guindy);
-    expect(find.text('Tap the map to move the Pickup pin.'), findsOneWidget);
+    expect(find.text('Tap the map to move the pickup pin.'), findsOneWidget);
     expect(pinOnMap(tester, 'Pickup').draggable, isTrue);
     expect(pinOnMap(tester, 'Drop').draggable, isFalse, reason: 'one pin at a time');
   });
@@ -133,7 +138,7 @@ void main() {
     final places = await _mount(tester, pickup: _bommasandra, drop: _guindy);
     await chooseOnMap(tester, 'Drop');
     await tester.pumpAndSettle();
-    expect(find.text('Tap the map to move the Drop pin.'), findsOneWidget,
+    expect(find.text('Tap the map to move the drop pin.'), findsOneWidget,
         reason: 'the words change with the choice, not only the colour');
     expect(pinOnMap(tester, 'Drop').draggable, isTrue);
     expect(pinOnMap(tester, 'Pickup').draggable, isFalse);
@@ -148,11 +153,11 @@ void main() {
     await _mount(tester, pickup: _bommasandra, drop: _guindy);
     await tester.tap(find.descendant(of: _box('Drop'), matching: find.byType(TextField)));
     await tester.pumpAndSettle();
-    expect(find.text('Tap the map to move the Drop pin.'), findsOneWidget,
+    expect(find.text('Tap the map to move the drop pin.'), findsOneWidget,
         reason: 'owner, 5 Nov 2026: the box touched last is the place being moved');
     await tester.tap(find.descendant(of: _box('Pickup'), matching: find.byType(TextField)));
     await tester.pumpAndSettle();
-    expect(find.text('Tap the map to move the Pickup pin.'), findsOneWidget);
+    expect(find.text('Tap the map to move the pickup pin.'), findsOneWidget);
   });
 
   testWidgets('dragging the chosen pin moves it, as a tap does', (tester) async {
@@ -212,11 +217,20 @@ void main() {
     await tester.tap(find.byTooltip('Search for place'));
     await tester.pumpAndSettle();
     expect(find.byType(GoogleMap), findsOneWidget);
-    expect(find.text('Tap the map to move the Drop pin.'), findsOneWidget,
-        reason: 'the box searched is the place the map moves');
+    expect(find.text('Tap the map to put the drop pin.'), findsOneWidget,
+        reason: 'the box searched is the place the map moves; it has no pin yet to move');
     oneMap(tester).onTap!(_guindy);
     await tester.pumpAndSettle();
     expect(drop, _guindy);
+    expect(find.text('Tap the map to move the drop pin.'), findsOneWidget);
+  });
+
+  testWidgets('a failed search does not say to tap a map that could not load', (tester) async {
+    await _mount(tester, canDraw: false, findsNothing: true);
+    await _search(tester, 'Pickup', 'Kurudumale');
+    expect(find.text('The map could not load'), findsOneWidget);
+    expect(find.text('Could not find this place. Try a nearby town.'), findsOneWidget);
+    expect(find.textContaining(RegExp('tap the map', caseSensitive: false)), findsNothing);
   });
 
   testWidgets('when the map cannot load, it says so and the place boxes still work',
@@ -224,7 +238,8 @@ void main() {
     final places = await _mount(tester, canDraw: false);
     await _search(tester, 'Pickup', 'Bommasandra');
     expect(find.text('The map could not load'), findsOneWidget);
-    expect(find.text('Search for each place by name.'), findsOneWidget,
+    expect(find.text('Type each place in its box and search. The map is not needed.'),
+        findsOneWidget,
         reason: 'with only one place set, the design line would not be true yet');
     await _search(tester, 'Drop', 'Guindy');
     expect(places.pickup, _bommasandra, reason: 'search still sets the place');

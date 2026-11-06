@@ -5,12 +5,15 @@
 import "package:flutter/material.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
-import "location_editor.dart" show pinNotPlacedYet;
 import "maps_config.dart";
 import "place_pin_icons.dart";
 import "ui/nv_choice.dart";
 import "ui/nv_map.dart";
 import "ui/tokens.dart";
+
+/// Where a pin starts before the place is known: the map needs a starting point, and the screens
+/// refuse to go on until the person has searched for the place or dragged its pin.
+const pinNotPlacedYet = LatLng(22.5, 79.0);
 
 /// The two places a screen sets: [start] is the pickup or a trip's From, [end] the drop or its To.
 enum MapPlace { start, end }
@@ -19,6 +22,14 @@ enum MapPlace { start, end }
 /// had a search (a failed one opens the map, so a place Google cannot find can be tapped in), and the
 /// way a tap or drag on the map reaches the box that moves that pin and looks up its address.
 class TwoPlaceMapPins extends ChangeNotifier {
+  /// [canDraw] is for tests; null asks the platform ([mapsCanDraw]) each time.
+  TwoPlaceMapPins({bool? canDraw}) : _canDraw = canDraw;
+
+  final bool? _canDraw;
+
+  /// False when no map can draw here, so a box must not tell the person to tap one.
+  bool get mapCanDraw => _canDraw ?? mapsCanDraw;
+
   MapPlace _moving = MapPlace.start;
   final _searched = <MapPlace>{};
   final _boxes = <MapPlace, ValueChanged<LatLng>>{};
@@ -80,7 +91,6 @@ class TwoPlaceMap extends StatefulWidget {
     required this.failedHelp,
     this.pinsAreAddresses = false,
     this.readOnly = false,
-    this.canDraw,
   });
 
   final TwoPlaceMapPins pins;
@@ -103,9 +113,6 @@ class TwoPlaceMap extends StatefulWidget {
 
   /// True while the places are being sent: both pins show, and nothing moves them.
   final bool readOnly;
-
-  /// Whether a map can draw here; null asks the platform ([mapsCanDraw]). For tests.
-  final bool? canDraw;
 
   @override
   State<TwoPlaceMap> createState() => _TwoPlaceMapState();
@@ -177,7 +184,7 @@ class _TwoPlaceMapState extends State<TwoPlaceMap> {
       return const SizedBox.shrink();
     }
     final moving = widget.pins.moving;
-    final canDraw = widget.canDraw ?? mapsCanDraw;
+    final canDraw = widget.pins.mapCanDraw;
     final initialZoom = start != null && end != null
         ? 6.0
         : start != null || end != null
@@ -210,6 +217,9 @@ class _TwoPlaceMapState extends State<TwoPlaceMap> {
       myLocationButtonEnabled: false,
     );
     final movingTitle = moving == MapPlace.start ? widget.startTitle : widget.endTitle;
+    // Pickup and drop read as plain words mid-sentence; From and To stay as their boxes name them.
+    final movingPin = widget.pinsAreAddresses ? movingTitle.toLowerCase() : movingTitle;
+    final movingHasPin = (moving == MapPlace.start ? start : end) != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -221,11 +231,11 @@ class _TwoPlaceMapState extends State<TwoPlaceMap> {
           state: canDraw ? NvMapState.ready : NvMapState.failed,
           failedHelp: start != null && end != null
               ? widget.failedHelp
-              : "Search for each place by name.",
+              : "Type each place in its box and search. The map is not needed.",
         ),
         if (canDraw && !widget.readOnly) ...[
           const SizedBox(height: NvSpace.s2),
-          Text("Tap the map to move the $movingTitle pin.",
+          Text("Tap the map to ${movingHasPin ? "move" : "put"} the $movingPin pin.",
               style: NvText.body),
           const SizedBox(height: NvSpace.s2),
           NvChoiceChips<MapPlace>(

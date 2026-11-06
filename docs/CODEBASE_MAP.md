@@ -58,7 +58,7 @@ the Trips tab. `test/office_tabs_test.dart` covers the tabs and both buttons.
 |---|---|
 | `apps/driver_pilot/lib/two_place_map.dart` | The one map a screen shows for its pickup and drop (or From and To): both pins, a line, the chip naming them, the "could not load" state, and which pin a tap or drag moves (`TwoPlaceMapPins`, shared with the place boxes) |
 | `apps/driver_pilot/lib/place_pin_icons.dart` | The two pins drawn in code: pickup a navy dot, drop a gold dot with a navy ring |
-| `apps/driver_pilot/lib/location_editor.dart` | `LocationEndpointEditor`, one place's text box and search; it no longer draws a map. A map move reaches it through `TwoPlaceMapPins`, and it looks up the address as before |
+| `apps/driver_pilot/lib/location_editor.dart` | Two jobs, split deferred to after go-live (owner, 21 Oct 2026). (1) `LocationEndpointEditor`, one place's text box and search; it draws no map of its own. A map move reaches it through `TwoPlaceMapPins`, and it looks up the address as before. (2) The read-only maps: `routePreviewMap` (trip detail, `main.dart`), `activeTripMap` with `singlePointMap` (active trip, `driver_flow.dart`), `tripTrackingMap` (`shipper/shipment_screen.dart`), plus the map-point reader `latLngFromGeoMap`. The pin address line (`pinAddressLine`) is used by `shipper/book_pins_check.dart` too |
 
 Used by Search by route (`shipper/find_a_lane.dart`), Book this trip (`shipper/book_a_lane.dart`), Add trip
 (`DriverPublishTripScreen` in `driver_flow.dart`) and the older publish screen in `main.dart`.

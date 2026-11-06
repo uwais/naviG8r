@@ -1,6 +1,6 @@
 // Two jobs in one file for now: the read-only maps the screens share, with their map-point readers
 // (latLngFromGeoMap), and the place editor. The split into two files is deferred until after go-live
-// (owner, 21 Oct 2026); it changes the imports of six lib files and six test files.
+// (owner, 21 Oct 2026); it changes the imports of three lib files and two test files.
 import "dart:math" as math;
 
 import "package:flutter/foundation.dart" show kDebugMode;
@@ -10,28 +10,18 @@ import "package:google_maps_flutter/google_maps_flutter.dart";
 import "google_geocoding.dart";
 import "two_place_map.dart";
 
-/// Read-only route line between two points (publish / book preview). [aPinHue] and [bPinHue] let a
-/// screen match the pins of its own place boxes; [aLabel] and [bLabel] name a pin when it is tapped.
-Widget routePreviewMap({
-  required LatLng a,
-  required LatLng b,
-  double aPinHue = BitmapDescriptor.hueGreen,
-  double bPinHue = BitmapDescriptor.hueRed,
-  String? aLabel,
-  String? bLabel,
-}) {
+/// Read-only route line between two points, for the route preview on the trip detail screen.
+Widget routePreviewMap({required LatLng a, required LatLng b}) {
   final markers = <Marker>{
     Marker(
       markerId: const MarkerId("route_a"),
       position: a,
-      icon: BitmapDescriptor.defaultMarkerWithHue(aPinHue),
-      infoWindow: aLabel == null ? InfoWindow.noText : InfoWindow(title: aLabel),
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
     ),
     Marker(
       markerId: const MarkerId("route_b"),
       position: b,
-      icon: BitmapDescriptor.defaultMarkerWithHue(bPinHue),
-      infoWindow: bLabel == null ? InfoWindow.noText : InfoWindow(title: bLabel),
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
     ),
   };
   final line = Polyline(
@@ -334,10 +324,6 @@ LatLngBounds? _boundsForPoints(List<LatLng> points) {
   return LatLngBounds(southwest: LatLng(minLat, minLng), northeast: LatLng(maxLat, maxLng));
 }
 
-/// Where a pin starts before the place is known: the map needs a starting point, and the screens
-/// refuse to go on until the person has searched for the place or dragged its pin.
-const pinNotPlacedYet = LatLng(22.5, 79.0);
-
 /// The longest pickup or drop address the server takes (maxAddressLength in the API's services.ts).
 const maxAddressCharacters = 500;
 
@@ -542,7 +528,8 @@ class _LocationEndpointEditorState extends State<LocationEndpointEditor>
     // A failed search still opens the map, so the pin can be put at a place Google cannot find.
     widget.pins.markSearched(widget.place, true);
     if (!outcome.isOk) {
-      setState(() => _hintLine = placeSearchFailureSentence(outcome.failure, pinOnMap: true));
+      setState(() => _hintLine =
+          placeSearchFailureSentence(outcome.failure, pinOnMap: widget.pins.mapCanDraw));
       if (outcome.status == "NO_API_KEY" && mounted && widget.showApiKeyHint && kDebugMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
