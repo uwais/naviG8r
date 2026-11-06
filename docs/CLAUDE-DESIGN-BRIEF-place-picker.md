@@ -101,6 +101,24 @@ Design one place picker that works in all three, with one map.
 - Component specs: the place box, the "being edited" marker, the two pins, the map frame, error and loading lines.
 - Exact copy for every label, hint, error and announcement.
 
+## 12. Round 2 (5 Nov): short phones and the keyboard
+
+Found by the owner on a real phone (LG, 720 x 1280 at 320 dpi, so 360 x 640 dp, normal text size). The build
+follows sections 1-11 and the October Map component; this round is about fit.
+
+- **Tighter spacing on short screens (approved).** On a 360 x 640 dp phone the boxes, cards and buttons feel too
+  large and the map falls below the fold. Design a compact spacing step for screens shorter than about 700 dp:
+  smaller gaps, card padding and type steps, while touch targets stay at least 48 x 48 dp and text still fits at
+  200%. Apply it to the design system, not just this screen, and show Search by route, Book this trip and Add trip
+  at 360 x 640.
+- **The keyboard hides the map.** With the keyboard up (about half the screen), the person typing cannot see the
+  map or the result of their search. Solve this. One option: tapping a place box opens a search page with the box at
+  the top and results below; after a place is picked, the form returns with the map showing both pins. Show the
+  option you choose, with and without the keyboard.
+- **Suggestions while typing (not yet approved).** Leave room for a list of suggestions under the box in the
+  search page, marked as optional; the team is checking cost (Google's India price list shows a free monthly
+  allowance) before deciding.
+
 ## 11. Dark pattern screen
 
 ```
