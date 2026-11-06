@@ -52,6 +52,17 @@ The office tabs (owner, 5 Nov 2026) are Home, Bookings, Trips, Load Board, Profi
 Add trip is no longer a tab: it is a button on the office Home and at the top of Trips, and `/driver/publish` lights
 the Trips tab. `test/office_tabs_test.dart` covers the tabs and both buttons.
 
+### One map for a screen's two places (5 Nov 2026)
+
+| File | What it does |
+|---|---|
+| `apps/driver_pilot/lib/two_place_map.dart` | The one map a screen shows for its pickup and drop (or From and To): both pins, a line, the chip naming them, the "could not load" state, and which pin a tap or drag moves (`TwoPlaceMapPins`, shared with the place boxes) |
+| `apps/driver_pilot/lib/place_pin_icons.dart` | The two pins drawn in code: pickup a navy dot, drop a gold dot with a navy ring |
+| `apps/driver_pilot/lib/location_editor.dart` | `LocationEndpointEditor`, one place's text box and search; it no longer draws a map. A map move reaches it through `TwoPlaceMapPins`, and it looks up the address as before |
+
+Used by Search by route (`shipper/find_a_lane.dart`), Book this trip (`shipper/book_a_lane.dart`), Add trip
+(`DriverPublishTripScreen` in `driver_flow.dart`) and the older publish screen in `main.dart`.
+
 ## Entry points
 
 - API server: `apps/api/src/index.ts`, which calls `createApp` in `httpServer.ts`.
@@ -86,7 +97,18 @@ in `_loadCard` of `my_loads.dart` (shipper) or `load_board_screen.dart` (carrier
 sends it), and check for its words in `test/load_board_shipper_test.dart` or `test/load_board_carrier_test.dart`. You
 should see the new line on the card in the test, and `flutter test` pass.
 
+**To put the one map on another screen with two places:** make a `TwoPlaceMapPins` in the screen's state (dispose it),
+pass it with `MapPlace.start` and `MapPlace.end` to the two `LocationEndpointEditor` boxes, set `staysAliveOffScreen: true`
+on both, then add a `TwoPlaceMap` after them with the same pins and the two points. You should see no map until a place
+is found, then one map; `test/two_place_map_test.dart` shows the checks to copy.
+
 ## Gotchas learned the hard way
+
+- **A place box a list has dropped cannot take the map's moves.** The map hands a tap to the box of the chosen place; if
+  the list has disposed that box, the tap does nothing. Every screen with the one map sets `staysAliveOffScreen`.
+- **Under flutter test the shared pin drawing never finishes.** `placePinIcons()` starts once, inside one test's fake
+  time, so maps in tests keep Google's fallback pins. Test the drawing with `tester.runAsync(drawPlacePinIcons)`; awaiting
+  the shared one hangs the run and the per-test timeout does not stop it.
 
 - **The data file is version 8.** `persistence.ts` reads versions 1 to 8 and always writes 8. A server built before the
   Load Board refuses a version 8 file (`unsupported_store_version`), so rolling back past this change needs the file
