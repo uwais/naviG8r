@@ -101,7 +101,8 @@ class TwoPlaceMap extends StatefulWidget {
   final String startTitle;
   final String endTitle;
 
-  /// The map's chip, naming both pins in words: "Pickup and drop".
+  /// Not shown since the chip became a legend built from [startTitle] and [endTitle]. Kept only so the
+  /// screens that pass it need no change in the same commit; safe to remove with them.
   final String pinsLabel;
 
   /// Under "The map could not load" once both places are set, saying what still works.
@@ -227,7 +228,7 @@ class _TwoPlaceMapState extends State<TwoPlaceMap> {
         const SizedBox(height: NvSpace.s4),
         NvMap(
           map: map,
-          pinsLabel: widget.pinsLabel,
+          pinTitles: (start: widget.startTitle, end: widget.endTitle),
           state: canDraw ? NvMapState.ready : NvMapState.failed,
           failedHelp: start != null && end != null
               ? widget.failedHelp

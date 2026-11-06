@@ -155,8 +155,11 @@ void main() {
 
         expect(find.byType(GoogleMap), findsOneWidget,
             reason: 'still one map, now with both places');
-        expect(find.text('From and To'), findsOneWidget,
-            reason: 'the pins are named in words, not by colour alone');
+        for (final title in ['From', 'To']) {
+          expect(find.descendant(of: find.byType(NvMap), matching: find.text(title)),
+              findsOneWidget,
+              reason: 'the chip is a legend naming each pin in words, not by colour alone');
+        }
         final map = oneMap(tester);
         expect(map.markers.map((pin) => pin.position), [hoskote, kolar]);
         expect(map.markers.map((pin) => pin.infoWindow.title), ['From', 'To']);

@@ -13,6 +13,7 @@ class NvMap extends StatelessWidget {
       {required this.map,
       this.state = NvMapState.ready,
       this.pinsLabel = "Pickup and drop",
+      this.pinTitles,
       this.failedHelp,
       this.onTurnOnLocation,
       super.key});
@@ -21,8 +22,12 @@ class NvMap extends StatelessWidget {
   final Widget map;
   final NvMapState state;
 
-  /// Names the pins in words, so they are not told apart by colour alone.
+  /// Names the pins in words, so they are not told apart by colour alone. Unused when [pinTitles] is set.
   final String pinsLabel;
+
+  /// For a map drawn with place_pin_icons.dart's dots: the chip becomes a legend, each dot beside its
+  /// title ("Pickup", "Drop"), so the words say which dot is which.
+  final ({String start, String end})? pinTitles;
 
   /// The line under "The map could not load", saying what still works without it.
   final String? failedHelp;
@@ -40,20 +45,25 @@ class NvMap extends StatelessWidget {
               borderRadius: BorderRadius.circular(NvRadius.card),
               child: Stack(children: [
                 Positioned.fill(child: map),
+                // Left and right both set, so a legend too wide for the map wraps instead of overflowing.
                 Positioned(
                   left: NvSpace.s2,
+                  right: NvSpace.s2,
                   bottom: NvSpace.s2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: NvSpace.s2, vertical: NvSpace.s1),
-                    decoration: BoxDecoration(
-                        color: NvColors.card,
-                        borderRadius: BorderRadius.circular(NvRadius.sm),
-                        border: Border.all(color: NvColors.line)),
-                    child: Text(pinsLabel,
-                        style: NvText.caption.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: NvColors.navyInk)),
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: NvSpace.s2, vertical: NvSpace.s1),
+                      decoration: BoxDecoration(
+                          color: NvColors.card,
+                          borderRadius: BorderRadius.circular(NvRadius.sm),
+                          border: Border.all(color: NvColors.line)),
+                      child: switch (pinTitles) {
+                        null => Text(pinsLabel, style: _chipText),
+                        final titles => _PinLegend(titles),
+                      },
+                    ),
                   ),
                 ),
               ]),
@@ -104,6 +114,47 @@ class NvMap extends StatelessWidget {
             ],
           ]),
       };
+}
+
+final _chipText =
+    NvText.caption.copyWith(fontWeight: FontWeight.w600, color: NvColors.navyInk);
+
+/// The pins' dots as place_pin_icons.dart draws them, each beside its title. A screen reader hears the
+/// same thing in words: "Pickup is the navy dot. Drop is the gold dot."
+class _PinLegend extends StatelessWidget {
+  const _PinLegend(this.titles);
+  final ({String start, String end}) titles;
+
+  static const _dotSize = 10.0;
+
+  Widget _entry(String title, Color fill, {required bool ringed}) =>
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: _dotSize,
+          height: _dotSize,
+          decoration: BoxDecoration(
+              color: fill,
+              shape: BoxShape.circle,
+              border: ringed ? Border.all(color: NvColors.navy, width: 2) : null),
+        ),
+        const SizedBox(width: NvSpace.s1),
+        Flexible(child: Text(title, style: _chipText)),
+      ]);
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        container: true,
+        excludeSemantics: true,
+        label: "${titles.start} is the navy dot. ${titles.end} is the gold dot.",
+        child: Wrap(
+          spacing: NvSpace.s3,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _entry(titles.start, NvColors.navy, ringed: false),
+            _entry(titles.end, NvColors.gold, ringed: true),
+          ],
+        ),
+      );
 }
 
 /// The grey box that stands in for the map. It grows with large text instead of clipping.

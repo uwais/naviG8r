@@ -1,4 +1,4 @@
-// The map's states from spec/components.md: default, loading, location off and failed. A
+// The map's states from spec/components.md: default, legend, loading, location off and failed. A
 // plain box stands in for the Google map, which cannot draw under flutter test.
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/ui/nv_button.dart';
@@ -37,6 +37,43 @@ void main() {
         reason:
             'accessibility.md: map pins are named in the chip, not by colour alone');
   });
+
+  testWidgets(
+      'with pin titles the chip is a legend: each dot beside its title, said in words',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    await mountMap(tester,
+        const NvMap(map: mapStandIn, pinTitles: (start: 'Pickup', end: 'Drop')));
+
+    expect(find.text('Pickup and drop'), findsNothing,
+        reason: 'the legend replaces the words-only chip');
+    expect(tester.getTopLeft(find.text('Pickup')).dx,
+        lessThan(tester.getTopLeft(find.text('Drop')).dx),
+        reason: 'cp-map: pickup first, then drop');
+    expect(find.bySemanticsLabel('Pickup is the navy dot. Drop is the gold dot.'),
+        findsOneWidget,
+        reason: 'brief 6: colour is never the only signal');
+    semantics.dispose();
+  });
+
+  for (final (start, end) in [('Pickup', 'Drop'), ('From', 'To'), ('Origin', 'Destination')]) {
+    testWidgets('the $start and $end legend fits 360 dp at 200% text', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+      await mountMap(tester, NvMap(map: mapStandIn, pinTitles: (start: start, end: end)));
+
+      expect(tester.takeException(), isNull,
+          reason: 'accessibility.md: works at 200% text');
+      final map = tester.getRect(find.byType(NvMap));
+      for (final title in [start, end]) {
+        final words = tester.getRect(find.text(title));
+        expect(map.left <= words.left && words.right <= map.right, isTrue,
+            reason: '$title stays inside the map');
+        expect(map.top <= words.top && words.bottom <= map.bottom, isTrue,
+            reason: '$title stays inside the map');
+      }
+    });
+  }
 
   testWidgets(
       'loading says so in words and drops the spinner for reduce-motion',

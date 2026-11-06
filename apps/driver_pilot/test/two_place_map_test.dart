@@ -102,6 +102,7 @@ Future<void> _search(WidgetTester tester, String title, String words) async {
 void main() {
   testWidgets('both places share one map, with both pins and a line between them',
       (tester) async {
+    final semantics = tester.ensureSemantics();
     await _mount(tester);
     expect(find.byType(GoogleMap), findsNothing, reason: 'no place yet, so no map');
     await _search(tester, 'Pickup', 'Bommasandra');
@@ -110,8 +111,9 @@ void main() {
     expect(pinOnMap(tester, 'Pickup').position, _bommasandra);
     expect(pinOnMap(tester, 'Drop').position, _guindy);
     expect(oneMap(tester).polylines.single.points, [_bommasandra, _guindy]);
-    expect(find.text('Pickup and drop'), findsOneWidget,
-        reason: 'cp-map: the chip names both pins in words');
+    expect(find.bySemanticsLabel('Pickup is the navy dot. Drop is the gold dot.'), findsOneWidget,
+        reason: 'brief 6: colour is never the only signal; the chip says which dot is which');
+    semantics.dispose();
   });
 
   testWidgets('the map moves the pickup first, and says so in words', (tester) async {
