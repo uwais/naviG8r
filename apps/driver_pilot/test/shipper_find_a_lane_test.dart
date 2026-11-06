@@ -268,9 +268,9 @@ void main() {
           find.widgetWithText(FilledButton, 'Find trips'));
       expect(findLanes().onPressed, isNull,
           reason: 'review: a lane card would carry the old town name to Book with the new pin');
-      expect(find.text('Looking up the address at the pin.'), findsOneWidget,
+      expect(find.text('Waiting for the address at the pin.'), findsOneWidget,
           reason: 'under the place box');
-      expect(find.text('Updating address from pin…'), findsOneWidget,
+      expect(find.text('Waiting for the address at the pin.'), findsOneWidget,
           reason: 'under the disabled button to say why');
 
       town.complete(GeocodeOutcome.ok(
@@ -465,7 +465,7 @@ void main() {
           find.widgetWithText(FilledButton, 'Find trips'));
       expect(findTrips().onPressed, isNull,
           reason: 'review: the answer would move the pin after the trips were found');
-      expect(find.text('Searching for the place…'), findsOneWidget,
+      expect(find.text('Waiting for the place search.'), findsOneWidget,
           reason: 'a disabled button says why');
       found.complete(GeocodeOutcome.ok(const LatLng(13.0, 80.25),
           'Adyar, Chennai, Tamil Nadu 600020, India', 'Chennai'));

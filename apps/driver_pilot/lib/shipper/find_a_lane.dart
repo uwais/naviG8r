@@ -310,9 +310,9 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   /// trips were found), or a dragged pin still being named (a lane card would carry the old name, or
   /// no name, to Book).
   String? get _searchBlockedBy => _searchingPickup || _searchingDrop
-      ? "Searching for the place…"
+      ? "Waiting for the place search."
       : _namingPickupPin || _namingDropPin
-          ? "Updating address from pin…"
+          ? "Waiting for the address at the pin."
           : null;
 
   Future<void> _search() async {

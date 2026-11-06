@@ -158,7 +158,7 @@ void main() {
       expect(
           find.descendant(
               of: find.byType(NvActionBar),
-              matching: find.text('Updating address from pin…')),
+              matching: find.text('Waiting for the address at the pin.')),
           findsOneWidget,
           reason: 'a disabled button says why');
 
@@ -320,7 +320,7 @@ void main() {
       expect(
           find.descendant(
               of: find.byType(NvActionBar),
-              matching: find.text('Searching for the place…')),
+              matching: find.text('Waiting for the place search.')),
           findsOneWidget,
           reason: 'a disabled button says why');
       found.complete(GeocodeOutcome.ok(const LatLng(13.0, 80.25),

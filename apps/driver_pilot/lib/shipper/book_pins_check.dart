@@ -34,7 +34,7 @@ class BookPinsCheck extends StatelessWidget {
               Text("$title: ${place.words}", style: NvText.bodyStrong),
               Text(
                   place.naming
-                      ? "Updating address from pin…"
+                      ? "Waiting for the address at the pin."
                       : pinAddressLine(place.pinAddress),
                   style: NvText.caption),
             ],
@@ -63,7 +63,7 @@ class BookPinLines extends StatelessWidget {
   /// While a dragged pin is named, and when there is no address, the same words as the pins check.
   static String _pinLine(String title, BookPlace place) {
     final address = place.pinAddress?.address;
-    if (place.naming) return "$title pin: Updating address from pin…";
+    if (place.naming) return "$title pin: Waiting for the address at the pin.";
     if (address == null) {
       return "$title ${pinAddressLine(place.pinAddress).replaceFirst("Pin: ", "pin: ")}";
     }

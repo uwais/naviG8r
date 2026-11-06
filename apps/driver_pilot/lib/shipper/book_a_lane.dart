@@ -494,9 +494,9 @@ class _CustomerBookShipmentScreenState
   /// What still has to be filled in before there is a price, or null when nothing is missing.
   String? _missingBeforePrice() {
     // A search still out would move a pin after Book and pay; wait for it.
-    if (_searchingPickup || _searchingDrop) return "Searching for the place…";
+    if (_searchingPickup || _searchingDrop) return "Waiting for the place search.";
     // A dragged pin is priced at once but named later; booking before then sends the old name.
-    if (_namingPickupPin || _namingDropPin) return "Updating address from pin…";
+    if (_namingPickupPin || _namingDropPin) return "Waiting for the address at the pin.";
     if (_farPinsHelp ?? _pinsRefusedHelp case final help?) return help;
     final inputs = _priceInputs;
     final weightMissing = inputs.weightKg == null || inputs.weightKg! <= 0;

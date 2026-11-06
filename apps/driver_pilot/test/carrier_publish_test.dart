@@ -225,7 +225,7 @@ void main() {
         expect(
             find.descendant(
                 of: find.byType(NvActionBar),
-                matching: find.text('Updating address from pin…')),
+                matching: find.text('Waiting for the address at the pin.')),
             findsOneWidget,
             reason: 'a disabled button says why');
 

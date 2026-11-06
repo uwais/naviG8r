@@ -5838,7 +5838,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
         child: NvButton(
           label: "Add trip",
           onPressed: namingPin ? null : _submit,
-          disabledReason: namingPin ? "Updating address from pin…" : null,
+          disabledReason: namingPin ? "Waiting for the address at the pin." : null,
           loading: _submitting,
           loadingLabel: "Adding",
           fullWidth: true,
