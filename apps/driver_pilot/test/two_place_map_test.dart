@@ -4,6 +4,7 @@ import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/location_editor.dart';
 import 'package:driver_pilot/place_pin_icons.dart';
 import 'package:driver_pilot/two_place_map.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -115,6 +116,15 @@ void main() {
     expect(find.bySemanticsLabel('Pickup is the navy dot. Drop is the gold dot.'), findsOneWidget,
         reason: 'brief 6: colour is never the only signal; the chip says which dot is which');
     semantics.dispose();
+  });
+
+  testWidgets('the map takes drags that start on it, so it pans inside a scrolling form',
+      (tester) async {
+    await _mount(tester, pickup: _bommasandra, drop: _guindy);
+    final recognizers = oneMap(tester).gestureRecognizers;
+    expect(recognizers, isNotEmpty,
+        reason: 'brief 3: set a place outside the fitted view; without these the page takes the drag');
+    expect(recognizers.single.constructor(), isA<EagerGestureRecognizer>());
   });
 
   testWidgets('the map moves the pickup first, and says so in words', (tester) async {

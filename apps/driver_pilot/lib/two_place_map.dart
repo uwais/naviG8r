@@ -2,6 +2,8 @@
 // pins, a dotted line between them, a chip naming them in words. The owner's addition (5 Nov 2026): the map
 // can move one pin at a time, the one whose box was touched last, because the exact pin sets the price and
 // the 15 km booking rule. The place boxes (location_editor.dart) do the search and the address lookup.
+import "package:flutter/foundation.dart";
+import "package:flutter/gestures.dart";
 import "package:flutter/material.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
@@ -216,6 +218,9 @@ class _TwoPlaceMapState extends State<TwoPlaceMap> {
       },
       zoomControlsEnabled: true,
       myLocationButtonEnabled: false,
+      // Every screen puts this map inside a scrolling form, which otherwise wins a drag that starts on the
+      // map, so the map could not pan to a place outside its fitted view. A drag off the map still scrolls.
+      gestureRecognizers: {Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer())},
     );
     final movingTitle = moving == MapPlace.start ? widget.startTitle : widget.endTitle;
     // Pickup and drop read as plain words mid-sentence; From and To stay as their boxes name them.
