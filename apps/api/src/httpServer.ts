@@ -502,7 +502,7 @@ export async function createApp(options: {
         return;
       }
       // Before any route reads trip room or bookings, so a booking not paid in time never holds room or takes payment.
-      // The Load Board's sweep after it, so a load whose booking just closed is back on the board in the same request.
+      // The Load Board's sweep after it, so a load whose only booking just closed is back on the board in the same request.
       if (expireUnpaidBookings(store) + sweepPostedLoads(store) > 0) await persist();
 
       if (method === "GET" && ["/admin/v1", "/ops/v1"].includes(url.pathname)) return html(res, 200, adminDashboardV1Html(url.pathname === "/ops/v1"));
