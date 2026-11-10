@@ -1,5 +1,7 @@
 import "package:razorpay_flutter/razorpay_flutter.dart";
 
+import "pilot_api.dart";
+
 typedef CheckoutSuccess = void Function({
   required String orderId,
   required String paymentId,
@@ -54,8 +56,7 @@ class CustomerCheckoutController {
       "name": "NaviG8r",
       "description": "Authorize shipment payment",
       "order_id": orderId,
-      // Seconds. Razorpay closes checkout after this: 25 minutes, inside the 30 the shipper is told to pay in.
-      "timeout": 25 * 60,
+      "timeout": razorpayCheckoutTimeoutSeconds,
     });
   }
 }

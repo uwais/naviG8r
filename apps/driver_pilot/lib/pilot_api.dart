@@ -413,6 +413,16 @@ String formatIstIsoFromUtc(DateTime utc) {
   return "$y-$m-${d}T$h:$min:$s+05:30";
 }
 
+const unpaidBookingExpiredSentence =
+    "This booking expired because it was not paid within 30 minutes.";
+
+/// Shown next to Book and pay. The API tells users the same 30 minutes (UNPAID_BOOKING_WINDOW_MS).
+const payWithinWindowLine = "Pay within 30 minutes, or this booking closes.";
+
+/// Razorpay Checkout closes itself after this many seconds, so a shipper cannot finish paying after the
+/// 30 minutes they are told; the API closes the booking 10 minutes after those 30.
+const razorpayCheckoutTimeoutSeconds = 25 * 60;
+
 String tripStatusLabel(String status) {
   switch (status) {
     case "OPEN":
