@@ -44,6 +44,7 @@ class PhoneNumberField extends StatelessWidget {
     this.onChanged,
     this.label = "Phone number",
     this.hintText,
+    this.maxLength,
   });
 
   final TextEditingController controller;
@@ -52,6 +53,9 @@ class PhoneNumberField extends StatelessWidget {
   final ValueChanged<String>? onChanged;
   final String label;
   final String? hintText;
+
+  /// The server's sign-up cap on the phone text; null leaves the field uncapped.
+  final int? maxLength;
 
   @override
   Widget build(BuildContext context) {
@@ -70,6 +74,7 @@ class PhoneNumberField extends StatelessWidget {
           child: TextField(
             controller: controller,
             keyboardType: TextInputType.phone,
+            maxLength: maxLength,
             onChanged: onChanged,
             decoration: InputDecoration(labelText: label, hintText: hintText),
           ),

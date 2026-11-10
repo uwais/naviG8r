@@ -4,7 +4,9 @@
  */
 import { AuthorizationError, recordAudit, requirePermission } from "./rbac.ts";
 import { ApiError, tripWithCarrierDisplay } from "./services.ts";
+import { EWAY_BILL_TRUCK_CHANGED_EVENT, markShipmentNoticesRead, notifyShipperTruckChanged } from "./notifications.ts";
 import { isActiveEntity } from "./softDelete.ts";
+import { assignedTruckNumber, portalTruckNumber } from "./tripAssignmentRules.ts";
 import type { Store } from "./store.ts";
 import type { AnchorTrip } from "./types.ts";
 
@@ -26,6 +28,9 @@ export function assignTrip(store: Store, tripId: string, input: Record<string, u
   if (trip.status === "COMPLETED") {
     throw new ApiError("trip_completed", { detail: "This trip is complete, so its truck and driver can no longer change." }, 409);
   }
+  if (trip.status === "CANCELLED") {
+    throw new ApiError("trip_cancelled", { detail: "This trip was cancelled, so its truck and driver can no longer change." }, 409);
+  }
   const vehicleId = input.vehicleId;
   const vehicle = typeof vehicleId === "string" ? store.vehicles.get(vehicleId) : undefined;
   if (!vehicle || !isActiveEntity(vehicle) || vehicle.orgId !== trip.carrierId) {
@@ -40,9 +45,29 @@ export function assignTrip(store: Store, tripId: string, input: Record<string, u
   store.anchorTrips.set(updated.id, updated);
   // State words only: the audit log never names the truck or the person.
   recordAudit(store, "TRIP_ASSIGNED", "trip", updated.id, trip.assignedVehicleId || trip.assignedDriverUserId ? "ASSIGNED" : "UNASSIGNED", "ASSIGNED");
+  // The first truck chosen is not a change: the shipper copies it onto the bill from the shipment screen.
+  if (trip.assignedVehicleId && vehicle.id !== trip.assignedVehicleId) tellShippersTheTruckChanged(store, updated);
   const driverBusy = [...store.anchorTrips.values()].some((other) =>
     other.id !== updated.id && isActiveEntity(other) && other.status === "IN_PROGRESS" && other.assignedDriverUserId === driverUserId);
   return { trip: tripWithCarrierDisplay(store, updated), driverBusy };
+}
+
+/**
+ * For each accepted booking whose bill names a truck: a bill with another truck than the trip's new one gets a notice
+ * to its shipper, and a bill with the new truck has its earlier unread truck notices marked read, since the trip is
+ * back on the bill's truck. Trucks are compared in the portal form.
+ */
+function tellShippersTheTruckChanged(store: Store, trip: AnchorTrip): void {
+  const truckNumber = assignedTruckNumber(store, trip);
+  if (!truckNumber) return;
+  const carrierName = store.organizations.get(trip.carrierId)?.displayName?.trim() || undefined;
+  for (const shipment of store.shipments.values()) {
+    if (shipment.anchorTripId !== trip.id || shipment.status !== "BOOKED" || !isActiveEntity(shipment)) continue;
+    const onBill = shipment.ewayBill?.kind === "BILL" ? shipment.ewayBill.truckNumber : undefined;
+    if (!onBill) continue;
+    if (portalTruckNumber(onBill) === truckNumber) markShipmentNoticesRead(store, shipment.id, EWAY_BILL_TRUCK_CHANGED_EVENT);
+    else notifyShipperTruckChanged(store, shipment, carrierName, truckNumber, portalTruckNumber(onBill));
+  }
 }
 
 /** The pickers' choices for the caller's own carrier. Names only: no phone numbers leave the server here. */

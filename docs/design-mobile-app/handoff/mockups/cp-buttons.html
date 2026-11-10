@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Buttons: every state</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 760px; height: 760px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Buttons</h1>
+    <p class="lead" style="max-width: 640px;">48 dp tall at least (56 dp on driver screens). The label says the outcome. One primary per screen region. A disabled button always has its reason in words under it.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: 120px repeat(3, minmax(0, 1fr)); gap: 14px 16px; align-items: center;">
+    <span></span><p class="spec-tag">Primary</p><p class="spec-tag">Secondary</p><p class="spec-tag">Destructive</p>
+    <p class="spec-tag">Default</p>
+    <button class="btn btn-primary" type="button">Accept</button>
+    <button class="btn btn-secondary" type="button">Decline</button>
+    <button class="btn btn-destructive" type="button">Remove truck</button>
+    <p class="spec-tag">Pressed</p>
+    <button class="btn btn-primary is-pressed" type="button">Accept</button>
+    <button class="btn btn-secondary is-pressed" type="button">Decline</button>
+    <button class="btn btn-destructive" type="button" style="background: var(--problem-tint);">Remove truck</button>
+    <p class="spec-tag">Focus</p>
+    <button class="btn btn-primary is-focus" type="button">Accept</button>
+    <button class="btn btn-secondary is-focus" type="button">Decline</button>
+    <button class="btn btn-destructive is-focus" type="button">Remove truck</button>
+    <p class="spec-tag">Disabled</p>
+    <div style="display: flex; flex-direction: column; gap: 4px;"><button class="btn btn-primary" type="button" disabled>Accept with this truck</button><span class="small">Choose a truck first.</span></div>
+    <div style="display: flex; flex-direction: column; gap: 4px;"><button class="btn btn-secondary" type="button" disabled>Send a new code</button><span class="small">You can ask again in 0:24.</span></div>
+    <div style="display: flex; flex-direction: column; gap: 4px;"><button class="btn btn-destructive" type="button" disabled style="background: var(--sunken); color: var(--slate); border-color: transparent;">Remove truck</button><span class="small">It is on an active trip.</span></div>
+    <p class="spec-tag">Loading</p>
+    <button class="btn btn-primary" type="button" aria-busy="true"><span class="spinner" aria-hidden="true"></span>Getting price</button>
+    <button class="btn btn-secondary" type="button" aria-busy="true"><span class="spinner" aria-hidden="true"></span>Saving</button>
+    <button class="btn btn-destructive" type="button" aria-busy="true"><span class="spinner" aria-hidden="true"></span>Removing</button>
+    <p class="spec-tag">Success</p>
+    <button class="btn btn-primary" type="button" style="background: var(--good);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Saved</button>
+    <button class="btn btn-secondary" type="button" style="color: var(--good); border-color: var(--good);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Copied</button>
+    <span class="small">Not used. A removal ends on the next screen.</span>
+    <p class="spec-tag">Error</p>
+    <p class="small" style="grid-column: span 3;">Buttons never turn red. The error appears next to the thing that failed, with role="alert", and the button returns to default.</p>
+  </div>
+  <div style="display: flex; gap: 24px; align-items: center; flex-wrap: wrap;">
+    <p class="spec-tag">Quiet (text) button</p>
+    <button class="btn btn-quiet" type="button">Change number</button>
+    <button class="btn btn-quiet is-focus" type="button">Change number</button>
+    <span class="small">Still 48 dp tall. For low-risk, secondary paths only.</span>
+  </div>
+</div>
+
+</body>
+</html>

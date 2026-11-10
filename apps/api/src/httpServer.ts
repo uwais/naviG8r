@@ -1,3 +1,4 @@
+// One file over 800 lines on purpose: it is the route table, one ordered chain of matches, and splitting it would hide that order.
 import { dashboardList, onboardCarrier, setInternalAccess } from "./dashboard.ts";
 import { adminDashboardV1Html } from "./adminDashboardV1.ts";
 import { opsPortalHtml } from "./opsPortal.ts";
@@ -9,7 +10,12 @@ import { carrierRejection } from "./carrierRejection.ts";
 import { addEwayBillTruck, checkEwayBill, listEwayBillsForOps, removeEwayBill, saveEwayBill } from "./ewayBill.ts";
 import { ewayPortalAddress, handleEwayDemoPortal, isEwayDemoPortalPath } from "./ewayDemoPortal.ts";
 import { assignTrip, carrierFleet } from "./tripAssignment.ts";
+import { remindShipperOfEwayBill } from "./ewayBillReminder.ts";
+import { cancelTrip, listPaymentsCollectedAfterCancelForOps, listTripCancelRequestsForOps, markRefundedInRazorpay, requestTripCancel, withdrawTripCancelRequest } from "./tripCancel.ts";
+import { setCarrierTransporterId } from "./carrierTransporterId.ts";
 import { serializeResponse } from "./rbacResponses.ts";
+import { isPodPhotoUploadPath, podPhotosRoot, type PodPhotoUpload } from "./podPhotos.ts";
+import { handlePodPhotoRoute, receivePodPhotoUpload } from "./podPhotoRoutes.ts";
 import http from "node:http";
 import { URL } from "node:url";
 import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer, firebasePhoneExchangeVerified } from "./auth.ts";
@@ -56,6 +62,7 @@ import {
   pilotListMyAnchorTrips,
   pilotRatesEstimate,
   pilotListCarrierShipments,
+  bookingReadyToAccept,
   pilotCarrierEarningsSummary,
   pilotSubmitPayoutSetup,
   pilotListCarrierLedger,
@@ -341,6 +348,8 @@ export async function createApp(options: {
   const otp = createOtpDependencies();
   const staffSignIn = staffSignInFromEnv();
   const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (options.dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
+  // Beside the data file, so a test or the demo with its own data file gets its own photos folder.
+  const podPhotoRoot = podPhotosRoot(dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
 
   let store: ReturnType<typeof loadStoreFromDisk>;
   let rawPersist: () => Promise<void>;
@@ -373,6 +382,8 @@ export async function createApp(options: {
       saveStoreToDisk(dataFilePath!, store);
     };
   }
+  // Once at start as well as before each save, so a chat recorded before the acceptance rule is locked before anyone reads it.
+  captureTerminalConversationWindows(store);
   eventSnapshot = workflowSnapshot(store);
 
   type MutationSnapshot = {
@@ -560,7 +571,7 @@ export async function createApp(options: {
       return;
     }
     const capturesState = !["GET", "HEAD", "OPTIONS"].includes(method) || /\/conversation\/(?:timeline|messages)$/.test(urlPath);
-    void runSerialized(() => authorizationContext.run(requestContext(), async () => {
+    const handleRequest = (podPhotoUpload: PodPhotoUpload | null) => runSerialized(() => authorizationContext.run(requestContext(), async () => {
     try {
       const method = req.method ?? "GET";
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -801,7 +812,7 @@ export async function createApp(options: {
       }
       if (method === "GET" && url.pathname === "/v1/audit") {
         const p = requirePermission(store, "audit.read");
-        const financial = new Set(["PAYMENT_CAPTURED", "PAYMENT_REFUNDED", "SETTLEMENT_RELEASED"]);
+        const financial = new Set(["PAYMENT_CAPTURED", "PAYMENT_REFUNDED", "PAYMENT_HOLD_RELEASED", "PAYMENT_AFTER_CANCEL", "PAYMENT_MARKED_REFUNDED", "SETTLEMENT_RELEASED"]);
         const events = [...store.auditEvents.values()].filter(e => p.internal ?
           ((p.roles.includes("ADMIN") && ["ROLE_ASSIGNED", "ROLE_REMOVED", "USER_DEACTIVATED"].includes(e.action)) || (p.roles.includes("FINANCE") && financial.has(e.action)) || (p.roles.includes("OPS") && !financial.has(e.action) && !e.action.startsWith("ROLE_"))) : e.actorOrganizationId === p.organizationId && e.actorUserId === p.userId);
         return json(res, 200, { events });
@@ -931,6 +942,7 @@ export async function createApp(options: {
           vehicleRegistrationNumber: String(body?.vehicleRegistrationNumber ?? ""),
           vehicleClass: body?.vehicleClass,
           vehicleCapacityKg: Number(body?.vehicleCapacityKg ?? 0),
+          transporterId: body?.transporterId,
         });
         await persist();
         return json(res, 201, out);
@@ -1072,7 +1084,34 @@ export async function createApp(options: {
         await persist();
         return json(res, 200, out);
       }
+      if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/shipments\/[^/]+\/eway-bill-reminder$/.test(url.pathname)) {
+        const parts = url.pathname.split("/");
+        const out = remindShipperOfEwayBill(store, parts[4]!, parts[6]!);
+        // Saved even when nothing was sent: an out-of-date reminder may have been marked read.
+        await persist();
+        return json(res, 200, out);
+      }
+      if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/cancel$/.test(url.pathname)) {
+        const out = cancelTrip(store, url.pathname.split("/")[4]!);
+        await persist();
+        return json(res, 200, out);
+      }
+      if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/cancel-request$/.test(url.pathname)) {
+        const out = requestTripCancel(store, url.pathname.split("/")[4]!, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, out);
+      }
+      if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/cancel-request\/withdraw$/.test(url.pathname)) {
+        const out = withdrawTripCancelRequest(store, url.pathname.split("/")[4]!);
+        await persist();
+        return json(res, 200, out);
+      }
       if (method === "GET" && url.pathname === "/v1/pilot/carrier/fleet") return json(res, 200, carrierFleet(store));
+      if (method === "PATCH" && url.pathname === "/v1/pilot/carrier/transporter-id") {
+        const org = setCarrierTransporterId(store, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, { org });
+      }
 
       if (method === "POST" && url.pathname === "/v1/pilot/rates/estimate") {
         const body = await readJson(req);
@@ -1089,9 +1128,11 @@ export async function createApp(options: {
       if (method === "GET" && url.pathname === "/v1/pilot/carrier/shipments") {
         const userId = requireUserId(req, store);
         const anchorTripId = url.searchParams.get("anchorTripId") ?? undefined;
-        const shipments = pilotListCarrierShipments(store, userId, { anchorTripId }).map((s) =>
-          shipmentWithCarrierDisplay(store, s),
-        );
+        // readyToAccept tells the app which waiting bookings hold the trip's start, in words with no payment state.
+        const shipments = pilotListCarrierShipments(store, userId, { anchorTripId }).map((s) => ({
+          ...shipmentWithCarrierDisplay(store, s),
+          ...(s.status === "PENDING_CARRIER_ACCEPT" ? { readyToAccept: bookingReadyToAccept(store, s) } : {}),
+        }));
         return json(res, 200, { shipments });
       }
 
@@ -1107,8 +1148,10 @@ export async function createApp(options: {
         ) {
           const userId = requireUserId(req, store);
           const shipmentId = parts[4] ?? "";
+          // Optional { vehicleId }: older app builds send no body and accept exactly as before.
+          const body = await readJson(req, 8 * 1024);
           try {
-            const shipment = acceptCarrierShipment(store, { shipmentId, userId });
+            const shipment = acceptCarrierShipment(store, { shipmentId, userId, vehicleId: body?.vehicleId });
             await persist();
             return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
           } catch (e) {
@@ -1348,7 +1391,10 @@ export async function createApp(options: {
       }
 
       if (method === "GET" && url.pathname === "/anchor-trips") {
-        const trips = [...store.anchorTrips.values()].filter(t => t.inactiveAtUtcMs == null).map((t) => tripForPublicListing(store, t));
+        // A trip its carrier cancelled, or asked NaviG8r to cancel, is no longer on offer.
+        const trips = [...store.anchorTrips.values()]
+          .filter(t => t.inactiveAtUtcMs == null && t.status !== "CANCELLED" && t.status !== "CANCEL_REQUESTED")
+          .map((t) => tripForPublicListing(store, t));
         return json(res, 200, { trips });
       }
 
@@ -1479,6 +1525,8 @@ export async function createApp(options: {
         }
       }
 
+      if (await handlePodPhotoRoute(req, res, url, podPhotoUpload, { store, root: podPhotoRoot, persist, json })) return;
+
       if (method === "POST" && /^\/shipments\/[^/]+\/eway-bill$/.test(url.pathname)) {
         const shipment = saveEwayBill(store, url.pathname.split("/")[2]!, (await readJson(req, 8 * 1024)) ?? {});
         await persist();
@@ -1495,9 +1543,8 @@ export async function createApp(options: {
         return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
       }
       if (method === "POST" && /^\/v1\/pilot\/carrier\/shipments\/[^/]+\/eway-bill\/truck$/.test(url.pathname)) {
-        const shipment = addEwayBillTruck(store, url.pathname.split("/")[5]!, (await readJson(req, 8 * 1024)) ?? {});
-        await persist();
-        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
+        // Kept so an older carrier app gets "forbidden", not "not found": the shipper adds the truck (owner decision, 18 Oct 2026).
+        throw new AuthorizationError("forbidden");
       }
       if (method === "GET" && url.pathname === "/ops/eway-bills") {
         return json(res, 200, { ...listEwayBillsForOps(store), portalAddress: ewayPortalAddress() });
@@ -1523,6 +1570,10 @@ export async function createApp(options: {
         }
         const shipments = opsListPendingRelease(store);
         return json(res, 200, { shipments });
+      }
+
+      if (method === "GET" && url.pathname === "/ops/trip-cancel-requests") {
+        return json(res, 200, { requests: listTripCancelRequestsForOps(store), collectedAfterCancel: listPaymentsCollectedAfterCancelForOps(store) });
       }
 
       if (method === "GET" && url.pathname === "/ops/shipments/delivered") {
@@ -1587,9 +1638,16 @@ export async function createApp(options: {
         return json(res, 200, { shipment });
       }
       if (method === "POST" && /^\/shipments\/[^/]+\/fail-refund$/.test(url.pathname)) {
-        const shipment = await failCarrierAndRefund(store, { shipmentId: url.pathname.split("/")[2]! });
+        const body = (await readJson(req, 8 * 1024)) ?? {};
+        const shipment = await failCarrierAndRefund(store, { shipmentId: url.pathname.split("/")[2]!, fromCancelRequest: body.fromCancelRequest === true });
         await persist();
         return json(res, 200, { shipment });
+      }
+      if (method === "POST" && /^\/shipments\/[^/]+\/mark-refunded$/.test(url.pathname)) {
+        const body = (await readJson(req, 8 * 1024)) ?? {};
+        const out = markRefundedInRazorpay(store, url.pathname.split("/")[2]!, typeof body.razorpayPaymentId === "string" ? body.razorpayPaymentId : undefined);
+        await persist();
+        return json(res, 200, out);
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
@@ -1645,6 +1703,13 @@ export async function createApp(options: {
       return json(res, 400, { error: msg });
     }
   }), capturesState).catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
+    if (method === "POST" && isPodPhotoUploadPath(urlPath)) {
+      // Before any refusal, so the app in a browser can read why.
+      applyCors(req, res);
+      receivePodPhotoUpload(req, res, store, json, handleRequest);
+      return;
+    }
+    void handleRequest(null);
   });
 
   return { server, store, persist, runSerialized, dataFilePath };

@@ -79,7 +79,13 @@ Future<FirebaseApp> _initializeFirebaseApp() async {
   return app;
 }
 
+/// Widget tests that run the app's main() set this: they report Android, where Firebase's start
+/// never answers in a test, so main() would wait forever. Firebase then counts as unavailable.
+@visibleForTesting
+bool skipFirebaseStart = false;
+
 Future<FirebaseApp> ensureFirebaseApp() async {
+  if (skipFirebaseStart) throw StateError("Firebase start is skipped in this test.");
   final cached = _firebaseAppFuture;
   if (cached != null) return cached;
 

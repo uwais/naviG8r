@@ -3,6 +3,7 @@ import type { Store } from "../../store.ts";
 import { effectivePermissions, legacyRoles } from "../../rbac.ts";
 import { isActiveEntity } from "../../softDelete.ts";
 import { assignedDriverMaySee } from "../../tripAssignmentRules.ts";
+import { mustNotHearPaymentEvent, tripNoticeStillTheirs } from "../../notifications.ts";
 import type { Notification, PushDevice, PushDelivery, PushIntent } from "../../types.ts";
 import type { FcmDeliveryMessage, FcmSendResult } from "./fcmSender.ts";
 
@@ -161,7 +162,7 @@ export function revokePushDevice(store: Store, input: {
 }
 
 function presentationKey(notification: Notification): string {
-  const value = `${notification.recipientUserId}\n${notification.recipientOrgId}\n${notification.shipmentId}`;
+  const value = `${notification.recipientUserId}\n${notification.recipientOrgId}\n${notification.tripId ? `trip:${notification.tripId}` : notification.shipmentId}`;
   return createHash("sha256").update(value).digest("hex").slice(0, 32);
 }
 
@@ -262,6 +263,8 @@ export function claimPushDeliveries(store: Store, options: { nowUtcMs?: number; 
 function eligibleCurrentRecipient(store: Store, notification: Notification, device: PushDevice, generation: number): boolean {
   if (device.revokedAtUtcMs != null || device.ownershipGeneration !== generation || device.userId !== notification.recipientUserId ||
       device.environment !== pushEnvironment() || !device.permissionGrantedHint || !device.channelEnabledHint || !device.consentedAtUtcMs) return false;
+  // A new-trip notice has no shipment; it goes only while the trip is still this driver's.
+  if (notification.tripId) return tripNoticeStillTheirs(store, notification);
   const shipment = store.shipments.get(notification.shipmentId);
   const membership = store.memberships.get(`${notification.recipientUserId}:${notification.recipientOrgId}`);
   const organization = store.organizations.get(notification.recipientOrgId);
@@ -271,9 +274,10 @@ function eligibleCurrentRecipient(store: Store, notification: Notification, devi
     : notification.recipientOrgId === shipment.carrierId ? "CARRIER" : null;
   if (!role) return false;
   const roles = store.membershipRoles.get(`${notification.recipientUserId}:${notification.recipientOrgId}`) ?? legacyRoles(membership!, organization!);
-  // The trip may have been given to another driver since the push was queued.
+  // The trip may have been given to another driver, or the person made a driver or dispatcher, since the
+  // push was queued.
   const stillOnTrip = assignedDriverMaySee(store, { internal: false, subrole: membership!.role, userId: notification.recipientUserId }, shipment);
-  return stillOnTrip && roles.includes(role) && effectivePermissions(roles, membership!.role).includes("notification.read");
+  return stillOnTrip && !mustNotHearPaymentEvent(membership!.role, notification.eventKey) && roles.includes(role) && effectivePermissions(roles, membership!.role).includes("notification.read");
 }
 
 export function pushFcmMessage(claim: PushDeliveryClaim, token: string, now = Date.now()): FcmDeliveryMessage {

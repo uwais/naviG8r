@@ -170,7 +170,7 @@ ${selectField("A.9 Reason for Transportation", "transportReason", reasons, typed
 <h2>Part B</h2>
 ${textField("Approximate distance (km)", "distanceKm", typed.distanceKm, "text", "The real portal works this out from the two PIN codes. Here you type it.")}
 ${textField("B.1 Vehicle Number for Road (optional if a transporter is named)", "vehicleNumber", typed.vehicleNumber, "text", "For example KA01AB1234")}
-${textField("Transporter ID (optional)", "transporterId", typed.transporterId, "text", "The transporter who will add the vehicle, for example 29TRNSP1234A1Z7")}
+${textField("Transporter ID (optional)", "transporterId", typed.transporterId, "text", "The transporter carrying the goods, for example 29TRNSP1234A1Z7")}
 <button type="submit">Generate e-way bill</button>
 </form>`;
 }

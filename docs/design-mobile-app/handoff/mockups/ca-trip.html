@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trip: truck, driver, bookings</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="scr">
+  <header class="hdr">
+    <a class="hdr-back" href="ca-trips.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Trips</a>
+    <a class="hdr-who-btn" href="c-menu.dc.html" aria-haspopup="dialog" aria-label="Ravi Roadways, Ravi Shetty, Owner. Switch company or sign out"><span class="hdr-text"><span class="hdr-co">Ravi Roadways</span><span class="hdr-sub">Ravi Shetty · Owner</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a>
+  </header>
+  <main class="body body--tight">
+    <section class="sumcard" aria-labelledby="h">
+      <p class="label">Trip</p>
+      <h1 id="h" class="h1">Bengaluru to Chennai</h1>
+      <p class="cap"><span class="st st-good" style="margin-right: 6px;">Open</span>18 – 19 Oct · Medium truck</p>
+      <p class="cap-ink"><span class="strong">Room left: 25 kg</span> of 1,000 kg</p>
+    </section>
+    <section class="card" aria-labelledby="td">
+      <h2 id="td" class="h2">Truck and driver</h2>
+      <dl class="kv">
+        <div class="kv-row"><dt>Truck</dt><dd class="mono" style="font-size: 15px;">KA01AB1234</dd></div>
+        <div class="kv-row"><dt>Driver</dt><dd style="color: var(--attention);">Not assigned</dd></div>
+      </dl>
+      <a class="btn btn-primary btn-full" href="ca-assign.dc.html">Assign driver</a>
+    </section>
+    <section style="display: flex; flex-direction: column; gap: 8px;" aria-labelledby="bk">
+      <h2 id="bk" class="h2">Bookings on this trip (3)</h2>
+      <div class="rows">
+        <a class="row-link" href="ca-booking-new.dc.html"><span class="grow"><span class="strong">Sharma Textiles · 80 kg</span><span class="cap">Bommasandra to Guindy</span></span><span class="st st-info">Accepted</span></a>
+        <a class="row-link" href="ca-booking-new.dc.html"><span class="grow"><span class="strong">Lakshmi Foods · 400 kg</span><span class="cap">Electronic City to Ambattur</span></span><span class="st st-info">Accepted</span></a>
+        <a class="row-link" href="ca-booking-new.dc.html"><span class="grow"><span class="strong">Mehta Hardware · 495 kg</span><span class="cap">Peenya to Tambaram</span></span><span class="st st-att">Truck not on bill</span></a>
+      </div>
+    </section>
+    <section class="card-sunken" aria-labelledby="st">
+      <h2 id="st" class="h2">Start the trip</h2>
+      <button class="btn btn-secondary btn-full" type="button" disabled aria-describedby="stw">Start trip</button>
+      <p id="stw" class="small">Assign a driver first. Then start on loading day.</p>
+    </section>
+  </main>
+</div>
+
+</body>
+</html>

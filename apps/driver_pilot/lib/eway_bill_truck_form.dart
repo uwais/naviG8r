@@ -5,6 +5,7 @@ import 'eway_bill_dates.dart';
 import 'eway_bill_error_text.dart';
 import 'eway_bill_portal_link.dart';
 import 'pilot_api.dart';
+import 'ui/format.dart';
 
 /// The moment a date and time typed as India time stands for, whatever zone the phone is set to.
 int validUntilUtcMsFromIndiaTime(DateTime date, TimeOfDay time) =>
@@ -12,8 +13,8 @@ int validUntilUtcMsFromIndiaTime(DateTime date, TimeOfDay time) =>
         .subtract(indiaTimeOffset)
         .millisecondsSinceEpoch;
 
-/// Part B of an e-way bill: the truck number and valid-until time, copied from the government portal
-/// after the truck was added to the bill there. Used by the shipper's card and the carrier's card.
+/// Part B of an e-way bill: the truck number and valid-until time, copied from the bill after the
+/// truck was added to it. Used by the shipper's card; the carrier only reads the bill.
 class EwayBillTruckForm extends StatefulWidget {
   const EwayBillTruckForm(
       {required this.path,
@@ -22,6 +23,7 @@ class EwayBillTruckForm extends StatefulWidget {
       required this.clearsCheck,
       this.current,
       this.assignedTruckNumber,
+      this.lead,
       super.key});
   final String path;
   final void Function(Map<String, dynamic> shipment) onSaved;
@@ -34,6 +36,9 @@ class EwayBillTruckForm extends StatefulWidget {
   /// The truck the carrier named for the trip. It fills the field ahead of the bill's own truck, because
   /// after a breakdown it is the truck the bill should now carry.
   final String? assignedTruckNumber;
+
+  /// The first line, saying where the truck was added. Without one it names the portal.
+  final String? lead;
 
   @override
   State<EwayBillTruckForm> createState() => _EwayBillTruckFormState();
@@ -69,8 +74,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
   }
 
   Future<void> _chooseDate() async {
-    final india = DateTime.now().toUtc().add(indiaTimeOffset);
-    final today = DateTime(india.year, india.month, india.day);
+    final today = indiaToday();
     // The server refuses more than 30 days from now, so the last day is 29 ahead: even 23:59 on it stays
     // inside. Built from the day number, because adding a Duration shifts by an hour across a clock change.
     final last = DateTime(today.year, today.month, today.day + 29);
@@ -130,9 +134,8 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
     final date = _date;
     if (date == null) return 'Valid until, date in India: choose the date';
     final time = _time;
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    final dateWords = ewayBillDateFromCalendarDate('${date.year}-$month-$day');
+    final dateWords = formatDate(DateTime.utc(date.year, date.month, date.day),
+        withYear: true);
     return time == null
         ? 'Valid until, date in India: $dateWords'
         : 'Valid until, date in India: $dateWords, ${ewayBillClockTime(time.hour, time.minute)}';
@@ -143,8 +146,8 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
     final time = _time;
     final filledFromTrip = widget.assignedTruckNumber?.isNotEmpty == true;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text(
-          'Add the truck to the bill on the $ewayBillPortalName first, then copy the truck number and the valid-until time from it.'),
+      Text(widget.lead ??
+          'First add the truck to the bill on the $ewayBillPortalName. Then copy the truck number and the valid-until time from it.'),
       const SizedBox(height: 12),
       TextField(
           controller: _truckNumber,
@@ -156,7 +159,8 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
               helperText: filledFromTrip
                   ? 'Filled in from the truck on this trip. Change it if the e-way bill shows a different truck.'
                   : null,
-              helperMaxLines: 2,
+              // Room for large text: the warning to change it is the part that matters.
+              helperMaxLines: 10,
               counterText: '',
               border: const OutlineInputBorder())),
       const SizedBox(height: 12),
@@ -170,7 +174,7 @@ class _EwayBillTruckFormState extends State<EwayBillTruckForm> {
               : 'Time in India: ${ewayBillClockTime(time.hour, time.minute)}')),
       const SizedBox(height: 8),
       if (widget.clearsCheck)
-        const Text('Changing these details clears the check.'),
+        const Text("If you change these, NaviG8r's portal check is removed."),
       EwayBillErrorText(_error),
       const SizedBox(height: 8),
       Wrap(spacing: 8, runSpacing: 8, children: [

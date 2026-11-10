@@ -237,6 +237,42 @@ test("a push queued for a driver is dropped at send time once the trip names ano
   assert.deepEqual([...reassigned.pushDeliveries.values()].map((delivery) => delivery.status), ["SUPPRESSED"]);
 });
 
+test("a payment push queued for an owner is dropped at send time once the owner is a dispatcher", () => {
+  process.env.PUSH_DEVICE_REGISTRATION_ENABLED = "1";
+  process.env.PUSH_ENQUEUE_ENABLED = "1";
+  process.env.PUSH_ENVIRONMENT = "DEVELOPMENT";
+  process.env.PUSH_TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+  /** One queued payment push for user-a, whose carrier role is [roleAtSend] by send time. */
+  function queuedPaymentPush(roleAtSend: Membership["role"]) {
+    const store = createStore();
+    const carrier = { id: "carrier-1", displayName: "Carrier", kind: "CARRIER_FLEET", createdAtUtcMs: 1 } as Organization;
+    store.organizations.set(carrier.id, carrier);
+    store.users.set("user-a", { id: "user-a", phone: "8000000014", fullName: "User A", createdAtUtcMs: 1 } as User);
+    const membership = { userId: "user-a", orgId: carrier.id, role: "OWNER", createdAtUtcMs: 1 } as Membership;
+    store.memberships.set(`user-a:${carrier.id}`, membership);
+    store.membershipRoles.set(`user-a:${carrier.id}`, ["CARRIER"]);
+    store.shipments.set("shipment-1", { id: "shipment-1", customerOrgId: "shipper-1", carrierId: carrier.id, status: "DELIVERED", createdAtUtcMs: 1000 } as Shipment);
+    const notification: Notification = {
+      id: "notification-1", recipientSequence: 1, eventId: "event-1", eventKey: "payment.status_changed",
+      recipientUserId: "user-a", recipientOrgId: carrier.id, shipmentId: "shipment-1", createdAtUtcMs: 1000, data: {},
+    };
+    store.notifications.set(notification.id, notification);
+    registerPushDevice(store, {
+      userId: "user-a", installationId: "install-user-a-00000001", token: "fcm-registration-token-user-a-1234567890",
+      consented: true, permissionGranted: true, channelEnabled: true, nowUtcMs: 1000,
+    });
+    assert.ok(enqueuePushIntentForNotification(store, notification));
+    store.memberships.set(`user-a:${carrier.id}`, { ...membership, role: roleAtSend });
+    return store;
+  }
+
+  assert.equal(claimPushDeliveries(queuedPaymentPush("OWNER"), { nowUtcMs: 1000 }).claims.length, 1, "an owner hears about payments");
+  const nowDispatcher = queuedPaymentPush("DISPATCHER");
+  assert.equal(claimPushDeliveries(nowDispatcher, { nowUtcMs: 1000 }).claims.length, 0,
+    "owner, 21 Oct 2026: payment notices reach neither drivers nor dispatchers, push included");
+  assert.deepEqual([...nowDispatcher.pushDeliveries.values()].map((delivery) => delivery.status), ["SUPPRESSED"]);
+});
+
 test("FCM HTTP v1 payload uses generic copy, shipment tag, fixed SDK notification id contract, and remaining TTL", async () => {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   process.env.FCM_SERVICE_ACCOUNT_JSON = JSON.stringify({

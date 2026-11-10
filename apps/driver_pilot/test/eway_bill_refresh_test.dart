@@ -5,15 +5,17 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
-import 'package:driver_pilot/customer_flow.dart';
+import 'package:driver_pilot/shipper/shipment_screen.dart';
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_theme.dart';
 import 'package:driver_pilot/eway_bill_truck_form.dart';
 import 'package:driver_pilot/organization_access.dart';
 import 'package:driver_pilot/pilot_api.dart';
+import 'package:driver_pilot/ui/nv_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/app_lifecycle.dart';
 import 'support/eway_bill_fixtures.dart';
 import 'support/mock_api.dart';
 
@@ -81,15 +83,17 @@ Future<FakeServer> mountDetailScreen(WidgetTester tester) async {
 Future<void> leaveScreen(WidgetTester tester) =>
     tester.pumpWidget(const SizedBox.shrink());
 
+/// The text box inside the NvField labelled [label].
+Finder entry(String label) => find.descendant(
+    of: find.widgetWithText(NvField, label), matching: find.byType(TextField));
+
 Future<void> fillBillForm(WidgetTester tester) async {
-  await tester.tap(find.text('Add e-way bill'));
+  await tester.tap(find.text('Enter the bill details'));
   await tester.pump();
-  await tester.enterText(
-      field('E-way bill number (12 digits)'), '479056147955');
-  await tester.enterText(
-      field('GSTIN of whoever made the bill'), '29ABCDE1234F1Z5');
-  await tester.enterText(field('Invoice number'), 'SYN/E2E/101');
-  await tester.tap(find.text('Bill date: choose the date'));
+  await tester.enterText(entry('E-way bill number'), '479056147955');
+  await tester.enterText(entry('Your GSTIN'), '29ABCDE1234F1Z5');
+  await tester.enterText(entry('Invoice number'), 'SYN/E2E/101');
+  await tester.tap(find.text('Choose the date'));
   await tester.pumpAndSettle();
   await tester.tap(find.text('OK'));
   await tester.pumpAndSettle();
@@ -97,7 +101,7 @@ Future<void> fillBillForm(WidgetTester tester) async {
 
 /// The wall clock is not faked, so the time is matched by shape, not value.
 final refreshFailedLine = RegExp(
-    r'^Could not refresh, so this may be out of date\. Pull down to try again\. Last updated \d\d:\d\d$');
+    r'^Could not refresh, so this may be out of date\. Tap Refresh to try again\. Last updated \d\d:\d\d IST$');
 
 Future<void> waitForNextRefresh(WidgetTester tester) async {
   await tester.pump(const Duration(seconds: 15));
@@ -137,12 +141,12 @@ void main() {
     (
       403,
       'forbidden',
-      'You do not have permission for this action in the selected organization.'
+      'You are not allowed to do this in this company.'
     ),
     (
       404,
       'not_found',
-      'This record is unavailable in the selected organization.'
+      'This is not available in the company you chose.'
     ),
   ]) {
     testWidgets(
@@ -202,7 +206,7 @@ void main() {
         reason: 'no raw exception text on screen');
     expect(
         find.text(
-            'Could not load this shipment. Check your connection and pull down to try again.'),
+            'Could not load this shipment. Check your connection, then tap Refresh.'),
         findsOneWidget,
         reason: 'a plain sentence with what to do');
     await leaveScreen(tester);
@@ -220,10 +224,9 @@ void main() {
     await waitForNextRefresh(tester);
     server.saveHeldOpen!.complete();
     await tester.pumpAndSettle();
-    expect(find.text('4790 5614 7955'), findsOneWidget,
+    expect(find.text('Bill 4790 5614 7955 saved. The truck is not on it yet.'),
+        findsOneWidget,
         reason: 'the saved bill is shown');
-    expect(find.text('Invoice number: SYN/E2E/101'), findsOneWidget,
-        reason: 'with what was saved');
     await leaveScreen(tester);
   });
 
@@ -239,7 +242,8 @@ void main() {
     await waitForNextRefresh(tester);
     server.saveHeldOpen!.complete();
     await tester.pumpAndSettle();
-    expect(find.text('4790 5614 7955'), findsOneWidget,
+    expect(find.text('Bill 4790 5614 7955 saved. The truck is not on it yet.'),
+        findsOneWidget,
         reason: 'the save is applied, not dropped because the screen rebuilt');
     await leaveScreen(tester);
   });
@@ -267,11 +271,10 @@ void main() {
       (tester) async {
     await mountDetailScreen(tester);
     await fillBillForm(tester);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    // Every step, as a phone reports it: the screens' lifecycle listeners assert on a skipped one.
+    await sendAppToBackground(tester);
     await tester.pump(const Duration(minutes: 5));
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await bringAppBack(tester);
     await waitForNextRefresh(tester);
     expect(find.text('SYN/E2E/101'), findsOneWidget,
         reason: 'the typed invoice number is still there');
@@ -363,7 +366,7 @@ void main() {
   testWidgets(
       'the carrier detail screen says when it cannot load, instead of a spinner forever',
       (tester) async {
-    signInAsCarrier(canAddTruck: true);
+    signInAsCarrier(office: true);
     var connectionDrops = true;
     api.dio.httpClientAdapter = MockApiAdapter((_) {
       if (connectionDrops) {
@@ -388,7 +391,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(
         find.text(
-            'Could not load this shipment. Check your connection and try again.'),
+            'Could not load this booking. Check your connection and try again.'),
         findsOneWidget,
         reason: 'a plain sentence instead of a spinner that never stops');
     connectionDrops = false;
@@ -401,7 +404,7 @@ void main() {
   testWidgets(
       'the carrier detail screen does not blame the connection when the server answered',
       (tester) async {
-    signInAsCarrier(canAddTruck: true);
+    signInAsCarrier(office: true);
     api.dio.httpClientAdapter =
         MockApiAdapter((_) => jsonResponse({'error': 'internal'}, 500));
     tester.view.physicalSize = const Size(800, 3000);
@@ -413,7 +416,7 @@ void main() {
             body: DriverShipmentDetailScreen(shipmentId: 'shipment-a'))));
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Could not load this shipment.'), findsOneWidget);
+    expect(find.text('Could not load this booking.'), findsOneWidget);
     expect(find.textContaining('connection'), findsNothing);
   });
 

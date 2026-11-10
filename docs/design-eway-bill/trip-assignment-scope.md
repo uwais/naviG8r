@@ -21,9 +21,9 @@ the app cannot tell, and the e-way bill's truck number has nothing to be compare
 | Breakdown, goods move to another truck | The Part A filer or the transporter updates Part B before the goods move. | Primary: Rule 138(5) |
 | What the driver carries | The invoice or challan, and the e-way bill on paper or as its number. So the number alone covers the bill, not the invoice. | Primary: Rule 138A(1). I did not see the CBIC FAQ line |
 
-Consequence for the app: the carrier owner or dispatcher does Part B (the demo already works this way: "Add truck"
-is for the owner and dispatcher, not the driver). The driver reads and quotes the number. A solo owner-operator is
-owner and driver at once and does both.
+Consequence for the app, replaced 18 Oct 2026 (owner: Rishabh): the shipper, who made the bill, does Part B and
+records it in the app; every carrier login only reads the bill (`contract.md`, "Decided 18 Oct 2026"). The rules
+also let the named transporter do it; the app does not use that. The driver reads and quotes the number.
 
 Correction to the brief: normal cargo gets one day of validity per 200 km, not 100 km (primary: Notification
 94/2020, in force from 1 Jan 2021). The app shows no distance rule, so no copy changes, but the brief's figure is
@@ -33,10 +33,10 @@ wrong.
 
 | Person | Does | Does not |
 |---|---|---|
-| Fleet owner or dispatcher | Publishes the trip, accepts bookings, names the truck and the driver for the trip, adds the truck and valid-until to each bill after doing Part B on the portal, reassigns on a breakdown | |
+| Fleet owner or dispatcher | Publishes the trip, accepts bookings, names the truck and the driver for the trip, reassigns on a breakdown, reads each bill's truck and valid-until | Adds the truck to a bill (the shipper does, since 18 Oct 2026) |
 | Owner-operator (one truck, drives it) | Same, but the truck and driver fill in by themselves | |
 | Driver | Signs in by phone code on a mid-range Android with weak signal, sees only their trips, starts the trip, shares location, reads the bill number and truck at a check-post, confirms delivery | Cannot edit a bill, cannot see other drivers' trips or other trucks' bills |
-| Shipper | Makes the bill on the portal, types the four details, may add the truck if the carrier has not | |
+| Shipper | Makes the bill, types the four details, adds the truck to the bill (Part B) and types its truck number and valid-until | |
 | Ops | Looks the bill up and records the check | |
 
 ## Proposed change
@@ -50,7 +50,8 @@ wrong.
    DRIVER sees only trips assigned to them, and only the shipments on those trips. Changes in the carrier shipment
    list, the shipment detail guard, and the trip list. A driver with nothing assigned sees "Your carrier has not
    assigned you a trip yet."
-4. **The truck on the bill:** the bill's truck number is compared with the assigned truck ignoring spaces and case.
+4. **The truck on the bill:** the bill's truck number is compared with the assigned truck, both in the e-way bill
+   portal's form, so UP1345 matches UP010345 (16 Oct 2026; before that, ignoring spaces and case).
    Same: nothing shown. Different: a plain sentence to the carrier and the shipper, not a block. The carrier's "Add
    truck" form is pre-filled with the assigned truck's number.
 5. **Two trucks, one driver:** assignment is per trip, so a driver can drive different trucks on different trips.
@@ -87,12 +88,17 @@ Owners, owner-drivers and dispatchers keep all of it, unchanged, as do shippers,
 
 ## As built: differences and limits
 
-- Assigning needs both a truck and a driver; there is no way to clear an assignment once made.
+- Assigning on the trip screen needs both a truck and a driver; there is no way to clear an assignment once made.
+  Since 16 Oct 2026 accepting a booking on a trip with no truck names the truck alone, the driver as it was (owner
+  decision; `contract.md` Part B and `docs/pilot-api.md`).
+- Since 16 Oct 2026 the bill's truck and the trip's are compared in the e-way bill portal's form, not just without
+  spaces and case: `UP1345` on the bill matches `UP010345` on the trip. `assignedTruckNumber` is sent in that form.
 - A driver on a trip sees the truck and driver line on the trip screen, read only.
 - When the e-way bill's truck and the trip's differ, each reader gets their own sentence: the carrier office is asked
-  to check which is right and, if the e-way bill is wrong, to update it on the portal and then in the app; the
-  shipper is told what the carrier assigned and asked to check with the carrier; a driver is told the two numbers and
-  to tell the carrier. Once the shipment is delivered, accepted or refunded, no sentence shows.
+  to check which is right and, if the e-way bill is wrong, to ask the shipper to change it (or to change it on the
+  portal itself if it updated the truck there); the shipper is told what the carrier assigned, asked to check with
+  the carrier, and to change the bill in its billing software or on the e-way bill site, then in the app; a driver is
+  told the two numbers and to tell the carrier. Once the shipment is delivered, accepted or refunded, no sentence shows.
 - A driver with no trip sees "Your carrier has not assigned you a trip yet. Ask your carrier to assign one.", and the
   bar above the list shows only the carrier's name.
 - Trips from before this change (approved 15 Oct 2026): a trip that names no driver stays with the driver who started
@@ -144,7 +150,7 @@ the team's position, not legal or accounting advice.
 | Is naviG8r an e-commerce operator (CGST section 52)? | No, a carrier matching platform. | Open: the accountant has not confirmed it |
 | Who pays a fine at a check-post? | The carrier, who may collect it from the shipper in the invoice. The carrier bears the risk, so it must see the bill before accepting a booking (the carrier's shipment screen already shows it), and the terms of service must say so. | Answered |
 | How long are the bill number, GSTIN and invoice number kept? | Six months for now; an OpsAdmin may delete them, with an audit row, on a data protection (DPDP) request. | Answered, not built: no purge after six months and no OpsAdmin delete. Open: when the six months start (booking, delivery or bill date) and exactly what is deleted |
-| Who adds the truck (Part B)? | The dispatcher or the owner. | Answered; matches what is built (owner, owner-driver and dispatcher add it, a driver only reads). Validity extension was not answered and stays open |
+| Who adds the truck (Part B)? | The dispatcher or the owner. | Replaced 18 Oct 2026 by Rishabh: the shipper adds it, every carrier login only reads (`contract.md`). Validity extension was not answered and stays open |
 
 Still open, on this scope:
 

@@ -1,4 +1,4 @@
-import { bookTestShipment, internalUser, registerCompliantCarrier } from "../test/fixtures.ts";
+import { addFinalTestEwayBill, bookTestShipment, internalUser, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
@@ -180,6 +180,7 @@ test("integration webhook payload includes trip start and carrier ops fields", (
   });
 
   acceptCarrierShipment(store, { shipmentId: shipment.id, userId: driver.user.id });
+  addFinalTestEwayBill(store, shipment.id);
   startAnchorTripAsPilot(store, { userId: driver.user.id, tripId: trip.id });
 
   const updated = store.shipments.get(shipment.id)!;
@@ -228,6 +229,7 @@ test("integration webhook names the truck the trip is assigned, not the starter'
   });
 
   acceptCarrierShipment(store, { shipmentId: shipment.id, userId: driver.user.id });
+  addFinalTestEwayBill(store, shipment.id);
   startAnchorTripAsPilot(store, { userId: driver.user.id, tripId: trip.id });
 
   const updated = store.shipments.get(shipment.id)!;
@@ -319,6 +321,8 @@ test("ERP tracking, snapshot and webhooks give a shipper the truck location only
   store.payments.set(unpaid.id, { ...unpaid, status: "CREATED" });
 
   acceptCarrierShipment(store, { shipmentId: booked.id, userId: driver.user.id });
+  // A trip starts only once every accepted booking's e-way bill is final.
+  addFinalTestEwayBill(store, booked.id);
   startAnchorTripAsPilot(store, { userId: driver.user.id, tripId: trip.id });
   reportAnchorTripLocation(store, driver.user.id, trip.id, { lat: 28.47, lng: 77.04 });
 

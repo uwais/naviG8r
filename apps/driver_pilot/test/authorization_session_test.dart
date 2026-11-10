@@ -150,6 +150,29 @@ void main() {
     expect(mobileAccessRedirect('/driver/payout-setup'), isNull);
   });
 
+  test("earnings and payout history are the owner's, not a dispatcher's",
+      () async {
+    await AuthorizationSession.refresh();
+    await AuthorizationSession.selectOrganization('carrier-a');
+    // A dispatcher holds payment.read on the server; only the owner adds the bank account.
+    AuthorizationSession.principal!['permissions'] = [
+      'load.read',
+      'payment.read'
+    ];
+    for (final path in ['/driver/earnings', '/driver/payout-history']) {
+      expect(mobileAccessRedirect(path), '/driver',
+          reason:
+              'Profile tells the owner dispatchers do not see payments, so a typed link must not show them');
+    }
+    AuthorizationSession.principal!['permissions'] = [
+      'load.read',
+      'payment.read',
+      'bank_account.create_token'
+    ];
+    expect(mobileAccessRedirect('/driver/earnings'), isNull,
+        reason: 'the owner still opens earnings');
+  });
+
   test('sends selected organization and bearer token on protected requests',
       () async {
     await AuthorizationSession.refresh();
@@ -263,5 +286,22 @@ void main() {
     await AuthorizationSession.refresh();
     expect(CustomerSession.hasCustomerOrg, isFalse);
     expect(mobileAccessRedirect('/customer/shipments'), '/workspace');
+  });
+
+  test('a failed refresh reads as plain words, never HTTP text', () async {
+    api.dio.httpClientAdapter = MockApiAdapter(
+        (request) => jsonResponse({'error': 'internal_error'}, 500));
+    await AuthorizationSession.refresh();
+    expect(AuthorizationSession.error, 'Something went wrong. Please try again.',
+        reason:
+            'decisions.md 7: the organization screen and account menu show this, never "HTTP 500: {…}"');
+
+    api.dio.httpClientAdapter = MockApiAdapter((request) =>
+        throw DioException.connectionError(
+            requestOptions: request, reason: 'Failed host lookup'));
+    await AuthorizationSession.refresh();
+    expect(AuthorizationSession.error,
+        'Could not reach NaviG8r. Check your connection and try again.',
+        reason: 'no answer is a connection sentence, not the API address');
   });
 }

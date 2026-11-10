@@ -1,4 +1,4 @@
-import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { addFinalTestEwayBill, bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TRIP_TRACKING_STALE_MS } from "./config.ts";
@@ -25,6 +25,7 @@ function acceptAndStartTrip(
   shipmentId: string,
 ) {
   acceptCarrierShipment(store, { shipmentId, userId: driverUserId });
+  addFinalTestEwayBill(store, shipmentId);
   startAnchorTripAsPilot(store, { userId: driverUserId, tripId });
 }
 
@@ -293,6 +294,7 @@ test("getShipmentTripTracking: a shipper whose goods are not on the moving truck
   store.shipments.set(booked.id, { ...booked, customerOrgId: onTruck.org.id });
   const notAccepted = bookTestShipment(store, { anchorTripId: trip.id, customerOrgName: waiting.org.displayName, weightKg: 50, pickupAddress: "C", dropAddress: "D" });
   store.shipments.set(notAccepted.id, { ...notAccepted, customerOrgId: waiting.org.id });
+  // Its checkout is not done, so it cannot be accepted and does not hold the start (owner, 23 Oct 2026).
   const unpaid = store.payments.get(notAccepted.paymentId)!;
   store.payments.set(unpaid.id, { ...unpaid, status: "CREATED" });
 

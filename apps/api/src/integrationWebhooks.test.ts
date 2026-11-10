@@ -237,3 +237,17 @@ test("expired exhausted webhook lease becomes terminal and is persisted as chang
   assert.equal(again.changed, false);
 });
 
+
+test("with OUTBOUND_WEBHOOKS_OFF=1 a queued delivery fails with a sentence and nothing is sent", async (t) => {
+  const store = createStore();
+  seedShipmentWithWebhook(store);
+  const { lookups } = mockWebhookAddressLookup(t);
+  process.env.OUTBOUND_WEBHOOKS_OFF = "1";
+  t.after(() => { delete process.env.OUTBOUND_WEBHOOKS_OFF; });
+  assert.ok(await processPendingWebhookDeliveries(store) > 0);
+  assert.deepEqual(lookups, [], "the address is never looked up, so no call is made");
+  for (const delivery of store.integrationWebhookDeliveries.values()) {
+    assert.equal(delivery.status, "PENDING");
+    assert.equal(delivery.lastError, "The practice server does not send webhooks.");
+  }
+});

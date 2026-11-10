@@ -63,8 +63,8 @@ export function saveEwayBill(store: Store, shipmentId: string, input: Record<str
 }
 
 /**
- * Part B: the truck and the valid-until time, typed in after the truck was added to the bill on the portal.
- * The shipper may do it for its own shipment, and so may the shipment's carrier (owner or dispatcher, not a driver).
+ * Part B: the truck and the valid-until time, typed in after the shipper added the truck to the bill on the portal.
+ * Only the shipper does it; the carrier and its drivers read it (owner decision, 18 Oct 2026).
  * Any change clears ops' check, like every other detail.
  */
 export function addEwayBillTruck(store: Store, shipmentId: string, input: Record<string, unknown>): Shipment {
@@ -74,6 +74,10 @@ export function addEwayBillTruck(store: Store, shipmentId: string, input: Record
   const bill = shipment.ewayBill;
   if (bill?.kind !== "BILL") {
     throw new ApiError("eway_bill_not_entered", { detail: "The shipper has not added an e-way bill to this shipment yet." }, 409);
+  }
+  // The carrier can still change the truck until it accepts, so a truck added now could be the wrong one.
+  if (shipment.status === "PENDING_CARRIER_ACCEPT") {
+    throw new ApiError("carrier_not_accepted", { detail: "Add the truck once the carrier accepts." }, 409);
   }
   const now = Date.now();
   const checked = checkEwayBillTruck(input, now);
@@ -90,6 +94,11 @@ export function removeEwayBill(store: Store, shipmentId: string): Shipment {
   const shipment = findShipment(store, shipmentId);
   requirePermission(store, "eway_bill.write", shipment);
   if (lockedForChanges(shipment)) throw lockedError();
+  // The truck is on the road with the bill once the trip starts (owner, 23 Oct 2026); editing it stays allowed.
+  const tripStatus = store.anchorTrips.get(shipment.anchorTripId)?.status;
+  if (tripStatus === "IN_PROGRESS" || tripStatus === "COMPLETED") {
+    throw new ApiError("trip_started", { detail: "The trip has started, so the e-way bill cannot be removed." }, 409);
+  }
   if (!shipment.ewayBill) return shipment;
   const updated: Shipment = { ...shipment, updatedAtUtcMs: Date.now() };
   delete updated.ewayBill;

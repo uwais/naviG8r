@@ -67,17 +67,18 @@ void main() {
 
     expect(
         find.text(
-            'Invite a driver who already registered their phone. Someone at another carrier cannot be added yet. A solo company becomes a fleet when you add drivers.'),
+            'The driver must register their mobile number first. Someone at another carrier cannot be added yet.'),
         findsOneWidget);
     expect(find.textContaining('or used Join a fleet'), findsNothing);
 
     await tester.enterText(
-        find.widgetWithText(TextField, 'Driver phone (10 digits)'),
+        find.widgetWithText(TextField, "Driver's mobile number (10 digits)"),
         '8000000021');
-    await tester.enterText(
-        find.widgetWithText(TextField, 'Vehicle registration'), 'TEST-INVITE');
-    await tester.ensureVisible(find.text('Invite driver'));
-    await tester.tap(find.text('Invite driver'));
+    // A dispatcher needs no truck fields, so the invite goes straight to the server.
+    await tester.tap(find.text('Dispatcher'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Invite dispatcher'));
+    await tester.tap(find.text('Invite dispatcher'));
     await tester.pumpAndSettle();
 
     expect(find.text(anotherCarrierSentence), findsOneWidget);
@@ -89,8 +90,8 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: DriverJoinScreen()));
 
     expect(
-        find.text(
-            'Create a personal account so your carrier admin can invite you to their company. You do not get a carrier company from this step. If you already work for another carrier, you cannot be added yet.'),
+        find.textContaining(
+            'If you already belong to another carrier, you cannot be added yet.'),
         findsOneWidget);
   });
 }

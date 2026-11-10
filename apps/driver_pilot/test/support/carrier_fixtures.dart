@@ -50,9 +50,24 @@ void signInAsCarrierLogin(
   api.selectOrganization('carrier-a');
 }
 
+/// The carrier's owner: the office plus who may add the bank account, which is how the app tells an owner from
+/// a dispatcher today.
+void signInAsCarrierOwner({List<String> alsoAllowed = const []}) =>
+    signInAsCarrierLogin(
+        office: true,
+        alsoAllowed: ['bank_account.create_token', ...alsoAllowed]);
+
+/// Proof of delivery photos as the server lists them on a shipment: which ones, never the pictures.
+List<Map<String, dynamic>> podPhotos(List<String> ids) => [
+      for (final id in ids)
+        {'id': id, 'contentType': 'image/jpeg', 'uploadedAtUtcMs': 1760000000000}
+    ];
+
 /// A shipment on trip-a as the carrier shipment list sends it; the amount is sent to the office only.
 Map<String, dynamic> shipmentOnTripA(
-        {String status = 'BOOKED', int? netToCarrierPaise}) =>
+        {String status = 'BOOKED',
+        int? netToCarrierPaise,
+        List<String> photoIds = const []}) =>
     {
       ...shipment(status: status),
       'anchorTripId': 'trip-a',
@@ -60,4 +75,5 @@ Map<String, dynamic> shipmentOnTripA(
       'pickupAddress': 'Peenya, Bengaluru',
       'dropAddress': 'Hosur',
       if (netToCarrierPaise != null) 'netToCarrierPaise': netToCarrierPaise,
+      if (photoIds.isNotEmpty) 'podPhotos': podPhotos(photoIds),
     };

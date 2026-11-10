@@ -1,9 +1,8 @@
 import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { once } from "node:events";
+import { httpFixture } from "../test/httpFixtures.ts";
 import { createStore } from "./store.ts";
-import { createApp } from "./httpServer.ts";
 import {
   customerEligibleAnchorTripsPhaseA,
   publishAnchorTripAsPilotDriver,
@@ -115,21 +114,9 @@ test("truck capacity at sign-up must be a finite number above zero and at most 1
 });
 
 test("POST /shipments/quote answers 400 for a weight that is not a number", async (t) => {
-  const previousDataFile = process.env.DATA_FILE;
-  t.after(() => { process.env.DATA_FILE = previousDataFile; });
-  process.env.DATA_FILE = `/tmp/navig8r-weight-checks-${Date.now()}-${Math.random()}.json`;
-  const app = await createApp();
-  app.server.listen(0, "127.0.0.1");
-  await once(app.server, "listening");
-  t.after(() => app.server.close());
-  const address = app.server.address();
-  assert.ok(address && typeof address === "object");
-
-  const res = await fetch(`http://127.0.0.1:${address.port}/shipments/quote`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ weightKg: "x" }),
-  });
+  // A quote needs a signed-in login that may book, so a shipper asks.
+  const f = await httpFixture(t);
+  const res = await f.request("/shipments/quote", "POST", { weightKg: "x" }, f.tokens.shipperA);
   assert.equal(res.status, 400);
-  assert.deepEqual(await res.json(), { error: "invalid_weightKg" });
+  assert.deepEqual(res.body, { error: "invalid_weightKg" });
 });

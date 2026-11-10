@@ -26,6 +26,7 @@ model Organization {
   createdAtUtcMs       BigInt
   payoutContactId      String?
   payoutFundAccountId  String?
+  transporterId        String?
   inactiveAtUtcMs      BigInt?
   inactiveReason       String?
 }

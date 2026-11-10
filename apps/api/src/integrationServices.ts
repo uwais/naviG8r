@@ -1,13 +1,15 @@
 import { AuthorizationError, recordAudit, requirePermission } from "./rbac.ts";
 import { withoutEwayBill } from "./ewayBillVisibility.ts";
+import { withoutPodPhotos } from "./podPhotos.ts";
 import { withoutTripAssignment } from "./tripAssignmentRules.ts";
+import { withoutCarrierTransporterId } from "./carrierTransporterId.ts";
 import { isActiveEntity } from "./softDelete.ts";
 import crypto from "node:crypto";
 import {
   bookShipment,
   customerEligibleAnchorTripsPhaseA,
   shipmentWithCarrierDisplay,
-  tripForPublicListing,
+  tripWithCarrierDisplay,
   attachRazorpayOrderForShipment,
   isOpsAdmin,
   isOpsAgent,
@@ -220,8 +222,10 @@ function applyErpPreauthorizedPayment(store: Store, shipment: Shipment): void {
 export function integrationLoadResponse(store: Store, shipment: Shipment, connection: IntegrationConnection) {
   const enriched = shipmentWithCarrierDisplay(store, shipment);
   const payment = store.payments.get(shipment.paymentId);
+  // A booking closed when its trip left unpaid keeps its CREATED payment, and takes no checkout.
   const checkoutRequired =
     connection.paymentPolicy === "portal_checkout" &&
+    shipment.status === "PENDING_CARRIER_ACCEPT" &&
     payment?.status === "CREATED" &&
     razorpayPaymentsEnabled();
 
@@ -344,6 +348,21 @@ export function listIntegrationLoads(
   return rows.slice(0, limit);
 }
 
+/** A shipper's ERP never gets the carrier's amount, NaviG8r's cut or when the carrier is paid (owner hard rule, 21 Oct 2026). */
+function withoutCarrierPay<T extends Shipment>(shipment: T): Omit<T, "netToCarrierPaise" | "commissionPaise" | "firstPayoutEligibleAtUtcMs" | "payoutBatchCutoffUtcMs"> {
+  const { netToCarrierPaise: _net, commissionPaise: _commission, firstPayoutEligibleAtUtcMs: _eligible, payoutBatchCutoffUtcMs: _cutoff, ...rest } = shipment;
+  return rest;
+}
+
+/**
+ * A carrier's cancel request, its note above all, is between the carrier and NaviG8r; an ERP caller reads the status only.
+ * The truck's position goes out only as the tracking route's liveLocation, and the driver's user ids not at all.
+ */
+function tripForErp(trip: ReturnType<typeof tripWithCarrierDisplay>) {
+  const { cancelRequest: _request, lastLiveLocation: _location, startedByUserId: _startedBy, completedByUserId: _completedBy, ...rest } = withoutTripAssignment(trip);
+  return rest;
+}
+
 export function getIntegrationShipmentTracking(store: Store, orgId: string, shipmentId: string) {
   const shipment = store.shipments.get(shipmentId);
   if (!shipment || shipment.customerOrgId !== orgId) throw new Error("shipment_not_found");
@@ -356,8 +375,8 @@ export function getIntegrationShipmentTracking(store: Store, orgId: string, ship
   const shipperMaySeeTruck = shipment.status === "BOOKED" && trip.status === "IN_PROGRESS";
   const isLive = fresh && shipperMaySeeTruck;
   return {
-    shipment: withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment))),
-    trip: tripForPublicListing(store, trip),
+    shipment: withoutPodPhotos(withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(shipmentWithCarrierDisplay(store, shipment)))))),
+    trip: tripForErp(tripWithCarrierDisplay(store, trip)),
     liveLocation: shipperMaySeeTruck ? loc : null,
     isLive,
     staleAfterUtcMs: staleMs,
@@ -377,9 +396,9 @@ export function getIntegrationShipmentSnapshot(store: Store, orgId: string, ship
   const trip = store.anchorTrips.get(shipment.anchorTripId);
   return {
     ...integrationLoadResponse(store, shipment, conn),
-    shipment: withoutTripAssignment(withoutEwayBill(enriched)),
+    shipment: withoutPodPhotos(withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(enriched))))),
     payment,
-    trip: trip ? tripForPublicListing(store, trip) : null,
+    trip: trip ? tripForErp(tripWithCarrierDisplay(store, trip)) : null,
   };
 }
 

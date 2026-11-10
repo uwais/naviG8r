@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Enter the code</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<main class="scr" aria-labelledby="h">
+  <header class="hdr">
+    <a class="hdr-back" href="c-signin.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Back</a>
+  </header>
+  <div class="body" style="gap: 24px; padding-top: 24px;">
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <h1 id="h" class="h1">Enter the code</h1>
+      <p class="lead">We sent a 6-digit code to <strong class="tnum">+91 98450 12345</strong>.</p>
+    </div>
+    <div class="field">
+      <label class="field-label" for="code">6-digit code</label>
+      <div class="input is-focus mono" style="font-size: 24px; letter-spacing: 0.3em; min-height: 56px;"><input id="code" inputmode="numeric" autocomplete="one-time-code" value="4 8 2 1" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 500 24px/32px var(--font-mono); letter-spacing: 0.3em;"></div>
+      <p class="help">The code fills in by itself if your phone reads the SMS.</p>
+    </div>
+    <button class="btn btn-primary btn-full" type="button">Sign in</button>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <p class="cap">No SMS yet? You can ask for a new code in 0:24.</p>
+      <div class="btn-row">
+        <button class="btn btn-secondary" type="button" disabled>Send a new code</button>
+        <a class="btn btn-quiet" href="c-signin.dc.html">Change number</a>
+      </div>
+    </div>
+  </div>
+</main>
+
+</body>
+</html>

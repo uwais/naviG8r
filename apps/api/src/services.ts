@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { validatePayoutBankDetails } from "./bankAccountValidation.ts";
-import { assertAdminRemains, authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible } from "./rbac.ts";
+import { checkTransporterId } from "./transporterIdValidation.ts";
+import { assertAdminRemains, authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible, type Principal } from "./rbac.ts";
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
 import {
   COMMISSION_BPS,
@@ -13,6 +14,7 @@ import {
 } from "./config.ts";
 import type {
   AnchorTrip,
+  AnchorTripStatus,
   Carrier,
   DriverProfile,
   GeoPoint,
@@ -50,6 +52,7 @@ import { emitIntegrationEvent } from "./integrationWebhooks.ts";
 import { expireUnpaidBooking, HELD_PAYMENT_RETURN_DETAIL, keepPaymentAfterExpiry, UNPAID_BOOKING_EXPIRED_DETAIL } from "./unpaidBookingExpiry.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
 import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
+import { shipmentsBlockingStart } from "./ewayBillStartGate.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -244,12 +247,23 @@ export function tripForPublicListing(
   return rest;
 }
 
+/**
+ * The serializer passes the carrier's transporter ID to shippers only, and ERP responses strip it. It is added only
+ * while BOOKED, acceptance to delivery: the owner approved it from acceptance, for the e-way bill (16 Oct 2026).
+ */
 export function shipmentWithCarrierDisplay(
   store: Store,
   shipment: Shipment,
-): Shipment & { carrierDisplayName: string; assignedTruckNumber?: string } {
-  const truckNumber = assignedTruckNumber(store, store.anchorTrips.get(shipment.anchorTripId));
-  return { ...shipment, carrierDisplayName: carrierDisplayName(store, shipment.carrierId), ...(truckNumber ? { assignedTruckNumber: truckNumber } : {}) };
+): Shipment & { carrierDisplayName: string; assignedTruckNumber?: string; carrierTransporterId?: string } {
+  // A shipment the carrier turned down is no longer on that truck, so it stops naming it.
+  const truckNumber = shipment.status === "FAILED_CARRIER_REFUNDED" ? undefined : assignedTruckNumber(store, store.anchorTrips.get(shipment.anchorTripId));
+  const transporterId = shipment.status === "BOOKED" ? store.organizations.get(shipment.carrierId)?.transporterId : undefined;
+  return {
+    ...shipment,
+    carrierDisplayName: carrierDisplayName(store, shipment.carrierId),
+    ...(truckNumber ? { assignedTruckNumber: truckNumber } : {}),
+    ...(transporterId ? { carrierTransporterId: transporterId } : {}),
+  };
 }
 
 export function createCarrier(store: Store, name: string): Carrier {
@@ -278,6 +292,8 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   vehicleRegistrationNumber: string;
   vehicleClass: VehicleClass;
   vehicleCapacityKg: number;
+  /** Optional at sign-up; checked before anything is written. */
+  transporterId?: unknown;
 }): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
@@ -286,6 +302,8 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   assertTruckNumberLength(String(params.vehicleRegistrationNumber));
   assertVehicleClass(params.vehicleClass);
   if (!weightKgInRange(params.vehicleCapacityKg)) throw new Error("invalid_vehicleCapacityKg");
+  const transporterIdCheck = checkTransporterId(params.transporterId ?? null);
+  if (!transporterIdCheck.ok) throw new ApiError("invalid_transporter_id", { detail: transporterIdCheck.detail, field: transporterIdCheck.field });
 
   const identity = normalizePhone(params.phone, params.countryCode);
   const dup = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
@@ -299,6 +317,7 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
     displayName: String(params.orgDisplayName).trim(),
     kycStatus: "NOT_STARTED",
     createdAtUtcMs: now,
+    ...(transporterIdCheck.value ? { transporterId: transporterIdCheck.value } : {}),
   };
   const membership: Membership = {
     userId: user.id,
@@ -1491,6 +1510,7 @@ export function quoteShipmentMarketplace(store: Store, params: {
   });
 }
 
+/** For a carrier: only what the carrier would receive. The shipper's price and its parts stay with NaviG8r. */
 export function pilotRatesEstimate(store: Store, userId: string, body: {
   origin: unknown;
   destination: unknown;
@@ -1498,7 +1518,7 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   sampleWeightsKg?: unknown;
 }): {
   laneKm: number;
-  samples: Array<{ weightKg: number; grossPaise: number; breakdown: FreightBreakdown }>;
+  samples: Array<{ weightKg: number; netToCarrierPaise: number }>;
   modelVersion: string;
 } {
   if (!userHasPilotCarrierMembership(store, userId)) {
@@ -1533,13 +1553,13 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   const laneKmRounded = Math.round(laneKmRaw * 100) / 100;
 
   const samples = sampleWeights.map((weightKg) => {
-    const { grossPaise, breakdown } = computeFreightGrossPaise({
+    const { grossPaise } = computeFreightGrossPaise({
       weightKg,
       vehicleClass: vc,
       laneKm: laneKmRaw,
       shipmentKm: null,
     });
-    return { weightKg, grossPaise, breakdown };
+    return { weightKg, netToCarrierPaise: moneySplit(grossPaise).netToCarrierPaise };
   });
 
   return { laneKm: laneKmRounded, samples, modelVersion: FREIGHT_MODEL_VERSION };
@@ -1554,6 +1574,22 @@ export function quoteShipment(params: { weightKg: number }): { grossPaise: numbe
     shipmentKm: null,
   });
   return { grossPaise };
+}
+
+/** The longest pickup or drop address a booking takes, in characters as a person sees them. */
+export const maxAddressLength = 500;
+
+const addressCharacterSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+
+/** Counted as the app's address box counts (Flutter's characters.length): "कि" is one character, though two
+ * code points. Code points would refuse Devanagari the box takes. The UTF-16 ceiling, 8 units a character,
+ * keeps a stored address bounded when one character carries many combining marks, and leaves room for
+ * characters made of several code points (a conjunct, an emoji). */
+function addressTooLong(address: string): boolean {
+  if (address.length > 8 * maxAddressLength) return true;
+  let characters = 0;
+  for (const _ of addressCharacterSegmenter.segment(address)) if (++characters > maxAddressLength) return true;
+  return false;
 }
 
 export function bookShipment(store: Store, params: {
@@ -1584,6 +1620,8 @@ export function bookShipment(store: Store, params: {
     const target = store.organizations.get(params.customerOrg.id);
     if (target?.kind !== "CUSTOMER" || params.bookedByUserId !== authorizationContext.getStore()?.effectiveActorId) throw new AuthorizationError("invalid_assisted_booking", 400);
   }
+  // The addresses are stored and sent to every screen and webhook; a real one is far shorter.
+  if (addressTooLong(params.pickupAddress) || addressTooLong(params.dropAddress)) throw new Error("address_too_long");
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip || !isActiveEntity(trip)) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");
@@ -1720,6 +1758,17 @@ function finalizeDeliveredShipment(
   return { shipment: updated, ledgerLine: line };
 }
 
+/**
+ * Proof of delivery, its photos included, waits for the trip to start (owner, 23 Oct 2026). A finished trip still
+ * takes one, so a retry after the last delivery closed the trip goes through.
+ */
+export function requireTripStartedForPod(store: Store, s: Shipment): void {
+  const tripStatus = store.anchorTrips.get(s.anchorTripId)?.status;
+  if (tripStatus !== "IN_PROGRESS" && tripStatus !== "COMPLETED") {
+    throw new ApiError("trip_not_started", { detail: "Start the trip first." }, 409);
+  }
+}
+
 /** Driver confirms delivery; payment capture and ledger wait for ops release. */
 export function submitDriverPod(
   store: Store,
@@ -1732,15 +1781,25 @@ export function submitDriverPod(
   if (s.status !== "BOOKED") {
     throw new ApiError("shipment_not_deliverable", { status: s.status });
   }
+  // Refused rather than ending the trip: a delivered load means the trip ran, which a cancelled trip would deny.
+  if (store.anchorTrips.get(s.anchorTripId)?.status === "CANCEL_REQUESTED") {
+    throw new ApiError("trip_cancel_requested", { detail: "This trip's carrier asked NaviG8r to cancel it, so delivery cannot be confirmed now." }, 409);
+  }
+  requireTripStartedForPod(store, s);
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
   const payOk =
     pay.status === "AUTHORIZED" || (pay.provider === "MOCK" && pay.status === "CAPTURED");
   if (!payOk) {
+    // A driver meets this refusal, and a driver never learns a payment's state: no status, no payment words.
     throw new ApiError("checkout_not_completed_for_pod", {
-      detail: "Customer must complete payment authorization before driver POD.",
-      status: pay.status,
+      detail: "This booking is not ready for delivery yet.",
     });
+  }
+  // A carrier login confirms with a photo (owner, 22 Oct 2026). Ops confirming for a carrier still may without
+  // one: whether ops needs a photo was not decided.
+  if (!principal.roles.includes("OPS") && !(s.podPhotos?.length)) {
+    throw new ApiError("pod_photo_required", { detail: "Add a photo of the signed delivery note or the goods first." }, 409);
   }
 
   const podAtUtcMs = nowUtcMs();
@@ -1769,6 +1828,20 @@ function anchorTripHasActiveShipments(shipments: Shipment[]): boolean {
   return shipments.some((s) => s.status === "BOOKED" || s.status === "PENDING_CARRIER_ACCEPT");
 }
 
+/**
+ * A booking waiting for acceptance, paid or not, or an accepted one, oldest first: what keeps a carrier from
+ * cancelling a trip itself, and what Finance cancels one by one when the carrier asks.
+ */
+export function bookingsOnTrip(store: Store, tripId: string): Shipment[] {
+  return shipmentsOnAnchorTrip(store, tripId)
+    .filter((s) => anchorTripHasActiveShipments([s]))
+    .sort((a, b) => a.createdAtUtcMs - b.createdAtUtcMs);
+}
+
+export function tripHasBookings(store: Store, tripId: string): boolean {
+  return anchorTripHasActiveShipments(shipmentsOnAnchorTrip(store, tripId));
+}
+
 function maybeAutoCompleteAnchorTripAfterPod(store: Store, tripId: string, userId: string): void {
   const trip = store.anchorTrips.get(tripId);
   if (!trip || trip.status !== "IN_PROGRESS") return;
@@ -1785,10 +1858,35 @@ function paymentAuthorizedForCarrierAccept(pay: Payment): boolean {
   return pay.status === "AUTHORIZED" || (pay.provider === "MOCK" && pay.status === "CAPTURED");
 }
 
-/** Carrier accepts a customer booking (PENDING_CARRIER_ACCEPT → BOOKED). */
+/**
+ * A booking waiting for the carrier whose payment lets it be accepted now. Only these hold a trip's start
+ * (owner, 23 Oct 2026): one whose checkout is not done cannot be accepted, and only the shipper can change that.
+ */
+export function bookingReadyToAccept(store: Store, shipment: Shipment): boolean {
+  if (shipment.status !== "PENDING_CARRIER_ACCEPT") return false;
+  const pay = store.payments.get(shipment.paymentId);
+  return pay !== undefined && paymentAuthorizedForCarrierAccept(pay);
+}
+
+/**
+ * Accepting can also name the trip's truck, in the same request (owner decision, 16 Oct 2026): only when the trip
+ * names none yet and the caller may assign trucks. Otherwise a vehicleId is ignored; the office changes a named
+ * truck on the trip screen. The server answers a refusal without undoing earlier writes, so this runs after every
+ * other acceptance check and before any write: a truck outside the fleet leaves nothing accepted and no truck named.
+ */
+function truckToNameWhileAccepting(store: Store, principal: Principal, trip: AnchorTrip | undefined, vehicleId: unknown): Vehicle | undefined {
+  if (vehicleId == null || !trip || trip.assignedVehicleId || !principal.permissions.includes("trip.assign")) return undefined;
+  const vehicle = typeof vehicleId === "string" ? store.vehicles.get(vehicleId) : undefined;
+  if (!vehicle || !isActiveEntity(vehicle) || vehicle.orgId !== trip.carrierId) {
+    throw new ApiError("invalid_trip_assignment", { detail: "Choose a truck from your own fleet.", field: "vehicleId" });
+  }
+  return vehicle;
+}
+
+/** Carrier accepts a customer booking (PENDING_CARRIER_ACCEPT → BOOKED), naming the trip's truck first when asked. */
 export function acceptCarrierShipment(
   store: Store,
-  params: { shipmentId: string; userId: string },
+  params: { shipmentId: string; userId: string; vehicleId?: unknown },
 ): Shipment {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
@@ -1796,6 +1894,15 @@ export function acceptCarrierShipment(
   requireAssistance(store, principal, s.carrierId);
   if (s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new ApiError("shipment_not_acceptable", { status: s.status });
+  }
+  // A trip that has left takes no more bookings (owner, 23 Oct 2026); start waits for every booking ready to accept.
+  const tripStatus = store.anchorTrips.get(s.anchorTripId)?.status;
+  if (tripStatus === "IN_PROGRESS" || tripStatus === "COMPLETED") {
+    throw new ApiError("trip_already_started", { detail: "This trip is already on the way, so it cannot take this booking." }, 409);
+  }
+  // The same words for the office and its drivers: a driver did not ask and cannot withdraw.
+  if (tripStatus === "CANCEL_REQUESTED") {
+    throw new ApiError("trip_cancel_requested", { detail: "This trip's carrier asked NaviG8r to cancel it, so it cannot take this booking now." }, 409);
   }
   assertDispatchReady(store, s.carrierId);
   const pay = store.payments.get(s.paymentId);
@@ -1805,6 +1912,13 @@ export function acceptCarrierShipment(
       detail: "Customer must complete payment authorization before carrier can accept.",
       status: pay.status,
     });
+  }
+  const trip = store.anchorTrips.get(s.anchorTripId);
+  const truck = truckToNameWhileAccepting(store, principal, trip, params.vehicleId);
+  if (trip && truck) {
+    store.anchorTrips.set(trip.id, { ...trip, assignedVehicleId: truck.id });
+    // The same audit row as naming a truck and driver on the trip screen, state words only.
+    auditAsUser(store, params.userId, "TRIP_ASSIGNED", "trip", trip.id, trip.assignedDriverUserId ? "ASSIGNED" : "UNASSIGNED", "ASSIGNED");
   }
   const now = nowUtcMs();
   const updated: Shipment = {
@@ -1820,6 +1934,31 @@ export function acceptCarrierShipment(
   return updated;
 }
 
+/**
+ * Owner, 23 Oct 2026: a booking still waiting whose checkout is not done when its trip starts is closed, the status
+ * Finance's cancel gives, and its room freed; returns the kilograms freed. No money was taken (payment CREATED or
+ * FAILED), so nothing goes to Razorpay and the payment is left as it is. A capture Razorpay already reported is money
+ * taken, so it goes on Finance's list of money collected after a cancel (tripCancel.ts), as a later one does from
+ * the webhook. The shipper's notice is written in notifications.ts.
+ */
+function closeBookingsLeftBehind(store: Store, activeOnTrip: Shipment[], userId: string, now: number): number {
+  let freedKg = 0;
+  for (const s of activeOnTrip) {
+    if (s.status !== "PENDING_CARRIER_ACCEPT" || bookingReadyToAccept(store, s)) continue;
+    const closed: Shipment = { ...s, status: "FAILED_CARRIER_REFUNDED", leftBehindAtUtcMs: now, updatedAtUtcMs: now };
+    store.shipments.set(closed.id, closed);
+    auditAsUser(store, userId, "SHIPMENT_LEFT_BEHIND", "shipment", s.id, s.status, closed.status);
+    const pay = store.payments.get(s.paymentId);
+    if (pay?.provider === "RAZORPAY" && pay.status === "CAPTURED" && pay.razorpayPaymentId) {
+      store.payments.set(pay.id, { ...pay, status: "CAPTURED_AFTER_CANCEL", capturedAfterCancelRazorpayPaymentId: pay.razorpayPaymentId, updatedAtUtcMs: now });
+      auditAsUser(store, userId, "PAYMENT_AFTER_CANCEL", "shipment", s.id, pay.status, "CAPTURED_AFTER_CANCEL", "CAPTURED", pay.razorpayPaymentId);
+    }
+    freedKg += s.weightKg;
+    emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: s.id });
+  }
+  return freedKg;
+}
+
 /** Carrier/driver explicitly starts a load (anchor trip → IN_PROGRESS). */
 export function startAnchorTripAsPilot(
   store: Store,
@@ -1829,7 +1968,9 @@ export function startAnchorTripAsPilot(
   const principal = requirePermission(store, "load.status_update", trip, params.userId);
   requireAssistance(store, principal, trip.carrierId);
   assertDispatchReady(store, trip.carrierId);
-  for (const sh of shipmentsOnAnchorTrip(store, trip.id).filter(s => s.status === "BOOKED")) {
+  // A deleted booking neither holds nor counts toward the start.
+  const activeOnTrip = shipmentsOnAnchorTrip(store, trip.id).filter(isActiveEntity);
+  for (const sh of activeOnTrip.filter(s => s.status === "BOOKED")) {
     const pay = store.payments.get(sh.paymentId);
     if (!pay || !paymentAuthorizedForCarrierAccept(pay)) throw new AuthorizationError("payment_not_ready", 409);
   }
@@ -1837,18 +1978,26 @@ export function startAnchorTripAsPilot(
   if (trip.status !== "OPEN" && trip.status !== "FULL") {
     throw new ApiError("trip_not_startable", { status: trip.status });
   }
-  const hasAccepted = [...store.shipments.values()].some(
-    (s) => s.anchorTripId === trip.id && s.status === "BOOKED",
-  );
+  const hasAccepted = activeOnTrip.some((s) => s.status === "BOOKED");
   if (!hasAccepted) {
     throw new ApiError("no_accepted_shipments", {
       detail: "Accept at least one customer booking before starting the trip.",
     });
   }
   const now = nowUtcMs();
+  // A booking waiting for the carrier comes first, since the carrier acts on it; then the e-way bills. The error
+  // keeps its name so app builds already installed still read the bill lines.
+  const waitingForAccept = activeOnTrip
+    .filter((s) => bookingReadyToAccept(store, s))
+    .map((s) => ({ shipmentId: s.id, shipperName: s.customerOrgName, reason: "waiting_for_accept" as const }));
+  const notReady = [...waitingForAccept, ...shipmentsBlockingStart(store, trip, activeOnTrip, now)];
+  // A refusal tells no shipper: the office chooses when to, with Remind (ewayBillReminder.ts).
+  if (notReady.length > 0) throw new ApiError("eway_bill_not_ready", { shipments: notReady }, 409);
+  const freedKg = closeBookingsLeftBehind(store, activeOnTrip, params.userId, now);
   const updated: AnchorTrip = {
     ...trip,
     status: "IN_PROGRESS",
+    reservedKg: Math.max(0, trip.reservedKg - freedKg),
     startedAtUtcMs: now,
     startedByUserId: params.userId,
   };
@@ -2067,10 +2216,13 @@ export function markPodDelivered(_store: Store, _params: { shipmentId: string; p
   throw new AuthorizationError("use_pod_upload_and_finance_release", 409);
 }
 
-/** Reverse a BOOKED shipment + free trip capacity if Razorpay order could not be created. */
+/**
+ * Reverse a just-booked shipment + free trip capacity if Razorpay order could not be created. One the trip's start
+ * closed meanwhile is kept: its room is already freed and its shipper told.
+ */
 export function rollbackBooking(store: Store, shipmentId: string): void {
   const s = store.shipments.get(shipmentId);
-  if (!s) return;
+  if (!s || s.leftBehindAtUtcMs != null) return;
   const trip = store.anchorTrips.get(s.anchorTripId);
   if (trip) {
     trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
@@ -2079,6 +2231,19 @@ export function rollbackBooking(store: Store, shipmentId: string): void {
   }
   store.payments.delete(s.paymentId);
   store.shipments.delete(shipmentId);
+}
+
+/**
+ * A booking the trip left without (owner, 23 Oct 2026), or one still waiting on a trip already on the road, takes no
+ * payment. A trip whose carrier asked to cancel it may still go, and the webhook would still record that payment,
+ * so it is not refused here.
+ */
+function refuseCheckoutIfTripLeft(store: Store, s: Shipment): void {
+  const tripStatus = store.anchorTrips.get(s.anchorTripId)?.status;
+  const tripOnTheRoad = tripStatus === "IN_PROGRESS" || tripStatus === "COMPLETED";
+  if (s.leftBehindAtUtcMs != null || (s.status === "PENDING_CARRIER_ACCEPT" && tripOnTheRoad)) {
+    throw new ApiError("trip_already_started", { detail: "This trip has already left. If your bank shows a payment, it comes back within 3 days." }, 409);
+  }
 }
 
 /** Client callback after Razorpay Standard Checkout success (webhook may lag or be unset in pilot). */
@@ -2113,6 +2278,7 @@ export function confirmRazorpayCheckoutAuthorization(
   if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
     return { payment: pay };
   }
+  refuseCheckoutIfTripLeft(store, s);
   if (pay.status !== "CREATED") {
     throw new ApiError("payment_not_confirmable", { status: pay.status });
   }
@@ -2134,6 +2300,8 @@ export async function attachRazorpayOrderForShipment(store: Store, shipmentId: s
   const pay = store.payments.get(s.paymentId);
   if (!pay || pay.provider !== "RAZORPAY") throw new Error("not_razorpay_shipment");
   const { id: orderId } = await createAuthorizeOnlyOrder(pay.amountPaise, s.id);
+  // The trip can start while Razorpay answers; then the shipper is not sent to pay.
+  refuseCheckoutIfTripLeft(store, store.shipments.get(shipmentId) ?? s);
   const t = nowUtcMs();
   store.payments.set(pay.id, {
     ...pay,
@@ -2164,19 +2332,30 @@ export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: 
   store.payments.set(pay.id, { ...pay, status: "CAPTURED", updatedAtUtcMs: nowUtcMs() });
 }
 
-export async function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Promise<Shipment> {
+/**
+ * fromCancelRequest: sent from a carrier's cancel request on the operations page, so it must not cancel once the
+ * carrier has withdrawn that request. The general fail-refund action does not send it.
+ */
+export async function failCarrierAndRefund(store: Store, params: { shipmentId: string; fromCancelRequest?: boolean }): Promise<Shipment> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
   requirePermission(store, "payment.refund", s);
   if (s.status !== "BOOKED" && s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new Error("shipment_not_refundable");
   }
+  if (params.fromCancelRequest && store.anchorTrips.get(s.anchorTripId)?.status !== "CANCEL_REQUESTED") {
+    throw new ApiError("cancel_request_withdrawn", { detail: "The carrier withdrew this request. Nothing changed." }, 409);
+  }
 
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
 
+  // Razorpay refunds only captured payments; an authorization nobody captures is released by Razorpay within 3 days
+  // of payment (owner decision, 19 Oct 2026), so a held payment sends nothing. An ERP-preauthorized payment is
+  // AUTHORIZED with no Razorpay payment or order behind it, so it is no hold and is refused as before.
+  const holdOnly = pay.provider === "RAZORPAY" && pay.status === "AUTHORIZED" && Boolean(pay.razorpayPaymentId || pay.razorpayOrderId);
   if (pay.provider === "RAZORPAY") {
-    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
+    if (pay.status === "CAPTURED" || (pay.status === "AUTHORIZED" && !holdOnly)) {
       if (!pay.razorpayPaymentId) {
         throw new ApiError("razorpay_payment_id_missing", { status: pay.status });
       }
@@ -2185,22 +2364,15 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
       } catch (e: any) {
         throw new ApiError("razorpay_refund_failed", { detail: "Payment provider operation failed" });
       }
-    } else if (pay.status !== "CREATED" && pay.status !== "FAILED") {
+    } else if (pay.status !== "CREATED" && pay.status !== "FAILED" && !holdOnly) {
       throw new ApiError("payment_not_refundable", { status: pay.status });
     }
   } else if (pay.status !== "CAPTURED") {
     throw new Error("payment_not_captured");
   }
 
-  const trip = store.anchorTrips.get(s.anchorTripId);
-  if (trip) {
-    trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
-    if (trip.status === "FULL") trip.status = "OPEN";
-    store.anchorTrips.set(trip.id, trip);
-  }
-
   const now = nowUtcMs();
-  store.payments.set(pay.id, { ...pay, status: "REFUNDED", updatedAtUtcMs: now });
+  store.payments.set(pay.id, { ...pay, status: holdOnly ? "HOLD_RELEASED" : "REFUNDED", updatedAtUtcMs: now });
 
   const updated: Shipment = {
     ...s,
@@ -2208,7 +2380,17 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
     updatedAtUtcMs: now,
   };
   store.shipments.set(updated.id, updated);
-  recordAudit(store, "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
+  recordAudit(store, holdOnly ? "PAYMENT_HOLD_RELEASED" : "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
+
+  const trip = store.anchorTrips.get(s.anchorTripId);
+  if (trip) {
+    const reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
+    // Only a full trip reopens. A trip its carrier asked to cancel ends once its last booking is cancelled.
+    let status: AnchorTripStatus = trip.status === "FULL" ? "OPEN" : trip.status;
+    if (trip.status === "CANCEL_REQUESTED" && !tripHasBookings(store, trip.id)) status = "CANCELLED";
+    store.anchorTrips.set(trip.id, { ...trip, reservedKg, status });
+    if (status === "CANCELLED") recordAudit(store, "TRIP_STATUS_CHANGED", "trip", trip.id, trip.status, status);
+  }
   emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: updated.id });
   return updated;
 }
@@ -2351,10 +2533,10 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
 }
 
 
-function auditAsUser(store: Store, userId: string, action: string, resourceType: string, resourceId: string, previousState?: string, newState?: string): void {
+function auditAsUser(store: Store, userId: string, action: string, resourceType: string, resourceId: string, previousState?: string, newState?: string, reasonCode?: string, razorpayPaymentId?: string): void {
   const p = principalFor(store, userId);
   const existing = authorizationContext.getStore();
-  authorizationContext.run({ ...existing, principal: p, requestId: existing?.requestId ?? randomUUID() }, () => recordAudit(store, action, resourceType, resourceId, previousState, newState));
+  authorizationContext.run({ ...existing, principal: p, requestId: existing?.requestId ?? randomUUID() }, () => recordAudit(store, action, resourceType, resourceId, previousState, newState, reasonCode, razorpayPaymentId));
 }
 function assertDispatchReady(store: Store, carrierId: string): void {
   const org = store.organizations.get(carrierId);

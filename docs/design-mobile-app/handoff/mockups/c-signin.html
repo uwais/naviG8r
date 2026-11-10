@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in with phone</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<main class="scr" aria-labelledby="h">
+  <header class="hdr">
+    <a class="hdr-back" href="Main.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Back</a>
+  </header>
+  <div class="body" style="gap: 24px; padding-top: 24px;">
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <h1 id="h" class="h1">Sign in with your phone</h1>
+      <p class="lead">We send a 6-digit code to this number by SMS.</p>
+    </div>
+    <div class="field">
+      <label class="field-label" for="ph">Mobile number</label>
+      <div class="input is-focus"><span style="color: var(--slate);">+91</span><span style="width: 1px; height: 24px; background: var(--line);"></span><input id="ph" type="tel" inputmode="numeric" autocomplete="tel-national" value="98450 12345" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 400 16px/24px var(--font-body);"></div>
+      <p class="help">10 digits. Standard SMS rates may apply.</p>
+    </div>
+    <a class="btn btn-primary btn-full" href="c-code.dc.html">Send code</a>
+    <div class="card-sunken" style="margin-top: auto;">
+      <p class="cap-ink">Signing in to <strong>ship goods</strong>.</p>
+      <a href="Main.dc.html" class="btn btn-quiet" style="align-self: flex-start; padding: 0; min-height: 44px;">I carry goods instead</a>
+    </div>
+  </div>
+</main>
+
+</body>
+</html>

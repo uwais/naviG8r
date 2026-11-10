@@ -72,16 +72,18 @@ test("the demo guide's order works end to end over HTTP, and the portal is off w
   const opsLists = await f.request("/ops/eway-bills", "GET", undefined, f.tokens.ops);
   assert.ok((opsLists.body.toCheck as Array<{ id: string }>).some(s => s.id === id), "ops lists the bill under toCheck");
 
-  // Carrier signs in as the Transporter, updates the vehicle for the first time, and copies the computed valid-up-to into the app.
-  const transporterCookie = await signIn("transporter");
-  const vehicle = await portalPost("/demo/eway-portal/vehicle", { billNumber, vehicleNumber: "KA01AB1234", reasonCode: "4", remark: "" }, transporterCookie);
+  // The carrier only reads the bill, so it cannot add the truck in the app.
+  assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/eway-bill/truck`, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs: Date.now() + 86400000 }, f.tokens.carrierA)).status, 403, "the carrier reads only");
+
+  // Shipper, still the Supplier, updates the vehicle for the first time and copies the computed valid-up-to into the app.
+  const vehicle = await portalPost("/demo/eway-portal/vehicle", { billNumber, vehicleNumber: "KA01AB1234", reasonCode: "4", remark: "" }, supplierCookie);
   assert.equal(vehicle.status, 200, vehicle.text);
   const validUpToMatch = /Vehicle KA01AB1234\. Valid up to (\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}) \(India time\)/.exec(vehicle.text);
   assert.ok(validUpToMatch, vehicle.text);
   const validUntilUtcMs = utcMsFromPortalValidUpTo(validUpToMatch[1]);
   const todayInIndia = new Date(Date.now() + INDIA_OFFSET_MS);
   assert.equal(validUntilUtcMs, Date.UTC(todayInIndia.getUTCFullYear(), todayInIndia.getUTCMonth(), todayInIndia.getUTCDate() + 3, 23, 59) - INDIA_OFFSET_MS, "450 km is three days, ending 23:59 India time");
-  const truck = await f.request(`/v1/pilot/carrier/shipments/${id}/eway-bill/truck`, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs }, f.tokens.carrierA);
+  const truck = await f.request(`/shipments/${id}/eway-bill/truck`, "POST", { truckNumber: "KA01AB1234", validUntilUtcMs }, f.tokens.shipperA);
   assert.equal(truck.status, 200, JSON.stringify(truck.body));
 
   // The owner names the driver for the trip; the driver then reads the bill, truck and valid-until, and cannot add a truck.
