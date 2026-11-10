@@ -70,6 +70,7 @@ const firebaseWords = {
   'auth/code-expired': 'That code has expired. Send a new code.',
   'auth/captcha-check-failed': 'The check did not work. Reload the page and try again.',
   'auth/network-request-failed': 'No connection. Check your internet and try again.',
+  'auth/unauthorized-domain': 'Phone sign-in is not set up for this site. Ask a teammate with ADMIN.',
 };
 const exchangeWords = {
   user_not_found: 'This phone number has no NaviG8r account.',

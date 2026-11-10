@@ -98,5 +98,19 @@ misspelling of it, counts as production:
 - If the two web settings are missing or invalid, the staff pages show
   "Staff sign-in is not set up on this server." and offer no way in.
 
+Before the first production deploy that includes this, check each of these, then
+sign in once on beta:
+
+- Firebase Console > Authentication > Settings > Authorized domains lists the API
+  addresses that serve the staff pages: `navig8r.onrender.com`,
+  `navig8r-api-alpha.onrender.com` and `navig8r-api-beta.onrender.com`. Without
+  this Firebase sends no code, and the page says "Phone sign-in is not set up for
+  this site."
+- If the web API key limits which websites may use it, those three addresses are
+  on that list too.
+- The API service has `FIREBASE_WEB_API_KEY`, `FIREBASE_WEB_APP_ID` and Google
+  Application Default Credentials. The exchange checks with Google that the token
+  was not revoked, so without credentials every Firebase sign-in fails.
+
 Where the old code sign-in is allowed, staff pages keep it unless both web
 settings are set on that server, in which case they use Firebase too.

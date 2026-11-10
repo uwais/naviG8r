@@ -117,7 +117,8 @@ test("only the named test and pre-release settings allow the old code sign-in", 
   }
 });
 
-test("after a send that fails, the next send on a staff page still works", async () => {
+/** Runs the staff browser script against a fake page, with signInWithPhoneNumber standing in for Firebase. */
+async function staffPageWithFirebase(signInWithPhoneNumber: () => Promise<unknown>) {
   const elements = new Map<string, any>();
   const element = (id: string) => ({
     id, value: "", textContent: "", disabled: false, handlers: {} as Record<string, (event: unknown) => Promise<void>>,
@@ -136,12 +137,6 @@ test("after a send that fails, the next send on a staff page still works", async
     }
     clear() {}
   }
-  let sends = 0;
-  const signInWithPhoneNumber = async () => {
-    sends += 1;
-    if (sends === 1) throw { code: "auth/network-request-failed" };
-    return { confirm: async () => ({}) };
-  };
   const script = firebaseSignInScript(
     { projectId: "test-project", apiKey: syntheticWebApiKey, appId: syntheticWebAppId },
     { phone: "phone", send: "send", code: "code", verify: "verify" },
@@ -150,12 +145,30 @@ test("after a send that fails, the next send on a staff page still works", async
   await new AsyncFunction("initializeApp", "initializeAuth", "inMemoryPersistence", "RecaptchaVerifier", "signInWithPhoneNumber", "document", script)(
     () => ({}), () => ({}), {}, RecaptchaVerifier, signInWithPhoneNumber, document,
   );
-  const click = () => elements.get("send").handlers.click({ preventDefault() {} });
   elements.get("phone").value = "9876543210";
-  await click();
-  assert.equal(elements.get("staff-sign-in-message").textContent, "No connection. Check your internet and try again.");
-  await click();
-  assert.equal(elements.get("staff-sign-in-message").textContent, "Code sent. Enter it to sign in.");
+  return {
+    sendCode: () => elements.get("send").handlers.click({ preventDefault() {} }),
+    message: () => elements.get("staff-sign-in-message").textContent,
+  };
+}
+
+test("after a send that fails, the next send on a staff page still works", async () => {
+  let sends = 0;
+  const page = await staffPageWithFirebase(async () => {
+    sends += 1;
+    if (sends === 1) throw { code: "auth/network-request-failed" };
+    return { confirm: async () => ({}) };
+  });
+  await page.sendCode();
+  assert.equal(page.message(), "No connection. Check your internet and try again.");
+  await page.sendCode();
+  assert.equal(page.message(), "Code sent. Enter it to sign in.");
+});
+
+test("a staff page whose address Firebase does not allow says phone sign-in is not set up for this site", async () => {
+  const page = await staffPageWithFirebase(async () => { throw { code: "auth/unauthorized-domain" }; });
+  await page.sendCode();
+  assert.equal(page.message(), "Phone sign-in is not set up for this site. Ask a teammate with ADMIN.");
 });
 
 test("in production with the legacy demo switch on, user and organization lists still need a signed-in admin", async (t) => {
