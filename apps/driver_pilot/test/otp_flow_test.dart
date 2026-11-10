@@ -5,6 +5,7 @@ import 'package:driver_pilot/pilot_api.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:driver_pilot/driver_flow.dart';
+import 'package:driver_pilot/firebase_phone_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -161,6 +162,48 @@ void main() {
         isNotNull);
   });
 
+  testWidgets('customer country selector sends the selected country code',
+      (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    AuthorizationSession.clear();
+    api = Api('http://test');
+    dynamic requestBody;
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/auth/otp/start') {
+        requestBody = request.data;
+        return jsonResponse({
+          'challengeId': 'us-country-challenge',
+          'expiresAtUtcMs': DateTime.now().millisecondsSinceEpoch + 600000,
+          'retryAfterMs': 0,
+        });
+      }
+      return jsonResponse({}, 401);
+    });
+    final router = GoRouter(initialLocation: '/customer/login', routes: [
+      GoRoute(
+        path: '/customer/login',
+        builder: (_, __) => const CustomerLoginScreen(),
+      ),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byType(DropdownMenuItem<String>).last,
+      warnIfMissed: false,
+    );
+    await tester.enterText(find.byType(TextField).first, '2025550100');
+    await tester.tap(find.text('Send code'));
+    await tester.pumpAndSettle();
+    expect(requestBody, isA<Map<String, dynamic>>());
+    expect((requestBody as Map<String, dynamic>)['countryCode'], '+1');
+  });
+
   testWidgets('customer resend clears the previous code when debug is absent',
       (tester) async {
     FlutterSecureStorage.setMockInitialValues({});
@@ -271,6 +314,49 @@ void main() {
     await tester.pumpAndSettle();
     expect(starts, 1);
     expect(find.text('fallback-1'), findsOneWidget);
+  });
+
+  testWidgets('driver registration opens Firebase OTP when available',
+      (tester) async {
+    final previousFirebaseAvailability = firebasePhoneAuthAvailable;
+    firebasePhoneAuthAvailable = true;
+    addTearDown(() => firebasePhoneAuthAvailable = previousFirebaseAvailability);
+    api = Api('http://test');
+    api.dio.httpClientAdapter = MockApiAdapter((request) {
+      if (request.uri.path == '/v1/pilot/driver/register') {
+        expect(request.data['countryCode'], '+91');
+        return jsonResponse({'org': {'id': 'org-registration-test'}});
+      }
+      return jsonResponse({});
+    });
+    final router = GoRouter(
+      initialLocation: '/driver/onboarding/register',
+      routes: [
+        GoRoute(
+          path: '/driver/onboarding/register',
+          builder: (_, __) => const DriverRegisterScreen(),
+        ),
+        GoRoute(
+          path: '/driver/onboarding/otp',
+          builder: (_, state) => Text(
+              'otp firebase=${state.uri.queryParameters['firebase']} country=${state.uri.queryParameters['countryCode']}'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      routerConfig: router,
+    ));
+    await tester.pumpAndSettle();
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'New Carrier Owner');
+    await tester.enterText(fields.at(1), '9876543210');
+    await tester.enterText(fields.at(2), 'New Carrier');
+    await tester.enterText(fields.at(3), 'MH12AB1234');
+    await tester.tap(find.text('Create carrier & continue'));
+    await tester.pumpAndSettle();
+    expect(find.text('otp firebase=1 country=+91'), findsOneWidget);
   });
 
   testWidgets('driver resend countdown disables the resend action',

@@ -115,7 +115,27 @@ test("sign-up keeps a per-phone count only for a valid phone number", async (t) 
   assert.equal(keys.some((key) => key.startsWith("sign-up:phone:")), false);
   const accepted = await f.request(CUSTOMER_USER, "POST", { fullName: "Sign-up Person", phone: "+91 74000 00000" });
   assert.equal(accepted.status, 201);
-  assert.equal(keys.includes("sign-up:phone:7400000000"), true);
+  assert.equal(keys.includes("sign-up:phone:+91:7400000000"), true);
+});
+
+test("sign-up rate limits a US E.164 phone identity", async (t) => {
+  const f = await httpFixture(t);
+  const phone = "+16099159026";
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const answer = await f.request(CUSTOMER_USER, "POST", {
+      fullName: "US Sign-up Person",
+      phone,
+      countryCode: "+1",
+    });
+    assert.notEqual(answer.status, 429, `attempt ${attempt}`);
+  }
+  const limited = await f.request(CUSTOMER_USER, "POST", {
+    fullName: "US Sign-up Person",
+    phone,
+    countryCode: "+1",
+  });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.body.error, "sign_up_rate_limited");
 });
 
 test("sign-up does not count the phone when the connecting IP is over its limit", async (t) => {

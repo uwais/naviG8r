@@ -33,6 +33,7 @@ model Organization {
 model UserRow {
   id               String  @id
   phone            String
+  countryCode      String?
   fullName         String
   createdAtUtcMs   BigInt
   inactiveAtUtcMs  BigInt?
@@ -84,6 +85,7 @@ model DriverProfileRow {
 model OtpChallengeRow {
   id              String @id
   phone           String
+  countryCode     String?
   code            String
   status          String
   expiresAtUtcMs  BigInt

@@ -2,6 +2,7 @@ import { migrateAuthorization, type Role, type AuditEvent } from "./rbac.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { createStore, type Store } from "./store.ts";
+import { storedCountryCode } from "./phone.ts";
 import type {
   AnchorTrip,
   AuthSession,
@@ -173,12 +174,16 @@ function hydrateStoreV4(json: HydratableStoreJsonV4): Store {
   const store = createStore();
   for (const c of json.carriers ?? []) store.carriers.set(c.id, c);
   for (const o of json.organizations ?? []) store.organizations.set(o.id, o);
-  for (const u of json.users ?? []) store.users.set(u.id, u);
+  for (const u of json.users ?? []) {
+    store.users.set(u.id, { ...u, countryCode: storedCountryCode(u.countryCode) });
+  }
   for (const i of json.firebaseIdentities ?? []) store.firebaseIdentities.set(i.uid, i);
   for (const m of json.memberships ?? []) store.memberships.set(membershipKey(m.userId, m.orgId), m);
   for (const v of json.vehicles ?? []) store.vehicles.set(v.id, v);
   for (const d of json.driverProfiles ?? []) store.driverProfiles.set(d.userId, d);
-  for (const o of json.otpChallenges ?? []) store.otpChallenges.set(o.id, o);
+  for (const o of json.otpChallenges ?? []) {
+    store.otpChallenges.set(o.id, { ...o, countryCode: storedCountryCode(o.countryCode) });
+  }
   for (const s of json.authSessions ?? []) store.authSessions.set(s.id, s);
   for (const t of json.anchorTrips ?? []) store.anchorTrips.set(t.id, t);
   for (const s of json.shipments ?? []) store.shipments.set(s.id, s);

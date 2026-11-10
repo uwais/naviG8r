@@ -65,8 +65,9 @@ Service-account credentials remain deployment secrets.
 node --experimental-strip-types --test apps/api/src/firebaseAuth.test.ts
 ```
 
-Web uses Firebase when runtime-config.js carries the four Firebase settings, and
-the old server code otherwise; a production server refuses the old server code.
+Web uses Firebase with the settings the customer-web container writes into
+runtime-config.js, and still offers the old server code as a fallback; a
+production server refuses the old server code (see below).
 Android uses Firebase by default; enable the old server code explicitly with
 `--dart-define=ALLOW_LEGACY_OTP_FALLBACK=true` only when a fallback is needed.
 

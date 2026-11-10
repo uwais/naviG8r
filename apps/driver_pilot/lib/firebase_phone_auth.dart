@@ -1,18 +1,15 @@
 import "dart:async";
 
 import "package:firebase_auth/firebase_auth.dart";
-import "package:firebase_core/firebase_core.dart";
 import "package:flutter/foundation.dart";
 
 import "firebase_app.dart";
 import "pilot_api.dart";
-import "runtime_config.dart";
 
-/// Firebase phone auth is enabled by default on Android, and on web when
-/// runtime-config.js carries the Firebase web settings. Other targets, or
-/// builds where Firebase initialization is unavailable, keep the existing OTP
-/// provider. Set `--dart-define=USE_FIREBASE_PHONE_AUTH=false` for an explicit
-/// legacy-OTP build.
+/// Android Firebase phone auth is enabled by default. Non-Android targets, or
+/// Android builds where Firebase initialization is unavailable, keep the
+/// existing OTP provider. Set `--dart-define=USE_FIREBASE_PHONE_AUTH=false`
+/// for an explicit Android legacy-OTP build.
 const bool firebasePhoneAuthEnabled = bool.fromEnvironment(
   "USE_FIREBASE_PHONE_AUTH",
   defaultValue: true,
@@ -22,13 +19,10 @@ const bool _legacyOtpFallbackRequested = bool.fromEnvironment(
   defaultValue: false,
 );
 
-bool get legacyOtpFallbackEnabled {
-  // Web never offers the old code sign-in once Firebase is ready, whatever the build flags say.
-  if (kIsWeb) return !firebasePhoneAuthAvailable;
-  return _legacyOtpFallbackRequested ||
-      defaultTargetPlatform != TargetPlatform.android ||
-      !firebasePhoneAuthAvailable;
-}
+bool get legacyOtpFallbackEnabled =>
+    _legacyOtpFallbackRequested ||
+    defaultTargetPlatform != TargetPlatform.android ||
+    !firebasePhoneAuthAvailable;
 
 const int firebaseResendCooldownMs = 30 * 1000;
 
@@ -51,30 +45,23 @@ String formatFirebaseAuthError(Object error) {
       case "network-request-failed":
         return "Unable to reach Firebase. Check your connection and try again.";
       case "session-expired":
-      case "code-expired":
         return "This verification session expired. Request a new code.";
       case "invalid-verification-code":
         return "That code is incorrect. Check it and try again.";
-      case "captcha-check-failed":
-      case "invalid-app-credential":
-      case "missing-app-credential":
-        return "We could not check this browser. Reload the page and try again.";
-      case "unauthorized-domain":
-      case "app-not-authorized":
-      case "operation-not-allowed":
-      case "invalid-api-key":
-        return "Phone sign-in is not working on this site. Please try again later.";
     }
-    return "Could not sign in. Please try again.";
   }
   if (error is TimeoutException) {
     return "Firebase verification timed out. Check your connection and try again.";
   }
-  return formatApiError(error);
+  return error.toString();
 }
 
-String firebasePhoneNumber(String nationalNumber) {
-  return "+91${digitsOnly(nationalNumber)}";
+String firebasePhoneNumber(String nationalNumber,
+    [String countryCode = "+91"]) {
+  final code = countryCode.trim().startsWith("+")
+      ? countryCode.trim()
+      : "+${countryCode.trim()}";
+  return "$code${digitsOnly(nationalNumber)}";
 }
 
 bool firebasePhoneAuthAvailable = false;
@@ -89,20 +76,17 @@ abstract interface class PhoneAuthClient {
   Future<void> verifyCode(String code);
   Future<String> idToken();
   Future<void> signOut();
+  void dispose();
 }
 
-/// Sign-in screens get their client here so tests can stand in for Firebase.
-PhoneAuthClient Function() newPhoneAuthClient = FirebasePhoneAuthClient.new;
-
 class FirebasePhoneAuthClient implements PhoneAuthClient {
-  FirebasePhoneAuthClient({FirebaseAuth? auth, bool browserFlow = kIsWeb})
-      : _auth = auth ?? FirebaseAuth.instance,
-        _browserFlow = browserFlow;
+  FirebasePhoneAuthClient({FirebaseAuth? auth})
+      : _auth = auth ?? FirebaseAuth.instance;
+
   final FirebaseAuth _auth;
-  final bool _browserFlow;
   String? _verificationId;
+  ConfirmationResult? _webConfirmation;
   bool _autoVerified = false;
-  ConfirmationResult? _browserConfirmation;
 
   @override
   Future<void> requestCode(
@@ -110,18 +94,26 @@ class FirebasePhoneAuthClient implements PhoneAuthClient {
     required void Function(String) onCodeSent,
     void Function()? onAutoVerified,
   }) async {
-    if (_browserFlow) {
-      // With no verifier given, firebase_auth shows an invisible reCAPTCHA.
-      final confirmation = await _auth.signInWithPhoneNumber(phoneNumber);
-      _browserConfirmation = confirmation;
-      onCodeSent(confirmation.verificationId);
-      return;
-    }
     final previousVerificationId = _verificationId;
+    final previousWebConfirmation = _webConfirmation;
     final previousAutoVerified = _autoVerified;
     _autoVerified = false;
     final callbackResult = Completer<void>();
     try {
+      if (kIsWeb) {
+        // Omitting the verifier lets FlutterFire create and dispose its
+        // managed verifier for this request. Reusing a custom verifier can
+        // submit a stale or already-consumed reCAPTCHA token.
+        _webConfirmation =
+            await _auth.signInWithPhoneNumber(phoneNumber).timeout(
+                  const Duration(seconds: 90),
+                  onTimeout: () => throw TimeoutException(
+                    "Firebase reCAPTCHA did not complete. Check the browser challenge and try again.",
+                  ),
+                );
+        onCodeSent(phoneNumber);
+        return;
+      }
       await _auth.verifyPhoneNumber(
         phoneNumber: phoneNumber,
         verificationCompleted: (credential) async {
@@ -151,6 +143,7 @@ class FirebasePhoneAuthClient implements PhoneAuthClient {
       await callbackResult.future;
     } catch (_) {
       _verificationId = previousVerificationId;
+      _webConfirmation = previousWebConfirmation;
       _autoVerified = previousAutoVerified;
       rethrow;
     }
@@ -158,15 +151,11 @@ class FirebasePhoneAuthClient implements PhoneAuthClient {
 
   @override
   Future<void> verifyCode(String code) async {
-    if (_browserFlow) {
-      final confirmation = _browserConfirmation;
+    if (kIsWeb) {
+      final confirmation = _webConfirmation;
       if (confirmation == null) throw StateError("Request a code first.");
-      await confirmation.confirm(code).timeout(
-            const Duration(seconds: 30),
-            onTimeout: () => throw TimeoutException(
-              "Firebase sign-in timed out before contacting the authentication service.",
-            ),
-          );
+      await confirmation.confirm(code).timeout(const Duration(seconds: 30));
+      _webConfirmation = null;
       return;
     }
     if (_autoVerified) return;
@@ -191,18 +180,23 @@ class FirebasePhoneAuthClient implements PhoneAuthClient {
         .timeout(const Duration(seconds: 15));
     if (token == null || token.isEmpty)
       throw StateError("Firebase sign-in did not return an ID token.");
-    // The browser would otherwise keep the Firebase sign-in after the swap; the token stays valid for the exchange.
-    if (_browserFlow) await _auth.signOut();
     return token;
   }
 
   @override
-  Future<void> signOut() => _auth.signOut();
+  Future<void> signOut() async {
+    _webConfirmation = null;
+    await _auth.signOut();
+  }
+
+  @override
+  void dispose() {
+    _webConfirmation = null;
+  }
 }
 
 Future<bool> initializeFirebasePhoneAuth() async {
-  if (kIsWeb) return _initializeBrowserPhoneAuth();
-  if (defaultTargetPlatform != TargetPlatform.android ||
+  if ((!kIsWeb && defaultTargetPlatform != TargetPlatform.android) ||
       !firebasePhoneAuthEnabled) {
     return false;
   }
@@ -211,34 +205,9 @@ Future<bool> initializeFirebasePhoneAuth() async {
     firebasePhoneAuthAvailable = true;
     return true;
   } catch (_) {
-    firebasePhoneAuthDiagnostic =
-        "Firebase phone sign-in is unavailable. Check Firebase Android configuration.";
-    return false;
-  }
-}
-
-// One image serves every environment, so the project comes from runtime settings;
-// the server still refuses a token from any project but its own.
-Future<bool> _initializeBrowserPhoneAuth() async {
-  final options = firebaseWebOptions(runtimeConfigValue);
-  if (!firebasePhoneAuthEnabled || options == null) return false;
-  return startFirebaseInBrowser(() async {
-    if (Firebase.apps.isEmpty) await Firebase.initializeApp(options: options);
-  });
-}
-
-// If the Firebase scripts never load, initializeApp never returns; main() waits on this before
-// runApp, so a time limit keeps the page from staying blank.
-@visibleForTesting
-Future<bool> startFirebaseInBrowser(Future<void> Function() initialize,
-    {Duration timeout = const Duration(seconds: 8)}) async {
-  try {
-    await initialize().timeout(timeout);
-    firebasePhoneAuthAvailable = true;
-    return true;
-  } catch (_) {
-    firebasePhoneAuthDiagnostic =
-        "Phone sign-in is not working right now. Please try again later.";
+    firebasePhoneAuthDiagnostic = kIsWeb
+        ? "Firebase phone sign-in is unavailable in this browser. Reload and try again."
+        : "Firebase phone sign-in is unavailable. Check Firebase Android configuration.";
     return false;
   }
 }

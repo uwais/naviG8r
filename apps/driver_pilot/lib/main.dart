@@ -784,6 +784,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _firebase?.dispose();
     _phone.dispose();
     _challengeId.dispose();
     _code.dispose();

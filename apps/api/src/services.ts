@@ -32,6 +32,7 @@ import type {
   VehicleClass,
 } from "./types.ts";
 import type { Store } from "./store.ts";
+import { normalizePhone, phoneKeyForUser } from "./phone.ts";
 import {
   captureRazorpayPayment,
   createAuthorizeOnlyOrder,
@@ -160,14 +161,8 @@ function membershipKey(userId: string, orgId: string): string {
   return `${userId}:${orgId}`;
 }
 
-function normalizeInPhone(phone: string): string {
-  const p = String(phone ?? "").trim();
-  if (!p) throw new Error("invalid_phone");
-  // MVP pilot: accept 10-digit Indian mobile numbers, optional +91 prefix.
-  const digits = p.replace(/[^\d]/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(-10);
-  if (digits.length === 10) return digits;
-  throw new Error("invalid_phone");
+function normalizeInPhone(phone: string, countryCode?: string): string {
+  return normalizePhone(phone, countryCode).phone;
 }
 
 function assertVehicleClass(v: any): asserts v is VehicleClass {
@@ -278,6 +273,7 @@ export function createCarrier(store: Store, name: string): Carrier {
 export function registerSoloOwnerOperatorDriver(store: Store, params: {
   fullName: string;
   phone: string;
+  countryCode?: string;
   orgDisplayName: string;
   vehicleRegistrationNumber: string;
   vehicleClass: VehicleClass;
@@ -291,12 +287,12 @@ export function registerSoloOwnerOperatorDriver(store: Store, params: {
   assertVehicleClass(params.vehicleClass);
   if (!weightKgInRange(params.vehicleCapacityKg)) throw new Error("invalid_vehicleCapacityKg");
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const dup = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (dup) throw new Error("phone_already_registered");
 
   const now = nowUtcMs();
-  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  const user: User = { id: id("usr"), phone: identity.phone, countryCode: identity.countryCode, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
   const org: Organization = {
     id: id("org"),
     kind: "CARRIER_SOLO",
@@ -431,21 +427,22 @@ export function listOpsAdmins(store: Store): OpsAdminEntry[] {
   return out.sort((a, b) => a.phone.localeCompare(b.phone));
 }
 
-function normalizeOpsPhone(raw: string): string {
-  const digits = String(raw ?? "").replace(/[^\d]/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(-10);
-  if (digits.length === 10) return digits;
-  throw new ApiError("invalid_phone", { detail: "Phone must be 10 digits (or +91-prefixed)." });
+function normalizeOpsPhone(raw: string, countryCode?: string): ReturnType<typeof normalizePhone> {
+  try {
+    return normalizePhone(raw, countryCode);
+  } catch {
+    throw new ApiError("invalid_phone", { detail: "Phone must be a supported 10-digit number." });
+  }
 }
 
 /**
  * Grants OPS_ADMIN to the user with the given phone. The user must already exist
  * (registered as a customer/driver/operator). Creates the platform-ops org if needed.
  */
-export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdminEntry {
+export function grantOpsAdmin(store: Store, params: { phone: string; countryCode?: string }): OpsAdminEntry {
   requirePermission(store, "user.role_manage");
-  const phone = normalizeOpsPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizeOpsPhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) {
     throw new ApiError("user_not_found", {
       detail: "Register this phone (customer or driver) before granting ops-admin.",
@@ -488,11 +485,11 @@ export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdmin
  */
 export function revokeOpsAdmin(
   store: Store,
-  params: { phone: string; actingUserId: string },
+  params: { phone: string; countryCode?: string; actingUserId: string },
 ): { revoked: boolean } {
   requirePermission(store, "user.role_manage", undefined, params.actingUserId);
-  const phone = normalizeOpsPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizeOpsPhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) throw new ApiError("user_not_found", {});
   const org = store.organizations.get(PLATFORM_OPS_ORG_ID);
   if (!org) throw new ApiError("ops_admin_not_found", { detail: "No platform-ops org exists." });
@@ -716,7 +713,7 @@ export function opsDeleteUser(
     if (cascadeSet.has(s.carrierId)) return true;
     if (s.customerOrgId && cascadeSet.has(s.customerOrgId)) return true;
     if (s.bookedByUserId === userId) return true;
-    if (s.bookedByPhone && s.bookedByPhone === user.phone) return true;
+    if (s.bookedByPhone && user.countryCode === "+91" && s.bookedByPhone === user.phone) return true;
     return false;
   });
   const activeTrips = [...store.anchorTrips.values()].filter(
@@ -743,7 +740,7 @@ export function opsDeleteUser(
     }
   }
   for (const o of store.otpChallenges.values()) {
-    if (o.phone === user.phone && o.status === "PENDING") {
+    if (o.status === "PENDING" && normalizePhone(o.phone, o.countryCode).key === phoneKeyForUser(user)) {
       store.otpChallenges.set(o.id, { ...o, status: "EXPIRED" });
     }
   }
@@ -804,18 +801,19 @@ export function shipmentVisibleToCustomerUser(store: Store, shipment: Shipment, 
 export function registerCustomerOrgAdmin(store: Store, params: {
   fullName: string;
   phone: string;
+  countryCode?: string;
   orgDisplayName: string;
 }): { user: User; org: Organization; membership: Membership } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
   assertSignUpFieldLengths(params);
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const dup = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (dup) throw new Error("phone_already_registered");
 
   const now = nowUtcMs();
-  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  const user: User = { id: id("usr"), phone: identity.phone, countryCode: identity.countryCode, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
   const org: Organization = {
     id: id("org"),
     kind: "CUSTOMER",
@@ -843,16 +841,17 @@ export function registerCustomerOrgAdmin(store: Store, params: {
 export function registerCustomerUser(store: Store, params: {
   fullName: string;
   phone: string;
+  countryCode?: string;
 }): { user: User } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   assertSignUpFieldLengths(params);
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const dup = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (dup) throw new Error("phone_already_registered");
 
   const now = nowUtcMs();
-  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  const user: User = { id: id("usr"), phone: identity.phone, countryCode: identity.countryCode, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
   store.users.set(user.id, user);
   return { user };
 }
@@ -867,6 +866,7 @@ export function inviteCustomerMember(
   params: {
     orgId: string;
     phone: string;
+    countryCode?: string;
     role?: "CUSTOMER_MEMBER" | "CUSTOMER_ADMIN";
   },
 ): { user: User; membership: Membership; org: Organization } {
@@ -874,8 +874,8 @@ export function inviteCustomerMember(
   const org = getOrgOrThrow(store, params.orgId);
   if (org.kind !== "CUSTOMER") throw new Error("org_not_customer");
 
-  const phone = normalizeInPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) {
     throw new ApiError("user_not_found", {
       detail: "Teammate must register their phone first, then you can invite them to your org.",
@@ -917,9 +917,9 @@ export function listCustomerOrgMembers(
   return rows;
 }
 
-export function pilotLoginDriverByPhone(store: Store, phone: string): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
-  const p = normalizeInPhone(phone);
-  const user = [...store.users.values()].find((u) => u.phone === p);
+export function pilotLoginDriverByPhone(store: Store, phone: string, countryCode?: string): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
+  const identity = normalizePhone(phone, countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) throw new Error("user_not_found");
 
   const selected = authorizationContext.getStore()?.principal?.organizationId;
@@ -1910,6 +1910,7 @@ export function inviteCarrierDriver(
   params: {
     orgId: string;
     phone: string;
+    countryCode?: string;
     role?: "DRIVER" | "DISPATCHER";
     /** Required for DRIVER; ignored for DISPATCHER (uses org's primary vehicle). */
     vehicleRegistrationNumber?: string;
@@ -1922,8 +1923,8 @@ export function inviteCarrierDriver(
   if (org.kind !== "CARRIER_SOLO" && org.kind !== "CARRIER_FLEET" && org.kind !== "CARRIER_LEGACY") {
     throw new Error("org_not_carrier");
   }
-  const phone = normalizeInPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) {
     throw new ApiError("user_not_found", {
       detail: "Driver must register (OTP) before they can be invited to your carrier org.",
