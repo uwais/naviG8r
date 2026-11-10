@@ -27,6 +27,11 @@ test("PostgreSQL grouped inbox and conversation timeline preserve pagination and
   assert.equal(second.status, 201);
   const firstShipmentId = first.body.shipment.id as string;
   const secondShipmentId = second.body.shipment.id as string;
+  // A workflow notice the shipper did not cause: the carrier accepts the first booking once it is paid.
+  const firstPayment = [...fixture.store.payments.values()].find(payment => payment.shipmentId === firstShipmentId);
+  assert.ok(firstPayment);
+  fixture.store.payments.set(firstPayment.id, { ...firstPayment, provider: "MOCK", status: "CAPTURED" });
+  assert.equal((await fixture.request(`/v1/pilot/carrier/shipments/${firstShipmentId}/accept`, "POST", {}, fixture.tokens.carrierA)).status, 200);
 
   const database = await import("./persistenceDb.ts");
   const existingStore = await database.loadStoreFromDatabase();
@@ -84,7 +89,8 @@ test("PostgreSQL grouped inbox and conversation timeline preserve pagination and
     });
     return { status: response.status, body: await response.json() as Record<string, any> };
   };
-  const firstPage = await request("/v1/notifications/shipments?limit=1");
+  // The carrier is told about both bookings; the shipper who made them is not.
+  const firstPage = await request("/v1/notifications/shipments?limit=1", fixture.tokens.carrierA);
   assert.equal(firstPage.status, 200);
   assert.equal(firstPage.body.unreadCount, 2);
   assert.equal(firstPage.body.shipments.length, 1);
@@ -96,7 +102,7 @@ test("PostgreSQL grouped inbox and conversation timeline preserve pagination and
   });
   assert.equal(lateInboxMessage.status, 201);
 
-  const secondPage = await request(`/v1/notifications/shipments?limit=1&before=${encodeURIComponent(firstPage.body.nextBefore)}`);
+  const secondPage = await request(`/v1/notifications/shipments?limit=1&before=${encodeURIComponent(firstPage.body.nextBefore)}`, fixture.tokens.carrierA);
   assert.equal(secondPage.status, 200);
   assert.equal(secondPage.body.notificationSequence, firstPage.body.notificationSequence);
   assert.equal(secondPage.body.unreadCount, firstPage.body.unreadCount);
