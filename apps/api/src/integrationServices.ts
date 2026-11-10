@@ -358,7 +358,7 @@ function withoutCarrierPay<T extends Shipment>(shipment: T): Omit<T, "netToCarri
  * A carrier's cancel request, its note above all, is between the carrier and NaviG8r; an ERP caller reads the status only.
  * The truck's position goes out only as the tracking route's liveLocation, and the driver's user ids not at all.
  */
-function tripForErp<T extends { cancelRequest?: unknown; lastLiveLocation?: unknown; startedByUserId?: string; completedByUserId?: string }>(trip: T) {
+function tripForErp(trip: ReturnType<typeof tripWithCarrierDisplay>) {
   const { cancelRequest: _request, lastLiveLocation: _location, startedByUserId: _startedBy, completedByUserId: _completedBy, ...rest } = withoutTripAssignment(trip);
   return rest;
 }

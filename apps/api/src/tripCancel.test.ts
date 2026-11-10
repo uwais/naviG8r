@@ -11,7 +11,7 @@ type Fixture = Awaited<ReturnType<typeof httpFixture>>;
 
 const lane = {
   originCity: "Bengaluru", destCity: "Chennai", origin: { lat: 12.97, lng: 77.59 }, destination: { lat: 13.08, lng: 80.27 },
-  windowStart: "2026-10-20", windowEnd: "2026-10-21", vehicleClass: "MEDIUM", capacityKg: 1000,
+  windowStart: "2026-10-20", windowEnd: "2026-10-21", vehicleClass: "MEDIUM" as const, capacityKg: 1000,
 };
 const nearTheLane = { pickup: { lat: 12.97, lng: 77.59 }, drop: { lat: 13.08, lng: 80.27 } };
 const search = "/v1/customer/eligible-anchor-trips?pickupLat=12.97&pickupLng=77.59&dropLat=13.08&dropLng=80.27&weightKg=10";
