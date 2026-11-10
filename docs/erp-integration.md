@@ -51,8 +51,6 @@ Cross-org access is rejected. Revoked keys return `401 integration_unauthorized`
 
 **Headers (optional):** `Idempotency-Key: {uuid}` — safe retries; duplicates return the existing shipment (`200`).
 
-A request body over 1 MB answers `413 payload_too_large`, here and on the portal settings routes under `/v1/pilot/customer/integrations`.
-
 **Body:**
 
 ```json
@@ -118,15 +116,13 @@ All require `loads:read`.
 | `GET /v1/integrations/shipments/:id/tracking` | Live tracking payload. `liveLocation` (and `tracking.lastLocation` in webhooks) is null unless the shipment is `BOOKED` and its trip is `IN_PROGRESS` |
 | `GET /v1/integrations/events?sinceEventId=` | Missed webhook recovery |
 
-The `trip` object in the snapshot and tracking replies never carries the trip's last live location (`lastLiveLocation`) or the user ids of whoever started or completed it. The truck's position comes only as the tracking reply's `liveLocation`, and only while the shipper's goods are on the moving truck (shipment `BOOKED`, trip `IN_PROGRESS`); otherwise it is `null`.
+The tracking and snapshot replies give the truck's location only while your goods are on the moving truck (shipment `BOOKED`, trip `IN_PROGRESS`), and only in `liveLocation`. Their `trip` object never carries the trip's stored last live location or NaviG8r user ids (who started or completed the trip, the assigned driver and truck).
 
 Poll responses use the same canonical JSON shape as webhook payloads.
 
 ## Outbound webhooks
 
-Configure **HTTPS** callback URL in the portal. Before each call NaviG8r resolves the host once and connects only to the addresses that answer gave, so the name is not looked up a second time; the host name still goes in the `Host` header and the TLS certificate check (`integrationWebhookAddress.ts`). If the name does not resolve, or any address it gets is loopback, private, shared, link-local (cloud metadata), multicast, documentation (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`), benchmarking (`198.18.0.0/15`), reserved (`192.0.0.0/24`, `240.0.0.0/4`), site-local (`fec0::/10`) or an IPv6 form that carries an IPv4 address (`::/96`, `64:ff9b::/96`, `2002::/16`), the call is not made and the delivery fails with the one sentence "This webhook address is not on the public internet, so it was not called." Redirects are not followed: a `3xx` answer is a failed delivery. For a failed delivery the delivery log keeps at most the first 500 characters of the answer, and NaviG8r reads at most 4 KB of it. Only with `NODE_ENV=test` (tests and the local practice server) may a webhook go to an address on this machine or a private network.
-
-NaviG8r signs the raw body:
+Configure **HTTPS** callback URL in the portal. NaviG8r signs the raw body:
 
 ```
 X-NaviG8r-Signature: {hex_hmac_sha256}
@@ -195,10 +191,6 @@ The callback host must resolve only to public addresses. A private, loopback, li
 it is the primary truck of whoever started the trip (or accepted the load), else the carrier's first truck.
 `carrier.driverName` is still whoever started the trip.
 
-The truck's position (`tracking.lastLocation` here, `liveLocation` from `GET /shipments/:id/tracking`) is sent only
-while the shipment is `BOOKED` and its trip is `IN_PROGRESS`, the same rule as the shipper app; otherwise it is `null`.
-The `trip` object in poll responses never carries the position or the driver's user ids.
-
 ### Retries
 
 Failed deliveries retry with exponential backoff (1m, 5m, 30m, 2h, 24h; max 10 attempts), then status `DEAD`. Use the portal delivery log or `GET /events` to reconcile.
@@ -259,7 +251,8 @@ node --experimental-strip-types --test \
 |-----------|----------|
 | `integration.test.ts` | Service-layer idempotency, events, auth headers, webhook payload fields |
 | `integrationHttp.test.ts` | Real HTTP: `POST /v1/integrations/loads`, portal `/v1/pilot/customer/integrations/*` |
-| `integrationWebhooks.test.ts`, `integrationWebhookAddress.test.ts` | A local listener: HMAC signature, retry backoff on failed delivery, the call goes to the checked address with no second lookup; addresses not on the public internet and names that do not resolve are not called, redirects are not followed, a failed answer is read only up to 4 KB |
+| `integrationWebhooks.test.ts` | Local receiver and mock DNS lookup: HMAC signature, retry backoff on failed delivery |
+| `integrationWebhookAddress.test.ts` | Local receiver and mock DNS lookup: public addresses only, one error sentence, connects to the checked address, TLS host name kept, no redirects, error reply read up to 4 KB |
 
 Flutter widget tests:
 
@@ -277,7 +270,7 @@ BASE_URL=https://navig8r.onrender.com bash scripts/test-erp-integration.sh
 BASE_URL=http://127.0.0.1:3000 bash scripts/test-erp-integration.sh
 ```
 
-The script registers customer + carrier, creates an integration key, saves the webhook address (not the payment policy, which only staff set), posts a load, verifies idempotency, and polls loads/events. It stops at the first reply that is not 2xx (curl 7.76 or later, for `--fail-with-body`), so a run on a server that already has these phones registered stops at the first register.
+The script registers customer + carrier, creates an integration key, posts a load, verifies idempotency, and polls loads/events.
 
 ## Environment (operators)
 
