@@ -44,6 +44,20 @@ void main() {
         'Too many wrong codes. Send a new code.');
   });
 
+  test('a Firebase sign-in the server refuses shows the server wording', () {
+    api = Api('http://test');
+    final noAccount = DioException(
+      requestOptions: RequestOptions(path: '/v1/auth/firebase/exchange'),
+      response: Response(
+        requestOptions: RequestOptions(path: '/v1/auth/firebase/exchange'),
+        statusCode: 404,
+        data: {'error': 'user_not_found'},
+      ),
+    );
+    expect(formatFirebaseAuthError(noAccount),
+        'This phone number has no NaviG8r account. Create an account first.');
+  });
+
   test('too many code checks read as tries, in whole minutes', () {
     api = Api('http://test');
     DioException verifyLimited(Object? retryAfterMs) => DioException(

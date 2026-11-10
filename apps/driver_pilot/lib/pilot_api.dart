@@ -240,6 +240,19 @@ String formatApiError(Object e) {
       "otp_too_many_wrong_codes": "Too many wrong codes. Send a new code.",
       "sign_up_rate_limited":
           "Too many sign-up tries. Please wait a few minutes and try again.",
+      "otp_sign_in_retired":
+          "This sign-in is no longer used. Reload the page or update the app. If it still fails, try again later.",
+      "user_not_found":
+          "This phone number has no NaviG8r account. Create an account first.",
+      "account_inactive":
+          "This account is turned off. Contact NaviG8r support.",
+      "firebase_identity_conflict":
+          "This phone number cannot sign in here. Contact NaviG8r support.",
+      "firebase_token_invalid": "Sign-in did not work. Send a new code.",
+      "firebase_phone_provider_required":
+          "Sign-in did not work. Send a new code.",
+      "firebase_exchange_rate_limited":
+          "Too many tries. Please wait a few minutes and try again.",
     };
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||
