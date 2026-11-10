@@ -53,7 +53,7 @@ String formatFirebaseAuthError(Object error) {
   if (error is TimeoutException) {
     return "Firebase verification timed out. Check your connection and try again.";
   }
-  return error.toString();
+  return formatApiError(error);
 }
 
 String firebasePhoneNumber(String nationalNumber,

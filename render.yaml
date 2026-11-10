@@ -81,6 +81,10 @@ projects:
                 sync: false
               - key: RAZORPAY_WEBHOOK_SECRET
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
 
           - type: web
             name: navig8r-customer-web-alpha
@@ -171,6 +175,10 @@ projects:
               - key: RAZORPAY_KEY_SECRET
                 sync: false
               - key: RAZORPAY_WEBHOOK_SECRET
+                sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
                 sync: false
 
           - type: web
@@ -270,6 +278,10 @@ projects:
               - key: RAZORPAY_KEY_SECRET
                 sync: false
               - key: RAZORPAY_WEBHOOK_SECRET
+                sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
                 sync: false
               - key: RAZORPAYX_ACCOUNT_NUMBER
                 sync: false
