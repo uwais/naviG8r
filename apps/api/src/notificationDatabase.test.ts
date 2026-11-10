@@ -36,20 +36,20 @@ test("PostgreSQL grouped inbox and conversation timeline preserve pagination and
     fixture.store.notifications.set(id, { ...notification, recipientSequence: ++notificationSequence });
   }
   fixture.store.notificationSequence = notificationSequence;
-  const pushSource = [...fixture.store.notifications.values()].find(notification =>
-    notification.recipientUserId === fixture.shipperA.user.id &&
-    notification.recipientOrgId === fixture.shipperA.org.id);
+  // Any canonical notice will do: the push rows only have to survive a save and reload. A booking notifies the
+  // carrier, not the shipper who booked it.
+  const pushSource = [...fixture.store.notifications.values()].find(notification => notification.shipmentId);
   assert.ok(pushSource, "fixture should contain a canonical notification for the push snapshot");
   fixture.store.pushDevices.set("db-push-device", {
-    id: "db-push-device", installationId: "db-push-installation", userId: fixture.shipperA.user.id,
+    id: "db-push-device", installationId: "db-push-installation", userId: pushSource.recipientUserId,
     platform: "ANDROID", tokenCiphertext: "encrypted-test-token", tokenHash: "test-token-hash",
     environment: "DEVELOPMENT", consentedAtUtcMs: Date.now(), permissionGrantedHint: true,
     channelEnabledHint: true, ownershipGeneration: 3, createdAtUtcMs: Date.now(), updatedAtUtcMs: Date.now(),
     lastSeenAtUtcMs: Date.now(), revokedAtUtcMs: null,
   });
   fixture.store.pushIntents.set("db-push-intent", {
-    id: "db-push-intent", notificationId: pushSource.id, recipientUserId: fixture.shipperA.user.id,
-    recipientOrgId: fixture.shipperA.org.id, shipmentId: pushSource.shipmentId,
+    id: "db-push-intent", notificationId: pushSource.id, recipientUserId: pushSource.recipientUserId,
+    recipientOrgId: pushSource.recipientOrgId, shipmentId: pushSource.shipmentId,
     presentationKey: "opaque-test-key", createdAtUtcMs: Date.now(), expiresAtUtcMs: Date.now() + 86_400_000,
   });
   fixture.store.pushDeliveries.set("db-push-delivery", {
