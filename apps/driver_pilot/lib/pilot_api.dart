@@ -169,11 +169,6 @@ class Api {
     return token != null && token.isNotEmpty;
   }
 
-  Future<String?> bearerToken() async {
-    await _tokenWrite;
-    return _storage.read(key: "access_token");
-  }
-
   Future<Response<T>> get<T>(String path, {Map<String, dynamic>? query}) =>
       dio.get<T>(path, queryParameters: query);
   Future<Response<T>> post<T>(String path, {Object? data}) =>

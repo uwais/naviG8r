@@ -85,17 +85,10 @@ abstract final class AuthorizationSession {
     }
     if (!signedIn) {
       await PushNotifications.instance.onAuthorizationLost();
-      await api.clearToken();
-      clear();
-      return;
     }
-    // The token goes and the sign-in screen shows first. The alert registration is removed after,
-    // with the old token: waiting on it held sign-out for about 45 seconds on a slow connection.
-    final bearerToken = await api.bearerToken();
-    clear();
+    // Still signed in here, so clearToken removes this device's alert registration before the token goes.
     await api.clearToken();
-    unawaited(PushNotifications.instance.revokeForCurrentUser(
-        bearerToken: bearerToken, timeLimit: const Duration(seconds: 5)));
+    clear();
   }
 
   static Future<bool> refresh() {

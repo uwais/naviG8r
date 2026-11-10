@@ -7,8 +7,6 @@ import 'package:driver_pilot/notification_center.dart';
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/plain_error_sentence.dart';
 import 'package:driver_pilot/push_notifications.dart';
-import 'package:driver_pilot/ui/nv_account_sheet.dart';
-import 'package:driver_pilot/ui/nv_header.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,11 +20,6 @@ Future<void> pumpFrames(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 50));
   }
 }
-
-Finder inHeader(Finder finder) =>
-    find.descendant(of: find.byType(NvHeader), matching: finder);
-Finder inSheet(Finder finder) =>
-    find.descendant(of: find.byType(NvAccountSheet), matching: finder);
 
 Map<String, dynamic> signedInAs(String side) => {
       'user': {'id': 'p1', 'fullName': 'Priya', 'phone': '9845012345'},
@@ -48,72 +41,16 @@ Map<String, dynamic> signedInAs(String side) => {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  x7SignOutDoesNotWait();
+  x7SignOutRemovesAlertRegistration();
   x10AppTitle();
   x9NotReadyForDelivery();
   x6UpdatesKeepEarlierRows();
   o2TripNotStarted();
-  group('X1 sign out from Updates', () {
-    for (final side in ['shipper', 'carrier']) {
-      testWidgets('$side: the Updates list of the old account closes on sign-out',
-          (tester) async {
-        tester.view.physicalSize = const Size(360, 800);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.reset);
-        FlutterSecureStorage.setMockInitialValues(
-            {'access_token': 'synthetic'});
-        api = Api('http://test');
-        AuthorizationSession.clear();
-        final me = signedInAs(side);
-        final orgName = (me['organizations'] as List).first['displayName'];
-        api.dio.httpClientAdapter = MockApiAdapter((request) async {
-          if (request.headers['authorization'] == null) {
-            return jsonResponse({'error': 'unauthorized'}, 401);
-          }
-          if (request.uri.path == '/v1/auth/me') return jsonResponse(me);
-          if (request.uri.path == '/v1/notifications/shipments') {
-            return jsonResponse({
-              'shipments': [
-                {
-                  'shipmentId': 's1',
-                  'unreadCount': 3,
-                  'latestAtUtcMs': 1760000000000
-                }
-              ]
-            });
-          }
-          if (request.uri.path == '/v1/notifications') {
-            return jsonResponse({'unreadCount': 3, 'notifications': []});
-          }
-          return jsonResponse({});
-        });
-        api.selectOrganization(
-            (me['principal'] as Map)['organizationId'] as String);
-        await tester.pumpWidget(const DriverPilotApp());
-        await pumpFrames(tester);
-        await tester.tap(find.byIcon(Icons.notifications_outlined).first);
-        await pumpFrames(tester);
-        expect(find.text('3 new updates'), findsOneWidget);
-
-        await tester.tap(inHeader(find.text(orgName)).last);
-        await pumpFrames(tester);
-        await tester.tap(inSheet(find.text('Sign out')));
-        for (var i = 0; i < 3; i++) {
-          await pumpFrames(tester);
-        }
-
-        expect(AuthorizationSession.signedIn, isFalse);
-        expect(find.text('3 new updates'), findsNothing,
-            reason: 'nothing from the old account stays on screen');
-        expect(find.text('Updates'), findsNothing);
-        expect(find.byType(NvHeader), findsNothing);
-      });
-    }
-  });
+  // X1, sign out from Updates, is in sign_out_from_updates_*_test.dart, one isolate per side.
 }
 
-void x7SignOutDoesNotWait() {
-  test('X7 sign-out clears the token at once; the alert registration goes after',
+void x7SignOutRemovesAlertRegistration() {
+  test('X7 sign-out removes the alert registration with the old sign-in before it ends',
       () async {
     FlutterSecureStorage.setMockInitialValues({
       'access_token': 'old-token',
@@ -135,8 +72,7 @@ void x7SignOutDoesNotWait() {
         if (!removalSent.isCompleted) {
           removalSent.complete(request.headers['authorization'] as String?);
         }
-        // A slow connection: the removal never answers.
-        return Completer<ResponseBody>().future;
+        return jsonResponse({});
       }
       return jsonResponse({});
     });
@@ -146,12 +82,12 @@ void x7SignOutDoesNotWait() {
     await AuthorizationSession.signOut()
         .timeout(const Duration(seconds: 2));
 
+    expect(removalSent.isCompleted, isTrue,
+        reason: 'sign-out waits for the registration to be removed, as on main');
+    expect(await removalSent.future, 'Bearer old-token');
     expect(AuthorizationSession.signedIn, isFalse);
     expect(
         await const FlutterSecureStorage().read(key: 'access_token'), isNull);
-    expect(await removalSent.future.timeout(const Duration(seconds: 2)),
-        'Bearer old-token',
-        reason: 'the registration is still removed, with the old sign-in');
     PushNotifications.instance.onCredentialChanged();
   });
 }
