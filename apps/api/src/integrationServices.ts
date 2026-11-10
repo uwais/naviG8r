@@ -398,7 +398,7 @@ export function getIntegrationShipmentSnapshot(store: Store, orgId: string, ship
     ...integrationLoadResponse(store, shipment, conn),
     shipment: withoutPodPhotos(withoutCarrierPay(withoutCarrierTransporterId(withoutTripAssignment(withoutEwayBill(enriched))))),
     payment,
-    trip: trip ? tripForErp(trip) : null,
+    trip: trip ? tripForErp(tripWithCarrierDisplay(store, trip)) : null,
   };
 }
 
