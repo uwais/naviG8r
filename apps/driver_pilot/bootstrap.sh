@@ -22,6 +22,8 @@ python3 tool/inject_android_pilot_wiring.py
 
 echo "Done."
 echo "Next:"
-echo "  - Debug on emulator: flutter run -d emulator"
+echo "  - Put MAPS_API_KEY=… in android/local.properties (Maps SDK + Geocoding)."
+echo "  - Debug on emulator:"
+echo "      flutter run -d emulator --dart-define=MAPS_API_KEY=\"\$MAPS_API_KEY\""
 echo "  - Release APK: copy key.properties.example → android/key.properties + keystore, then:"
-echo "      flutter build apk --release"
+echo "      ./build-apk.sh"
