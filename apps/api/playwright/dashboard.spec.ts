@@ -519,6 +519,7 @@ test("V1 accepts generated OTP codes and clears stale delivery on resend", async
   await expect(page.locator("#error")).toContainText("expired");
   expect(verified).toEqual({
     phone: "8000000005",
+    countryCode: "+91",
     challengeId: second.challengeId,
     code: "987654",
   });

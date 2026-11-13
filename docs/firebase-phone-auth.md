@@ -79,6 +79,11 @@ Android uses Firebase by default; enable the old server code explicitly with
 `apps/api/src/staffSignIn.ts` and loads one pinned Firebase JS SDK version from
 `www.gstatic.com`.
 
+Each staff page has a Country box (`#country`) listing `SUPPORTED_COUNTRY_CODES`
+from `phone.ts`, India (+91) first. The page checks the number with the same rules
+as `normalizePhone`, sends `+91` or `+1` numbers to Firebase, and sends
+`countryCode` with the old code sign-in.
+
 Set these on the API service, next to `FIREBASE_PROJECT_ID`:
 
 ```bash

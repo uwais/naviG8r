@@ -1,11 +1,12 @@
-import { firebaseSignInMarkup, staffSignInNotSetUpMarkup, type StaffSignIn } from "./staffSignIn.ts";
+import { firebaseSignInMarkup, phoneForSignInScript, staffCountryOptions, staffSignInNotSetUpMarkup, type StaffSignIn } from "./staffSignIn.ts";
 
-const signInControls = '<label>Phone<input id="phone" autocomplete="tel"></label><button id="start">Send code</button><label>Verification code<input id="code" autocomplete="one-time-code"></label><button id="verify">Sign in</button>';
+const signInControls = `<label>Country<select id="country">${staffCountryOptions}</select></label><label>Phone<input id="phone" autocomplete="tel"></label><button id="start">Send code</button><label>Verification code<input id="code" autocomplete="one-time-code"></label><button id="verify">Sign in</button>`;
 
 // Only outside production: the server refuses these routes there.
 const serverCodeSignIn = `$('phone').oninput = () => { otpPhoneRevision++; challenge = ''; $('code').value = ''; otpCooldownUntil = 0; renderOtpCooldown(); };
-$('start').onclick = perform(async () => { const button=$('start'), previousChallenge=challenge, requestRevision=otpPhoneRevision, requestedPhone=$('phone').value; button.disabled=true; try { const out = await request('/v1/auth/otp/start','POST',{phone:requestedPhone}); if (requestRevision !== otpPhoneRevision || requestedPhone !== $('phone').value) return; challenge = out.challengeId; if (out.debugCode !== undefined) $('code').value = out.debugCode; else if (challenge !== previousChallenge) $('code').value = ''; startOtpCooldown(out.retryAfterMs); } catch (e) { if (requestRevision !== otpPhoneRevision || requestedPhone !== $('phone').value) return; if (e.retryAfterMs) { startOtpCooldown(e.retryAfterMs); } throw e; } finally { if (requestRevision === otpPhoneRevision && (!otpCooldownUntil || otpCooldownUntil <= Date.now())) renderOtpCooldown(); } });
-$('verify').onclick = perform(async () => { if(!challenge) throw Error('Start a new code before signing in.'); const out = await request('/v1/auth/otp/verify','POST',{phone:$('phone').value,challengeId:challenge,code:$('code').value}); await signedIn(out.accessToken); });
+$('country').onchange = $('phone').oninput;
+$('start').onclick = perform(async () => { const button=$('start'), previousChallenge=challenge, requestRevision=otpPhoneRevision, requestedPhone=$('phone').value, requestedCountry=$('country').value; const checked = phoneForSignIn(requestedPhone, requestedCountry); if (checked.error) throw Error(checked.words); button.disabled=true; try { const out = await request('/v1/auth/otp/start','POST',{phone:requestedPhone,countryCode:requestedCountry}); if (requestRevision !== otpPhoneRevision || requestedPhone !== $('phone').value) return; challenge = out.challengeId; if (out.debugCode !== undefined) $('code').value = out.debugCode; else if (challenge !== previousChallenge) $('code').value = ''; startOtpCooldown(out.retryAfterMs); } catch (e) { if (requestRevision !== otpPhoneRevision || requestedPhone !== $('phone').value) return; if (e.retryAfterMs) { startOtpCooldown(e.retryAfterMs); } throw e; } finally { if (requestRevision === otpPhoneRevision && (!otpCooldownUntil || otpCooldownUntil <= Date.now())) renderOtpCooldown(); } });
+$('verify').onclick = perform(async () => { if(!challenge) throw Error('Start a new code before signing in.'); const out = await request('/v1/auth/otp/verify','POST',{phone:$('phone').value,countryCode:$('country').value,challengeId:challenge,code:$('code').value}); await signedIn(out.accessToken); });
 `;
 
 /** Public shell; every data request is authenticated and authorized by the API. */
@@ -14,7 +15,7 @@ export function opsPortalHtml(
 ): string {
   const signIn = options.signIn;
   const loginContent = signIn.kind === "not-set-up" ? staffSignInNotSetUpMarkup
-    : signIn.kind === "firebase" ? signInControls + firebaseSignInMarkup(signIn.settings, { phone: "phone", send: "start", code: "code", verify: "verify" })
+    : signIn.kind === "firebase" ? signInControls + firebaseSignInMarkup(signIn.settings, { country: "country", phone: "phone", send: "start", code: "code", verify: "verify" })
     : signInControls;
   const workflowOnly = options.workflowOnly === true;
   const heading = workflowOnly
@@ -59,7 +60,7 @@ function startOtpCooldown(retryAfterMs) {
 }
 async function signedIn(accessToken) { token = accessToken; org=''; sessionStorage.setItem('navig8r_access',token); sessionStorage.removeItem('navig8r_org'); await loadOrganizations(); }
 document.addEventListener('navig8r-staff-signed-in', event => perform(() => signedIn(event.detail))());
-${signIn.kind === "server-code" ? serverCodeSignIn : ""}$('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
+${signIn.kind === "server-code" ? phoneForSignInScript + serverCodeSignIn : ""}$('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
 async function loadOrganizations() {
  const me = await request('/v1/auth/me'); $('login').hidden = true; $('workspace').hidden = false;
  $('organization').replaceChildren(new Option('Select an organization',''));

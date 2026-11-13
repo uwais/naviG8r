@@ -7,7 +7,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "./httpServer.ts";
 import { createOtpDependencies, pilotOtpStart, pilotOtpVerify, setFirebaseTokenVerifierForTests } from "./auth.ts";
-import { FIREBASE_JS_SDK_VERSION, firebaseSignInScript, staffSignInFromEnv } from "./staffSignIn.ts";
+import { FIREBASE_JS_SDK_VERSION, firebaseSignInScript, phoneForSignInScript, staffSignInFromEnv } from "./staffSignIn.ts";
+import { normalizePhone, SUPPORTED_COUNTRY_CODES } from "./phone.ts";
+import { opsPortalHtml } from "./opsPortal.ts";
+import { adminDashboardV1Html } from "./adminDashboardV1.ts";
+import { opsConsoleBetaHtml } from "./opsConsoleBeta.ts";
 
 const STAFF_PAGES = ["/ops", "/admin", "/workflow", "/admin/v2", "/ops/v2", "/admin/v1", "/ops/v1", "/ops/beta"];
 // Built by concatenation so the repo holds no string shaped like a real key.
@@ -118,7 +122,10 @@ test("only the named test and pre-release settings allow the old code sign-in", 
 });
 
 /** Runs the staff browser script against a fake page, with signInWithPhoneNumber standing in for Firebase. */
-async function staffPageWithFirebase(signInWithPhoneNumber: () => Promise<unknown>) {
+async function staffPageWithFirebase(
+  signInWithPhoneNumber: (auth: unknown, phone: string) => Promise<unknown>,
+  typed: { phone?: string; country?: string } = {},
+) {
   const elements = new Map<string, any>();
   const element = (id: string) => ({
     id, value: "", textContent: "", disabled: false, handlers: {} as Record<string, (event: unknown) => Promise<void>>,
@@ -126,7 +133,7 @@ async function staffPageWithFirebase(signInWithPhoneNumber: () => Promise<unknow
     focus() {},
     replaceWith(next: { id: string }) { elements.set(next.id, next); },
   });
-  for (const id of ["phone", "send", "code", "verify", "staff-recaptcha", "staff-sign-in-message"]) elements.set(id, element(id));
+  for (const id of ["country", "phone", "send", "code", "verify", "staff-recaptcha", "staff-sign-in-message"]) elements.set(id, element(id));
   const document = { getElementById: (id: string) => elements.get(id) ?? null, createElement: () => element(""), dispatchEvent() {} };
   // Stands in for reCAPTCHA as the SDK behaves: clear() leaves the widget drawn, so a second one in that element fails.
   class RecaptchaVerifier {
@@ -139,13 +146,14 @@ async function staffPageWithFirebase(signInWithPhoneNumber: () => Promise<unknow
   }
   const script = firebaseSignInScript(
     { projectId: "test-project", apiKey: syntheticWebApiKey, appId: syntheticWebAppId },
-    { phone: "phone", send: "send", code: "code", verify: "verify" },
+    { country: "country", phone: "phone", send: "send", code: "code", verify: "verify" },
   ).replace(/^import .* from "https:\/\/www\.gstatic\.com\/firebasejs\/[^"]+";$/gm, "");
   const AsyncFunction = (async () => {}).constructor as new (...args: string[]) => (...values: unknown[]) => Promise<void>;
   await new AsyncFunction("initializeApp", "initializeAuth", "inMemoryPersistence", "RecaptchaVerifier", "signInWithPhoneNumber", "document", script)(
     () => ({}), () => ({}), {}, RecaptchaVerifier, signInWithPhoneNumber, document,
   );
-  elements.get("phone").value = "9876543210";
+  elements.get("phone").value = typed.phone ?? "9876543210";
+  elements.get("country").value = typed.country ?? "+91";
   return {
     sendCode: () => elements.get("send").handlers.click({ preventDefault() {} }),
     message: () => elements.get("staff-sign-in-message").textContent,
@@ -169,6 +177,153 @@ test("a staff page whose address Firebase does not allow says phone sign-in is n
   const page = await staffPageWithFirebase(async () => { throw { code: "auth/unauthorized-domain" }; });
   await page.sendCode();
   assert.equal(page.message(), "Phone sign-in is not set up for this site. Ask a teammate with ADMIN.");
+});
+
+test("with Firebase, the staff page sends the number in the chosen country", async () => {
+  for (const [typed, sentTo] of [
+    [{ country: "+1", phone: "(202) 555-0123" }, "+12025550123"],
+    [{ country: "+1", phone: "+1 202 555 0123" }, "+12025550123"],
+    [{ country: "+91", phone: "98765 43210" }, "+919876543210"],
+    [{ country: "+91", phone: "+91 98765 43210" }, "+919876543210"],
+  ] as const) {
+    const sent: string[] = [];
+    const page = await staffPageWithFirebase(async (_auth, phone) => { sent.push(phone); return { confirm: async () => ({}) }; }, typed);
+    await page.sendCode();
+    assert.deepEqual(sent, [sentTo], JSON.stringify(typed));
+    assert.equal(page.message(), "Code sent. Enter it to sign in.");
+  }
+});
+
+test("with Firebase, a number of the wrong length or for the other country is not sent and the page says why", async () => {
+  for (const [typed, words] of [
+    [{ country: "+1", phone: "202555012" }, "United States phone numbers have 10 digits. Check the number."],
+    [{ country: "+91", phone: "98765432101" }, "India phone numbers have 10 digits. Check the number."],
+    [{ country: "+91", phone: "+1 202 555 0123" }, "This number starts with +1. Choose United States as the country."],
+    [{ country: "+1", phone: "" }, "Enter your phone number."],
+  ] as const) {
+    let sends = 0;
+    const page = await staffPageWithFirebase(async () => { sends += 1; return {}; }, typed);
+    await page.sendCode();
+    assert.equal(sends, 0, JSON.stringify(typed));
+    assert.equal(page.message(), words);
+  }
+});
+
+test("the staff page's phone check agrees with the server's for every case", () => {
+  const phoneForSignIn = new Function(`${phoneForSignInScript}\nreturn phoneForSignIn;`)() as
+    (raw: string, countryCode: string) => { e164?: string; error?: string };
+  const typedNumbers = ["9876543210", "98765 43210", "+919876543210", "919876543210", "2025550123", "+12025550123",
+    "12025550123", "1 (202) 555-0123", "+9876543210", "987654321", "98765432101", "+44 20 7946 0958", "", "   ", "abc"];
+  for (const countryCode of ["+91", "+1"]) {
+    for (const typed of typedNumbers) {
+      let server: { e164?: string; error?: string };
+      try { server = { e164: normalizePhone(typed, countryCode).e164 }; } catch (error) { server = { error: (error as Error).message }; }
+      const page = phoneForSignIn(typed, countryCode);
+      assert.deepEqual(page.error ? { error: page.error } : { e164: page.e164 }, server, `${countryCode} ${JSON.stringify(typed)}`);
+    }
+  }
+});
+
+test("every staff page's sign-in offers India, picked first, and the United States, from the server's list", async (t) => {
+  for (const env of [{ NODE_ENV: "beta" }, { NODE_ENV: "production", ...webSettings }]) {
+    await t.test(env.NODE_ENV, async (t) => {
+      const app = await startApp(t, env);
+      for (const path of STAFF_PAGES) {
+        const html = await (await fetch(app.base + path)).text();
+        assert.match(html, /<select id="country"[^>]*><option value="\+91" selected>India \(\+91\)<\/option><option value="\+1">United States \(\+1\)<\/option><\/select>/, path);
+        assert.match(html, /<label[^>]*>(<span[^>]*>)?Country</, path);
+        for (const id of ["phone", "code"]) assert.ok(html.includes(`id="${id}"`), `${path} #${id}`);
+      }
+    });
+  }
+  assert.deepEqual([...SUPPORTED_COUNTRY_CODES], ["+91", "+1"]);
+});
+
+/**
+ * Runs a whole staff page script in server-code mode with stand-in elements that accept any property or call,
+ * and records every request body the page sends and every textContent it writes.
+ */
+function serverCodeStaffPage(html: string) {
+  const written: string[] = [];
+  const sent: { path: string; body: any }[] = [];
+  const looseElement = (): any => {
+    const own: Record<PropertyKey, unknown> = { value: "", textContent: "", hidden: false, disabled: false };
+    return new Proxy(function () {}, {
+      get: (_target, key) => key in own ? own[key] : key === "then" || typeof key === "symbol" ? undefined : (own[key] = looseElement()),
+      set: (_target, key, value) => { if (key === "textContent") written.push(String(value)); own[key] = value; return true; },
+      apply: () => looseElement(),
+      construct: () => looseElement(),
+    });
+  };
+  const elements = new Map<string, any>();
+  const byId = (id: string) => elements.get(id) ?? elements.set(id, looseElement()).get(id);
+  const document = { getElementById: byId, createElement: looseElement, createTextNode: looseElement, addEventListener() {}, dispatchEvent() {}, querySelectorAll: () => [] };
+  const sessionStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+  const fetch = async (path: string, init: { body?: string }) => {
+    sent.push({ path, body: init.body === undefined ? undefined : JSON.parse(init.body) });
+    const reply = path === "/v1/auth/otp/start" ? { challengeId: "otp_test", expiresAtUtcMs: Date.now() + 60_000, retryAfterMs: 0 }
+      : path === "/v1/auth/otp/verify" ? { accessToken: "session" } : {};
+    return { ok: true, status: 200, json: async () => reply };
+  };
+  const body = html.match(/<script>([\s\S]*?)<\/script>/)![1]!;
+  new Function("document", "sessionStorage", "fetch", "location", "window", "setInterval", "clearInterval", "setTimeout", body)(
+    document, sessionStorage, fetch, looseElement(), looseElement(), () => 0, () => {}, () => 0,
+  );
+  return { byId, sent, written };
+}
+
+const serverCodePages = [
+  { name: "/ops, /admin, /workflow and the V2 pages", html: () => opsPortalHtml({ signIn: { kind: "server-code" } }),
+    send: (page: ReturnType<typeof serverCodeStaffPage>) => page.byId("start").onclick(),
+    verify: (page: ReturnType<typeof serverCodeStaffPage>) => page.byId("verify").onclick() },
+  { name: "the V1 pages", html: () => adminDashboardV1Html(false, { kind: "server-code" }),
+    send: (page: ReturnType<typeof serverCodeStaffPage>) => page.byId("send-code").onsubmit({ preventDefault() {} }),
+    verify: (page: ReturnType<typeof serverCodeStaffPage>) => page.byId("verify-code").onsubmit({ preventDefault() {} }) },
+  { name: "/ops/beta", html: () => opsConsoleBetaHtml({ kind: "server-code" }),
+    send: (page: ReturnType<typeof serverCodeStaffPage>) => page.byId("start").onclick(),
+    verify: (page: ReturnType<typeof serverCodeStaffPage>) => page.byId("verify").onclick() },
+];
+
+test("with the old code sign-in, every staff page sends the chosen country with the number", async (t) => {
+  for (const staffPage of serverCodePages) {
+    await t.test(staffPage.name, async () => {
+      for (const [countryCode, phone] of [["+1", "2025550123"], ["+91", "9876543210"]]) {
+        const page = serverCodeStaffPage(staffPage.html());
+        page.byId("country").value = countryCode;
+        page.byId("phone").value = phone;
+        await staffPage.send(page);
+        page.byId("code").value = "123456";
+        await staffPage.verify(page);
+        assert.deepEqual(page.sent.slice(0, 2), [
+          { path: "/v1/auth/otp/start", body: { phone, countryCode } },
+          { path: "/v1/auth/otp/verify", body: { phone, countryCode, challengeId: "otp_test", code: "123456" } },
+        ], countryCode);
+      }
+    });
+  }
+});
+
+test("with the old code sign-in, a number of the wrong length is not sent and every staff page says why", async (t) => {
+  for (const staffPage of serverCodePages) {
+    await t.test(staffPage.name, async () => {
+      const page = serverCodeStaffPage(staffPage.html());
+      page.byId("country").value = "+1";
+      page.byId("phone").value = "202555012";
+      await staffPage.send(page);
+      assert.deepEqual(page.sent, []);
+      assert.ok(page.written.includes("United States phone numbers have 10 digits. Check the number."), page.written.join(" | "));
+    });
+  }
+});
+
+test("outside production a US staff member signs in with the old code when the page sends +1", async (t) => {
+  const app = await startApp(t, { NODE_ENV: "alpha", OTP_DEBUG: "1" });
+  app.store.users.set("usr_us_staff", { id: "usr_us_staff", phone: "2025550123", countryCode: "+1", fullName: "Synthetic US Staff", createdAtUtcMs: Date.now() });
+  const start = await app.post("/v1/auth/otp/start", { phone: "2025550123", countryCode: "+1" });
+  assert.equal(start.status, 200);
+  const verify = await app.post("/v1/auth/otp/verify", { phone: "2025550123", countryCode: "+1", challengeId: start.body.challengeId, code: start.body.debugCode });
+  assert.equal(verify.status, 200);
+  assert.equal(verify.body.user.id, "usr_us_staff");
 });
 
 test("in production with the legacy demo switch on, user and organization lists still need a signed-in admin", async (t) => {
