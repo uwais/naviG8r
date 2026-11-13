@@ -3,31 +3,58 @@ import { randomUUID } from "node:crypto";
 import type { Store } from "./store.ts";
 import { verifyBearer } from "./auth.ts";
 import { authorizationContext, AuthorizationError, resolvePrincipal, requirePermission, visible, type Permission } from "./rbac.ts";
+import { assignedDriverMaySee } from "./tripAssignmentRules.ts";
 
 const rules: [string, RegExp, Permission][] = [
+  ["GET", /^\/v1\/notifications$/, "notification.read"],
+  ["GET", /^\/v1\/notifications\/shipments$/, "notification.read"],
+  ["PATCH", /^\/v1\/notifications\/[^/]+\/read$/, "notification.read"],
+  ["GET", /^\/v1\/shipments\/[^/]+\/conversation\/messages$/, "conversation.read"],
+  ["GET", /^\/v1\/shipments\/[^/]+\/conversation\/timeline$/, "conversation.read"],
+  ["POST", /^\/v1\/shipments\/[^/]+\/conversation\/read$/, "conversation.read"],
+  ["POST", /^\/v1\/shipments\/[^/]+\/conversation\/messages$/, "conversation.send"],
+  ["POST", /^\/v1\/shipments\/[^/]+\/conversation\/escalations$/, "conversation.escalation_request"],
+  ["POST", /^\/v1\/conversation-escalations\/[^/]+\/(?:approve|deny|revoke)$/, "conversation.escalation_approve"],
   ["GET", /^\/v1\/ops\/dashboard\/[^/]+$/, "organization.profile.read"],
   ["POST", /^\/v1\/ops\/carrier-organizations$/, "carrier.onboard"],
   ["POST", /^\/v1\/ops\/dashboard-access$/, "user.role_manage"],
+  // OPS and ADMIN share no write permission; /v1/ops/ already needs a platform user, and the service allows only OPS or ADMIN.
+  ["PUT", /^\/v1\/ops\/organizations\/[^/]+\/integration-payment-policy$/, "directory.read"],
   ["GET", /^\/v1\/pilot\/me$/, "organization.profile.read"],
   ["PATCH", /^\/v1\/pilot\/me\/vehicle$/, "load.status_update"],
   ["GET", /^\/v1\/pilot\/anchor-trips(?:\/[^/]+)?$/, "load.read"],
   ["POST", /^\/v1\/pilot\/anchor-trips$/, "trip.publish"],
   ["POST", /^\/v1\/pilot\/anchor-trips\/[^/]+\/(?:start|complete|location)$/, "load.status_update"],
+  ["POST", /^\/v1\/pilot\/anchor-trips\/[^/]+\/assignment$/, "trip.assign"],
+  ["POST", /^\/v1\/pilot\/anchor-trips\/[^/]+\/shipments\/[^/]+\/eway-bill-reminder$/, "trip.assign"],
+  ["POST", /^\/v1\/pilot\/anchor-trips\/[^/]+\/(?:cancel|cancel-request|cancel-request\/withdraw)$/, "trip.assign"],
+  ["GET", /^\/v1\/pilot\/carrier\/fleet$/, "trip.assign"],
   ["POST", /^\/v1\/pilot\/rates\/estimate$/, "trip.publish"],
   ["GET", /^\/v1\/pilot\/carrier\/shipments$/, "load.read"],
   ["POST", /^\/v1\/pilot\/carrier\/shipments\/[^/]+\/accept$/, "carrier.offer_accept"],
   ["POST", /^\/v1\/pilot\/carrier\/drivers\/invite$/, "organization.member.invite"],
   ["GET", /^\/v1\/pilot\/carrier\/(?:earnings|ledger|payout-batches)$/, "payment.read"],
   ["POST", /^\/v1\/pilot\/carrier\/payout-setup$/, "bank_account.create_token"],
+  ["PATCH", /^\/v1\/pilot\/carrier\/transporter-id$/, "transporter_id.write"],
   ["POST", /^\/v1\/pilot\/customer\/members\/invite$/, "organization.member.invite"],
   ["GET", /^\/v1\/pilot\/customer\/members$/, "organization.member.invite"],
   ["*", /^\/v1\/pilot\/customer\/integrations(?:\/.*)?$/, "integration.manage"],
   ["GET", /^\/shipments(?:\/[^/]+(?:\/tracking)?)?$/, "load.read"],
-  ["POST", /^\/shipments\/book$/, "load.create"],
+  ["POST", /^\/shipments\/(?:book|quote)$/, "load.create"],
+  ["POST", /^\/shipments\/[^/]+\/eway-bill(?:\/remove)?$/, "eway_bill.write"],
+  ["POST", /^\/shipments\/[^/]+\/eway-bill\/truck$/, "eway_bill.add_truck"],
+  ["POST", /^\/v1\/pilot\/carrier\/shipments\/[^/]+\/eway-bill\/truck$/, "eway_bill.add_truck"],
+  ["GET", /^\/ops\/eway-bills$/, "eway_bill.check"],
+  ["POST", /^\/ops\/eway-bills\/[^/]+\/check$/, "eway_bill.check"],
   ["POST", /^\/shipments\/[^/]+\/driver-pod$/, "pod.upload"],
+  ["POST", /^\/v1\/shipments\/[^/]+\/pod-photos$/, "pod.upload"],
+  ["DELETE", /^\/v1\/shipments\/[^/]+\/pod-photos\/[^/]+$/, "pod.upload"],
+  ["GET", /^\/v1\/shipments\/[^/]+\/pod-photos\/[^/]+$/, "load.read"],
   ["POST", /^\/shipments\/[^/]+\/accept-pod$/, "pod.accept"],
   ["POST", /^\/shipments\/[^/]+\/fail-refund$/, "payment.refund"],
+  ["POST", /^\/shipments\/[^/]+\/mark-refunded$/, "payment.refund"],
   ["GET", /^\/ops\/shipments(?:\/[^/]+)?$/, "load.read"],
+  ["GET", /^\/ops\/trip-cancel-requests$/, "load.read"],
   ["POST", /^\/ops\/shipments\/[^/]+\/release$/, "payment.capture"],
   ["POST", /^\/payout-batches\/run$/, "settlement.release"],
   ["GET", /^\/payout-batches$/, "payment.read"],
@@ -42,9 +69,17 @@ const rules: [string, RegExp, Permission][] = [
 export function guardRequest(req: http.IncomingMessage, store: Store, url: URL): void {
   const method = req.method ?? "GET", path = url.pathname;
   if (method === "OPTIONS") return;
+  if ((method === "PUT" && path === "/v1/me/push-devices") ||
+      (method === "DELETE" && /^\/v1\/me\/push-devices\/[^/]+$/.test(path)) ||
+      (method === "POST" && /^\/v1\/notifications\/[^/]+\/open$/.test(path))) {
+    verifyBearer(store, /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization ?? ""))?.[1] ?? null);
+    return; // Bearer-only user scope; selected organization is resolved by the endpoint against the canonical notification/device.
+  }
   if (method === "GET" && ["/health", "/ops", "/admin", "/admin/v1", "/ops/v1", "/admin/v2", "/ops/v2", "/ops/beta", "/workflow", "/v1/customer/eligible-anchor-trips"].includes(path)) return;
   if (method === "GET" && /^\/anchor-trips(?:\/[^/]+)?$/.test(path)) return;
-  if (method === "POST" && ["/shipments/quote", "/v1/auth/otp/start", "/v1/auth/otp/verify", "/v1/pilot/driver/register", "/v1/pilot/customer/register", "/v1/pilot/customer/users/register", "/v1/payments/razorpay/webhook"].includes(path)) return;
+  // The practice government site and its guide: public, and only when the demo server turned them on.
+  if ((method === "GET" || method === "POST") && process.env.EWAY_DEMO_PORTAL === "1" && (path === "/demo/eway-guide" || path.startsWith("/demo/eway-portal"))) return;
+  if (method === "POST" && ["/v1/auth/otp/start", "/v1/auth/otp/verify", "/v1/auth/firebase/exchange", "/v1/pilot/driver/register", "/v1/pilot/customer/register", "/v1/pilot/customer/users/register", "/v1/payments/razorpay/webhook"].includes(path)) return;
   if (path.startsWith("/v1/integrations/")) return; // separately authenticated service principal
   const token = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization ?? ""))?.[1] ?? null;
   if (path === "/v1/auth/me" && method === "GET") { verifyBearer(store, token); return; }
@@ -54,23 +89,34 @@ export function guardRequest(req: http.IncomingMessage, store: Store, url: URL):
   const { userId } = verifyBearer(store, token);
   const organizationId = req.headers["x-organization-id"];
   if (organizationId !== undefined && typeof organizationId !== "string") throw new AuthorizationError("invalid_organization", 400);
-  const p = resolvePrincipal(store, userId, organizationId);
+  const p = resolvePrincipal(store, userId, typeof organizationId === "string" ? organizationId : undefined);
+  let requiredPermission: Permission = rule[2];
+  if (path.startsWith("/v1/shipments/") && /\/conversation\/(?:messages|timeline|read)$/.test(path)) {
+    const supportPermission = method === "POST" && path.endsWith("/conversation/messages") ? "conversation.support_send" : "conversation.support_read";
+    if (p.roles.includes("OPS")) requiredPermission = supportPermission as Permission;
+  }
+  if (path.startsWith("/v1/conversation-escalations/") && path.endsWith("/revoke")) {
+    if (p.roles.includes("OPS")) requiredPermission = "conversation.support_read";
+    else if (p.roles.includes("SHIPPER") || p.roles.includes("CARRIER")) requiredPermission = "conversation.escalation_request";
+  }
   const context = authorizationContext.getStore()!;
   context.principal = p;
-  context.reason = typeof req.headers["x-reason-code"] === "string" ? req.headers["x-reason-code"] : undefined;
-  context.effectiveActorId = typeof req.headers["x-effective-actor-id"] === "string" ? req.headers["x-effective-actor-id"] : undefined;
+  // Both headers end up in audit rows: the reason is kept only from platform staff, the represented member only from ops.
+  const actsForMembers = p.internal && p.roles.includes("OPS");
+  context.reason = p.internal && typeof req.headers["x-reason-code"] === "string" ? req.headers["x-reason-code"] : undefined;
+  context.effectiveActorId = actsForMembers && typeof req.headers["x-effective-actor-id"] === "string" ? req.headers["x-effective-actor-id"] : undefined;
   const orgId = url.searchParams.get("orgId");
   if (orgId && orgId !== p.organizationId) throw new AuthorizationError("not_found", 404);
   let resource;
-  const shipmentId = /^\/(?:ops\/)?shipments\/([^/]+)/.exec(path)?.[1] ?? /^\/v1\/pilot\/carrier\/shipments\/([^/]+)/.exec(path)?.[1];
-  if (shipmentId && !["book", "pending-release", "delivered"].includes(shipmentId)) resource = store.shipments.get(shipmentId);
+  const shipmentId = /^\/(?:ops\/)?shipments\/([^/]+)/.exec(path)?.[1] ?? /^\/v1\/(?:pilot\/carrier\/)?shipments\/([^/]+)/.exec(path)?.[1];
+  if (shipmentId && !["book", "quote", "pending-release", "delivered"].includes(shipmentId)) resource = store.shipments.get(shipmentId);
   const tripId = /^\/v1\/pilot\/anchor-trips\/([^/]+)/.exec(path)?.[1];
   if (tripId) resource = store.anchorTrips.get(tripId);
-  if ((tripId || (shipmentId && !["book", "pending-release", "delivered"].includes(shipmentId))) && !resource) throw new AuthorizationError("not_found", 404);
-  if (resource && !visible(p, resource)) throw new AuthorizationError("not_found", 404);
-  if (!p.permissions.includes(rule[2])) throw new AuthorizationError("forbidden");
+  if ((tripId || (shipmentId && !["book", "quote", "pending-release", "delivered"].includes(shipmentId))) && !resource) throw new AuthorizationError("not_found", 404);
+  if (resource && (!visible(p, resource) || !assignedDriverMaySee(store, p, resource))) throw new AuthorizationError("not_found", 404);
+  if (!p.permissions.includes(requiredPermission)) throw new AuthorizationError("forbidden");
   if ((path.startsWith("/v1/ops/") || path.startsWith("/ops/") || path === "/payout-batches" || path.startsWith("/carriers/")) && !p.internal) throw new AuthorizationError("forbidden");
   if ((path === "/payout-batches" || path.startsWith("/carriers/")) && !p.roles.includes("FINANCE")) throw new AuthorizationError("forbidden");
-  if (resource) requirePermission(store, rule[2], resource);
+  if (resource) requirePermission(store, requiredPermission, resource);
 }
 export function requestContext() { return { requestId: randomUUID() }; }

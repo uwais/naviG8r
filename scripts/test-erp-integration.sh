@@ -4,7 +4,8 @@
 #   BASE_URL=https://navig8r.onrender.com bash scripts/test-erp-integration.sh
 #   BASE_URL=http://127.0.0.1:3000 bash scripts/test-erp-integration.sh
 #
-# Requires: curl, jq (optional but recommended for pretty output)
+# Requires: curl 7.76 or later, jq (optional but recommended for pretty output)
+# Every request uses curl --fail-with-body, so any non-2xx reply stops the script.
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:3000}"
@@ -34,7 +35,7 @@ post_json() {
   local path="$1"
   local body="$2"
   shift 2
-  curl -sS -X POST "${BASE_URL}${path}" \
+  curl -sS --fail-with-body -X POST "${BASE_URL}${path}" \
     -H "content-type: application/json" \
     "$@" \
     -d "$body"
@@ -44,14 +45,16 @@ patch_json() {
   local path="$1"
   local body="$2"
   shift 2
-  curl -sS -X PATCH "${BASE_URL}${path}" \
+  curl -sS --fail-with-body -X PATCH "${BASE_URL}${path}" \
     -H "content-type: application/json" \
     "$@" \
     -d "$body"
 }
 
 get_auth() {
-  curl -sS "${BASE_URL}$1" "$@"
+  local path="$1"
+  shift
+  curl -sS --fail-with-body "${BASE_URL}${path}" "$@"
 }
 
 echo "==> 1. Register customer org (admin)"
@@ -140,7 +143,7 @@ fi
 echo "    integrationToken=(ok)"
 
 patch_json "/v1/pilot/customer/integrations/connection?orgId=$ORG_ID" \
-  '{"paymentPolicy":"erp_preauthorized","webhookUrl":"https://example.com/erp-webhook"}' \
+  '{"webhookUrl":"https://example.com/erp-webhook"}' \
   -H "authorization: Bearer $ACCESS" >/dev/null
 
 echo "==> 5. POST /v1/integrations/loads"

@@ -16,6 +16,7 @@ node_modules/
 
 # Node API local persisted state (pilot data — do not commit real PII)
 data/*.json
+apps/api/data/*.json
 
 # Flutter
 apps/driver_pilot/.dart_tool/

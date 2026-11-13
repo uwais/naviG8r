@@ -262,7 +262,36 @@ Re-screened 2026-09-30 after the team's review (reason codes picked from a list 
   Open, from finding 8 of the first screen: the "someone acted first" message is not built, because the
   server overwrites a review without detecting a conflict. Needs server work, or Rishabh accepting it for
   the beta; not accepted here.
-Accepted risks: none
+Re-screened 2026-10-10 when rejection reasons began reaching carriers: PASS WITH CHANGES. 9 data: the four
+  rejection reasons are now also shown, in plain words, to the rejected carrier's owner, dispatchers and
+  drivers; every ops page says so where the reason is chosen. The bank reason reaches only a carrier that
+  has saved bank details, and codes outside the four never reach carriers. Rishabh chose on 10 Oct that
+  drivers and dispatchers see the reason too; the screen's later suggestion to hide the bank reason from
+  them is open for his call.
+Re-screened 2026-10-10 after Rishabh hid the bank reason from drivers and dispatchers, as the screen
+  suggested, so it shows only to the owner and every ops page says so: PASS. 1 actionability: drivers and
+  dispatchers get a step they can take, asking the owner, who has the bank form. 5 defaults: withholding is
+  the privacy-respecting choice. 8 promise: a save does put the carrier back in review, and the ops captions
+  match what the server does. 9 data: less now reaches their phones. 11 reversal: "the owner's bank problem
+  goes to the owner, and everyone else is told to ask the owner" is comfortable to say. 2, 3, 4, 6, 7 and
+  10: not applicable (no comparison, cost, urgency, exit, decline button or money involved).
+Re-screened 2026-10-11 after Rishabh decided drivers and dispatchers see no rejection reason at all, only that the
+  carrier is not approved (or its approval was taken back) and to ask the owner for details: PASS. 1 actionability:
+  their one step, asking the owner, is open to them. The owner sees the reason when the newest rejection used one
+  of the four (the bank reason only after a bank save), and the bank form for the bank reason or none; when the
+  newest rejection is "Approval taken back" or a code outside the four, the owner sees no reason either.
+  5 defaults: withholding is the privacy-respecting choice. 8 promise: the message claims nothing about the
+  reason, and every ops caption matches what the server sends; "ask the owner for details" assumes the owner has
+  some, which the gaps below qualify. 9 data: no reason reaches their phones. 11 reversal: "the reason is about
+  the carrier's business, so it goes to the owner, and everyone else is told to ask the owner" is comfortable to
+  say. Gaps, not fails: nobody at a carrier can reach NaviG8r from the app, so a driver whose owner will not
+  answer, an owner rejected for documents or not-a-carrier, and an owner rejected as a duplicate who is not in the
+  other account are stuck, and an owner who got no reason can only resubmit bank details without knowing what to
+  fix, until the app can contact NaviG8r; and whether support tells a calling driver the reason is not decided.
+  Both are on the 12 Oct agenda. 2, 3, 4, 6, 7 and 10: not applicable (no comparison, cost, urgency, exit,
+  decline button or money involved).
+Accepted risks: none. Open, not accepted: the "someone acted first" message (2026-09-30 entry) and the gaps in the
+  2026-10-11 entry (12 Oct agenda).
 ```
 
 ## 13. Helping someone who is stuck (answer to question 5)

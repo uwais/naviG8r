@@ -1,0 +1,146 @@
+/**
+ * A carrier office takes back a trip it published (owner decision, 19 Oct 2026). With no booking on it, the trip is
+ * cancelled at once. With bookings, the carrier asks NaviG8r instead: the trip takes no new bookings, operations
+ * sees the request, and Finance cancels each shipment with failCarrierAndRefund, which ends the trip after the last.
+ * Operations also lists here any cancelled shipment whose money Razorpay captured afterwards, for Finance to refund
+ * in Razorpay and then mark refunded.
+ */
+import { AuthorizationError, principalFor, recordAudit, requirePermission } from "./rbac.ts";
+import { ApiError, bookingsOnTrip, tripHasBookings, tripWithCarrierDisplay } from "./services.ts";
+import { isActiveEntity } from "./softDelete.ts";
+import type { Store } from "./store.ts";
+import type { AnchorTrip, Payment, TripCancelReasonCode } from "./types.ts";
+
+const REASON_CODES: readonly TripCancelReasonCode[] = ["TRUCK_UNAVAILABLE", "DRIVER_UNAVAILABLE", "ROUTE_CHANGED", "OTHER"];
+const MAX_NOTE_LENGTH = 500;
+
+function officeTrip(store: Store, tripId: string): AnchorTrip {
+  const trip = store.anchorTrips.get(tripId);
+  if (!trip || !isActiveEntity(trip)) throw new AuthorizationError("not_found", 404);
+  requirePermission(store, "trip.assign", trip);
+  return trip;
+}
+
+function notBeforeTheRoad(trip: AnchorTrip): void {
+  if (trip.status !== "OPEN" && trip.status !== "FULL") {
+    throw new ApiError("trip_not_cancellable", { detail: "Only a trip that has not started can be cancelled.", status: trip.status }, 409);
+  }
+}
+
+function changeStatus(store: Store, trip: AnchorTrip, changed: AnchorTrip): ReturnType<typeof tripWithCarrierDisplay> {
+  store.anchorTrips.set(changed.id, changed);
+  recordAudit(store, "TRIP_STATUS_CHANGED", "trip", trip.id, trip.status, changed.status, changed.cancelRequest?.reasonCode);
+  return tripWithCarrierDisplay(store, changed);
+}
+
+/** A trip with no booking at all, paid or not, accepted or not. Asking again for a cancelled trip changes nothing. */
+export function cancelTrip(store: Store, tripId: string): { trip: ReturnType<typeof tripWithCarrierDisplay> } {
+  const trip = officeTrip(store, tripId);
+  if (trip.status === "CANCELLED") return { trip: tripWithCarrierDisplay(store, trip) };
+  notBeforeTheRoad(trip);
+  if (tripHasBookings(store, trip.id)) {
+    throw new ApiError("trip_has_bookings", { detail: "This trip has bookings, so it cannot be cancelled here." }, 409);
+  }
+  return { trip: changeStatus(store, trip, { ...trip, status: "CANCELLED" }) };
+}
+
+/** The trip stops taking bookings until NaviG8r cancels its shipments or the carrier withdraws. Asking twice keeps the first reason. */
+export function requestTripCancel(store: Store, tripId: string, input: Record<string, unknown>): { trip: ReturnType<typeof tripWithCarrierDisplay> } {
+  const trip = officeTrip(store, tripId);
+  if (trip.status === "CANCEL_REQUESTED") return { trip: tripWithCarrierDisplay(store, trip) };
+  notBeforeTheRoad(trip);
+  if (!tripHasBookings(store, trip.id)) {
+    throw new ApiError("trip_has_no_bookings", { detail: "This trip has no bookings, so you can cancel it yourself." }, 409);
+  }
+  const reasonCode = input.reasonCode as TripCancelReasonCode;
+  if (!REASON_CODES.includes(reasonCode)) {
+    throw new ApiError("invalid_cancel_request", { detail: "Choose why you want to cancel this trip.", field: "reasonCode" });
+  }
+  const note = typeof input.note === "string" ? input.note.trim() : "";
+  if (note.length > MAX_NOTE_LENGTH) {
+    throw new ApiError("invalid_cancel_request", { detail: `Keep the note to ${MAX_NOTE_LENGTH} characters or fewer.`, field: "note" });
+  }
+  const cancelRequest = { reasonCode, ...(note ? { note } : {}), requestedAtUtcMs: Date.now() };
+  return { trip: changeStatus(store, trip, { ...trip, status: "CANCEL_REQUESTED", cancelRequest }) };
+}
+
+/** Back to OPEN, or FULL when its bookings fill it. Withdrawing a request already withdrawn changes nothing. */
+export function withdrawTripCancelRequest(store: Store, tripId: string): { trip: ReturnType<typeof tripWithCarrierDisplay> } {
+  const trip = officeTrip(store, tripId);
+  if ((trip.status === "OPEN" || trip.status === "FULL") && !trip.cancelRequest) return { trip: tripWithCarrierDisplay(store, trip) };
+  if (trip.status !== "CANCEL_REQUESTED") {
+    throw new ApiError("no_cancel_request", { detail: "This trip has no cancel request to withdraw.", status: trip.status }, 409);
+  }
+  const { cancelRequest: _withdrawn, ...rest } = trip;
+  return { trip: changeStatus(store, trip, { ...rest, status: trip.reservedKg >= trip.capacityKg ? "FULL" : "OPEN" }) };
+}
+
+/** Every trip waiting on NaviG8r, oldest request first, with the bookings Finance still has to cancel. Operations staff only. */
+export function listTripCancelRequestsForOps(store: Store) {
+  if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
+  return [...store.anchorTrips.values()]
+    .filter((trip) => trip.status === "CANCEL_REQUESTED" && isActiveEntity(trip))
+    .sort((a, b) => (a.cancelRequest?.requestedAtUtcMs ?? 0) - (b.cancelRequest?.requestedAtUtcMs ?? 0))
+    .map((trip) => ({
+      trip: tripWithCarrierDisplay(store, trip),
+      shipments: bookingsOnTrip(store, trip.id).map((shipment) => {
+        const payment = store.payments.get(shipment.paymentId) ?? null;
+        return { shipment, payment, settledOutsideNaviG8r: payment !== null && settledOutsideNaviG8r(payment) };
+      }),
+    }));
+}
+
+/**
+ * An ERP-preauthorized booking: AUTHORIZED with no Razorpay payment or order behind it, so no Razorpay hold exists
+ * and failCarrierAndRefund refuses it. The money is the partner's to settle.
+ */
+function settledOutsideNaviG8r(payment: Payment): boolean {
+  return payment.provider === "RAZORPAY" && payment.status === "AUTHORIZED" && !payment.razorpayPaymentId && !payment.razorpayOrderId;
+}
+
+/** Cancelled shipments whose money Razorpay reported captured after the cancel, for Finance to refund in Razorpay. */
+export function listPaymentsCollectedAfterCancelForOps(store: Store) {
+  if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
+  return [...store.payments.values()]
+    .filter((payment) => payment.status === "CAPTURED_AFTER_CANCEL")
+    .sort((a, b) => a.updatedAtUtcMs - b.updatedAtUtcMs)
+    .flatMap((payment) => {
+      const shipment = store.shipments.get(payment.shipmentId);
+      return shipment ? [{ shipment, payment }] : [];
+    });
+}
+
+/**
+ * Finance records that it refunded, in the Razorpay dashboard, one Razorpay payment captured after the cancel, named
+ * by its id so a tap on a stale card cannot mark a different one. Nothing is sent to Razorpay. Another capture still
+ * to refund keeps the payment waiting, with that capture's id, oldest first. Marking the same id again changes nothing.
+ */
+export function markRefundedInRazorpay(store: Store, shipmentId: string, razorpayPaymentId: string | undefined): { payment: Payment } {
+  const shipment = store.shipments.get(shipmentId);
+  if (!shipment) throw new AuthorizationError("not_found", 404);
+  requirePermission(store, "payment.refund", shipment);
+  const payment = store.payments.get(shipment.paymentId);
+  const refundedIds = razorpayIdsAudited(store, shipment.id, "PAYMENT_MARKED_REFUNDED");
+  if (payment && razorpayPaymentId && refundedIds.includes(razorpayPaymentId)) return { payment };
+  if (payment?.status !== "CAPTURED_AFTER_CANCEL") {
+    throw new ApiError("payment_not_captured_after_cancel", { detail: "This payment is not waiting for a refund after a cancel.", status: payment?.status }, 409);
+  }
+  if (!razorpayPaymentId || razorpayPaymentId !== payment.capturedAfterCancelRazorpayPaymentId) {
+    throw new ApiError("refund_payment_id_mismatch", { detail: "This is not the payment waiting for a refund. Reload the page." }, 409);
+  }
+  const stillToRefund = razorpayIdsAudited(store, shipment.id, "PAYMENT_AFTER_CANCEL", "CAPTURED")
+    .filter((id) => id !== razorpayPaymentId && !refundedIds.includes(id));
+  const changed: Payment = stillToRefund[0]
+    ? { ...payment, capturedAfterCancelRazorpayPaymentId: stillToRefund[0], updatedAtUtcMs: Date.now() }
+    : { ...payment, status: "REFUNDED", updatedAtUtcMs: Date.now() };
+  store.payments.set(changed.id, changed);
+  recordAudit(store, "PAYMENT_MARKED_REFUNDED", "shipment", shipment.id, payment.status, changed.status, undefined, razorpayPaymentId);
+  return { payment: changed };
+}
+
+/** The Razorpay payment ids on a shipment's audit rows of one action, in the order recorded. */
+function razorpayIdsAudited(store: Store, shipmentId: string, action: string, reasonCode?: string): string[] {
+  return [...store.auditEvents.values()]
+    .filter((row) => row.resourceType === "shipment" && row.resourceId === shipmentId && row.action === action && (!reasonCode || row.reasonCode === reasonCode))
+    .flatMap((row) => row.razorpayPaymentId ? [row.razorpayPaymentId] : []);
+}

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { authorizationContext, resolvePrincipal, acceptPod, type Role } from "../src/rbac.ts";
 import type { Store } from "../src/store.ts";
 import { bookShipment, registerSoloOwnerOperatorDriver, registerCustomerOrgAdmin, submitDriverPod, releasePaymentAndDeliver, runPayoutBatch } from "../src/services.ts";
+import { assignedTruckNumber } from "../src/tripAssignmentRules.ts";
 
 export function internalUser(store: Store, role: Role, id = `test-${role}`) {
   const orgId = "test-platform";
@@ -39,9 +40,38 @@ export function bookTestShipment(store: Store, params: Parameters<typeof bookShi
   }
   return asUser(store, userId!, () => bookShipment(store, { ...params, customerOrg: { id: org!.id, displayName: org!.displayName }, bookedByUserId: userId }), org.id);
 }
+/** A carrier confirms delivery with a photo. Tests that are not about the photo record one with no file behind it. */
+export function addTestPodPhoto(store: Store, shipmentId: string): void {
+  const shipment = store.shipments.get(shipmentId)!;
+  store.shipments.set(shipmentId, { ...shipment, podPhotos: [{ id: randomUUID(), contentType: "image/jpeg", bytes: 1, sha256: "synthetic", uploadedAtUtcMs: 1, uploadedByUserId: "synthetic" }] });
+}
+/**
+ * A final e-way bill, so the trip can start: the trip's truck, valid for three more days, or a statement that none
+ * is needed when the trip has no truck. Tests about the start rule itself write their own bills.
+ */
+export function addFinalTestEwayBill(store: Store, shipmentId: string): void {
+  const shipment = store.shipments.get(shipmentId)!;
+  const truckNumber = assignedTruckNumber(store, store.anchorTrips.get(shipment.anchorTripId));
+  const entered = { enteredAtUtcMs: 1, enteredByUserId: "synthetic" };
+  const ewayBill = truckNumber
+    ? { kind: "BILL" as const, billNumber: "123456789012", truckNumber, validUntilUtcMs: Date.now() + 3 * 86400000, ...entered }
+    : { kind: "NOT_NEEDED" as const, notNeededReason: "BELOW_THRESHOLD" as const, ...entered };
+  store.shipments.set(shipmentId, { ...shipment, ewayBill });
+}
+/**
+ * Puts a shipment's trip on the way without the start's own checks, since proof of delivery waits for the start.
+ * A trip already on the way or finished is left as it is. Tests about the start rule itself start the trip.
+ */
+export function startTestTrip(store: Store, shipmentId: string): void {
+  const trip = store.anchorTrips.get(store.shipments.get(shipmentId)!.anchorTripId)!;
+  if (trip.status !== "OPEN" && trip.status !== "FULL") return;
+  store.anchorTrips.set(trip.id, { ...trip, status: "IN_PROGRESS", startedAtUtcMs: Date.now() });
+}
 export async function deliverTestShipment(store: Store, params: { shipmentId: string; podAtUtcMs?: number }) {
   const shipment = store.shipments.get(params.shipmentId)!;
   const carrier = [...store.memberships.values()].find(m => m.orgId === shipment.carrierId)!;
+  startTestTrip(store, shipment.id);
+  addTestPodPhoto(store, shipment.id);
   submitDriverPod(store, { shipmentId: shipment.id, userId: carrier.userId });
   if (params.podAtUtcMs != null) store.shipments.set(shipment.id, { ...store.shipments.get(shipment.id)!, podAtUtcMs: params.podAtUtcMs });
   const shipper = [...store.memberships.values()].find(m => m.orgId === shipment.customerOrgId)!;

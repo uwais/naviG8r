@@ -30,6 +30,89 @@ async function postJson(baseUrl: string, path: string, body: unknown): Promise<R
   });
 }
 
+test("production FCM rejects FILE persistence unless explicitly enabled", async (t) => {
+  const previous = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    PERSISTENCE: process.env.PERSISTENCE,
+    PUSH_ALLOW_FILE_PRODUCTION: process.env.PUSH_ALLOW_FILE_PRODUCTION,
+    PUSH_DEVICE_REGISTRATION_ENABLED: process.env.PUSH_DEVICE_REGISTRATION_ENABLED,
+    PUSH_SENDER_ENABLED: process.env.PUSH_SENDER_ENABLED,
+    FCM_SERVICE_ACCOUNT_JSON: process.env.FCM_SERVICE_ACCOUNT_JSON,
+  };
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  process.env.NODE_ENV = "production";
+  process.env.PERSISTENCE = "FILE";
+  process.env.PUSH_SENDER_ENABLED = "1";
+  process.env.FCM_SERVICE_ACCOUNT_JSON = "{}";
+  delete process.env.PUSH_ALLOW_FILE_PRODUCTION;
+  delete process.env.PUSH_DEVICE_REGISTRATION_ENABLED;
+
+  await assert.rejects(
+    createApp({ dataFilePath: `/tmp/navig8r-fcm-production-${Date.now()}.json` }),
+    /production_fcm_requires_db_persistence/,
+  );
+});
+
+test("production FCM allows FILE persistence with explicit opt-in", async (t) => {
+  const previous = {
+    DATA_FILE: process.env.DATA_FILE,
+    NODE_ENV: process.env.NODE_ENV,
+    PERSISTENCE: process.env.PERSISTENCE,
+    PUSH_ALLOW_FILE_PRODUCTION: process.env.PUSH_ALLOW_FILE_PRODUCTION,
+    PUSH_DEVICE_REGISTRATION_ENABLED: process.env.PUSH_DEVICE_REGISTRATION_ENABLED,
+    PUSH_SENDER_ENABLED: process.env.PUSH_SENDER_ENABLED,
+    FCM_SERVICE_ACCOUNT_JSON: process.env.FCM_SERVICE_ACCOUNT_JSON,
+  };
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  process.env.NODE_ENV = "production";
+  process.env.PERSISTENCE = "FILE";
+  process.env.PUSH_ALLOW_FILE_PRODUCTION = "1";
+  process.env.PUSH_SENDER_ENABLED = "1";
+  process.env.FCM_SERVICE_ACCOUNT_JSON = "{}";
+  delete process.env.PUSH_DEVICE_REGISTRATION_ENABLED;
+
+  const app = await createApp({ dataFilePath: `/tmp/navig8r-fcm-production-opt-in-${Date.now()}.json` });
+  assert.ok(app.store);
+  assert.equal(app.dataFilePath?.endsWith(".json"), true);
+});
+
+test("read-only requests do not snapshot the entire Store", async (t) => {
+  const f = await httpFixture(t);
+  Object.assign(f.store as unknown as Record<string, unknown>, {
+    nonCloneableTestMarker: () => undefined,
+  });
+
+  const health = await f.request("/health");
+  assert.equal(health.status, 200);
+  assert.equal(health.body.ok, true);
+});
+
+test("conversation message reads retain Store snapshot protection", async (t) => {
+  const f = await httpFixture(t);
+  const booked = await f.book();
+  assert.equal(booked.status, 201);
+  const shipmentId = booked.body.shipment.id as string;
+  Object.assign(f.store as unknown as Record<string, unknown>, {
+    nonCloneableTestMarker: () => undefined,
+  });
+
+  const result = await f.request(`/v1/shipments/${shipmentId}/conversation/messages`, "GET", undefined, f.tokens.shipperA);
+  assert.equal(result.status, 500);
+});
+
 /**
  * In production, legacy demo/admin routes return 403.
  * Public marketplace routes (anchor-trips, quote, book, customer shipments with Bearer) stay enabled;
@@ -127,6 +210,26 @@ test("POST /v1/pilot/carrier/shipments/:id/accept accepts pending booking with O
   assert.equal(accepted.status, 200); assert.equal(accepted.body.shipment.status, "BOOKED");
 });
 
+test("POST /v1/pilot/carrier/payout-setup replies 400 with the IFSC sentence the app shows", async t => {
+  const f = await httpFixture(t);
+  const refusal = await f.request("/v1/pilot/carrier/payout-setup", "POST", { orgId: f.carrierA.org.id, accountHolderName: "Ravi Kumar", ifsc: "HDFC1001234", accountNumber: "1234567890" }, f.tokens.carrierA);
+  assert.equal(refusal.status, 400);
+  assert.equal(refusal.body.error, "invalid_payout_profile");
+  assert.equal(refusal.body.detail, "IFSC must be 11 characters: four letters for the bank, then 0, then six letters or digits for the branch. Example: HDFC0000123.");
+});
+
+// httpFixture runs in BOOKKEEPING mode, as alpha and beta do; production gives this same sentence in RAZORPAYX mode.
+test("POST /v1/pilot/carrier/payout-setup refuses a blank account number on a test server with the sentence production gives", async t => {
+  const f = await httpFixture(t);
+  for (const accountNumber of [undefined, "", "   "]) {
+    const refusal = await f.request("/v1/pilot/carrier/payout-setup", "POST", { orgId: f.carrierA.org.id, accountHolderName: "Ravi Kumar", ifsc: "HDFC0001234", accountNumber }, f.tokens.carrierA);
+    assert.equal(refusal.status, 400, `expected ${JSON.stringify(accountNumber)} to be refused`);
+    assert.equal(refusal.body.error, "invalid_payout_profile");
+    assert.equal(refusal.body.detail, "Bank account number is required.");
+    assert.equal(refusal.body.field, "accountNumber");
+  }
+});
+
 test("GET /ops returns ops portal HTML", async (t) => {
   const prev = { DATA_FILE: process.env.DATA_FILE };
   t.after(() => {
@@ -169,7 +272,8 @@ test("GET /ops/beta serves the redesigned ops page beside the unchanged current 
     assert.ok(html.includes("/ops/compliance/pending") && html.includes("/ops/shipments/pending-release"));
     assert.ok(!html.includes("prefers-color-scheme"), "light mode only, never switched by the system setting");
     for (const address of html.match(/https?:\/\/[^"' )]+/g) ?? []) {
-      assert.match(address, /^https:\/\/fonts\.(googleapis|gstatic)\.com|^http:\/\/www\.w3\.org\/2000\/svg$/, `unexpected outside address ${address}`);
+      // The one link out is the government e-way bill portal, matched whole so no other address passes.
+      assert.match(address, /^https:\/\/fonts\.(googleapis|gstatic)\.com(\/|$)|^http:\/\/www\.w3\.org\/2000\/svg$|^https:\/\/ewaybillgst\.gov\.in$/, `unexpected outside address ${address}`);
     }
 
     const current = await (await fetch(`${baseUrl}/ops`)).text();
@@ -220,5 +324,25 @@ test("CORS preflight allows localhost web clients", async (t) => {
     });
     assert.equal(post.headers.get("access-control-allow-origin"), origin);
     assert.ok(post.status === 200 || post.status === 201);
+  });
+});
+
+test("POST /v1/payments/razorpay/webhook refuses a body over 256 KB with 413", async (t) => {
+  process.env.DATA_FILE = `/tmp/navig8r-http-test-${Date.now()}-${Math.random()}.json`;
+  const previousSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  process.env.RAZORPAY_WEBHOOK_SECRET = "webhook_test_secret";
+  t.after(() => {
+    if (previousSecret === undefined) delete process.env.RAZORPAY_WEBHOOK_SECRET;
+    else process.env.RAZORPAY_WEBHOOK_SECRET = previousSecret;
+  });
+
+  await withApp(t, async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/v1/payments/razorpay/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-razorpay-signature": "0".repeat(64) },
+      body: JSON.stringify({ event: "payment.authorized", padding: "a".repeat(300 * 1024) }),
+    });
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: "payload_too_large" });
   });
 });

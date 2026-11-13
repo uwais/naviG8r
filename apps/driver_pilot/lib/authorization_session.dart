@@ -1,9 +1,13 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'firebase_phone_auth.dart';
 import 'pilot_api.dart';
+import 'plain_error_sentence.dart';
+import 'push_notifications.dart';
 
 /// Only the server-resolved principal for the selected organization grants UI access.
 abstract final class AuthorizationSession {
@@ -16,8 +20,10 @@ abstract final class AuthorizationSession {
   static String? error;
   static Future<bool>? _refreshing;
   static int _generation = 0;
+  static int _identityGeneration = 0;
 
   static bool get signedIn => user != null;
+  static int get identityGeneration => _identityGeneration;
   static String? get organizationId => principal?['organizationId'] as String?;
   static Map<String, dynamic>? get organization {
     for (final org in organizations) {
@@ -34,19 +40,31 @@ abstract final class AuthorizationSession {
   static String get home => hasRole('SHIPPER')
       ? '/customer'
       : hasRole('CARRIER')
-          ? '/driver/loads'
+          ? '/driver'
           : '/workspace';
   static String get scopeKey => '${user?['id']}:$organizationId';
 
   static void bind() {
-    api.onIdentityChanged = clear;
+    api.onBeforeIdentityChange = () async {
+      // Preserve a cold-start push tap while the user is still signed out.
+      // For an authenticated identity transition, revoke before credentials change.
+      if (signedIn) {
+        await PushNotifications.instance.revokeForCurrentUser();
+      }
+    };
+    api.onIdentityChanged = () {
+      PushNotifications.instance.onCredentialChanged();
+      clear();
+    };
     api.onAuthorizationFailure = () {
       refresh();
     };
   }
 
   static void clear() {
+    unawaited(clearCommunicationDrafts());
     _generation++;
+    _identityGeneration++;
     _refreshing = null;
     user = null;
     principal = null;
@@ -58,6 +76,17 @@ abstract final class AuthorizationSession {
   }
 
   static Future<void> signOut() async {
+    if (firebasePhoneAuthAvailable) {
+      try {
+        await FirebasePhoneAuthClient().signOut();
+      } catch (_) {
+        // The server session is still cleared below if Firebase sign-out fails.
+      }
+    }
+    if (!signedIn) {
+      await PushNotifications.instance.onAuthorizationLost();
+    }
+    // Still signed in here, so clearToken removes this device's alert registration before the token goes.
     await api.clearToken();
     clear();
   }
@@ -107,12 +136,30 @@ abstract final class AuthorizationSession {
       principal =
           null; // Never retain grants after a failed authorization refresh.
       if (e is DioException && e.response?.statusCode == 401) {
+        final establishedUserId = user?['id']?.toString();
+        // A process can restart with a persisted bearer but no in-memory user.
+        // In that case the 401 still proves a prior identity was lost. A truly
+        // signed-out cold start has no bearer and must preserve a queued tap.
+        final hadPersistedIdentity = await api.hasBearerToken();
+        if (generation != _generation) return false;
+        if (establishedUserId != null || hadPersistedIdentity) {
+          _identityGeneration++;
+          api.selectOrganization(null);
+          await PushNotifications.instance
+              .onAuthorizationLost(establishedUserId: establishedUserId);
+          if (generation != _generation) return false;
+          // Let an in-flight registration return its ownership generation to
+          // the serialized push lifecycle queue before cancelling old identity
+          // responses. Its stale completion can then persist compensation.
+          api.identityVersion++;
+        }
+        if (generation != _generation) return false;
         user = null;
         organizations = [];
-        api.selectOrganization(null);
+        if (api.activeOrganizationId != null) api.selectOrganization(null);
         error = null;
       } else {
-        error = formatApiError(e);
+        error = plainErrorSentence(e);
       }
     } finally {
       if (generation == _generation) {

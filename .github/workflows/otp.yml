@@ -37,12 +37,23 @@ jobs:
         run: npx prisma generate --schema apps/api/prisma/schema.prisma
       - name: Type check
         run: npx tsc --noEmit --allowImportingTsExtensions
-      - name: Run full test suite
-        run: npm test
       - name: Prepare disposable Postgres schema
         env:
           DATABASE_URL: postgresql://postgres@127.0.0.1:5432/navig8r_otp_test
-        run: npx prisma db push --schema apps/api/prisma/schema.prisma
+        run: npx prisma db push --schema apps/api/prisma/schema.prisma --skip-generate
+      - name: Create disposable notification test database
+        run: >-
+          docker exec "${{ job.services.postgres.id }}" psql -U postgres
+          -d navig8r_otp_test -v ON_ERROR_STOP=1
+          -c "CREATE DATABASE navig8r_notification_test"
+      - name: Prepare disposable notification Postgres schema
+        env:
+          DATABASE_URL: postgresql://postgres@127.0.0.1:5432/navig8r_notification_test
+        run: npx prisma db push --schema apps/api/prisma/schema.prisma --skip-generate
+      - name: Run full test suite
+        env:
+          NOTIFICATION_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/navig8r_notification_test
+        run: npm test
       - name: Run OTP Postgres persistence tests
         env:
           OTP_TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/navig8r_otp_test
@@ -68,6 +79,12 @@ jobs:
         env:
           PLAYWRIGHT_OUTPUT_DIR: test-results/mobile
         run: npx playwright test --config=playwright.mobile.config.ts --grep "driver starts one generated challenge"
+      - name: Run mobile notification browser tests
+        env:
+          PLAYWRIGHT_OUTPUT_DIR: test-results/mobile-notifications
+        run: >-
+          npx playwright test --config=playwright.mobile.config.ts
+          --grep "shipper opens a conversation from shipment details|shipper opens one grouped notification row"
       - name: Upload Playwright artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4

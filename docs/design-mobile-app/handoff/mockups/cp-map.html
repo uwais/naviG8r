@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Map and its fallbacks</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 760px; height: 680px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Map</h1>
+    <p class="lead" style="max-width: 660px;">One small map per screen, never the only way to set a place. Pickup and drop are text fields first; the map only shows them. When the map cannot help, the fields still work.</p>
+  </div>
+  <div class="spec-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+    <div class="spec-cell"><p class="spec-tag">Default</p>
+      <div class="map" role="img" aria-label="Map: pickup in Bommasandra, Bengaluru; drop in Guindy, Chennai"><svg class="map-art" viewBox="0 0 328 148" preserveAspectRatio="none" aria-hidden="true"><path d="M0 90 C60 80 90 110 150 92 S260 60 328 72" stroke="#d9d4c7" stroke-width="10" fill="none"/><path d="M40 0 L70 148 M200 0 L180 148" stroke="#e1ddd1" stroke-width="6"/><path d="M52 94 C110 90 170 50 274 66" stroke="#16233d" stroke-width="2.5" stroke-dasharray="4 5" fill="none"/><circle cx="52" cy="94" r="7" fill="#16233d"/><circle cx="274" cy="66" r="7" fill="#e8a33d" stroke="#16233d" stroke-width="2"/></svg><span class="map-chip">Pickup and drop</span></div>
+      <p class="small">Pickup is the navy dot, drop the gold dot with a navy ring, and the chip says so in words.</p></div>
+    <div class="spec-cell"><p class="spec-tag">Loading</p>
+      <div class="map" aria-busy="true" style="display: flex; align-items: center; justify-content: center; background: var(--sunken);"><p class="cap" style="display: flex; gap: 8px; align-items: center;"><span class="spinner" style="width: 14px; height: 14px;" aria-hidden="true"></span>Loading the map</p></div></div>
+    <div class="spec-cell"><p class="spec-tag">Location off</p>
+      <div class="card-sunken" style="min-height: 148px;"><p class="h2">Location is off</p><p class="cap-ink">Type the pickup place above, or turn on location to use where you are.</p><button class="btn btn-secondary" type="button" style="align-self: flex-start;">Turn on location</button></div></div>
+    <div class="spec-cell"><p class="spec-tag">Error · map could not load</p>
+      <div class="card-sunken" style="min-height: 148px;" role="status"><p class="h2">The map could not load</p><p class="cap-ink">Your pickup and drop are still set. You can book without the map.</p></div></div>
+  </div>
+</div>
+
+</body>
+</html>
