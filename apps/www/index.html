@@ -392,16 +392,15 @@
             </ul>
           </div>
 
-          <form
-            class="contact-form"
-            data-contact-form
-            action="https://formsubmit.co/7eadc0879f93ea0c161305caca38dbf2"
-            method="POST"
-            novalidate
-          >
+          <form class="contact-form" data-contact-form method="POST" novalidate>
+            <noscript>
+              <p class="form-status is-error">
+                JavaScript is off. Email
+                <a class="inline-link" href="mailto:hello@navig8r.org">hello@navig8r.org</a>
+                directly — or enable JS so this form can send via Formspree.
+              </p>
+            </noscript>
             <input type="hidden" name="_subject" value="NaviG8r.org contact request" />
-            <input type="hidden" name="_template" value="table" />
-            <input type="hidden" name="_next" data-form-next value="https://navig8r.org/?sent=1#contact" />
             <input type="text" name="_gotcha" tabindex="-1" autocomplete="off" class="hp" aria-hidden="true" />
 
             <label>
@@ -432,12 +431,15 @@
             </label>
             <div class="human-inline full" data-contact-human>
               <p class="human-inline-label" data-contact-human-label>
-                You’ll complete a captcha on the next screen — keeps automated traffic out.
+                Human check — required before send
               </p>
               <div class="turnstile-slot" data-turnstile-contact></div>
+              <div class="human-challenge" data-fallback-challenge hidden></div>
             </div>
             <div class="form-footer full">
-              <button class="btn btn-primary" type="submit" data-submit>Send message</button>
+              <button class="btn btn-primary" type="submit" data-submit disabled>
+                Send message
+              </button>
               <p class="form-status" data-form-status role="status" aria-live="polite"></p>
             </div>
           </form>
@@ -483,6 +485,37 @@
     </div>
 
     <script src="/runtime-config.js"></script>
+    <!--
+      Sync bootstrap: set Formspree action (or keep submit disabled) before the deferred
+      module loads / Turnstile finishes. Avoids a native POST to this origin that drops mail.
+    -->
+    <script>
+      (function () {
+        var form = document.querySelector("[data-contact-form]");
+        if (!form) return;
+        var cfg = window.__NAVI8R_CONFIG__ || {};
+        var id = String(cfg.FORMSPREE_FORM_ID || "")
+          .replace(/^\/+/, "")
+          .trim();
+        var btn = form.querySelector("[data-submit]");
+        var status = form.querySelector("[data-form-status]");
+        if (id.indexOf("http") === 0) {
+          form.setAttribute("action", id);
+          if (btn) btn.disabled = false;
+        } else if (id) {
+          form.setAttribute("action", "https://formspree.io/f/" + id);
+          if (btn) btn.disabled = false;
+        } else {
+          form.removeAttribute("action");
+          if (btn) btn.disabled = true;
+          if (status) {
+            status.textContent =
+              "Contact form is being upgraded. Email us directly at hello@navig8r.org.";
+            status.classList.add("is-error");
+          }
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
