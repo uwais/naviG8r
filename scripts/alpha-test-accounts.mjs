@@ -73,7 +73,7 @@ const driverInviteResult = await createUnlessAlreadyExists(
 const summary = [
   "## Alpha test accounts",
   "",
-  "Log in with any of these phones; alpha shows the login code on screen.",
+  "Log in with any of these phones. First turn off **Use Firebase phone verification** on the sign-in screen; alpha then shows the login code on screen.",
   "",
   "| Phone | Meant to be | This run |",
   "|---|---|---|",
