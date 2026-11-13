@@ -8,6 +8,8 @@ import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import { createStore } from "./store.ts";
 import type { Store } from "./store.ts";
 import { pilotListCarrierPayoutBatches } from "./services.ts";
+import { createApp } from "./httpServer.ts";
+import { runScheduledPayouts } from "./scheduledPayoutRun.ts";
 import type { LedgerLine, Organization } from "./types.ts";
 
 // This file runs in its own test process, so setting RAZORPAYX env here does not
@@ -628,4 +630,44 @@ test("RAZORPAYX: a refused resend, or a timeout, conflict or rate limit on a new
     restoreLimited();
     assert.ok(limited.ledgerLines.get("ll_b1")!.payoutAttemptKey, String(status)); // not a refusal
   }
+});
+
+test("RAZORPAYX: the payout timer's run waits in the single-writer queue, so no other writer runs mid-payout", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "navig8r-payout-timer-"));
+  const app = await createApp({ dataFilePath: path.join(dir, "store.json") });
+  addOrg(app.store, "org_a", "fa_aaa");
+  addLine(app.store, "ll_a1", "org_a", 50000);
+
+  const events: string[] = [];
+  let payoutRequested!: () => void;
+  const requested = new Promise<void>((resolve) => { payoutRequested = resolve; });
+  let answerPayout!: () => void;
+  const answered = new Promise<void>((resolve) => { answerPayout = resolve; });
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    events.push("payout sent");
+    payoutRequested();
+    await answered;
+    events.push("payout answered");
+    return new Response(JSON.stringify({ id: "pout_q", status: "processed" }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = original; });
+
+  const run = runScheduledPayouts({ store: app.store, runSerialized: app.runSerialized, persist: app.persist, nowUtcMs: CUTOFF });
+  await requested;
+  let savedStatusSeenByOtherWriter = "";
+  const otherWriter = app.runSerialized(() => {
+    events.push("other writer");
+    savedStatusSeenByOtherWriter = loadStoreFromDisk(path.join(dir, "store.json")).ledgerLines.get("ll_a1")?.status ?? "missing";
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(events, ["payout sent"]);
+
+  answerPayout();
+  const batch = await run;
+  await otherWriter;
+  assert.deepEqual(events, ["payout sent", "payout answered", "other writer"]);
+  assert.deepEqual(batch.lineIds, ["ll_a1"]);
+  // The run saved its result before the queue let the next writer in.
+  assert.equal(savedStatusSeenByOtherWriter, "PAID");
 });

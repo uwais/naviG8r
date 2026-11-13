@@ -53,7 +53,7 @@ async function razorpayxFetch(path: string, body: unknown, extraHeaders: Record<
       ...extraHeaders,
     },
     body: JSON.stringify(body),
-    // A hung call would hold up the whole payout run (and the API, when the run is started from the ops page).
+    // A hung call would hold up the whole payout run, and with it every request queued behind it in the single-writer queue.
     signal: AbortSignal.timeout(30_000),
   });
   const text = await res.text();
