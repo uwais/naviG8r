@@ -1,4 +1,5 @@
 import { registerCompliantCarrier, runTestPayoutBatch } from "../test/fixtures.ts";
+import { httpFixture } from "../test/httpFixtures.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -670,4 +671,92 @@ test("RAZORPAYX: the payout timer's run waits in the single-writer queue, so no 
   assert.deepEqual(batch.lineIds, ["ll_a1"]);
   // The run saved its result before the queue let the next writer in.
   assert.equal(savedStatusSeenByOtherWriter, "PAID");
+});
+
+test("RAZORPAYX: in the queue, a failed save for one carrier keeps the payout already sent to another, in memory and on disk", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "navig8r-payout-save-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "store.json");
+  const failingSaves = new Set<number>();
+  let saves = 0;
+  const app = await createApp({ dataFilePath: file, beforePersist: () => { if (failingSaves.has(++saves)) throw new Error("disk full"); } });
+  addOrg(app.store, "org_a", "fa_aaa");
+  addOrg(app.store, "org_b", "fa_bbb");
+  addLine(app.store, "ll_a1", "org_a", 50000);
+  addLine(app.store, "ll_b1", "org_b", 40000);
+
+  const { calls, restore } = mockFetch(() => ({ status: 200, json: { id: `pout_${calls.length}`, status: "processed" } }));
+  t.after(restore);
+
+  saves = 0;
+  failingSaves.add(2); // carrier A's save works and A is paid; carrier B's save fails
+  const batch = await runScheduledPayouts({ store: app.store, runSerialized: app.runSerialized, persist: app.persist, nowUtcMs: CUTOFF });
+
+  assert.equal(calls.length, 1);
+  assert.equal(batch.transfers.find((tr) => tr.carrierId === "org_b")!.error, "save_failed_before_payout");
+  assert.equal(app.store.ledgerLines.get("ll_a1")!.status, "PAID");
+  const saved = loadStoreFromDisk(file);
+  assert.equal(saved.ledgerLines.get("ll_a1")!.status, "PAID");
+  assert.equal(saved.ledgerLines.get("ll_b1")!.status, "ACCRUED");
+  assert.equal(saved.ledgerLines.get("ll_b1")!.payoutAttemptKey, undefined);
+  assert.ok(saved.payoutBatches.get(batch.id));
+
+  // The next run pays only B; A is not paid a second time.
+  await runScheduledPayouts({ store: app.store, runSerialized: app.runSerialized, persist: app.persist, nowUtcMs: CUTOFF + 60_000 });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1]!.body.fund_account_id, "fa_bbb");
+});
+
+test("RAZORPAYX: in the queue, a failed save after the payouts keeps their records in memory for the next writer to save", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "navig8r-payout-final-save-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "store.json");
+  const failingSaves = new Set<number>();
+  let saves = 0;
+  const app = await createApp({ dataFilePath: file, beforePersist: () => { if (failingSaves.has(++saves)) throw new Error("disk full"); } });
+  addOrg(app.store, "org_a", "fa_aaa");
+  addLine(app.store, "ll_a1", "org_a", 50000);
+
+  const { calls, restore } = mockFetch(() => ({ status: 200, json: { id: "pout_f", status: "processed" } }));
+  t.after(restore);
+
+  saves = 0;
+  failingSaves.add(2); // the save before the payout works; the save after the run fails
+  await assert.rejects(runScheduledPayouts({ store: app.store, runSerialized: app.runSerialized, persist: app.persist, nowUtcMs: CUTOFF }), /disk full/);
+  assert.equal(calls.length, 1);
+  assert.equal(app.store.ledgerLines.get("ll_a1")!.status, "PAID");
+  assert.equal([...app.store.payoutBatches.values()].filter((b) => b.lineIds.includes("ll_a1")).length, 1);
+
+  await app.runSerialized(() => app.persist()); // the next writer's save
+  assert.equal(loadStoreFromDisk(file).ledgerLines.get("ll_a1")!.status, "PAID");
+  await runScheduledPayouts({ store: app.store, runSerialized: app.runSerialized, persist: app.persist, nowUtcMs: CUTOFF + 60_000 });
+  assert.equal(calls.length, 1);
+});
+
+test("RAZORPAYX: the ops page's payout run also keeps a payout already sent when a later carrier's save fails", async (t) => {
+  const failingSaves = new Set<number>();
+  let saves = 0;
+  const f = await httpFixture(t, { beforePersist: () => { if (failingSaves.has(++saves)) throw new Error("disk full"); } });
+  process.env.PAYOUTS_MODE = "RAZORPAYX"; // the fixture sets bookkeeping
+  addOrg(f.store, "org_a", "fa_aaa");
+  addOrg(f.store, "org_b", "fa_bbb");
+  addLine(f.store, "ll_a1", "org_a", 50000);
+  addLine(f.store, "ll_b1", "org_b", 40000);
+
+  const original = globalThis.fetch;
+  const payoutCalls: string[] = [];
+  globalThis.fetch = (async (input: any, init?: any) => {
+    if (String(input).startsWith(f.base)) return original(input, init);
+    payoutCalls.push(JSON.parse(init.body).fund_account_id);
+    return new Response(JSON.stringify({ id: "pout_ops", status: "processed" }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = original; });
+
+  saves = 0;
+  failingSaves.add(2); // carrier A's save works and A is paid; carrier B's save fails
+  const response = await f.request("/payout-batches/run", "POST", {}, f.tokens.finance);
+  assert.equal(response.status, 200);
+  assert.deepEqual(payoutCalls, ["fa_aaa"]);
+  assert.equal(f.store.ledgerLines.get("ll_a1")!.status, "PAID");
+  assert.equal(loadStoreFromDisk(f.dataFilePath!).ledgerLines.get("ll_a1")!.status, "PAID");
 });
