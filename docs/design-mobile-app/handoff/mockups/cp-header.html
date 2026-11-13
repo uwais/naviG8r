@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Header and account menu</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 760px; height: 640px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Header</h1>
+    <p class="lead" style="max-width: 620px;">Company as the title, person and role under it. The whole block is one button that opens the account menu (switch company, sign out). No other icons in the header.</p>
+  </div>
+  <div class="spec-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+    <div class="spec-cell"><p class="spec-tag">Tab screen · default</p>
+      <div style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><div class="hdr"><button class="hdr-who-btn" type="button"><span class="hdr-text"><span class="hdr-co">Sharma Textiles</span><span class="hdr-sub">Priya Raman · Shipper</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div></div></div>
+    <div class="spec-cell"><p class="spec-tag">Pressed</p>
+      <div style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><div class="hdr"><button class="hdr-who-btn" type="button" style="background: var(--sunken);"><span class="hdr-text"><span class="hdr-co">Sharma Textiles</span><span class="hdr-sub">Priya Raman · Shipper</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div></div></div>
+    <div class="spec-cell"><p class="spec-tag">Keyboard focus</p>
+      <div style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden; padding: 2px;"><div class="hdr"><button class="hdr-who-btn is-focus" type="button"><span class="hdr-text"><span class="hdr-co">Ravi Roadways</span><span class="hdr-sub">Meena Rao · Dispatcher</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div></div></div>
+    <div class="spec-cell"><p class="spec-tag">Long name · truncates, full name read aloud</p>
+      <div style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden; width: 320px;"><div class="hdr"><button class="hdr-who-btn" type="button"><span class="hdr-text"><span class="hdr-co">Sri Venkateshwara Transport Corporation</span><span class="hdr-sub">Lakshmi Venkataraman · Owner</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div></div></div>
+    <div class="spec-cell"><p class="spec-tag">Detail screen · back plus company</p>
+      <div style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><div class="hdr"><button class="hdr-back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Shipments</button><button class="hdr-who-btn" type="button"><span class="hdr-text"><span class="hdr-co">Sharma Textiles</span><span class="hdr-sub">Priya Raman · Shipper</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div></div></div>
+    <div class="spec-cell"><p class="spec-tag">Driver task screen · back plus task name</p>
+      <div style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><div class="hdr"><button class="hdr-back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Trip</button><span class="hdr-title">E-way bills</span></div></div></div>
+  </div>
+  <p class="cap">Removed from every header: organisation drop-down, refresh icon, sign-out icon, the round avatar. Pull down to refresh. Signed out: no header and no tabs, only the start screen.</p>
+</div>
+
+</body>
+</html>

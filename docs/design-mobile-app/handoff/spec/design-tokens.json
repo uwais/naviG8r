@@ -1,0 +1,362 @@
+{
+  "name": "NaviG8r",
+  "version": 1,
+  "meta": {
+    "source": "github",
+    "repo": "uwais/naviG8r",
+    "ref": "main@b4d8d6d",
+    "paths": {
+      "tokens": [
+        "apps/www/public/brand/logo-horizontal-light.svg",
+        "apps/driver_pilot/lib/driver_theme.dart",
+        "apps/www/src/styles.css"
+      ],
+      "assets": [
+        "apps/www/public/brand/"
+      ],
+      "docs": [
+        "apps/www/public/brand/README.md",
+        "docs/CLAUDE-DESIGN-BRIEF-ops-console.md"
+      ]
+    },
+    "synced": "2026-09-28",
+    "note": "Brand colours are the official logo's exact values. Neutrals follow the team rule of a warm off-white page and warm near-black text. Status colours were added for plain-word status labels. Contrast ratios in usage notes were computed by hand with the WCAG 2 formula.",
+    "handoffNote": "Copied from the NaviG8r design system (https://claude.ai/artifact/Y5Y3QwE9ZRBB4XuHLN2YXD) on 2026-10-17. 'additions' are proposed by the mobile redesign and are not yet in the system."
+  },
+  "color": {
+    "themes": [
+      {
+        "id": "light",
+        "name": "Light"
+      }
+    ],
+    "tokens": [
+      {
+        "name": "navy",
+        "value": "#16233d",
+        "usage": "Brand navy, from the logo badge. Primary buttons, selected chips, the app bar title, links and the focus ring. White on navy is 15.6:1; navy on page is 14.6:1."
+      },
+      {
+        "name": "navy-ink",
+        "value": "#131f35",
+        "usage": "The wordmark's navy. Headings and screen titles on page and card (about 15:1)."
+      },
+      {
+        "name": "navy-deep",
+        "value": "#0d1524",
+        "usage": "The logo badge's darker end. Dark plates behind the light logo and the deepest brand block. Never behind body text on light screens."
+      },
+      {
+        "name": "gold",
+        "value": "#e8a33d",
+        "usage": "Brand gold, from the logo pin. Marks, icons and highlights on navy (7.3:1). Never as text or a thin mark on page or card: it is 2.0:1 there."
+      },
+      {
+        "name": "gold-deep",
+        "value": "#dc922c",
+        "usage": "The gold of 'G8' in the wordmark. Large brand moments only (the wordmark, the cover). Not for text on light grounds."
+      },
+      {
+        "name": "slate",
+        "value": "#5b6b87",
+        "usage": "The logo tagline's slate. Secondary text, captions, unselected navigation labels: 5.0:1 on page, 5.4:1 on card, 4.6:1 on sunken."
+      },
+      {
+        "name": "page",
+        "value": "#f8f7f2",
+        "usage": "Warm off-white page background for every screen. Never pure white for a page."
+      },
+      {
+        "name": "card",
+        "value": "#ffffff",
+        "usage": "Raised surfaces only: cards, text fields, the bottom navigation bar, secondary buttons."
+      },
+      {
+        "name": "sunken",
+        "value": "#f0eee6",
+        "usage": "Recessed bands: table header rows, read-only fields, disabled controls."
+      },
+      {
+        "name": "line",
+        "value": "#e4dfd3",
+        "usage": "Card and divider borders that only group content. Decorative: it does not meet 3:1 and must never be the only thing that identifies a control."
+      },
+      {
+        "name": "control-border",
+        "value": "#8a8175",
+        "usage": "Borders that identify a control: text fields, secondary buttons, checkboxes. 3.6:1 on page, 3.8:1 on card."
+      },
+      {
+        "name": "ink",
+        "value": "#2b2620",
+        "usage": "Body text on page, card and sunken: 14.0:1 on page, 15.0:1 on card."
+      },
+      {
+        "name": "on-navy",
+        "value": "{card}",
+        "usage": "Text and icons on a navy fill (15.6:1)."
+      },
+      {
+        "name": "focus",
+        "value": "{navy}",
+        "usage": "Keyboard focus ring: 2px solid, 2px offset, on every interactive element. 14.6:1 on page."
+      },
+      {
+        "name": "nav-indicator",
+        "value": "#16233d1f",
+        "usage": "Navy at 12%: the pill behind the selected bottom-navigation icon, as the app draws it today."
+      },
+      {
+        "name": "good",
+        "value": "#1b6a35",
+        "usage": "Text of a good status (Approved, Delivered, Paid): 5.6:1 on good-tint, 6.2:1 on page. Always with a word, never colour alone."
+      },
+      {
+        "name": "good-tint",
+        "value": "#def0e2",
+        "usage": "Background of a good status label."
+      },
+      {
+        "name": "attention",
+        "value": "#845400",
+        "usage": "Text of a status that needs someone to act (Waiting for review, Payment held): 5.7:1 on attention-tint, 6.0:1 on page."
+      },
+      {
+        "name": "attention-tint",
+        "value": "#fcf0d4",
+        "usage": "Background of an attention status label."
+      },
+      {
+        "name": "problem",
+        "value": "#9b2c1f",
+        "usage": "Text and border of a problem status, errors and destructive buttons (Reject): 6.0:1 on problem-tint, 7.1:1 on page, 7.6:1 on card."
+      },
+      {
+        "name": "problem-tint",
+        "value": "#f7e1dc",
+        "usage": "Background of a problem status label and of an inline error message."
+      },
+      {
+        "name": "info-tint",
+        "value": "#e6e9ef",
+        "usage": "Background of a neutral in-progress status label (In transit, Submitted); its text is navy (12.9:1)."
+      }
+    ]
+  },
+  "type": {
+    "families": {
+      "display": "\"Poppins\", \"Manrope\", system-ui, sans-serif",
+      "body": "\"Manrope\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
+      "mono": "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace"
+    },
+    "groups": [
+      {
+        "name": "Display",
+        "family": "display",
+        "styles": [
+          {
+            "name": "display",
+            "fontSize": "32px",
+            "lineHeight": "38px",
+            "fontWeight": 700,
+            "sample": "Loads for this week",
+            "usage": "One per page at most: the ops console page title, marketing headings."
+          },
+          {
+            "name": "title",
+            "fontSize": "26px",
+            "lineHeight": "32px",
+            "fontWeight": 700,
+            "sample": "Payout method",
+            "usage": "App screen titles in the app bar (the app's 26px bold today)."
+          },
+          {
+            "name": "heading",
+            "fontSize": "18px",
+            "lineHeight": "24px",
+            "fontWeight": 600,
+            "sample": "Carriers waiting for approval",
+            "usage": "Section and card headings."
+          }
+        ]
+      },
+      {
+        "name": "Text",
+        "family": "body",
+        "styles": [
+          {
+            "name": "body",
+            "fontSize": "15px",
+            "lineHeight": "22px",
+            "fontWeight": 400,
+            "sample": "Bank details received. This carrier is waiting for NaviG8r operations to review it.",
+            "usage": "Running text, banners, table cells."
+          },
+          {
+            "name": "body-strong",
+            "fontSize": "15px",
+            "lineHeight": "22px",
+            "fontWeight": 600,
+            "sample": "Synthetic Carrier B",
+            "usage": "Names and values that lead a row or card; button labels."
+          },
+          {
+            "name": "caption",
+            "fontSize": "13px",
+            "lineHeight": "18px",
+            "fontWeight": 400,
+            "sample": "Joined 26 Sep 2026 · carrier-b",
+            "usage": "Metadata, timestamps, helper text under fields."
+          },
+          {
+            "name": "label",
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "fontWeight": 600,
+            "letterSpacing": "0.08em",
+            "sample": "NOT YET APPROVED",
+            "usage": "Short uppercase labels above groups, in slate; echoes the logo tagline's spaced capitals."
+          },
+          {
+            "name": "nav-label",
+            "fontSize": "11px",
+            "lineHeight": "14px",
+            "fontWeight": 600,
+            "sample": "Loads",
+            "usage": "Bottom navigation labels (the app's 11px today); selected in navy, others in slate."
+          }
+        ]
+      },
+      {
+        "name": "Data",
+        "family": "mono",
+        "styles": [
+          {
+            "name": "id",
+            "fontSize": "13px",
+            "lineHeight": "18px",
+            "fontWeight": 400,
+            "sample": "org_6e3d206870bde8",
+            "usage": "IDs people copy or compare. Money and weights stay in the body face with tabular figures."
+          }
+        ]
+      }
+    ]
+  },
+  "spacing": {
+    "tokens": [
+      {
+        "name": "space-1",
+        "value": "4px",
+        "usage": "Icon-to-label gaps, tight inline spacing."
+      },
+      {
+        "name": "space-2",
+        "value": "8px",
+        "usage": "Between a status label and its row; list item padding."
+      },
+      {
+        "name": "space-3",
+        "value": "12px",
+        "usage": "Banner padding in the app; gap between buttons."
+      },
+      {
+        "name": "space-4",
+        "value": "16px",
+        "usage": "Card padding; the side gutter at every width."
+      },
+      {
+        "name": "space-5",
+        "value": "20px",
+        "usage": "Form screen padding in the app."
+      },
+      {
+        "name": "space-6",
+        "value": "24px",
+        "usage": "Between sections."
+      },
+      {
+        "name": "space-8",
+        "value": "32px",
+        "usage": "Between major page regions."
+      },
+      {
+        "name": "space-12",
+        "value": "48px",
+        "usage": "Top of a page, marketing section breaks."
+      }
+    ]
+  },
+  "radius": {
+    "tokens": [
+      {
+        "name": "radius-sm",
+        "value": "8px",
+        "usage": "Status labels and small tags."
+      },
+      {
+        "name": "radius-button",
+        "value": "12px",
+        "usage": "Buttons (the app's filled and outlined buttons today)."
+      },
+      {
+        "name": "radius-input",
+        "value": "14px",
+        "usage": "Text fields (the app's input fields today)."
+      },
+      {
+        "name": "radius-card",
+        "value": "16px",
+        "usage": "Cards (the app's cards today)."
+      },
+      {
+        "name": "radius-pill",
+        "value": "20px",
+        "usage": "Filter chips and the navigation indicator (the app's chips today)."
+      }
+    ]
+  },
+  "additions": {
+    "color": [
+      {
+        "name": "scrim",
+        "value": "#131f3573",
+        "usage": "Dims the screen under a bottom sheet. White sheet vs dimmed page about 3.0:1. Never behind text."
+      }
+    ],
+    "type": [
+      {
+        "name": "id-display",
+        "family": "mono",
+        "fontSize": "30px",
+        "lineHeight": "38px",
+        "fontWeight": 600,
+        "usage": "E-way bill numbers on the driver check-post screen. navy-ink on card about 15:1."
+      }
+    ],
+    "size": [
+      {
+        "name": "target-min",
+        "value": "48dp",
+        "usage": "Minimum tap target everywhere in the app (system says 44; brief requires 48)."
+      },
+      {
+        "name": "target-driver",
+        "value": "56dp",
+        "usage": "Primary driver actions."
+      }
+    ],
+    "pairing": [
+      {
+        "name": "on-good",
+        "value": "card on good",
+        "usage": "Short 'Saved' confirmation on a button, about 6.6:1."
+      },
+      {
+        "name": "status-ended",
+        "value": "ink on sunken",
+        "usage": "Status labels for Full, Done, Cancelled (14:1). No new colour."
+      }
+    ]
+  }
+}

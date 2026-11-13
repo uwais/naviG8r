@@ -4,14 +4,14 @@
 #   BASE_URL=https://navig8r.onrender.com bash scripts/test-erp-integration.sh
 #   BASE_URL=http://127.0.0.1:3000 bash scripts/test-erp-integration.sh
 #
-# Requires: curl, jq (optional but recommended for pretty output)
+# Requires: curl 7.76 or later, jq (optional but recommended for pretty output)
+# Every request uses curl --fail-with-body, so any non-2xx reply stops the script.
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:3000}"
 BASE_URL="${BASE_URL%/}"
 PHONE="${ERP_TEST_PHONE:-9111009900}"
 CARRIER_PHONE="${ERP_TEST_CARRIER_PHONE:-9876549900}"
-OTP_CODE="${OTP_FIXED_CODE:-123456}"
 USE_OTP_DEBUG="${OTP_DEBUG:-1}"
 
 echo "==> ERP integration smoke test"
@@ -35,7 +35,7 @@ post_json() {
   local path="$1"
   local body="$2"
   shift 2
-  curl -sS -X POST "${BASE_URL}${path}" \
+  curl -sS --fail-with-body -X POST "${BASE_URL}${path}" \
     -H "content-type: application/json" \
     "$@" \
     -d "$body"
@@ -45,14 +45,16 @@ patch_json() {
   local path="$1"
   local body="$2"
   shift 2
-  curl -sS -X PATCH "${BASE_URL}${path}" \
+  curl -sS --fail-with-body -X PATCH "${BASE_URL}${path}" \
     -H "content-type: application/json" \
     "$@" \
     -d "$body"
 }
 
 get_auth() {
-  curl -sS "${BASE_URL}$1" "$@"
+  local path="$1"
+  shift
+  curl -sS --fail-with-body "${BASE_URL}${path}" "$@"
 }
 
 echo "==> 1. Register customer org (admin)"
@@ -71,10 +73,8 @@ echo "==> 2. OTP sign-in (OTP_DEBUG=$USE_OTP_DEBUG)"
 START=$(post_json "/v1/auth/otp/start" "{\"phone\":\"$PHONE\"}")
 CHALLENGE=$(echo "$START" | json_field '.challengeId // empty')
 DEBUG_CODE=$(echo "$START" | json_field '.debugCode // empty')
-CODE="$OTP_CODE"
-if [ -n "$DEBUG_CODE" ] && [ "$DEBUG_CODE" != "null" ]; then
-  CODE="$DEBUG_CODE"
-fi
+CODE="$DEBUG_CODE"
+if [ -z "$CODE" ] || [ "$CODE" = "null" ]; then echo "OTP start did not return debugCode; enable OTP_DEBUG=1 on the synthetic test server." >&2; exit 1; fi
 VERIFY=$(post_json "/v1/auth/otp/verify" "$(cat <<EOF
 {"phone":"$PHONE","challengeId":"$CHALLENGE","code":"$CODE"}
 EOF
@@ -104,10 +104,8 @@ EOF
 CARRIER_START=$(post_json "/v1/auth/otp/start" "{\"phone\":\"$CARRIER_PHONE\"}")
 CARRIER_CHALLENGE=$(echo "$CARRIER_START" | json_field '.challengeId // empty')
 CARRIER_DEBUG=$(echo "$CARRIER_START" | json_field '.debugCode // empty')
-CARRIER_CODE="$OTP_CODE"
-if [ -n "$CARRIER_DEBUG" ] && [ "$CARRIER_DEBUG" != "null" ]; then
-  CARRIER_CODE="$CARRIER_DEBUG"
-fi
+CARRIER_CODE="$CARRIER_DEBUG"
+if [ -z "$CARRIER_CODE" ] || [ "$CARRIER_CODE" = "null" ]; then echo "Carrier OTP start did not return debugCode; enable OTP_DEBUG=1 on the synthetic test server." >&2; exit 1; fi
 CARRIER_VERIFY=$(post_json "/v1/auth/otp/verify" "$(cat <<EOF
 {"phone":"$CARRIER_PHONE","challengeId":"$CARRIER_CHALLENGE","code":"$CARRIER_CODE"}
 EOF
@@ -145,7 +143,7 @@ fi
 echo "    integrationToken=(ok)"
 
 patch_json "/v1/pilot/customer/integrations/connection?orgId=$ORG_ID" \
-  '{"paymentPolicy":"erp_preauthorized","webhookUrl":"https://example.com/erp-webhook"}' \
+  '{"webhookUrl":"https://example.com/erp-webhook"}' \
   -H "authorization: Bearer $ACCESS" >/dev/null
 
 echo "==> 5. POST /v1/integrations/loads"

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Publish a trip</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="scr">
+  <header class="hdr">
+    <a class="hdr-who-btn" href="c-menu.dc.html" aria-haspopup="dialog" aria-label="Ravi Roadways, Ravi Shetty, Owner. Switch company or sign out"><span class="hdr-text"><span class="hdr-co">Ravi Roadways</span><span class="hdr-sub">Ravi Shetty · Owner</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a>
+  </header>
+  <main class="body body--tight" aria-labelledby="h">
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <h1 id="h" class="h1">Publish a trip</h1>
+      <p class="cap-ink">Shippers can book space on it once it is published.</p>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+      <div class="field"><label class="field-label" for="f">From</label><div class="input"><input id="f" value="Chennai" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 400 16px/24px var(--font-body);"></div></div>
+      <div class="field"><label class="field-label" for="t">To</label><div class="input"><input id="t" value="Bengaluru" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 400 16px/24px var(--font-body);"></div></div>
+      <div class="field"><span class="field-label" id="ds">Leaves</span><button class="input" type="button" aria-labelledby="ds dsv" style="text-align: left; cursor: pointer;"><span id="dsv">20 Oct</span></button></div>
+      <div class="field"><span class="field-label" id="de">Arrives by</span><button class="input" type="button" aria-labelledby="de dev" style="text-align: left; cursor: pointer;"><span id="dev">21 Oct</span></button></div>
+    </div>
+    <fieldset class="field" style="border: 0; padding: 0; margin: 0;">
+      <legend class="field-label" style="padding: 0; margin-bottom: 6px;">Truck size</legend>
+      <div class="chips" role="radiogroup">
+        <button class="chip" type="button" role="radio" aria-checked="false">Small</button>
+        <button class="chip on" type="button" role="radio" aria-checked="true">Medium</button>
+        <button class="chip" type="button" role="radio" aria-checked="false">Large</button>
+      </div>
+    </fieldset>
+    <div class="field">
+      <label class="field-label" for="c">Room for shippers</label>
+      <div class="input"><input id="c" inputmode="decimal" value="1000" aria-describedby="c-h" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 400 16px/24px var(--font-body);"><span class="suffix">kg</span></div>
+      <p id="c-h" class="help">The weight you can carry for shippers on this trip.</p>
+    </div>
+    <p class="cap">You choose the truck when you accept the first booking.</p>
+  </main>
+  <div class="actionbar">
+    <button class="btn btn-primary btn-full" type="button">Publish trip</button>
+  </div>
+  <nav class="nav" aria-label="Main">
+    <a class="tab" href="ca-home.dc.html"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg></span>Home</a>
+    <a class="tab" href="ca-bookings.dc.html"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg></span>Bookings</a>
+    <a class="tab" href="ca-trips.dc.html"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17" r="1.6"/><circle cx="17" cy="17" r="1.6"/></svg></span>Trips</a>
+    <a class="tab" aria-current="page" href="ca-publish.dc.html"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>Publish</a>
+    <a class="tab" href="ca-profile.dc.html"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></span>Profile</a>
+  </nav>
+</div>
+
+</body>
+</html>

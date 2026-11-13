@@ -27,7 +27,7 @@ Open:
 
 ## 2. Sign in with synthetic accounts
 
-Enter the phone, click **Send code**, enter **123456**, then click **Sign in**. No SMS is sent. Use **Sign out** before changing accounts. Separate browser profiles let you keep different users signed in at the same time.
+Enter the phone, click **Send code**, then enter the generated `debugCode` returned by the API before clicking **Sign in**. With `OTP_DEBUG=1`, each request gets a new random six-digit code and no SMS is sent. Use **Sign out** before changing accounts. Separate browser profiles let you keep different users signed in at the same time.
 
 | Account | Phone | User ID | Organization | Effective role |
 |---|---|---|---|---|
@@ -41,6 +41,7 @@ Enter the phone, click **Send code**, enter **123456**, then click **Sign in**. 
 | Dual membership | 8000000008 | user-dual | shipper-a / platform | SHIPPER / FINANCE |
 | Carrier A driver | 8000000009 | user-driver | carrier-a | CARRIER, DRIVER subrole |
 | Shipper A member | 8000000010 | user-member | shipper-a | SHIPPER, CUSTOMER_MEMBER subrole |
+| Carrier A second driver | 8000000013 | user-driver-b | carrier-a | CARRIER, DRIVER subrole |
 
 Seeded shipments:
 
@@ -148,7 +149,7 @@ await rbacCall('/v1/pilot/carrier/payout-setup', 'POST', { orgId: 'carrier-a' })
 1. As **Finance**, confirm the hold blocks `load-a-hold` (step 4).
 2. Sign in as **Shipper A** and click **Accept POD** on `load-a-hold`.
 3. Sign in as **Finance** again. Its release button should now be enabled.
-4. Click **Release payment**. The shipment leaves the pending-release list.
+4. Click **Release payment**. Nothing is sent yet: the row asks "Release payment for …? ₹… is credited to Synthetic Carrier A's ledger and paid out in the payout batch, not sent now." Click **Cancel** once and check the shipment is still listed, then click **Release payment** and **Confirm release**. The shipment leaves the pending-release list and the page says "Payment released for shipment load-a-hold: ₹… credited to Synthetic Carrier A's ledger."
 5. As Finance, verify:
 
 ```js
@@ -158,14 +159,25 @@ await rbacCall('/ops/shipments/load-a-hold/release', 'POST', {}); // rejected; n
 
 `load-a-expired` lets Finance exercise the expired 48-hour hold without waiting or obtaining acceptance. Release it only after completing the negative Ops check above.
 
-To exercise a new upload, sign in as **Carrier A**:
+To exercise a new upload, sign in as **Carrier A**. A carrier login confirms delivery only after at least one photo is sent, so send a photo first. `rbacCall` sends JSON, so the photo goes with `fetch`; these 16 bytes are the smallest file the server reads as a JPEG:
 
 ```js
+const photo = new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0x00, 0x08, 1, 1, 0, 0, 0x3f, 0, 0x11, 0x11, 0xff, 0xd9]);
+await fetch('/v1/shipments/load-a-booked/pod-photos', {
+  method: 'POST',
+  headers: {
+    'content-type': 'image/jpeg',
+    authorization: `Bearer ${sessionStorage.getItem('navig8r_access')}`,
+    'x-organization-id': document.getElementById('organization').value,
+  },
+  body: photo,
+}).then((response) => response.json());
+// 201 { photo: { id, contentType, uploadedAtUtcMs } }; without a photo, driver-pod below answers 409 pod_photo_required.
 await rbacCall('/shipments/load-a-booked/driver-pod', 'POST', { notes: 'Synthetic POD test' });
 // 200, PENDING_RELEASE; a new 48-hour hold begins.
 ```
 
-POD here records a delivery transition; raw document upload/storage and dispute management are outside this approved scope. Payment release uses MOCK and moves no money. Settlement remains subject to the existing payout schedule; the manual launcher does not run background payouts.
+Proof of delivery photos are in scope (owner, 22 Oct 2026): one to three per shipment, JPEG, PNG or WebP up to 1.5 MB each, sent to `POST /v1/shipments/:id/pod-photos`, read with `GET /v1/shipments/:id/pod-photos/:photoId` by the shipment's shipper, its carrier, the trip's driver and NaviG8r staff (anyone else gets 404), and removable with `DELETE` until delivery is confirmed. The server reads up to four uploads at once and one per sign-in; an upload past either limit answers `503 busy_try_again`. The server removes location data from each photo and stores the file on its own disk beside the data file, in `pod-photos/<shipmentId>/`; the data file keeps only which photos there are. Photos are kept for 6 months, the same as e-way bills; the job that deletes them after that is not built yet, so nothing is deleted today. Ops confirming delivery for a carrier still needs no photo, because that was not decided. Other document upload and dispute management remain outside this approved scope. Payment release uses MOCK and moves no money. Settlement remains subject to the existing payout schedule; the manual launcher does not run background payouts.
 
 ## 6. Verify independent compliance approval
 
@@ -237,12 +249,12 @@ cd /Users/sundeepperchani/workspace/NaviG8r/naviG8r-rbac/apps/driver_pilot
 flutter run -d chrome --web-port=8080 --dart-define=API_BASE_URL=http://127.0.0.1:3139
 ```
 
-Open <http://localhost:8080/#/customer/login>. Enable Chrome's device toolbar and choose a 390-pixel-wide phone viewport. OTP is `123456` for every synthetic account.
+Open <http://localhost:8080/#/customer/login>. Enable Chrome's device toolbar and choose a 390-pixel-wide phone viewport. With `OTP_DEBUG=1`, use the generated `debugCode` from that account's latest OTP start response.
 
 1. Sign in as Shipper A (`8000000001`). The top selector displays Synthetic Shipper A. Open Shipments and a pending-release shipment. The screen shows the hold deadline; Accept delivery requires confirmation. Accepting changes the status to Delivery accepted and makes the shipment ready for Finance review, without releasing funds automatically. Booking and delivery acceptance never grant Finance permissions.
 2. Open <http://localhost:8080/#/customer/shipments/load-b-pending> while still Shipper A. The app must show an unavailable-record message and no other customer's shipment data.
 3. Sign out using the top toolbar. Sign in as dual membership (`8000000008`). Select an organization explicitly. Synthetic Shipper A opens the shipper workspace. Switch to Synthetic NaviG8r Internal: the shipper screens disappear and the app directs Finance work to the operations portal. Switch back to restore only shipper permissions. A page reload requires choosing the organization again; the selection is intentionally kept in memory, not shared between browser tabs.
-4. Sign in as carrier owner (`8000000003`). Open Profile > Earnings & payouts. Manage payout method is available. Sign out and repeat with driver (`8000000009`): that button is absent. Opening <http://localhost:8080/#/driver/payout-setup> as the driver redirects away without rendering bank fields.
+4. Sign in as carrier owner (`8000000003`). Open Profile > Earnings & payouts. Manage payout method is available. Sign out and repeat with driver (`8000000009`): Profile has no Earnings & payouts at all, because a driver never sees carrier earnings. Opening <http://localhost:8080/#/driver/earnings> or <http://localhost:8080/#/driver/payout-setup> as the driver redirects away without rendering amounts or bank fields.
 5. Sign in as Carrier B (`8000000004`). The compliance banner explains that Operations approval is pending. Accept and Start controls are unavailable. Approve Carrier B with the Operations account in `/ops`, then tap Refresh access in the mobile toolbar; the compliance block clears. Bank setup is separate from compliance approval.
 6. In another browser context, sign in as Admin in `/ops` and remove a mobile user's roles. Tap Refresh access in the mobile app. Existing data and actions disappear. Restore the roles and refresh again. API denials also trigger a session refresh; returning the app from the background refreshes access.
 
@@ -252,7 +264,7 @@ For an Android emulator, replace the launch command with:
 flutter run -d <emulator-id> --dart-define=API_BASE_URL=http://10.0.2.2:3139
 ```
 
-The synthetic data does not include complete vehicle/driver profiles. Vehicle editing and full GPS trips require additional synthetic registration fixtures. The operations portal uses its own login; mobile tokens are not copied into portal URLs.
+The seed has vehicle and driver profiles for the two carrier A drivers only: 8000000009 with truck KA01AB1234 and 8000000013 with KA02XY9999. Each truck is named on an open trip, so either driver's Save vehicle on Profile is refused until that trip completes or the owner names another truck on it. The owner (8000000003) has no driver profile, so vehicle editing as an owner needs a solo carrier registered in the app. The seeded trips have no map pins. The operations portal uses its own login; mobile tokens are not copied into portal URLs.
 
 ## 11. Automated mobile checks
 
@@ -271,3 +283,7 @@ npx playwright test --config=playwright.mobile.config.ts
 ```
 
 The browser harness creates a fresh synthetic API on port 3140 and serves the compiled Flutter app on port 8087, leaving a manual server on port 3139 alone. It blocks external provider requests. The harness uses installed Chrome on macOS when available, otherwise Playwright Chromium; `RBAC_BROWSER_CHANNEL` can override this selection. Install the selected browser if it is unavailable. Results are written under `/private/tmp/navig8r-mobile-rbac-results`.
+
+## Full dashboard V1 and compact V2
+
+See [the dashboard test guide](admin-ops-dashboard-testing.md) for versioned routes, synthetic accounts, restored action workflows, role assignments, browser screenshots and database round-trip checks. Existing `/admin`, `/ops` and `/workflow` remain available.

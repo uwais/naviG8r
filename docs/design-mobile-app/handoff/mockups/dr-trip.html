@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Driver: on the way, next stop</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="scr">
+  <header class="hdr">
+    <a class="hdr-back" href="dr-today.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Today</a>
+    <span class="hdr-title">Bengaluru to Chennai</span>
+  </header>
+  <main class="body body--tight">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+      <span class="st st-info">In transit</span>
+      <span class="mono" style="font-size: 15px; color: var(--ink);">KA01AB1234</span>
+    </div>
+    <a class="btn btn-secondary btn-full" href="dr-ewb.dc.html" style="min-height: 56px; font-size: 16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg>Show e-way bills</a>
+    <section class="card" style="border-color: var(--navy); gap: 12px;" aria-labelledby="ns">
+      <p class="label">Next stop · Drop 1 of 3</p>
+      <h1 id="ns" class="h1">Guindy, Chennai</h1>
+      <p class="cap-ink">Sharma Textiles · 80 kg</p>
+      <a class="btn btn-primary btn-full" href="#" style="min-height: 56px; font-size: 16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0114 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Directions</a>
+      <a class="btn btn-secondary btn-full" href="dr-confirm.dc.html" style="min-height: 56px; font-size: 16px;">I am here: confirm delivery</a>
+    </section>
+    <section aria-labelledby="stops" style="display: flex; flex-direction: column; gap: 8px;">
+      <h2 id="stops" class="h2">All stops</h2>
+      <ol class="steps">
+        <li class="step done" style="padding-bottom: 8px;"><span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><div class="step-main"><p class="step-title"><span class="sr">Done: </span>3 pickups in Bengaluru</p></div></li>
+        <li class="step now" style="padding-bottom: 8px;"><span class="mk">1</span><div class="step-main"><p class="step-title"><span class="sr">Next: </span>Guindy · Sharma Textiles</p></div></li>
+        <li class="step later" style="padding-bottom: 8px;"><span class="mk">2</span><div class="step-main"><p class="step-title">Ambattur · Lakshmi Foods</p></div></li>
+        <li class="step later"><span class="mk">3</span><div class="step-main"><p class="step-title">Tambaram · Mehta Hardware</p></div></li>
+      </ol>
+    </section>
+  </main>
+</div>
+
+</body>
+</html>

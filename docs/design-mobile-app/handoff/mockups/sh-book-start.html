@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Book: get the price</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="scr">
+  <header class="hdr">
+    <a class="hdr-back" href="sh-lanes-match.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Lanes</a>
+    <a class="hdr-who-btn" href="c-menu.dc.html" aria-haspopup="dialog" aria-label="Sharma Textiles, Priya Raman, Shipper. Switch company or sign out"><span class="hdr-text"><span class="hdr-co">Sharma Textiles</span><span class="hdr-sub">Priya Raman · Shipper</span></span><svg class="hdr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a>
+  </header>
+  <main class="body body--tight" aria-labelledby="h">
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <h1 id="h" class="h1">Book space</h1>
+      <p class="cap-ink">Check the price, then pay.</p>
+    </div>
+    <section class="card" style="gap: 6px; padding: 12px 16px;" aria-label="The lane">
+      <p class="route-from">Bengaluru <span class="route-arrow">to</span> Chennai</p>
+      <p class="cap">Ravi Roadways · 18 – 19 Oct · <span class="strong" style="color: var(--ink);">Room left: 105 kg</span></p>
+    </section>
+    <div class="field">
+      <label class="field-label" for="w">Weight</label>
+      <div class="input"><input id="w" inputmode="decimal" value="80" aria-describedby="w-h" style="border: 0; outline: 0; background: none; flex: 1; min-width: 0; font: 400 16px/24px var(--font-body);"><span class="suffix">kg</span></div>
+      <p id="w-h" class="help">Up to 105 kg on this lane.</p>
+    </div>
+    <div class="field">
+      <span class="field-label" id="pk">Pickup</span>
+      <button class="input" type="button" aria-labelledby="pk pk-v" style="cursor: pointer; text-align: left;"><span id="pk-v" style="flex: 1;">Bommasandra, Bengaluru</span><span class="suffix" style="color: var(--navy); font-weight: 600;">Change</span></button>
+    </div>
+    <div class="field">
+      <span class="field-label" id="dp">Drop</span>
+      <button class="input" type="button" aria-labelledby="dp dp-v" style="cursor: pointer; text-align: left;"><span id="dp-v" style="flex: 1;">Guindy, Chennai</span><span class="suffix" style="color: var(--navy); font-weight: 600;">Change</span></button>
+    </div>
+    <div class="map" style="height: 112px;" role="img" aria-label="Map: pickup in Bommasandra, Bengaluru; drop in Guindy, Chennai">
+      <svg class="map-art" viewBox="0 0 328 112" preserveAspectRatio="none" aria-hidden="true"><path d="M0 70 C60 60 90 90 150 72 S260 40 328 52" stroke="#d9d4c7" stroke-width="10" fill="none"/><path d="M40 0 L70 112 M200 0 L180 112" stroke="#e1ddd1" stroke-width="6"/><path d="M52 74 C110 70 170 30 274 46" stroke="#16233d" stroke-width="2.5" stroke-dasharray="4 5" fill="none"/><circle cx="52" cy="74" r="7" fill="#16233d"/><circle cx="274" cy="46" r="7" fill="#e8a33d" stroke="#16233d" stroke-width="2"/></svg>
+      <span class="map-chip">Pickup and drop</span>
+    </div>
+  </main>
+  <div class="actionbar">
+    <button class="btn btn-primary btn-full" type="button">Get price</button>
+  </div>
+</div>
+
+</body>
+</html>

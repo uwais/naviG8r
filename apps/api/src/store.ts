@@ -2,6 +2,10 @@ import type { AuditEvent, Role } from "./rbac.ts";
 import type {
   AnchorTrip,
   AuthSession,
+  Conversation,
+  ConversationEscalationGrant,
+  ConversationMessage,
+  ConversationReadState,
   Carrier,
   DriverProfile,
   IntegrationApiKey,
@@ -11,22 +15,29 @@ import type {
   IntegrationWebhookDelivery,
   LedgerLine,
   Membership,
+  Notification,
   Organization,
   OtpChallenge,
   PayoutBatch,
   Payment,
+  PushDevice,
+  PushIntent,
+  PushDelivery,
   Shipment,
   User,
+  FirebaseIdentity,
   Vehicle,
 } from "./types.ts";
 
 export type Store = {
-  version: 5;
+  version: 7;
+  notificationSequence: number;
   membershipRoles: Map<string, Role[]>;
   auditEvents: Map<string, AuditEvent>;
   carriers: Map<string, Carrier>;
   organizations: Map<string, Organization>;
   users: Map<string, User>;
+  firebaseIdentities: Map<string, FirebaseIdentity>;
   memberships: Map<string, Membership>; // key: `${userId}:${orgId}`
   vehicles: Map<string, Vehicle>;
   driverProfiles: Map<string, DriverProfile>; // key: userId (pilot assumes one profile per user)
@@ -42,16 +53,26 @@ export type Store = {
   integrationIdempotency: Map<string, IntegrationIdempotencyRecord>;
   integrationEvents: Map<string, IntegrationEvent>;
   integrationWebhookDeliveries: Map<string, IntegrationWebhookDelivery>;
+  conversations: Map<string, Conversation>;
+  conversationMessages: Map<string, ConversationMessage>;
+  conversationReadStates: Map<string, ConversationReadState>;
+  notifications: Map<string, Notification>;
+  conversationEscalationGrants: Map<string, ConversationEscalationGrant>;
+  pushDevices: Map<string, PushDevice>;
+  pushIntents: Map<string, PushIntent>;
+  pushDeliveries: Map<string, PushDelivery>;
 };
 
 export function createStore(): Store {
   return {
-    version: 5,
+    version: 7,
+    notificationSequence: 0,
     membershipRoles: new Map(),
     auditEvents: new Map(),
     carriers: new Map(),
     organizations: new Map(),
     users: new Map(),
+    firebaseIdentities: new Map(),
     memberships: new Map(),
     vehicles: new Map(),
     driverProfiles: new Map(),
@@ -67,5 +88,13 @@ export function createStore(): Store {
     integrationIdempotency: new Map(),
     integrationEvents: new Map(),
     integrationWebhookDeliveries: new Map(),
+    conversations: new Map(),
+    conversationMessages: new Map(),
+    conversationReadStates: new Map(),
+    notifications: new Map(),
+    conversationEscalationGrants: new Map(),
+    pushDevices: new Map(),
+    pushIntents: new Map(),
+    pushDeliveries: new Map(),
   };
 }

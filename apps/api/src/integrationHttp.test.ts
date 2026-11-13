@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
 import { createApp } from "./httpServer.ts";
+import { updateIntegrationConnection } from "./integrationServices.ts";
+import { internalUser } from "../test/fixtures.ts";
 
 type AppBundle = Awaited<ReturnType<typeof createApp>>;
 
@@ -28,7 +30,6 @@ function testEnv(t: { after(fn: () => void): void }): void {
     NODE_ENV: process.env.NODE_ENV,
     AUTH_SECRET: process.env.AUTH_SECRET,
     OTP_DEBUG: process.env.OTP_DEBUG,
-    OTP_FIXED_CODE: process.env.OTP_FIXED_CODE,
     ALLOW_X_USER_ID: process.env.ALLOW_X_USER_ID,
   };
   t.after(() => {
@@ -36,7 +37,6 @@ function testEnv(t: { after(fn: () => void): void }): void {
     process.env.NODE_ENV = prev.NODE_ENV;
     process.env.AUTH_SECRET = prev.AUTH_SECRET;
     process.env.OTP_DEBUG = prev.OTP_DEBUG;
-    process.env.OTP_FIXED_CODE = prev.OTP_FIXED_CODE;
     process.env.ALLOW_X_USER_ID = prev.ALLOW_X_USER_ID;
   });
 
@@ -44,7 +44,6 @@ function testEnv(t: { after(fn: () => void): void }): void {
   process.env.NODE_ENV = "test";
   process.env.AUTH_SECRET = "test_secret_minimum_16_chars";
   process.env.OTP_DEBUG = "1";
-  process.env.OTP_FIXED_CODE = "123456";
   process.env.ALLOW_X_USER_ID = "1";
 }
 
@@ -86,7 +85,8 @@ async function customerBearer(baseUrl: string): Promise<{ token: string; orgId: 
 
   const start = await postJson(baseUrl, "/v1/auth/otp/start", { phone });
   assert.equal(start.status, 200);
-  const startBody = (await start.json()) as { challengeId: string; debugCode: string };
+  const startBody = (await start.json()) as { challengeId: string; debugCode?: string };
+  assert.match(startBody.debugCode ?? "", /^\d{6}$/);
 
   const verify = await postJson(baseUrl, "/v1/auth/otp/verify", {
     phone,
@@ -111,7 +111,8 @@ async function seedCarrierTrip(baseUrl: string): Promise<{ tripId: string }> {
   const onboard = (await reg.json()) as { user: { id: string }; org: { id: string } };
 
   const start = await postJson(baseUrl, "/v1/auth/otp/start", { phone: "9876548800" });
-  const challenge = await start.json();
+  const challenge = await start.json() as { challengeId: string; debugCode?: string };
+  assert.match(challenge.debugCode ?? "", /^\d{6}$/);
   const verification = await postJson(baseUrl, "/v1/auth/otp/verify", { phone: "9876548800", challengeId: challenge.challengeId, code: challenge.debugCode });
   const signedIn = await verification.json();
   const tripRes = await postJson(baseUrl, "/v1/pilot/anchor-trips", {
@@ -132,7 +133,7 @@ async function seedCarrierTrip(baseUrl: string): Promise<{ tripId: string }> {
 
 test("POST /v1/integrations/loads creates and idempotently returns shipment", async (t) => {
   testEnv(t);
-  await withApp(t, async (baseUrl) => {
+  await withApp(t, async (baseUrl, app) => {
     await seedCarrierTrip(baseUrl);
     const { token, orgId } = await customerBearer(baseUrl);
 
@@ -145,12 +146,10 @@ test("POST /v1/integrations/loads creates and idempotently returns shipment", as
     assert.equal(keyRes.status, 201);
     const keyBody = (await keyRes.json()) as { token: string };
 
-    await patchJson(
-      baseUrl,
-      `/v1/pilot/customer/integrations/connection?orgId=${orgId}`,
-      { paymentPolicy: "erp_preauthorized" },
-      { authorization: `Bearer ${token}` },
-    );
+    updateIntegrationConnection(app.store, orgId, {
+      paymentPolicy: "erp_preauthorized",
+      changedByUserId: internalUser(app.store, "ADMIN").userId,
+    });
 
     const loadBody = {
       externalLoadId: "ERP-HTTP-001",
@@ -217,5 +216,97 @@ test("POST /v1/integrations/loads without token returns 401", async (t) => {
     });
     assert.equal(res.status, 401);
     assert.deepEqual(await res.json(), { error: "integration_unauthorized" });
+  });
+});
+
+test("a shipper cannot change the payment policy and gets 403", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const res = await patchJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/connection?orgId=${orgId}`,
+      { paymentPolicy: "erp_preauthorized" },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(res.status, 403);
+    assert.deepEqual(await res.json(), { error: "payment_policy_staff_only" });
+
+    const summary = await fetch(`${baseUrl}/v1/pilot/customer/integrations?orgId=${orgId}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = (await summary.json()) as { connection: { paymentPolicy: string } };
+    assert.equal(body.connection.paymentPolicy, "portal_checkout");
+  });
+});
+
+test("a shipper still changes the webhook URL and display name", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const res = await patchJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/connection?orgId=${orgId}`,
+      { webhookUrl: "https://erp.example.com/hook", displayName: "Our ERP", paymentPolicy: "portal_checkout" },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { connection: { webhookUrl: string; displayName: string; paymentPolicy: string } };
+    assert.equal(body.connection.webhookUrl, "https://erp.example.com/hook");
+    assert.equal(body.connection.displayName, "Our ERP");
+    assert.equal(body.connection.paymentPolicy, "portal_checkout");
+  });
+});
+
+test("an unknown payment policy is refused with 400", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const res = await patchJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/connection?orgId=${orgId}`,
+      { paymentPolicy: "pay_later" },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: "invalid_payment_policy" });
+  });
+});
+
+test("a portal request body over 1 MB is refused with 413", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const res = await postJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/keys?orgId=${orgId}`,
+      { scopes: ["loads:read"], padding: "a".repeat(1_100_000) },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: "payload_too_large" });
+  });
+});
+
+test("an integration API request body over 1 MB is refused with 413", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const keyRes = await postJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/keys?orgId=${orgId}`,
+      { scopes: ["loads:read", "loads:write"] },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(keyRes.status, 201);
+    const keyBody = (await keyRes.json()) as { token: string };
+    const res = await postJson(
+      baseUrl,
+      "/v1/integrations/loads",
+      { externalLoadId: "ERP-HTTP-BIG", weightKg: 100, metadata: { note: "a".repeat(1_100_000) } },
+      { authorization: `Bearer ${keyBody.token}` },
+    );
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: "payload_too_large" });
   });
 });

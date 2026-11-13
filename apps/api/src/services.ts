@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { validatePayoutBankDetails } from "./bankAccountValidation.ts";
-import { authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible } from "./rbac.ts";
+import { checkTransporterId } from "./transporterIdValidation.ts";
+import { assertAdminRemains, authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible, type Principal } from "./rbac.ts";
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
 import {
   COMMISSION_BPS,
@@ -13,6 +14,7 @@ import {
 } from "./config.ts";
 import type {
   AnchorTrip,
+  AnchorTripStatus,
   Carrier,
   DriverProfile,
   GeoPoint,
@@ -32,6 +34,7 @@ import type {
   VehicleClass,
 } from "./types.ts";
 import type { Store } from "./store.ts";
+import { normalizePhone, phoneKeyForUser } from "./phone.ts";
 import {
   captureRazorpayPayment,
   createAuthorizeOnlyOrder,
@@ -46,7 +49,10 @@ import {
   razorpayPayoutsEnabled,
 } from "./razorpayPayouts.ts";
 import { emitIntegrationEvent } from "./integrationWebhooks.ts";
+import { expireUnpaidBooking, HELD_PAYMENT_RETURN_DETAIL, keepPaymentAfterExpiry, UNPAID_BOOKING_EXPIRED_DETAIL } from "./unpaidBookingExpiry.ts";
 import { isActiveEntity, markInactive } from "./softDelete.ts";
+import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
+import { shipmentsBlockingStart } from "./ewayBillStartGate.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -89,6 +95,14 @@ export class ApiError extends Error {
     this.httpStatus = httpStatus;
     Object.setPrototypeOf(this, new.target.prototype);
   }
+}
+
+/** Upper bound for any load weight or truck and trip capacity; far above what one truck carries. */
+const MAX_WEIGHT_KG = 100_000;
+
+/** A load weight or capacity: a finite number above zero, at most MAX_WEIGHT_KG. NaN and text fail here. */
+function weightKgInRange(kg: unknown): boolean {
+  return typeof kg === "number" && Number.isFinite(kg) && kg > 0 && kg <= MAX_WEIGHT_KG;
 }
 
 /** Max distance from trip origin / destination for Phase A booking (km). Env overrides for ops. */
@@ -150,18 +164,29 @@ function membershipKey(userId: string, orgId: string): string {
   return `${userId}:${orgId}`;
 }
 
-function normalizeInPhone(phone: string): string {
-  const p = String(phone ?? "").trim();
-  if (!p) throw new Error("invalid_phone");
-  // MVP pilot: accept 10-digit Indian mobile numbers, optional +91 prefix.
-  const digits = p.replace(/[^\d]/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(-10);
-  if (digits.length === 10) return digits;
-  throw new Error("invalid_phone");
+function normalizeInPhone(phone: string, countryCode?: string): string {
+  return normalizePhone(phone, countryCode).phone;
 }
 
 function assertVehicleClass(v: any): asserts v is VehicleClass {
   if (v !== "SMALL" && v !== "MEDIUM" && v !== "LARGE") throw new Error("invalid_vehicleClass");
+}
+
+/** Length after trimming only: existing trucks and test data use forms like TEST-A, so no letters-and-digits rule here. */
+function assertTruckNumberLength(registrationNumber: string): void {
+  if (registrationNumber.trim().length > 20) {
+    throw new ApiError("invalid_vehicleRegistrationNumber", { detail: "A truck number can have at most 20 characters.", field: "vehicleRegistrationNumber" });
+  }
+}
+
+/** Sign-up needs no account, so each text field it takes has a length cap. */
+function assertSignUpFieldLengths(params: { fullName: string; phone: string; orgDisplayName?: string }): void {
+  const caps = [["fullName", 100, "A name"], ["orgDisplayName", 100, "A company name"], ["phone", 20, "A phone number"]] as const;
+  for (const [field, maxCharacters, label] of caps) {
+    if (String(params[field] ?? "").trim().length > maxCharacters) {
+      throw new ApiError(`invalid_${field}`, { detail: `${label} can have at most ${maxCharacters} characters.`, field });
+    }
+  }
 }
 
 function getOrgOrThrow(store: Store, orgId: string): Organization {
@@ -190,8 +215,8 @@ export function carrierDisplayName(store: Store, carrierId: string): string {
   return store.organizations.get(carrierId)?.displayName ?? carrierId;
 }
 
-export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTrip & { carrierDisplayName: string } {
-  return { ...trip, carrierDisplayName: carrierDisplayName(store, trip.carrierId) };
+export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTrip & { carrierDisplayName: string } & ReturnType<typeof tripAssignmentDisplay> {
+  return { ...trip, carrierDisplayName: carrierDisplayName(store, trip.carrierId), ...tripAssignmentDisplay(store, trip) };
 }
 
 /**
@@ -204,24 +229,41 @@ export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTr
 export function tripForPublicListing(
   store: Store,
   trip: AnchorTrip,
-): Omit<AnchorTrip, "lastLiveLocation" | "startedByUserId" | "completedByUserId"> & { carrierDisplayName: string } {
-  // These three never reach an unauthenticated caller. lastLiveLocation is where the
-  // driver is right now; the two user ids are stable per driver, so collecting them
+): Omit<AnchorTrip, "lastLiveLocation" | "startedByUserId" | "completedByUserId" | "assignedVehicleId" | "assignedDriverUserId"> & { carrierDisplayName: string } {
+  // None of these reach an unauthenticated caller. lastLiveLocation is where the
+  // driver is right now; the user ids are stable per driver, so collecting them
   // across trips maps which driver runs which lanes without ever needing a token.
+  // The assigned truck and driver name the same driver.
   const {
     lastLiveLocation: _location,
     startedByUserId: _startedBy,
     completedByUserId: _completedBy,
+    assignedVehicleId: _vehicle,
+    assignedDriverUserId: _driver,
+    assignedTruckNumber: _truckNumber,
+    assignedDriverName: _driverName,
     ...rest
   } = tripWithCarrierDisplay(store, trip);
   return rest;
 }
 
+/**
+ * The serializer passes the carrier's transporter ID to shippers only, and ERP responses strip it. It is added only
+ * while BOOKED, acceptance to delivery: the owner approved it from acceptance, for the e-way bill (16 Oct 2026).
+ */
 export function shipmentWithCarrierDisplay(
   store: Store,
   shipment: Shipment,
-): Shipment & { carrierDisplayName: string } {
-  return { ...shipment, carrierDisplayName: carrierDisplayName(store, shipment.carrierId) };
+): Shipment & { carrierDisplayName: string; assignedTruckNumber?: string; carrierTransporterId?: string } {
+  // A shipment the carrier turned down is no longer on that truck, so it stops naming it.
+  const truckNumber = shipment.status === "FAILED_CARRIER_REFUNDED" ? undefined : assignedTruckNumber(store, store.anchorTrips.get(shipment.anchorTripId));
+  const transporterId = shipment.status === "BOOKED" ? store.organizations.get(shipment.carrierId)?.transporterId : undefined;
+  return {
+    ...shipment,
+    carrierDisplayName: carrierDisplayName(store, shipment.carrierId),
+    ...(truckNumber ? { assignedTruckNumber: truckNumber } : {}),
+    ...(transporterId ? { carrierTransporterId: transporterId } : {}),
+  };
 }
 
 export function createCarrier(store: Store, name: string): Carrier {
@@ -245,29 +287,37 @@ export function createCarrier(store: Store, name: string): Carrier {
 export function registerSoloOwnerOperatorDriver(store: Store, params: {
   fullName: string;
   phone: string;
+  countryCode?: string;
   orgDisplayName: string;
   vehicleRegistrationNumber: string;
   vehicleClass: VehicleClass;
   vehicleCapacityKg: number;
+  /** Optional at sign-up; checked before anything is written. */
+  transporterId?: unknown;
 }): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
   if (!String(params.vehicleRegistrationNumber ?? "").trim()) throw new Error("invalid_vehicleRegistrationNumber");
+  assertSignUpFieldLengths(params);
+  assertTruckNumberLength(String(params.vehicleRegistrationNumber));
   assertVehicleClass(params.vehicleClass);
-  if (params.vehicleCapacityKg <= 0) throw new Error("invalid_vehicleCapacityKg");
+  if (!weightKgInRange(params.vehicleCapacityKg)) throw new Error("invalid_vehicleCapacityKg");
+  const transporterIdCheck = checkTransporterId(params.transporterId ?? null);
+  if (!transporterIdCheck.ok) throw new ApiError("invalid_transporter_id", { detail: transporterIdCheck.detail, field: transporterIdCheck.field });
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const dup = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (dup) throw new Error("phone_already_registered");
 
   const now = nowUtcMs();
-  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  const user: User = { id: id("usr"), phone: identity.phone, countryCode: identity.countryCode, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
   const org: Organization = {
     id: id("org"),
     kind: "CARRIER_SOLO",
     displayName: String(params.orgDisplayName).trim(),
     kycStatus: "NOT_STARTED",
     createdAtUtcMs: now,
+    ...(transporterIdCheck.value ? { transporterId: transporterIdCheck.value } : {}),
   };
   const membership: Membership = {
     userId: user.id,
@@ -396,21 +446,22 @@ export function listOpsAdmins(store: Store): OpsAdminEntry[] {
   return out.sort((a, b) => a.phone.localeCompare(b.phone));
 }
 
-function normalizeOpsPhone(raw: string): string {
-  const digits = String(raw ?? "").replace(/[^\d]/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(-10);
-  if (digits.length === 10) return digits;
-  throw new ApiError("invalid_phone", { detail: "Phone must be 10 digits (or +91-prefixed)." });
+function normalizeOpsPhone(raw: string, countryCode?: string): ReturnType<typeof normalizePhone> {
+  try {
+    return normalizePhone(raw, countryCode);
+  } catch {
+    throw new ApiError("invalid_phone", { detail: "Phone must be a supported 10-digit number." });
+  }
 }
 
 /**
  * Grants OPS_ADMIN to the user with the given phone. The user must already exist
  * (registered as a customer/driver/operator). Creates the platform-ops org if needed.
  */
-export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdminEntry {
+export function grantOpsAdmin(store: Store, params: { phone: string; countryCode?: string }): OpsAdminEntry {
   requirePermission(store, "user.role_manage");
-  const phone = normalizeOpsPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizeOpsPhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) {
     throw new ApiError("user_not_found", {
       detail: "Register this phone (customer or driver) before granting ops-admin.",
@@ -453,11 +504,11 @@ export function grantOpsAdmin(store: Store, params: { phone: string }): OpsAdmin
  */
 export function revokeOpsAdmin(
   store: Store,
-  params: { phone: string; actingUserId: string },
+  params: { phone: string; countryCode?: string; actingUserId: string },
 ): { revoked: boolean } {
   requirePermission(store, "user.role_manage", undefined, params.actingUserId);
-  const phone = normalizeOpsPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizeOpsPhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) throw new ApiError("user_not_found", {});
   const org = store.organizations.get(PLATFORM_OPS_ORG_ID);
   if (!org) throw new ApiError("ops_admin_not_found", { detail: "No platform-ops org exists." });
@@ -475,6 +526,7 @@ export function revokeOpsAdmin(
       detail: "At least one ops admin must remain.",
     });
   }
+  assertAdminRemains(store, user.id, org.id, []);
   store.membershipRoles.set(key, []);
   store.memberships.delete(key);
   recordAudit(store, "ROLE_REMOVED", "membership", key, "OPS", "REMOVED");
@@ -635,6 +687,7 @@ export function opsDeleteUser(
     }
   }
 
+  for (const membership of store.memberships.values()) if (membership.userId === userId) assertAdminRemains(store, userId, membership.orgId, []);
   const at = nowUtcMs();
   const reason = OPS_DEACTIVATE_REASON;
 
@@ -679,7 +732,7 @@ export function opsDeleteUser(
     if (cascadeSet.has(s.carrierId)) return true;
     if (s.customerOrgId && cascadeSet.has(s.customerOrgId)) return true;
     if (s.bookedByUserId === userId) return true;
-    if (s.bookedByPhone && s.bookedByPhone === user.phone) return true;
+    if (s.bookedByPhone && user.countryCode === "+91" && s.bookedByPhone === user.phone) return true;
     return false;
   });
   const activeTrips = [...store.anchorTrips.values()].filter(
@@ -706,7 +759,7 @@ export function opsDeleteUser(
     }
   }
   for (const o of store.otpChallenges.values()) {
-    if (o.phone === user.phone && o.status === "PENDING") {
+    if (o.status === "PENDING" && normalizePhone(o.phone, o.countryCode).key === phoneKeyForUser(user)) {
       store.otpChallenges.set(o.id, { ...o, status: "EXPIRED" });
     }
   }
@@ -767,17 +820,19 @@ export function shipmentVisibleToCustomerUser(store: Store, shipment: Shipment, 
 export function registerCustomerOrgAdmin(store: Store, params: {
   fullName: string;
   phone: string;
+  countryCode?: string;
   orgDisplayName: string;
 }): { user: User; org: Organization; membership: Membership } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
   if (!String(params.orgDisplayName ?? "").trim()) throw new Error("invalid_orgDisplayName");
+  assertSignUpFieldLengths(params);
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const dup = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (dup) throw new Error("phone_already_registered");
 
   const now = nowUtcMs();
-  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  const user: User = { id: id("usr"), phone: identity.phone, countryCode: identity.countryCode, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
   const org: Organization = {
     id: id("org"),
     kind: "CUSTOMER",
@@ -805,15 +860,17 @@ export function registerCustomerOrgAdmin(store: Store, params: {
 export function registerCustomerUser(store: Store, params: {
   fullName: string;
   phone: string;
+  countryCode?: string;
 }): { user: User } {
   if (!String(params.fullName ?? "").trim()) throw new Error("invalid_fullName");
+  assertSignUpFieldLengths(params);
 
-  const phone = normalizeInPhone(params.phone);
-  const dup = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const dup = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (dup) throw new Error("phone_already_registered");
 
   const now = nowUtcMs();
-  const user: User = { id: id("usr"), phone, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
+  const user: User = { id: id("usr"), phone: identity.phone, countryCode: identity.countryCode, fullName: String(params.fullName).trim(), createdAtUtcMs: now };
   store.users.set(user.id, user);
   return { user };
 }
@@ -828,6 +885,7 @@ export function inviteCustomerMember(
   params: {
     orgId: string;
     phone: string;
+    countryCode?: string;
     role?: "CUSTOMER_MEMBER" | "CUSTOMER_ADMIN";
   },
 ): { user: User; membership: Membership; org: Organization } {
@@ -835,8 +893,8 @@ export function inviteCustomerMember(
   const org = getOrgOrThrow(store, params.orgId);
   if (org.kind !== "CUSTOMER") throw new Error("org_not_customer");
 
-  const phone = normalizeInPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) {
     throw new ApiError("user_not_found", {
       detail: "Teammate must register their phone first, then you can invite them to your org.",
@@ -878,9 +936,9 @@ export function listCustomerOrgMembers(
   return rows;
 }
 
-export function pilotLoginDriverByPhone(store: Store, phone: string): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
-  const p = normalizeInPhone(phone);
-  const user = [...store.users.values()].find((u) => u.phone === p);
+export function pilotLoginDriverByPhone(store: Store, phone: string, countryCode?: string): { user: User; org: Organization; membership: Membership; vehicle: Vehicle; driverProfile: DriverProfile } {
+  const identity = normalizePhone(phone, countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) throw new Error("user_not_found");
 
   const selected = authorizationContext.getStore()?.principal?.organizationId;
@@ -929,10 +987,13 @@ export function updatePilotDriverVehicle(
 ): { vehicle: Vehicle; driverProfile: DriverProfile } {
   const profile = store.driverProfiles.get(userId);
   if (!profile) throw new Error("driver_profile_missing");
-  requirePermission(store, "load.status_update", { carrierId: profile.orgId }, userId);
+  const caller = requirePermission(store, "load.status_update", { carrierId: profile.orgId }, userId);
 
   const vehicle = store.vehicles.get(profile.primaryVehicleId);
   if (!vehicle) throw new Error("vehicle_missing");
+  if (caller.subrole === "DRIVER" && truckOnUnfinishedTrip(store, vehicle.id)) {
+    throw new ApiError("truck_on_unfinished_trip", { detail: "This truck is on a trip that is not finished. Ask your carrier to change it." }, 409);
+  }
 
   const hasReg = params.vehicleRegistrationNumber !== undefined;
   const hasClass = params.vehicleClass !== undefined;
@@ -946,6 +1007,7 @@ export function updatePilotDriverVehicle(
   if (hasReg) {
     const reg = String(params.vehicleRegistrationNumber).trim();
     if (!reg) throw new Error("invalid_vehicleRegistrationNumber");
+    assertTruckNumberLength(reg);
     registrationNumber = reg;
   }
   if (hasClass) {
@@ -954,7 +1016,7 @@ export function updatePilotDriverVehicle(
   }
   if (hasCap) {
     const cap = Number(params.vehicleCapacityKg);
-    if (!(cap > 0)) throw new Error("invalid_vehicleCapacityKg");
+    if (!weightKgInRange(cap)) throw new Error("invalid_vehicleCapacityKg");
     capacityKg = cap;
   }
 
@@ -973,17 +1035,17 @@ export function updatePilotDriverVehicle(
  */
 export function pilotListMyAnchorTrips(store: Store, userId: string): AnchorTrip[] {
   const p = principalFor(store, userId);
-  return [...store.anchorTrips.values()].filter(t => visible(p, t)).sort((a,b) => b.createdAtUtcMs - a.createdAtUtcMs);
+  return [...store.anchorTrips.values()].filter(t => visible(p, t) && assignedDriverMaySee(store, p, t)).sort((a,b) => b.createdAtUtcMs - a.createdAtUtcMs);
 }
 
 export function pilotCarrierOrgIds(store: Store, userId: string): string[] {
   try { const p = principalFor(store, userId); return p.roles.includes("CARRIER") ? [p.organizationId] : []; } catch { return []; }
 }
 
-/** Driver can act on shipments for orgs they belong to as carrier staff. */
+/** Carrier staff can act on their organization's shipments; a DRIVER only on those of trips naming them. */
 export function shipmentVisibleToCarrierPilot(store: Store, shipment: Shipment, userId: string): boolean {
   const ids = new Set(pilotCarrierOrgIds(store, userId));
-  return isActiveEntity(shipment) && ids.has(shipment.carrierId);
+  return isActiveEntity(shipment) && ids.has(shipment.carrierId) && assignedDriverMaySee(store, principalFor(store, userId), shipment);
 }
 
 export function pilotListCarrierShipments(
@@ -992,7 +1054,8 @@ export function pilotListCarrierShipments(
   params?: { anchorTripId?: string },
 ): Shipment[] {
   const ids = new Set(pilotCarrierOrgIds(store, userId));
-  let list = [...store.shipments.values()].filter((s) => isActiveEntity(s) && ids.has(s.carrierId));
+  const caller = ids.size > 0 ? principalFor(store, userId) : undefined;
+  let list = [...store.shipments.values()].filter((s) => isActiveEntity(s) && ids.has(s.carrierId) && caller !== undefined && assignedDriverMaySee(store, caller, s));
   const tripId = params?.anchorTripId?.trim();
   if (tripId) list = list.filter((s) => s.anchorTripId === tripId);
   list.sort((a, b) => b.createdAtUtcMs - a.createdAtUtcMs);
@@ -1044,13 +1107,8 @@ export async function pilotSubmitPayoutSetup(
   const { accountHolderName, ifsc, accountNumber } = checked.value;
 
   // With real payouts enabled, provision a RazorpayX contact + fund account so this
-  // carrier can actually receive transfers. Requires a bank account number.
+  // carrier can actually receive transfers.
   if (razorpayPayoutsEnabled()) {
-    if (!accountNumber) {
-      throw new ApiError("invalid_payout_profile", {
-        detail: "accountNumber is required to register a bank account for real payouts.",
-      });
-    }
     try {
       const { contactId, fundAccountId } = await createRazorpayBankFundAccount({
         name: accountHolderName,
@@ -1068,8 +1126,8 @@ export async function pilotSubmitPayoutSetup(
       auditAsUser(store, userId, "BANK_ACCOUNT_CHANGED", "organization", org.id);
       return {
         org: updated,
-        message:
-          "Bank account registered for payouts. Transfers run after POD, cooling-off, and batch settlement — not at signup.",
+        // "Paid weekly for completed deliveries." joins this once real payouts can go out (PR #139).
+        message: "Bank account added.",
       };
     } catch (err) {
       throw new ApiError("payout_setup_provider_error", {
@@ -1083,8 +1141,8 @@ export async function pilotSubmitPayoutSetup(
       auditAsUser(store, userId, "BANK_ACCOUNT_CHANGED", "organization", org.id);
   return {
     org: updated,
-    message:
-      "Payout details received for verification. Transfers run after POD, cooling-off, and batch settlement — not at signup.",
+    // Without real payouts this call keeps no bank details and moves no money, so the reply promises neither.
+    message: "Bank details received.",
   };
 }
 
@@ -1184,10 +1242,8 @@ export function getShipmentTripTracking(
 } {
   const shipment = store.shipments.get(shipmentId);
   if (!shipment) throw new Error("shipment_not_found");
-  const visible =
-    shipmentVisibleToCustomerUser(store, shipment, userId) ||
-    isOpsAdmin(store, userId) ||
-    isOpsAgent(store, userId);
+  const asShipper = shipmentVisibleToCustomerUser(store, shipment, userId);
+  const visible = asShipper || isOpsAdmin(store, userId) || isOpsAgent(store, userId);
   if (!visible) {
     try {
       pilotGetMyAnchorTrip(store, userId, shipment.anchorTripId);
@@ -1202,10 +1258,12 @@ export function getShipmentTripTracking(
   const fresh = isTripLocationLive(loc ?? undefined, now);
   const tripStarted = trip.status === "IN_PROGRESS";
   const isLive = fresh && shipment.status === "BOOKED" && tripStarted;
+  // A shipper sees the truck only while their own goods are on it; before that, or after a refund, it carries others'.
+  const shipperMaySeeTruck = shipment.status === "BOOKED" && tripStarted;
   return {
     shipment: shipmentWithCarrierDisplay(store, shipment),
     trip: tripWithCarrierDisplay(store, trip),
-    liveLocation: loc,
+    liveLocation: asShipper && !shipperMaySeeTruck ? null : loc,
     isLive,
     staleAfterUtcMs: TRIP_TRACKING_STALE_MS,
   };
@@ -1224,7 +1282,7 @@ export function publishAnchorTrip(store: Store, params: {
 }): AnchorTrip {
   // `carrierId` is legacy naming; it is the Organization id for carrier-side entities.
   getOrgOrThrow(store, params.carrierId);
-  if (params.capacityKg <= 0) throw new Error("invalid_capacityKg");
+  if (!weightKgInRange(params.capacityKg)) throw new Error("invalid_capacityKg");
   if (params.origin) assertGeoPoint(params.origin, "origin");
   if (params.destination) assertGeoPoint(params.destination, "destination");
   const t: AnchorTrip = {
@@ -1264,7 +1322,7 @@ export function publishAnchorTripAsPilotDriver(store: Store, params: {
   if (org.kind !== "CARRIER_SOLO" && org.kind !== "CARRIER_FLEET" && org.kind !== "CARRIER_LEGACY") {
     throw new Error("org_not_carrier");
   }
-  return publishAnchorTrip(store, {
+  const published = publishAnchorTrip(store, {
     carrierId: params.orgId,
     originCity: params.originCity,
     destCity: params.destCity,
@@ -1275,6 +1333,12 @@ export function publishAnchorTripAsPilotDriver(store: Store, params: {
     vehicleClass: params.vehicleClass,
     capacityKg: params.capacityKg,
   });
+  auditAsUser(store, params.userId, "TRIP_PUBLISHED", "trip", published.id, "ABSENT", "OPEN");
+  const assigned = soloOwnerOperatorAssignment(store, published, params.userId);
+  if (!assigned) return published;
+  store.anchorTrips.set(assigned.id, assigned);
+  auditAsUser(store, params.userId, "TRIP_ASSIGNED", "trip", assigned.id, "UNASSIGNED", "ASSIGNED");
+  return assigned;
 }
 
 export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
@@ -1289,7 +1353,7 @@ export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
 }> {
   assertGeoPoint(params.pickup, "pickup");
   assertGeoPoint(params.drop, "drop");
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  if (!weightKgInRange(params.weightKg)) throw new Error("invalid_weightKg");
 
   const radii = phaseAEndpointRadiiKm();
   const maxPickup = params.maxPickupDistanceKm ?? radii.maxPickupKm;
@@ -1362,7 +1426,7 @@ export function computeFreightGrossPaise(params: {
   shipmentKm?: number | null;
 }): { grossPaise: number; breakdown: FreightBreakdown } {
   assertVehicleClass(params.vehicleClass);
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  if (!weightKgInRange(params.weightKg)) throw new Error("invalid_weightKg");
 
   const laneKm = params.laneKm != null && params.laneKm > 0 ? params.laneKm : null;
   const shipmentKm = params.shipmentKm != null && params.shipmentKm > 0 ? params.shipmentKm : null;
@@ -1409,7 +1473,7 @@ export function quoteShipmentMarketplace(store: Store, params: {
   drop?: unknown;
   anchorTripId?: string;
 }): { grossPaise: number; breakdown: FreightBreakdown } {
-  if (params.weightKg <= 0) throw new ApiError("invalid_weightKg", {});
+  if (!weightKgInRange(params.weightKg)) throw new ApiError("invalid_weightKg", {});
 
   let vehicleClass: VehicleClass = "MEDIUM";
   let laneKm: number | null = null;
@@ -1446,6 +1510,7 @@ export function quoteShipmentMarketplace(store: Store, params: {
   });
 }
 
+/** For a carrier: only what the carrier would receive. The shipper's price and its parts stay with NaviG8r. */
 export function pilotRatesEstimate(store: Store, userId: string, body: {
   origin: unknown;
   destination: unknown;
@@ -1453,7 +1518,7 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   sampleWeightsKg?: unknown;
 }): {
   laneKm: number;
-  samples: Array<{ weightKg: number; grossPaise: number; breakdown: FreightBreakdown }>;
+  samples: Array<{ weightKg: number; netToCarrierPaise: number }>;
   modelVersion: string;
 } {
   if (!userHasPilotCarrierMembership(store, userId)) {
@@ -1478,7 +1543,7 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   if (Array.isArray(body.sampleWeightsKg) && body.sampleWeightsKg.length > 0) {
     const parsed = body.sampleWeightsKg
       .map((w) => Number(w))
-      .filter((n) => Number.isFinite(n) && n > 0);
+      .filter(weightKgInRange);
     if (parsed.length > 0) {
       sampleWeights = [...new Set(parsed)].sort((a, b) => a - b).slice(0, 8);
     }
@@ -1488,13 +1553,13 @@ export function pilotRatesEstimate(store: Store, userId: string, body: {
   const laneKmRounded = Math.round(laneKmRaw * 100) / 100;
 
   const samples = sampleWeights.map((weightKg) => {
-    const { grossPaise, breakdown } = computeFreightGrossPaise({
+    const { grossPaise } = computeFreightGrossPaise({
       weightKg,
       vehicleClass: vc,
       laneKm: laneKmRaw,
       shipmentKm: null,
     });
-    return { weightKg, grossPaise, breakdown };
+    return { weightKg, netToCarrierPaise: moneySplit(grossPaise).netToCarrierPaise };
   });
 
   return { laneKm: laneKmRounded, samples, modelVersion: FREIGHT_MODEL_VERSION };
@@ -1509,6 +1574,22 @@ export function quoteShipment(params: { weightKg: number }): { grossPaise: numbe
     shipmentKm: null,
   });
   return { grossPaise };
+}
+
+/** The longest pickup or drop address a booking takes, in characters as a person sees them. */
+export const maxAddressLength = 500;
+
+const addressCharacterSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+
+/** Counted as the app's address box counts (Flutter's characters.length): "कि" is one character, though two
+ * code points. Code points would refuse Devanagari the box takes. The UTF-16 ceiling, 8 units a character,
+ * keeps a stored address bounded when one character carries many combining marks, and leaves room for
+ * characters made of several code points (a conjunct, an emoji). */
+function addressTooLong(address: string): boolean {
+  if (address.length > 8 * maxAddressLength) return true;
+  let characters = 0;
+  for (const _ of addressCharacterSegmenter.segment(address)) if (++characters > maxAddressLength) return true;
+  return false;
 }
 
 export function bookShipment(store: Store, params: {
@@ -1534,10 +1615,17 @@ export function bookShipment(store: Store, params: {
   if (!params.customerOrg) throw new AuthorizationError("customer_organization_required", 400);
   if (actor) requirePermission(store, "load.create", { customerOrgId: params.customerOrg.id });
   else if (!params.integrationConnectionId) requirePermission(store, "load.create", { customerOrgId: params.customerOrg.id }, params.bookedByUserId);
+  if (actor?.roles.includes("OPS")) {
+    requireAssistance(store, actor, params.customerOrg.id);
+    const target = store.organizations.get(params.customerOrg.id);
+    if (target?.kind !== "CUSTOMER" || params.bookedByUserId !== authorizationContext.getStore()?.effectiveActorId) throw new AuthorizationError("invalid_assisted_booking", 400);
+  }
+  // The addresses are stored and sent to every screen and webhook; a real one is far shorter.
+  if (addressTooLong(params.pickupAddress) || addressTooLong(params.dropAddress)) throw new Error("address_too_long");
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip || !isActiveEntity(trip)) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");
-  if (params.weightKg <= 0) throw new Error("invalid_weightKg");
+  if (!weightKgInRange(params.weightKg)) throw new Error("invalid_weightKg");
   if (trip.reservedKg + params.weightKg > trip.capacityKg) throw new Error("insufficient_capacity");
 
   assertPhaseABookingEligible({
@@ -1670,6 +1758,17 @@ function finalizeDeliveredShipment(
   return { shipment: updated, ledgerLine: line };
 }
 
+/**
+ * Proof of delivery, its photos included, waits for the trip to start (owner, 23 Oct 2026). A finished trip still
+ * takes one, so a retry after the last delivery closed the trip goes through.
+ */
+export function requireTripStartedForPod(store: Store, s: Shipment): void {
+  const tripStatus = store.anchorTrips.get(s.anchorTripId)?.status;
+  if (tripStatus !== "IN_PROGRESS" && tripStatus !== "COMPLETED") {
+    throw new ApiError("trip_not_started", { detail: "Start the trip first." }, 409);
+  }
+}
+
 /** Driver confirms delivery; payment capture and ledger wait for ops release. */
 export function submitDriverPod(
   store: Store,
@@ -1682,15 +1781,25 @@ export function submitDriverPod(
   if (s.status !== "BOOKED") {
     throw new ApiError("shipment_not_deliverable", { status: s.status });
   }
+  // Refused rather than ending the trip: a delivered load means the trip ran, which a cancelled trip would deny.
+  if (store.anchorTrips.get(s.anchorTripId)?.status === "CANCEL_REQUESTED") {
+    throw new ApiError("trip_cancel_requested", { detail: "This trip's carrier asked NaviG8r to cancel it, so delivery cannot be confirmed now." }, 409);
+  }
+  requireTripStartedForPod(store, s);
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
   const payOk =
     pay.status === "AUTHORIZED" || (pay.provider === "MOCK" && pay.status === "CAPTURED");
   if (!payOk) {
+    // A driver meets this refusal, and a driver never learns a payment's state: no status, no payment words.
     throw new ApiError("checkout_not_completed_for_pod", {
-      detail: "Customer must complete payment authorization before driver POD.",
-      status: pay.status,
+      detail: "This booking is not ready for delivery yet.",
     });
+  }
+  // A carrier login confirms with a photo (owner, 22 Oct 2026). Ops confirming for a carrier still may without
+  // one: whether ops needs a photo was not decided.
+  if (!principal.roles.includes("OPS") && !(s.podPhotos?.length)) {
+    throw new ApiError("pod_photo_required", { detail: "Add a photo of the signed delivery note or the goods first." }, 409);
   }
 
   const podAtUtcMs = nowUtcMs();
@@ -1719,6 +1828,20 @@ function anchorTripHasActiveShipments(shipments: Shipment[]): boolean {
   return shipments.some((s) => s.status === "BOOKED" || s.status === "PENDING_CARRIER_ACCEPT");
 }
 
+/**
+ * A booking waiting for acceptance, paid or not, or an accepted one, oldest first: what keeps a carrier from
+ * cancelling a trip itself, and what Finance cancels one by one when the carrier asks.
+ */
+export function bookingsOnTrip(store: Store, tripId: string): Shipment[] {
+  return shipmentsOnAnchorTrip(store, tripId)
+    .filter((s) => anchorTripHasActiveShipments([s]))
+    .sort((a, b) => a.createdAtUtcMs - b.createdAtUtcMs);
+}
+
+export function tripHasBookings(store: Store, tripId: string): boolean {
+  return anchorTripHasActiveShipments(shipmentsOnAnchorTrip(store, tripId));
+}
+
 function maybeAutoCompleteAnchorTripAfterPod(store: Store, tripId: string, userId: string): void {
   const trip = store.anchorTrips.get(tripId);
   if (!trip || trip.status !== "IN_PROGRESS") return;
@@ -1735,10 +1858,35 @@ function paymentAuthorizedForCarrierAccept(pay: Payment): boolean {
   return pay.status === "AUTHORIZED" || (pay.provider === "MOCK" && pay.status === "CAPTURED");
 }
 
-/** Carrier accepts a customer booking (PENDING_CARRIER_ACCEPT → BOOKED). */
+/**
+ * A booking waiting for the carrier whose payment lets it be accepted now. Only these hold a trip's start
+ * (owner, 23 Oct 2026): one whose checkout is not done cannot be accepted, and only the shipper can change that.
+ */
+export function bookingReadyToAccept(store: Store, shipment: Shipment): boolean {
+  if (shipment.status !== "PENDING_CARRIER_ACCEPT") return false;
+  const pay = store.payments.get(shipment.paymentId);
+  return pay !== undefined && paymentAuthorizedForCarrierAccept(pay);
+}
+
+/**
+ * Accepting can also name the trip's truck, in the same request (owner decision, 16 Oct 2026): only when the trip
+ * names none yet and the caller may assign trucks. Otherwise a vehicleId is ignored; the office changes a named
+ * truck on the trip screen. The server answers a refusal without undoing earlier writes, so this runs after every
+ * other acceptance check and before any write: a truck outside the fleet leaves nothing accepted and no truck named.
+ */
+function truckToNameWhileAccepting(store: Store, principal: Principal, trip: AnchorTrip | undefined, vehicleId: unknown): Vehicle | undefined {
+  if (vehicleId == null || !trip || trip.assignedVehicleId || !principal.permissions.includes("trip.assign")) return undefined;
+  const vehicle = typeof vehicleId === "string" ? store.vehicles.get(vehicleId) : undefined;
+  if (!vehicle || !isActiveEntity(vehicle) || vehicle.orgId !== trip.carrierId) {
+    throw new ApiError("invalid_trip_assignment", { detail: "Choose a truck from your own fleet.", field: "vehicleId" });
+  }
+  return vehicle;
+}
+
+/** Carrier accepts a customer booking (PENDING_CARRIER_ACCEPT → BOOKED), naming the trip's truck first when asked. */
 export function acceptCarrierShipment(
   store: Store,
-  params: { shipmentId: string; userId: string },
+  params: { shipmentId: string; userId: string; vehicleId?: unknown },
 ): Shipment {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
@@ -1746,6 +1894,15 @@ export function acceptCarrierShipment(
   requireAssistance(store, principal, s.carrierId);
   if (s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new ApiError("shipment_not_acceptable", { status: s.status });
+  }
+  // A trip that has left takes no more bookings (owner, 23 Oct 2026); start waits for every booking ready to accept.
+  const tripStatus = store.anchorTrips.get(s.anchorTripId)?.status;
+  if (tripStatus === "IN_PROGRESS" || tripStatus === "COMPLETED") {
+    throw new ApiError("trip_already_started", { detail: "This trip is already on the way, so it cannot take this booking." }, 409);
+  }
+  // The same words for the office and its drivers: a driver did not ask and cannot withdraw.
+  if (tripStatus === "CANCEL_REQUESTED") {
+    throw new ApiError("trip_cancel_requested", { detail: "This trip's carrier asked NaviG8r to cancel it, so it cannot take this booking now." }, 409);
   }
   assertDispatchReady(store, s.carrierId);
   const pay = store.payments.get(s.paymentId);
@@ -1755,6 +1912,13 @@ export function acceptCarrierShipment(
       detail: "Customer must complete payment authorization before carrier can accept.",
       status: pay.status,
     });
+  }
+  const trip = store.anchorTrips.get(s.anchorTripId);
+  const truck = truckToNameWhileAccepting(store, principal, trip, params.vehicleId);
+  if (trip && truck) {
+    store.anchorTrips.set(trip.id, { ...trip, assignedVehicleId: truck.id });
+    // The same audit row as naming a truck and driver on the trip screen, state words only.
+    auditAsUser(store, params.userId, "TRIP_ASSIGNED", "trip", trip.id, trip.assignedDriverUserId ? "ASSIGNED" : "UNASSIGNED", "ASSIGNED");
   }
   const now = nowUtcMs();
   const updated: Shipment = {
@@ -1770,6 +1934,31 @@ export function acceptCarrierShipment(
   return updated;
 }
 
+/**
+ * Owner, 23 Oct 2026: a booking still waiting whose checkout is not done when its trip starts is closed, the status
+ * Finance's cancel gives, and its room freed; returns the kilograms freed. No money was taken (payment CREATED or
+ * FAILED), so nothing goes to Razorpay and the payment is left as it is. A capture Razorpay already reported is money
+ * taken, so it goes on Finance's list of money collected after a cancel (tripCancel.ts), as a later one does from
+ * the webhook. The shipper's notice is written in notifications.ts.
+ */
+function closeBookingsLeftBehind(store: Store, activeOnTrip: Shipment[], userId: string, now: number): number {
+  let freedKg = 0;
+  for (const s of activeOnTrip) {
+    if (s.status !== "PENDING_CARRIER_ACCEPT" || bookingReadyToAccept(store, s)) continue;
+    const closed: Shipment = { ...s, status: "FAILED_CARRIER_REFUNDED", leftBehindAtUtcMs: now, updatedAtUtcMs: now };
+    store.shipments.set(closed.id, closed);
+    auditAsUser(store, userId, "SHIPMENT_LEFT_BEHIND", "shipment", s.id, s.status, closed.status);
+    const pay = store.payments.get(s.paymentId);
+    if (pay?.provider === "RAZORPAY" && pay.status === "CAPTURED" && pay.razorpayPaymentId) {
+      store.payments.set(pay.id, { ...pay, status: "CAPTURED_AFTER_CANCEL", capturedAfterCancelRazorpayPaymentId: pay.razorpayPaymentId, updatedAtUtcMs: now });
+      auditAsUser(store, userId, "PAYMENT_AFTER_CANCEL", "shipment", s.id, pay.status, "CAPTURED_AFTER_CANCEL", "CAPTURED", pay.razorpayPaymentId);
+    }
+    freedKg += s.weightKg;
+    emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: s.id });
+  }
+  return freedKg;
+}
+
 /** Carrier/driver explicitly starts a load (anchor trip → IN_PROGRESS). */
 export function startAnchorTripAsPilot(
   store: Store,
@@ -1779,7 +1968,9 @@ export function startAnchorTripAsPilot(
   const principal = requirePermission(store, "load.status_update", trip, params.userId);
   requireAssistance(store, principal, trip.carrierId);
   assertDispatchReady(store, trip.carrierId);
-  for (const sh of shipmentsOnAnchorTrip(store, trip.id).filter(s => s.status === "BOOKED")) {
+  // A deleted booking neither holds nor counts toward the start.
+  const activeOnTrip = shipmentsOnAnchorTrip(store, trip.id).filter(isActiveEntity);
+  for (const sh of activeOnTrip.filter(s => s.status === "BOOKED")) {
     const pay = store.payments.get(sh.paymentId);
     if (!pay || !paymentAuthorizedForCarrierAccept(pay)) throw new AuthorizationError("payment_not_ready", 409);
   }
@@ -1787,18 +1978,26 @@ export function startAnchorTripAsPilot(
   if (trip.status !== "OPEN" && trip.status !== "FULL") {
     throw new ApiError("trip_not_startable", { status: trip.status });
   }
-  const hasAccepted = [...store.shipments.values()].some(
-    (s) => s.anchorTripId === trip.id && s.status === "BOOKED",
-  );
+  const hasAccepted = activeOnTrip.some((s) => s.status === "BOOKED");
   if (!hasAccepted) {
     throw new ApiError("no_accepted_shipments", {
       detail: "Accept at least one customer booking before starting the trip.",
     });
   }
   const now = nowUtcMs();
+  // A booking waiting for the carrier comes first, since the carrier acts on it; then the e-way bills. The error
+  // keeps its name so app builds already installed still read the bill lines.
+  const waitingForAccept = activeOnTrip
+    .filter((s) => bookingReadyToAccept(store, s))
+    .map((s) => ({ shipmentId: s.id, shipperName: s.customerOrgName, reason: "waiting_for_accept" as const }));
+  const notReady = [...waitingForAccept, ...shipmentsBlockingStart(store, trip, activeOnTrip, now)];
+  // A refusal tells no shipper: the office chooses when to, with Remind (ewayBillReminder.ts).
+  if (notReady.length > 0) throw new ApiError("eway_bill_not_ready", { shipments: notReady }, 409);
+  const freedKg = closeBookingsLeftBehind(store, activeOnTrip, params.userId, now);
   const updated: AnchorTrip = {
     ...trip,
     status: "IN_PROGRESS",
+    reservedKg: Math.max(0, trip.reservedKg - freedKg),
     startedAtUtcMs: now,
     startedByUserId: params.userId,
   };
@@ -1860,6 +2059,7 @@ export function inviteCarrierDriver(
   params: {
     orgId: string;
     phone: string;
+    countryCode?: string;
     role?: "DRIVER" | "DISPATCHER";
     /** Required for DRIVER; ignored for DISPATCHER (uses org's primary vehicle). */
     vehicleRegistrationNumber?: string;
@@ -1872,8 +2072,8 @@ export function inviteCarrierDriver(
   if (org.kind !== "CARRIER_SOLO" && org.kind !== "CARRIER_FLEET" && org.kind !== "CARRIER_LEGACY") {
     throw new Error("org_not_carrier");
   }
-  const phone = normalizeInPhone(params.phone);
-  const user = [...store.users.values()].find((u) => u.phone === phone);
+  const identity = normalizePhone(params.phone, params.countryCode);
+  const user = [...store.users.values()].find((u) => phoneKeyForUser(u) === identity.key);
   if (!user) {
     throw new ApiError("user_not_found", {
       detail: "Driver must register (OTP) before they can be invited to your carrier org.",
@@ -1882,6 +2082,17 @@ export function inviteCarrierDriver(
   const existing = store.memberships.get(membershipKey(user.id, params.orgId));
   if (existing) {
     throw new ApiError("membership_already_exists", { role: existing.role });
+  }
+  // Driver profiles are keyed by user alone, so inviting someone from another carrier would move their profile and truck here.
+  const profile = store.driverProfiles.get(user.id);
+  const profileAtAnotherCarrier = isActiveEntity(profile) && profile!.orgId !== params.orgId;
+  const memberOfAnotherCarrier = [...store.memberships.values()].some((m) => {
+    const memberOrg = store.organizations.get(m.orgId);
+    return m.userId === user.id && m.orgId !== params.orgId && isActiveEntity(m) && isActiveEntity(memberOrg) &&
+      (memberOrg!.kind === "CARRIER_SOLO" || memberOrg!.kind === "CARRIER_FLEET" || memberOrg!.kind === "CARRIER_LEGACY");
+  });
+  if (profileAtAnotherCarrier || memberOfAnotherCarrier) {
+    throw new ApiError("member_of_another_carrier", { detail: "This number belongs to someone at another carrier and cannot be added yet." }, 409);
   }
   const role = params.role ?? "DRIVER";
   if (role !== "DRIVER" && role !== "DISPATCHER") throw new Error("invalid_role");
@@ -1905,10 +2116,11 @@ export function inviteCarrierDriver(
     vehicle = orgVehicle;
   } else {
     assertVehicleClass(params.vehicleClass);
-    if ((params.vehicleCapacityKg ?? 0) <= 0) throw new Error("invalid_vehicleCapacityKg");
+    if (!weightKgInRange(params.vehicleCapacityKg)) throw new Error("invalid_vehicleCapacityKg");
     if (!String(params.vehicleRegistrationNumber ?? "").trim()) {
       throw new Error("invalid_vehicleRegistrationNumber");
     }
+    assertTruckNumberLength(String(params.vehicleRegistrationNumber));
     vehicle = {
       id: id("veh"),
       orgId: params.orgId,
@@ -1996,7 +2208,7 @@ export function opsShipmentDetail(store: Store, shipmentId: string): {
     shipment.podSubmittedByUserId != null
       ? store.users.get(shipment.podSubmittedByUserId) ?? null
       : null;
-  return { shipment, payment, carrierOrgName, podSubmittedBy };
+  return { shipment: shipmentWithCarrierDisplay(store, shipment), payment, carrierOrgName, podSubmittedBy };
 }
 
 /** Legacy/admin instant POD: BOOKED + payment already captured (or MOCK). */
@@ -2004,10 +2216,13 @@ export function markPodDelivered(_store: Store, _params: { shipmentId: string; p
   throw new AuthorizationError("use_pod_upload_and_finance_release", 409);
 }
 
-/** Reverse a BOOKED shipment + free trip capacity if Razorpay order could not be created. */
+/**
+ * Reverse a just-booked shipment + free trip capacity if Razorpay order could not be created. One the trip's start
+ * closed meanwhile is kept: its room is already freed and its shipper told.
+ */
 export function rollbackBooking(store: Store, shipmentId: string): void {
   const s = store.shipments.get(shipmentId);
-  if (!s) return;
+  if (!s || s.leftBehindAtUtcMs != null) return;
   const trip = store.anchorTrips.get(s.anchorTripId);
   if (trip) {
     trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
@@ -2016,6 +2231,19 @@ export function rollbackBooking(store: Store, shipmentId: string): void {
   }
   store.payments.delete(s.paymentId);
   store.shipments.delete(shipmentId);
+}
+
+/**
+ * A booking the trip left without (owner, 23 Oct 2026), or one still waiting on a trip already on the road, takes no
+ * payment. A trip whose carrier asked to cancel it may still go, and the webhook would still record that payment,
+ * so it is not refused here.
+ */
+function refuseCheckoutIfTripLeft(store: Store, s: Shipment): void {
+  const tripStatus = store.anchorTrips.get(s.anchorTripId)?.status;
+  const tripOnTheRoad = tripStatus === "IN_PROGRESS" || tripStatus === "COMPLETED";
+  if (s.leftBehindAtUtcMs != null || (s.status === "PENDING_CARRIER_ACCEPT" && tripOnTheRoad)) {
+    throw new ApiError("trip_already_started", { detail: "This trip has already left. If your bank shows a payment, it comes back within 3 days." }, 409);
+  }
 }
 
 /** Client callback after Razorpay Standard Checkout success (webhook may lag or be unset in pilot). */
@@ -2042,9 +2270,15 @@ export function confirmRazorpayCheckoutAuthorization(
   )) {
     throw new ApiError("invalid_razorpay_signature", {});
   }
+  expireUnpaidBooking(store, s);
+  if (store.shipments.get(s.id)?.unpaidBookingExpiredAtUtcMs != null) {
+    keepPaymentAfterExpiry(store, pay.id, params.razorpayPaymentId);
+    throw new ApiError("booking_expired_unpaid", { detail: `${UNPAID_BOOKING_EXPIRED_DETAIL} ${HELD_PAYMENT_RETURN_DETAIL}` }, 409);
+  }
   if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
     return { payment: pay };
   }
+  refuseCheckoutIfTripLeft(store, s);
   if (pay.status !== "CREATED") {
     throw new ApiError("payment_not_confirmable", { status: pay.status });
   }
@@ -2066,6 +2300,8 @@ export async function attachRazorpayOrderForShipment(store: Store, shipmentId: s
   const pay = store.payments.get(s.paymentId);
   if (!pay || pay.provider !== "RAZORPAY") throw new Error("not_razorpay_shipment");
   const { id: orderId } = await createAuthorizeOnlyOrder(pay.amountPaise, s.id);
+  // The trip can start while Razorpay answers; then the shipper is not sent to pay.
+  refuseCheckoutIfTripLeft(store, store.shipments.get(shipmentId) ?? s);
   const t = nowUtcMs();
   store.payments.set(pay.id, {
     ...pay,
@@ -2096,19 +2332,30 @@ export async function ensureRazorpayCapturedBeforePod(store: Store, shipmentId: 
   store.payments.set(pay.id, { ...pay, status: "CAPTURED", updatedAtUtcMs: nowUtcMs() });
 }
 
-export async function failCarrierAndRefund(store: Store, params: { shipmentId: string }): Promise<Shipment> {
+/**
+ * fromCancelRequest: sent from a carrier's cancel request on the operations page, so it must not cancel once the
+ * carrier has withdrawn that request. The general fail-refund action does not send it.
+ */
+export async function failCarrierAndRefund(store: Store, params: { shipmentId: string; fromCancelRequest?: boolean }): Promise<Shipment> {
   const s = store.shipments.get(params.shipmentId);
   if (!s) throw new Error("shipment_not_found");
   requirePermission(store, "payment.refund", s);
   if (s.status !== "BOOKED" && s.status !== "PENDING_CARRIER_ACCEPT") {
     throw new Error("shipment_not_refundable");
   }
+  if (params.fromCancelRequest && store.anchorTrips.get(s.anchorTripId)?.status !== "CANCEL_REQUESTED") {
+    throw new ApiError("cancel_request_withdrawn", { detail: "The carrier withdrew this request. Nothing changed." }, 409);
+  }
 
   const pay = store.payments.get(s.paymentId);
   if (!pay) throw new Error("payment_not_found");
 
+  // Razorpay refunds only captured payments; an authorization nobody captures is released by Razorpay within 3 days
+  // of payment (owner decision, 19 Oct 2026), so a held payment sends nothing. An ERP-preauthorized payment is
+  // AUTHORIZED with no Razorpay payment or order behind it, so it is no hold and is refused as before.
+  const holdOnly = pay.provider === "RAZORPAY" && pay.status === "AUTHORIZED" && Boolean(pay.razorpayPaymentId || pay.razorpayOrderId);
   if (pay.provider === "RAZORPAY") {
-    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") {
+    if (pay.status === "CAPTURED" || (pay.status === "AUTHORIZED" && !holdOnly)) {
       if (!pay.razorpayPaymentId) {
         throw new ApiError("razorpay_payment_id_missing", { status: pay.status });
       }
@@ -2117,22 +2364,15 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
       } catch (e: any) {
         throw new ApiError("razorpay_refund_failed", { detail: "Payment provider operation failed" });
       }
-    } else if (pay.status !== "CREATED" && pay.status !== "FAILED") {
+    } else if (pay.status !== "CREATED" && pay.status !== "FAILED" && !holdOnly) {
       throw new ApiError("payment_not_refundable", { status: pay.status });
     }
   } else if (pay.status !== "CAPTURED") {
     throw new Error("payment_not_captured");
   }
 
-  const trip = store.anchorTrips.get(s.anchorTripId);
-  if (trip) {
-    trip.reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
-    if (trip.status === "FULL") trip.status = "OPEN";
-    store.anchorTrips.set(trip.id, trip);
-  }
-
   const now = nowUtcMs();
-  store.payments.set(pay.id, { ...pay, status: "REFUNDED", updatedAtUtcMs: now });
+  store.payments.set(pay.id, { ...pay, status: holdOnly ? "HOLD_RELEASED" : "REFUNDED", updatedAtUtcMs: now });
 
   const updated: Shipment = {
     ...s,
@@ -2140,7 +2380,17 @@ export async function failCarrierAndRefund(store: Store, params: { shipmentId: s
     updatedAtUtcMs: now,
   };
   store.shipments.set(updated.id, updated);
-  recordAudit(store, "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
+  recordAudit(store, holdOnly ? "PAYMENT_HOLD_RELEASED" : "PAYMENT_REFUNDED", "shipment", s.id, s.status, updated.status);
+
+  const trip = store.anchorTrips.get(s.anchorTripId);
+  if (trip) {
+    const reservedKg = Math.max(0, trip.reservedKg - s.weightKg);
+    // Only a full trip reopens. A trip its carrier asked to cancel ends once its last booking is cancelled.
+    let status: AnchorTripStatus = trip.status === "FULL" ? "OPEN" : trip.status;
+    if (trip.status === "CANCEL_REQUESTED" && !tripHasBookings(store, trip.id)) status = "CANCELLED";
+    store.anchorTrips.set(trip.id, { ...trip, reservedKg, status });
+    if (status === "CANCELLED") recordAudit(store, "TRIP_STATUS_CHANGED", "trip", trip.id, trip.status, status);
+  }
   emitIntegrationEvent(store, { eventType: "load.cancelled", shipmentId: updated.id });
   return updated;
 }
@@ -2283,10 +2533,10 @@ async function runPayoutBatchAuthorized(store: Store, params: { nowUtcMs?: numbe
 }
 
 
-function auditAsUser(store: Store, userId: string, action: string, resourceType: string, resourceId: string, previousState?: string, newState?: string): void {
+function auditAsUser(store: Store, userId: string, action: string, resourceType: string, resourceId: string, previousState?: string, newState?: string, reasonCode?: string, razorpayPaymentId?: string): void {
   const p = principalFor(store, userId);
   const existing = authorizationContext.getStore();
-  authorizationContext.run({ ...existing, principal: p, requestId: existing?.requestId ?? randomUUID() }, () => recordAudit(store, action, resourceType, resourceId, previousState, newState));
+  authorizationContext.run({ ...existing, principal: p, requestId: existing?.requestId ?? randomUUID() }, () => recordAudit(store, action, resourceType, resourceId, previousState, newState, reasonCode, razorpayPaymentId));
 }
 function assertDispatchReady(store: Store, carrierId: string): void {
   const org = store.organizations.get(carrierId);

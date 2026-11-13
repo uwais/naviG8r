@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Accept sheet: no truck chosen</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="scr">
+  <header class="hdr" aria-hidden="true">
+    <span class="hdr-back">Bookings</span>
+    <div class="hdr-who-btn"><span class="hdr-text"><span class="hdr-co">Ravi Roadways</span><span class="hdr-sub">Ravi Shetty · Owner</span></span></div>
+  </header>
+  <div class="body" aria-hidden="true">
+    <div class="sumcard"><p class="h1">Sharma Textiles</p></div>
+  </div>
+  <div class="scrim">
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="ah" aria-describedby="ad">
+      <div class="grab" aria-hidden="true"></div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <h2 id="ah" class="sheet-title">Which truck carries this trip?</h2>
+        <p id="ad" class="cap-ink">Bengaluru to Chennai, 18 – 19 Oct. Sharma Textiles puts this truck number on the e-way bill.</p>
+      </div>
+      <div class="choices" role="radiogroup" aria-labelledby="ah">
+        <label class="choice"><input type="radio" name="truck"><span class="choice-text"><span class="mono strong" style="font-size: 15px;">KA01AB1234</span><span class="cap">Medium truck</span></span></label>
+        <label class="choice"><input type="radio" name="truck"><span class="choice-text"><span class="mono strong" style="font-size: 15px;">KA01AB5678</span><span class="cap">Medium truck · On the Mysuru trip today</span></span></label>
+        <label class="choice"><input type="radio" name="truck"><span class="choice-text"><span class="mono strong" style="font-size: 15px;">KA05CD9012</span><span class="cap">Large truck</span></span></label>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <button class="btn btn-primary btn-full" type="button" disabled aria-describedby="why">Accept with this truck</button>
+        <p id="why" class="small" style="text-align: center;">Choose a truck first.</p>
+        <a class="btn btn-secondary btn-full" href="ca-booking-new.dc.html">Cancel</a>
+      </div>
+    </section>
+  </div>
+</div>
+
+</body>
+</html>

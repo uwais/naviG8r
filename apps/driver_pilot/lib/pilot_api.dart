@@ -2,17 +2,37 @@ import "package:dio/dio.dart";
 
 export "pilot_api_dns.dart";
 import 'package:flutter/foundation.dart';
-import "package:flutter/material.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
 
-/// Production API. Override at run/build time:
+import "authorization_session.dart";
+
+/// API is paired with the bundled Firebase project. Override explicitly at run/build time:
 /// `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000` (Android emulator → host)
 /// `flutter run --dart-define=API_BASE_URL=http://192.168.x.x:3000` (physical device → LAN)
-const String kDefaultBaseUrl = "https://navig8r.onrender.com";
+const bool _releaseBuild = bool.fromEnvironment("dart.vm.product");
+const String kDefaultBaseUrl = _releaseBuild
+    ? "https://navig8r.onrender.com"
+    : "https://navig8r-api-beta.onrender.com";
+
+String normalizeApiBaseUrl(String raw) {
+  var value = raw.trim();
+  if (value.startsWith("http://http://")) {
+    value = value.substring("http://".length);
+  } else if (value.startsWith("https://https://")) {
+    value = value.substring("https://".length);
+  }
+  if (value.isNotEmpty &&
+      !value.startsWith("http://") &&
+      !value.startsWith("https://") &&
+      !value.startsWith("/")) {
+    value = "http://$value";
+  }
+  return value;
+}
 
 String resolveApiBaseUrl() {
   const fromEnv = String.fromEnvironment("API_BASE_URL");
-  if (fromEnv.trim().isNotEmpty) return fromEnv.trim();
+  if (fromEnv.trim().isNotEmpty) return normalizeApiBaseUrl(fromEnv);
 
   if (kIsWeb) {
     return '/api';
@@ -22,6 +42,20 @@ String resolveApiBaseUrl() {
 }
 
 const _storage = FlutterSecureStorage();
+
+Future<void> clearCommunicationDrafts() async {
+  try {
+    final values = await _storage.readAll();
+    for (final key
+        in values.keys.where((key) => key.startsWith('conversation_draft_'))) {
+      await _storage.delete(key: key);
+    }
+  } catch (_) {
+    // Cleanup is best effort: drafts are scoped to the user and active
+    // organization, so an unavailable secure-storage channel cannot expose
+    // one account's draft to another account.
+  }
+}
 
 class Api {
   Api(this.baseUrl)
@@ -36,10 +70,16 @@ class Api {
     dio.interceptors
         .add(InterceptorsWrapper(onRequest: (options, handler) async {
       final version = scopeVersion;
+      final identityVersionAtRequest = identityVersion;
+      final organizationIndependent = _isPushLifecycleRequest(options.path);
       options.extra["scopeVersion"] = version;
+      options.extra["identityVersion"] = identityVersionAtRequest;
+      options.extra["organizationIndependent"] = organizationIndependent;
       await _tokenWrite;
       final token = await _storage.read(key: "access_token");
-      if (version != scopeVersion) {
+      if (organizationIndependent
+          ? identityVersionAtRequest != identityVersion
+          : version != scopeVersion) {
         handler.reject(DioException(
             requestOptions: options, type: DioExceptionType.cancel));
         return;
@@ -52,7 +92,11 @@ class Api {
       }
       handler.next(options);
     }, onResponse: (response, handler) {
-      if (response.requestOptions.extra["scopeVersion"] != scopeVersion) {
+      final extra = response.requestOptions.extra;
+      final stale = extra["organizationIndependent"] == true
+          ? extra["identityVersion"] != identityVersion
+          : extra["scopeVersion"] != scopeVersion;
+      if (stale) {
         handler.reject(DioException(
             requestOptions: response.requestOptions,
             type: DioExceptionType.cancel));
@@ -60,7 +104,11 @@ class Api {
       }
       handler.next(response);
     }, onError: (error, handler) {
-      if (error.requestOptions.extra["scopeVersion"] == scopeVersion &&
+      final extra = error.requestOptions.extra;
+      final currentScope = extra["organizationIndependent"] == true
+          ? extra["identityVersion"] == identityVersion
+          : extra["scopeVersion"] == scopeVersion;
+      if (currentScope &&
           error.requestOptions.path != "/v1/auth/me" &&
           [401, 403].contains(error.response?.statusCode)) {
         onAuthorizationFailure?.call();
@@ -74,9 +122,14 @@ class Api {
 
   String? activeOrganizationId;
   int scopeVersion = 0;
+  int identityVersion = 0;
   Future<void>? _tokenWrite;
   VoidCallback? onIdentityChanged;
+  Future<void> Function()? onBeforeIdentityChange;
   VoidCallback? onAuthorizationFailure;
+
+  bool _isPushLifecycleRequest(String path) =>
+      path == '/v1/me/push-devices' || path.startsWith('/v1/me/push-devices/');
 
   void selectOrganization(String? id) {
     activeOrganizationId = id;
@@ -85,6 +138,8 @@ class Api {
   }
 
   Future<void> setToken(String token) async {
+    await onBeforeIdentityChange?.call();
+    identityVersion++;
     selectOrganization(null);
     _tokenWrite = _storage.write(key: "access_token", value: token);
     onIdentityChanged?.call();
@@ -96,6 +151,8 @@ class Api {
   }
 
   Future<void> clearToken() async {
+    await onBeforeIdentityChange?.call();
+    identityVersion++;
     selectOrganization(null);
     _tokenWrite = _storage.delete(key: "access_token");
     onIdentityChanged?.call();
@@ -106,12 +163,22 @@ class Api {
     }
   }
 
+  Future<bool> hasBearerToken() async {
+    await _tokenWrite;
+    final token = await _storage.read(key: "access_token");
+    return token != null && token.isNotEmpty;
+  }
+
   Future<Response<T>> get<T>(String path, {Map<String, dynamic>? query}) =>
       dio.get<T>(path, queryParameters: query);
   Future<Response<T>> post<T>(String path, {Object? data}) =>
       dio.post<T>(path, data: data);
   Future<Response<T>> patch<T>(String path, {Object? data}) =>
       dio.patch<T>(path, data: data);
+  Future<Response<T>> put<T>(String path, {Object? data}) =>
+      dio.put<T>(path, data: data);
+  Future<Response<T>> delete<T>(String path, {Object? data}) =>
+      dio.delete<T>(path, data: data);
 }
 
 late Api api;
@@ -121,19 +188,125 @@ String formatApiError(Object e) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
     final code = body is Map ? body["error"] : null;
+    if (code == "otp_rate_limited" &&
+        e.requestOptions.path.endsWith("/v1/auth/otp/verify")) {
+      final retry = body["retryAfterMs"];
+      if (retry is! num) {
+        return "Too many tries. Please wait a few minutes and try again.";
+      }
+      final minutes = retry > 60000 ? (retry / 60000).ceil() : 1;
+      return "Too many tries. Please wait $minutes ${minutes == 1 ? "minute" : "minutes"} and try again.";
+    }
+    if (code == "otp_rate_limited") {
+      final retry = body["retryAfterMs"];
+      final seconds = retry is num ? (retry / 1000).ceil() : 30;
+      final minutes = (seconds / 60).ceil();
+      final shownSeconds = seconds > 0 ? seconds : 1;
+      final wait = seconds < 60
+          ? "$shownSeconds ${shownSeconds == 1 ? "second" : "seconds"}"
+          : "$minutes ${minutes == 1 ? "minute" : "minutes"}";
+      return "Too many code requests. Please wait $wait and try again.";
+    }
+    // The server writes these errors' detail for the carrier: which bank field is wrong and how, why
+    // the truck cannot change, what a transporter ID looks like, that a chosen truck or driver is not theirs, or
+    // that a trip its carrier asked NaviG8r to cancel takes no acceptance or delivery, that a started trip takes
+    // no acceptance, or that delivery needs a photo; and for the shipper, that a booking expired unpaid.
+    // At sign-up, it says how long a name, company name or phone can be.
+    final detail = body is Map ? body["detail"] : null;
+    if (const [
+          "invalid_fullName",
+          "invalid_orgDisplayName",
+          "invalid_phone",
+          "invalid_payout_profile",
+          "truck_on_unfinished_trip",
+          "invalid_vehicleRegistrationNumber",
+          "invalid_transporter_id",
+          "invalid_trip_assignment",
+          "trip_cancel_requested",
+          "trip_already_started",
+          "booking_expired_unpaid",
+          "pod_photo_required"
+        ].contains(code) &&
+        detail is String &&
+        detail.isNotEmpty) {
+      return detail;
+    }
     const messages = {
       "carrier_compliance_required":
-          "Carrier compliance must be approved before accepting shipments or starting trips.",
+          "NaviG8r must approve your company before you can accept bookings or start trips.",
       "payment_hold_active":
-          "Payment is on hold until the shipper accepts delivery or the 48-hour hold expires.",
-      "active_organization_required": "Choose an organization to continue.",
+          "Payment is on hold until the shipper accepts delivery or the 48-hour hold ends.",
+      "active_organization_required": "Choose a company to continue.",
       "membership_inactive":
-          "Your access to this organization is no longer active. Choose another organization.",
+          "You no longer have access to this company. Choose another company.",
       "forbidden":
-          "You do not have permission for this action in the selected organization.",
-      "not_found": "This record is unavailable in the selected organization.",
-      "unauthorized": "Your session has expired. Please sign in again.",
+          "You are not allowed to do this in this company.",
+      "not_found": "This is not available in the company you chose.",
+      "unauthorized": "You were signed out. Please sign in again.",
+      // A 409 from every register screen; without it the screen blamed the connection.
+      "phone_already_registered":
+          "This number already has an account. Sign in instead.",
+      // A 429 that carries no wait.
+      "rate_limited": "Too many tries. Wait a few minutes, then try again.",
+      // Invite refusals. The other one, user_not_found, is worded on the invite screens, which can
+      // say "invite"; sign-in words it its own way.
+      "membership_already_exists": "This number is already in your company.",
+      "member_of_another_carrier":
+          "This number belongs to someone at another carrier and cannot be added yet.",
+      "otp_expired": "This code has expired. Send a new code.",
+      "otp_incorrect":
+          "That code is not right. Check the SMS and type it again, or send a new code.",
+      // The fifth wrong code; the server then stops that code working.
+      "otp_too_many_wrong_codes": "Too many wrong codes. Send a new code.",
+      "otp_challenge_invalid":
+          "This code request is no longer valid. Request a new code.",
+      "otp_challenge_not_found":
+          "This code request is no longer valid. Request a new code.",
+      "otp_challenge_mismatch":
+          "This code request is no longer valid. Request a new code.",
+      "insufficient_capacity":
+          "This trip does not have enough capacity for that weight. Enter less weight, or choose another trip.",
+      "anchor_trip_not_open":
+          "This trip is no longer taking bookings. Choose another trip.",
+      "address_too_long": "That address is too long. Shorten it.",
+      "checkout_not_completed_for_accept":
+          "The shipper has not finished paying for this booking yet. You can accept it once they do.",
+      // A driver can meet this one, so it says nothing about payment.
+      "checkout_not_completed_for_pod":
+          "This booking is not ready for delivery yet. Ask your office.",
+      // Confirm delivery on a booking that is no longer BOOKED, as when it was confirmed from another phone.
+      "shipment_not_deliverable": "Delivery already confirmed.",
+      // Confirm delivery or a delivery photo before the trip has started.
+      "trip_not_started": "Start the trip first.",
+      "sign_up_rate_limited":
+          "Too many sign-up tries. Please wait a few minutes and try again.",
+      "otp_sign_in_retired":
+          "This sign-in is no longer used. Reload the page or update the app. If it still fails, try again later.",
+      "user_not_found":
+          "This phone number has no NaviG8r account. Create an account first.",
+      "account_inactive":
+          "This account is turned off. Contact NaviG8r support.",
+      "firebase_identity_conflict":
+          "This phone number cannot sign in here. Contact NaviG8r support.",
+      "firebase_token_invalid": "Sign-in did not work. Send a new code.",
+      "firebase_phone_provider_required":
+          "Sign-in did not work. Send a new code.",
+      "firebase_exchange_rate_limited":
+          "Too many tries. Please wait a few minutes and try again.",
     };
+    // An owner-driver is the office, so is not sent to ask it.
+    if (code == "checkout_not_completed_for_pod" &&
+        AuthorizationSession.principal?["subrole"] == "OWNER_DRIVER") {
+      return "This booking is not ready for delivery yet.";
+    }
+    // A shipper has shipments and a carrier has bookings; anyone else reads the plain sentence.
+    if (code == "conversation_read_only") {
+      return AuthorizationSession.hasRole("SHIPPER")
+          ? "Messages are closed for this shipment."
+          : AuthorizationSession.hasRole("CARRIER")
+              ? "Messages are closed for this booking."
+              : "Messages are closed.";
+    }
     if (messages.containsKey(code)) return messages[code]!;
     if (e.type == DioExceptionType.connectionError ||
         e.type == DioExceptionType.unknown) {
@@ -153,6 +326,43 @@ String formatApiError(Object e) {
     return "HTTP ${status ?? "?"}: ${body ?? e.message ?? e.toString()}";
   }
   return e.toString();
+}
+
+/// The request failed before any answer came back: a dropped connection, a timeout, no signal.
+bool serverNeverAnswered(Object e) => e is DioException && e.response == null;
+
+/// The server answered that this login cannot see the record, as it does when a trip is no longer a driver's.
+bool serverAnsweredNotFound(Object e) =>
+    e is DioException && e.response?.statusCode == 404;
+
+/// The server writes a plain sentence for each e-way bill refusal; show it instead of "HTTP 400".
+String ewayBillErrorSentence(Object e) {
+  if (serverNeverAnswered(e)) {
+    return "Could not save. Check your connection and try again.";
+  }
+  if (e is DioException) {
+    final body = e.response?.data;
+    final detail = body is Map ? body["detail"] : null;
+    if (detail is String && detail.isNotEmpty) return detail;
+  }
+  // formatApiError can print a raw body, "HTTP n" or the server address; none of that helps here.
+  return "Something went wrong. Please try again.";
+}
+
+/// The bank details field the server refused (accountHolderName, ifsc or accountNumber), so the form can box it.
+String? refusedBankDetailsField(Object e) {
+  if (e is! DioException) return null;
+  final body = e.response?.data;
+  if (body is! Map || body["error"] != "invalid_payout_profile") return null;
+  final field = body["field"];
+  return field is String ? field : null;
+}
+
+int? otpRetryAfterMs(Object e) {
+  if (e is! DioException) return null;
+  final body = e.response?.data;
+  final value = body is Map ? body["retryAfterMs"] : null;
+  return value is num && value > 0 ? value.ceil() : null;
 }
 
 String? lastRegisteredOrgId;
@@ -200,12 +410,6 @@ String? carrierOrgDisplayNameFromPilotMe(
   return null;
 }
 
-String formatInrFromPaise(num paise) {
-  final rupees = paise / 100;
-  if (rupees == rupees.roundToDouble()) return "₹${rupees.toStringAsFixed(0)}";
-  return "₹${rupees.toStringAsFixed(2)}";
-}
-
 String formatIstIsoFromUtc(DateTime utc) {
   final ist = utc.add(const Duration(hours: 5, minutes: 30));
   final y = ist.year;
@@ -217,36 +421,15 @@ String formatIstIsoFromUtc(DateTime utc) {
   return "$y-$m-${d}T$h:$min:$s+05:30";
 }
 
-void defaultAnchorTripWindow(
-    TextEditingController w1, TextEditingController w2) {
-  final utc = DateTime.now().toUtc();
-  final istNow = utc.add(const Duration(hours: 5, minutes: 30));
-  final y = istNow.year;
-  final m = istNow.month;
-  final d = istNow.day;
-  final startUtc =
-      DateTime.utc(y, m, d).subtract(const Duration(hours: 5, minutes: 30));
-  final endUtc = DateTime.utc(y, m, d + 2)
-      .subtract(const Duration(hours: 5, minutes: 30))
-      .subtract(const Duration(seconds: 1));
-  w1.text = formatIstIsoFromUtc(startUtc);
-  w2.text = formatIstIsoFromUtc(endUtc);
-}
+const unpaidBookingExpiredSentence =
+    "This booking expired because it was not paid within 30 minutes.";
 
-String shipmentStatusLabel(String status) {
-  switch (status) {
-    case "PENDING_CARRIER_ACCEPT":
-      return "Awaiting carrier acceptance";
-    case "BOOKED":
-      return "Accepted";
-    case "PENDING_RELEASE":
-      return "Awaiting payment release";
-    case "DELIVERED":
-      return "Delivered";
-    default:
-      return status;
-  }
-}
+/// Shown next to Book and pay. The API tells users the same 30 minutes (UNPAID_BOOKING_WINDOW_MS).
+const payWithinWindowLine = "Pay within 30 minutes, or this booking closes.";
+
+/// Razorpay Checkout closes itself after this many seconds, so a shipper cannot finish paying after the
+/// 30 minutes they are told; the API closes the booking 10 minutes after those 30.
+const razorpayCheckoutTimeoutSeconds = 25 * 60;
 
 String tripStatusLabel(String status) {
   switch (status) {
@@ -255,9 +438,13 @@ String tripStatusLabel(String status) {
     case "FULL":
       return "Full";
     case "IN_PROGRESS":
-      return "In transit";
+      return "On the way";
     case "COMPLETED":
       return "Done";
+    case "CANCEL_REQUESTED":
+      return "Cancel requested";
+    case "CANCELLED":
+      return "Cancelled";
     default:
       return status;
   }
@@ -299,168 +486,5 @@ String customerMemberRoleLabel(String role) {
       return "Member";
     default:
       return role.isEmpty ? "—" : role;
-  }
-}
-
-String paymentStatusLabel(String status) {
-  switch (status) {
-    case "CREATED":
-      return "Awaiting checkout";
-    case "AUTHORIZED":
-      return "Payment authorized";
-    case "CAPTURED":
-      return "Payment captured";
-    case "FAILED":
-      return "Payment failed";
-    case "REFUNDED":
-      return "Refunded";
-    default:
-      return status;
-  }
-}
-
-/// Short human range from ISO window strings, e.g. "12–14 Jun".
-String formatTripWindowRange(String? windowStart, String? windowEnd) {
-  String dayMonth(String? iso) {
-    if (iso == null || iso.isEmpty) return "—";
-    final t = iso.indexOf("T");
-    final date = t > 0 ? iso.substring(0, t) : iso;
-    final parts = date.split("-");
-    if (parts.length < 3) return date;
-    const months = [
-      "",
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec"
-    ];
-    final m = int.tryParse(parts[1]) ?? 0;
-    final d = int.tryParse(parts[2]) ?? 0;
-    if (m < 1 || m > 12 || d < 1) return date;
-    return "$d ${months[m]}";
-  }
-
-  final a = dayMonth(windowStart);
-  final b = dayMonth(windowEnd);
-  if (a == "—" && b == "—") return "Window not set";
-  if (a == b) return a;
-  return "$a – $b";
-}
-
-class ShipmentTimelineStep {
-  const ShipmentTimelineStep({
-    required this.label,
-    required this.subtitle,
-    required this.complete,
-    required this.current,
-  });
-
-  final String label;
-  final String subtitle;
-  final bool complete;
-  final bool current;
-}
-
-List<ShipmentTimelineStep> shipmentTimelineSteps({
-  required String shipmentStatus,
-  String? tripStatus,
-  bool isLive = false,
-}) {
-  final accepted = shipmentStatus == "BOOKED" ||
-      shipmentStatus == "PENDING_RELEASE" ||
-      shipmentStatus == "DELIVERED";
-  final started = tripStatus == "IN_PROGRESS" || tripStatus == "COMPLETED";
-  final delivered = shipmentStatus == "DELIVERED";
-  final pendingRelease = shipmentStatus == "PENDING_RELEASE";
-
-  return [
-    ShipmentTimelineStep(
-      label: "Booking placed",
-      subtitle: "Your request was submitted",
-      complete: true,
-      current: false,
-    ),
-    ShipmentTimelineStep(
-      label: "Carrier accepted",
-      subtitle: "Carrier confirmed they will carry your load",
-      complete: accepted || pendingRelease || delivered,
-      current: shipmentStatus == "PENDING_CARRIER_ACCEPT",
-    ),
-    ShipmentTimelineStep(
-      label: "Load started",
-      subtitle: "Carrier marked the trip as started",
-      complete: started || delivered || pendingRelease,
-      current: shipmentStatus == "BOOKED" &&
-          !started &&
-          !delivered &&
-          !pendingRelease,
-    ),
-    ShipmentTimelineStep(
-      label: "In transit",
-      subtitle: isLive
-          ? "Live tracking active"
-          : shipmentStatus == "BOOKED" && tripStatus == "IN_PROGRESS"
-              ? "Load started — waiting for driver GPS"
-              : "Tracking when the load is on the road",
-      complete: delivered || pendingRelease,
-      current: started && !delivered && !pendingRelease,
-    ),
-    ShipmentTimelineStep(
-      label: delivered
-          ? "Delivered"
-          : pendingRelease
-              ? "Delivered (processing)"
-              : "Delivered",
-      subtitle: delivered
-          ? "Shipment complete"
-          : pendingRelease
-              ? "Proof of delivery submitted"
-              : "Confirmation after drop-off",
-      complete: delivered,
-      current: pendingRelease,
-    ),
-  ];
-}
-
-/// Customer-facing tracking hint on shipment detail (below the map).
-String customerTrackingStatusMessage({
-  required String shipmentStatus,
-  String? tripStatus,
-  required bool isLive,
-  bool hasDriverPing = false,
-  String? carrierDisplayName,
-}) {
-  if (isLive) return "Live tracking — updates every ~30 seconds.";
-
-  switch (shipmentStatus) {
-    case "PENDING_CARRIER_ACCEPT":
-      return "Waiting for ${carrierDisplayName ?? "carrier"} to accept your booking.";
-    case "BOOKED":
-      if (tripStatus == null) {
-        return "Tracking status unavailable — use Refresh or pull down to try again.";
-      }
-      if (tripStatus != "IN_PROGRESS") {
-        return "Carrier accepted — tracking starts when the load is started.";
-      }
-      if (!hasDriverPing) {
-        return "Load started — waiting for driver GPS. Pull down or tap Refresh to update.";
-      }
-      return "Load on the road — last GPS signal is stale. Pull down or tap Refresh.";
-    case "PENDING_RELEASE":
-      return "Delivered — proof submitted. Live tracking has ended while payment is processed.";
-    case "DELIVERED":
-      return "Shipment delivered. Tracking is no longer available.";
-    case "FAILED_CARRIER_REFUNDED":
-      return "Booking was cancelled and refunded. Tracking is not available.";
-    default:
-      return "Tracking unavailable for this status.";
   }
 }

@@ -8,7 +8,7 @@ import { createApp } from "../src/httpServer.ts";
 import { registerCustomerOrgAdmin, registerSoloOwnerOperatorDriver, publishAnchorTrip } from "../src/services.ts";
 import { internalUser } from "./fixtures.ts";
 
-export async function httpFixture(t: TestContext) {
+export async function httpFixture(t: TestContext, createAppOptions: Parameters<typeof createApp>[0] = {}) {
   const dir = await mkdtemp(join(tmpdir(), "rbac-http-"));
   process.env.DATA_FILE = join(dir, "synthetic.json");
   process.env.PERSISTENCE = "FILE";
@@ -16,8 +16,9 @@ export async function httpFixture(t: TestContext) {
   process.env.PAYOUTS_MODE = "BOOKKEEPING";
   process.env.AUTH_SECRET = "synthetic-test-signing-value-only";
   process.env.OTP_DEBUG = "1";
-  process.env.OTP_FIXED_CODE = "123456";
-  const app = await createApp();
+  // Signs everyone in with the server code, which only test and pre-release settings allow.
+  process.env.NODE_ENV = "test";
+  const app = await createApp(createAppOptions);
   app.server.listen(0, "127.0.0.1"); await once(app.server, "listening");
   const address = app.server.address(); assert.ok(address && typeof address === "object");
   const base = `http://127.0.0.1:${address.port}`;
@@ -35,6 +36,7 @@ export async function httpFixture(t: TestContext) {
   }
   async function login(phone: string) {
     const start = await request("/v1/auth/otp/start", "POST", { phone }); assert.equal(start.status, 200);
+    assert.match(start.body.debugCode, /^\d{6}$/);
     const verified = await request("/v1/auth/otp/verify", "POST", { phone, challengeId: start.body.challengeId, code: start.body.debugCode }); assert.equal(verified.status, 200);
     return verified.body.accessToken as string;
   }

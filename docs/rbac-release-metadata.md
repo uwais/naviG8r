@@ -8,6 +8,8 @@ permission lists returned by `/v1/auth/me` for navigation and display, but API
 handlers enforce every permission again. An absent, inactive, incompatible, or
 unknown role denies access.
 
+For the V1 full dashboard and preserved V2 flow, see [dashboard implementation and testing](admin-ops-dashboard-testing.md). The acting organization header identifies the administrator's PLATFORM membership; the request body identifies the target membership.
+
 ## Canonical roles and permissions
 
 Permissions are organization-scoped and are never combined across organizations.
@@ -19,9 +21,9 @@ permission further.
 |---|---|
 | `SHIPPER` | `organization.profile.read`, `organization.member.invite`, `load.create`, `load.read`, `pod.accept`, `payment.read`, `payment.checkout`, `kyc.status_read`, `audit.read`, `integration.manage` |
 | `CARRIER` | `organization.profile.read`, `organization.member.invite`, `load.read`, `trip.publish`, `load.status_update`, `carrier.offer_accept`, `pod.upload`, `payment.read`, `bank_account.create_token`, `kyc.status_read`, `audit.read` |
-| `OPS` | `organization.profile.read`, `load.create`, `load.read`, `trip.publish`, `load.status_update`, `pod.upload`, `payment.read`, `kyc.status_read`, `kyc.verify`, `audit.read` |
-| `FINANCE` | `organization.profile.read`, `load.read`, `payment.read`, `payment.capture`, `payment.refund`, `settlement.release`, `kyc.status_read`, `audit.read` |
-| `ADMIN` | `organization.profile.read`, `load.read`, `payment.read`, `user.role_manage`, `kyc.status_read`, `audit.read` |
+| `OPS` | `directory.read`, `fleet.read`, `carrier.onboard`, `organization.profile.read`, `load.create`, `load.read`, `trip.publish`, `load.status_update`, `pod.upload`, `payment.read`, `kyc.status_read`, `kyc.verify`, `audit.read` |
+| `FINANCE` | `directory.read`, `organization.profile.read`, `load.read`, `payment.read`, `payment.capture`, `payment.refund`, `settlement.release`, `kyc.status_read`, `audit.read` |
+| `ADMIN` | `directory.read`, `fleet.read`, `organization.profile.read`, `load.read`, `payment.read`, `user.role_manage`, `kyc.status_read`, `audit.read` |
 
 Additional policy restrictions are intentional:
 
@@ -71,7 +73,7 @@ Example request against a synthetic or beta API:
 curl -X POST "$API_BASE/v1/roles" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -H "X-Organization-Id: $TARGET_ORG_ID" \
+  -H "X-Organization-Id: $ACTING_PLATFORM_ORG_ID" \
   -d '{"userId":"'$TARGET_USER_ID'","orgId":"'$TARGET_ORG_ID'","roles":["SHIPPER"]}'
 ```
 
@@ -82,7 +84,7 @@ protected data and actions without relying on a browser restart.
 
 ## Local and beta manual test procedure
 
-All local tests use synthetic data, OTP `123456`, mock payments, and bookkeeping
+All local tests use synthetic data, generated debug OTPs, mock payments, and bookkeeping
 payouts. Never use production credentials or production data.
 
 1. Start the synthetic API from the repository root:
@@ -100,7 +102,7 @@ payouts. Never use production credentials or production data.
    ```
 
 3. Open `http://localhost:8080/#/customer/login` using a 390px phone viewport.
-   Sign in with OTP `123456`.
+   Sign in with the generated code returned by `/v1/auth/otp/start` and autofilled in debug mode.
 
 4. Test Shipper A (`8000000001`): confirm the organization selector, own
    shipment visibility, payment-hold banner, POD confirmation dialog, and POD

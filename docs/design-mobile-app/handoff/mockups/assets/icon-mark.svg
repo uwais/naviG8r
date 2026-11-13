@@ -1,0 +1,19 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="badgeBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#16233D"/>
+      <stop offset="100%" stop-color="#0D1524"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="url(#badgeBg)"/>
+
+  <!-- background route line, echoes the card motif -->
+  <path d="M 90 420 C 180 390, 230 300, 260 230" fill="none" stroke="#E8A33D"
+        stroke-width="7" stroke-dasharray="1 17" stroke-linecap="round" opacity="0.55"/>
+  <circle cx="90" cy="420" r="12" fill="#E8A33D" opacity="0.55"/>
+
+  <!-- pin mark -->
+  <g transform="translate(88,72) scale(14)" fill="#E8A33D" fill-rule="evenodd">
+    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zM12 11.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+  </g>
+</svg>

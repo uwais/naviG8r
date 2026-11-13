@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Browser test output (screenshots are uploaded by CI)
+/test-results/
+/playwright-report/
+
 # OS / editor
 .DS_Store
 .idea/
@@ -12,6 +16,7 @@ node_modules/
 
 # Node API local persisted state (pilot data — do not commit real PII)
 data/*.json
+apps/api/data/*.json
 
 # Flutter
 apps/driver_pilot/.dart_tool/

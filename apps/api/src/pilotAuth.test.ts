@@ -3,23 +3,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
 import { createStore } from "./store.ts";
-import { publishAnchorTripAsPilotDriver, } from "./services.ts";
+import { publishAnchorTripAsPilotDriver } from "./services.ts";
 
 test("OTP + bearer auth: verify issues token usable for protected pilot routes", (t) => {
   const prev = {
     AUTH_SECRET: process.env.AUTH_SECRET,
     OTP_DEBUG: process.env.OTP_DEBUG,
-    OTP_FIXED_CODE: process.env.OTP_FIXED_CODE,
   };
   t.after(() => {
     process.env.AUTH_SECRET = prev.AUTH_SECRET;
     process.env.OTP_DEBUG = prev.OTP_DEBUG;
-    process.env.OTP_FIXED_CODE = prev.OTP_FIXED_CODE;
   });
 
-  process.env.AUTH_SECRET = process.env.AUTH_SECRET ?? "test_secret_minimum_16_chars";
+  process.env.AUTH_SECRET =
+    process.env.AUTH_SECRET ?? "test_secret_minimum_16_chars";
   process.env.OTP_DEBUG = "1";
-  process.env.OTP_FIXED_CODE = "123456";
 
   const store = createStore();
   const onboard = registerCompliantCarrier(store, {
@@ -33,12 +31,12 @@ test("OTP + bearer auth: verify issues token usable for protected pilot routes",
 
   const start = pilotOtpStart(store, { phone: onboard.user.phone });
   assert.ok(start.challengeId);
-  assert.equal(start.debugCode, "123456");
+  assert.match(start.debugCode!, /^\d{6}$/);
 
   const verified = pilotOtpVerify(store, {
     phone: onboard.user.phone,
     challengeId: start.challengeId,
-    code: "123456",
+    code: start.debugCode!,
   });
   assert.ok(verified.accessToken);
 

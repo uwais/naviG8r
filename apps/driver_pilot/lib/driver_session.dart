@@ -19,10 +19,28 @@ abstract final class DriverSession {
   static String? get kycStatus => hasCarrierOrg
       ? (AuthorizationSession.organization?["kycStatus"] as String?)
       : null;
+  static String? get rejectionReasonCode {
+    // Read with a type check, not a cast: a malformed value shows no reason instead of breaking the banner.
+    final code = hasCarrierOrg
+        ? (AuthorizationSession.organization?["rejectionReasonCode"])
+        : null;
+    return code is String ? code : null;
+  }
+
+  static bool get approvalTakenBack =>
+      hasCarrierOrg &&
+      AuthorizationSession.organization?["approvalTakenBack"] == true;
   static String? vehicleId;
   static String? vehicleRegistrationNumber;
   static String? vehicleClass;
   static double? vehicleCapacityKg;
+
+  /// The carrier's GSTIN or TRANSIN; the server sends it to the carrier office only, never to a driver.
+  static String? transporterId;
+
+  /// False until the server has said what is saved (/v1/pilot/me for this carrier, or a save), so a failed load
+  /// is not taken for "none saved", which an owner's Save would then send as a clear.
+  static bool transporterIdLoaded = false;
   static bool get hasCarrierOrg => AuthorizationSession.hasRole("CARRIER");
   static bool get canInviteDrivers =>
       hasCarrierOrg && AuthorizationSession.can("organization.member.invite");
@@ -49,6 +67,16 @@ abstract final class DriverSession {
       final r = await api.get<Map<String, dynamic>>("/v1/pilot/me");
       if (epoch != _epoch || scope != AuthorizationSession.scopeKey)
         return false;
+      final organizations = r.data?["organizations"];
+      if (organizations is List) {
+        for (final org in organizations) {
+          if (org is Map<String, dynamic> && org["id"] == carrierOrgId) {
+            final saved = org["transporterId"];
+            transporterId = saved is String && saved.isNotEmpty ? saved : null;
+            transporterIdLoaded = true;
+          }
+        }
+      }
       final profile = r.data?["driverProfile"];
       final vehicles = r.data?["vehicles"];
       if (profile is Map<String, dynamic> && vehicles is List) {
@@ -81,6 +109,8 @@ abstract final class DriverSession {
     vehicleRegistrationNumber = null;
     vehicleClass = null;
     vehicleCapacityKg = null;
+    transporterId = null;
+    transporterIdLoaded = false;
   }
 
   static void clear() {
