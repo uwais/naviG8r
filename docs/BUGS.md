@@ -90,9 +90,8 @@ Nobody would have known they were fixed, and nobody would have known if they had
 - [ ] **A carrier accepts a binding load without seeing what it pays.** The price is absent from
   the accept card and the tap through to the screen that shows it is disabled for exactly those
   rows. `read`
-- [ ] **The payout account number is optional in the request while the label says required,**
-  and there is no re-entry confirmation. A mistyped account is the one error nobody can reverse.
-  `read`
+- [ ] **The payout screen has no re-entry confirmation for the account number.** A mistyped
+  account is the one error nobody can reverse. `read`
 - [ ] **A payout renders as `₹1250000`,** ungrouped. `read`
 
 ## High — the app states things that are not true

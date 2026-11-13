@@ -1,4 +1,4 @@
-import { bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
+import { addFinalTestEwayBill, addTestPodPhoto, bookTestShipment, registerCompliantCarrier } from "../test/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "./store.ts";
@@ -58,6 +58,7 @@ test("booking awaits carrier accept then trip start before live tracking", () =>
   assert.equal(accepted.status, "BOOKED");
   assert.ok(accepted.acceptedAtUtcMs);
 
+  addFinalTestEwayBill(store, shipment.id);
   const started = startAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
   assert.equal(started.status, "IN_PROGRESS");
   assert.ok(started.startedAtUtcMs);
@@ -91,8 +92,10 @@ test("POD on last booking auto-completes IN_PROGRESS trip", () => {
     dropAddress: "Jaipur",
   });
   acceptCarrierShipment(store, { shipmentId: shipment.id, userId: onboard.user.id });
+  addFinalTestEwayBill(store, shipment.id);
   startAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
 
+  addTestPodPhoto(store, shipment.id);
   submitDriverPod(store, { shipmentId: shipment.id, userId: onboard.user.id });
 
   const updatedTrip = store.anchorTrips.get(trip.id)!;
@@ -129,6 +132,7 @@ test("completeAnchorTripAsPilot requires all shipments POD'd", () => {
     dropAddress: "Jaipur",
   });
   acceptCarrierShipment(store, { shipmentId: shipment.id, userId: onboard.user.id });
+  addFinalTestEwayBill(store, shipment.id);
   startAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
 
   assert.throws(
@@ -136,6 +140,7 @@ test("completeAnchorTripAsPilot requires all shipments POD'd", () => {
     (e: unknown) => e instanceof ApiError && (e as ApiError).message === "shipments_still_active",
   );
 
+  addTestPodPhoto(store, shipment.id);
   submitDriverPod(store, { shipmentId: shipment.id, userId: onboard.user.id });
   const done = completeAnchorTripAsPilot(store, { userId: onboard.user.id, tripId: trip.id });
   assert.equal(done.status, "COMPLETED");

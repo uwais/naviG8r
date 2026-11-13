@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Status labels</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 760px; height: 520px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Status labels</h1>
+    <p class="lead" style="max-width: 640px;">Always a word on a tint; colour only supports it. Not tappable. The words below replace every system code.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 14px 16px; align-items: start;">
+    <p class="spec-tag">Needs someone</p>
+    <div class="chips"><span class="st st-att">Waiting for carrier</span><span class="st st-att">Waiting for you to accept</span><span class="st st-att">Needs you</span><span class="st st-att">Truck not on bill</span><span class="st st-att">Awaiting payment release</span></div>
+    <p class="spec-tag">In progress</p>
+    <div class="chips"><span class="st st-info">Accepted</span><span class="st st-info">In transit</span></div>
+    <p class="spec-tag">Good</p>
+    <div class="chips"><span class="st st-good">Open</span><span class="st st-good">Ready to start</span><span class="st st-good">Delivery confirmed</span><span class="st st-good">Delivered</span><span class="st st-good">Approved by NaviG8r</span></div>
+    <p class="spec-tag">Problem</p>
+    <div class="chips"><span class="st st-prob">E-way bill needs a fix</span><span class="st st-prob">Not approved</span></div>
+    <p class="spec-tag">Ended or closed</p>
+    <div class="chips"><span class="st st-neutral">Full</span><span class="st st-neutral">Done</span><span class="st st-neutral">Cancelled</span></div>
+  </div>
+  <p class="cap">"Awaiting payment release" shows only to owners. Everyone else sees "Delivery confirmed". "Ended or closed" uses sunken with ink text (14.0:1); no new colour token.</p>
+</div>
+
+</body>
+</html>

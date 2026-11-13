@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Copy row: every state</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 760px; height: 680px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Copy row</h1>
+    <p class="lead" style="max-width: 660px;">What it is, the value in the mono face, and where it goes on the portal, by the portal's own field name. The value copied has no spaces even when it is shown in groups.</p>
+  </div>
+  <div class="spec-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+    <div class="spec-cell"><p class="spec-tag">Default</p>
+      <div class="copy"><div class="copy-text"><span class="copy-label">Truck number</span><span class="copy-val">KA01AB1234</span><span class="copy-where">Portal field: Vehicle No. (Part B)</span></div><button class="btn btn-secondary btn-sm" type="button">Copy</button></div></div>
+    <div class="spec-cell"><p class="spec-tag">Pressed</p>
+      <div class="copy"><div class="copy-text"><span class="copy-label">Truck number</span><span class="copy-val">KA01AB1234</span><span class="copy-where">Portal field: Vehicle No. (Part B)</span></div><button class="btn btn-secondary btn-sm is-pressed" type="button" style="background: var(--line);">Copy</button></div></div>
+    <div class="spec-cell"><p class="spec-tag">Focus</p>
+      <div class="copy"><div class="copy-text"><span class="copy-label">Truck number</span><span class="copy-val">KA01AB1234</span><span class="copy-where">Portal field: Vehicle No. (Part B)</span></div><button class="btn btn-secondary btn-sm is-focus" type="button">Copy</button></div></div>
+    <div class="spec-cell"><p class="spec-tag">Success · announced "Truck number copied"</p>
+      <div class="copy copied"><div class="copy-text"><span class="copy-label">Truck number</span><span class="copy-val">KA01AB1234</span><span class="copy-where">Portal field: Vehicle No. (Part B)</span></div><button class="btn btn-secondary btn-sm" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Copied</button></div>
+      <p class="small">Returns to "Copy" after 3 seconds.</p></div>
+    <div class="spec-cell"><p class="spec-tag">Loading</p>
+      <div class="copy"><div class="copy-text"><span class="copy-label">Carrier's transporter ID</span><span style="height: 20px; width: 70%; border-radius: 6px; background: var(--line);" aria-hidden="true"></span><span class="copy-where">Loading from Ravi Roadways' profile</span></div><button class="btn btn-secondary btn-sm" type="button" disabled>Copy</button></div></div>
+    <div class="spec-cell"><p class="spec-tag">Empty · carrier has no transporter ID</p>
+      <div class="copy"><div class="copy-text"><span class="copy-label">Carrier's transporter ID</span><span class="cap-ink">Ravi Roadways has not added one.</span><span class="copy-where">Leave Transporter ID empty. Only you, the bill's maker, can then change the truck.</span></div></div></div>
+    <div class="spec-cell"><p class="spec-tag">Disabled · before the carrier accepts</p>
+      <div class="copy" style="opacity: 1;"><div class="copy-text"><span class="copy-label">Truck number</span><span class="cap-ink">Not chosen yet</span><span class="copy-where">Shown once the carrier accepts and names the truck.</span></div><button class="btn btn-secondary btn-sm" type="button" disabled>Copy</button></div></div>
+    <div class="spec-cell"><p class="spec-tag">Error · clipboard blocked</p>
+      <div class="copy"><div class="copy-text"><span class="copy-label">Truck number</span><span class="copy-val">KA01AB1234</span><span class="err" role="alert">Could not copy. Press and hold the number to copy it.</span></div><button class="btn btn-secondary btn-sm" type="button">Copy</button></div></div>
+  </div>
+</div>
+
+</body>
+</html>

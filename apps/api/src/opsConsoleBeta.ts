@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
+import { ewayBillMarkup, ewayBillScript } from "./opsConsoleBetaEwayBills.ts";
 import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
+import { tripCancelMarkup, tripCancelScript } from "./opsConsoleBetaTripCancels.ts";
+import { podPhotoMarkup, podPhotoScript } from "./opsConsoleBetaPodPhotos.ts";
+import { firebaseSignInMarkup, firebaseSignInPolicySources, firebaseSignInScript, staffSignInNotSetUpMarkup, type SignInElementIds, type StaffSignIn } from "./staffSignIn.ts";
 
 /**
  * The redesigned operations page, served at /ops/beta beside the current /ops page until the team agrees
@@ -7,10 +11,17 @@ import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
  * Built from the "NaviG8r ops console" design on the NaviG8r design system; token names match that system.
  *
  * Over 500 lines because markup and script are one screen: every element id the script reads is defined
- * here, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
+ * here, or in opsConsoleBetaEwayBills.ts, opsConsoleBetaTripCancels.ts or opsConsoleBetaPodPhotos.ts, which are pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
  */
-export function opsConsoleBetaHtml(): string {
-  return page;
+export function opsConsoleBetaHtml(signIn: StaffSignIn): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NaviG8r operations (beta)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Poppins:wght@600;700&display=swap">
+<style>${opsConsoleBetaStyles}</style></head><body>
+${markup(signInContent(signIn))}
+<script>${pageScript(signIn)}</script>
+</body></html>`;
 }
 
 // The website's logo file (apps/www/public/brand/logo-horizontal-light.svg), inlined because the API does
@@ -25,7 +36,19 @@ const logo = `<svg viewBox="0 0 1400 400" role="img" aria-label="NaviG8r" xmlns=
 <text x="364" y="300" font-family="TeX Gyre Heros Cn" font-size="26" letter-spacing="6" fill="#5B6B87">FREIGHT &amp; LOGISTICS MARKETPLACE</text>
 </svg>`;
 
-const markup = `
+const signInControls = `
+  <label class="stack"><span class="field-label">Phone</span><input id="phone" class="field" autocomplete="tel" inputmode="tel"></label>
+  <div><button id="start" class="btn btn-secondary" type="button">Send code</button></div>
+  <label class="stack"><span class="field-label">Verification code</span><input id="code" class="field" autocomplete="one-time-code" inputmode="numeric"></label>
+  <div><button id="verify" class="btn btn-primary" type="button">Sign in</button></div>`;
+const signInIds: SignInElementIds = { phone: "phone", send: "start", code: "code", verify: "verify" };
+
+function signInContent(signIn: StaffSignIn): string {
+  if (signIn.kind === "not-set-up") return staffSignInNotSetUpMarkup;
+  return signIn.kind === "firebase" ? signInControls + firebaseSignInMarkup(signIn.settings, signInIds) : signInControls;
+}
+
+const markup = (signInSection: string) => `
 <header>
   ${logo}
   <div class="divider"></div>
@@ -43,11 +66,7 @@ const markup = `
 </header>
 <div id="pageMessage"></div>
 <section id="signin" class="card" aria-labelledby="signinTitle" hidden>
-  <h2 id="signinTitle">Sign in</h2>
-  <label class="stack"><span class="field-label">Phone</span><input id="phone" class="field" autocomplete="tel" inputmode="tel"></label>
-  <div><button id="start" class="btn btn-secondary" type="button">Send code</button></div>
-  <label class="stack"><span class="field-label">Verification code</span><input id="code" class="field" autocomplete="one-time-code" inputmode="numeric"></label>
-  <div><button id="verify" class="btn btn-primary" type="button">Sign in</button></div>
+  <h2 id="signinTitle">Sign in</h2>${signInSection}
   <div id="signinResult"></div>
 </section>
 <div id="workspace" hidden>
@@ -56,6 +75,9 @@ const markup = `
     <span class="caption">Needs someone</span>
     <a class="jump" href="#carriers" id="jumpCarriers">Carriers waiting <span class="count" id="countCarriers">0</span></a>
     <a class="jump" href="#payments">Payments waiting <span class="count" id="countPayments">0</span></a>
+    <a class="jump" href="#tripCancels">Trip cancel requests <span class="count" id="countTripCancels">0</span></a>
+    <a class="jump" href="#ewayBills" id="jumpEwayBills">E-way bills to check <span class="count" id="countEwayBills">0</span></a>
+    <a class="jump" href="#ewayMissing" id="jumpEwayMissing">Missing e-way bills <span class="count" id="countEwayMissing">0</span></a>
     <a class="jump" href="#team">Team access</a>
     <div class="grow"></div>
     <div id="legend" class="legend" role="group" aria-label="Status key"><span class="caption">Status key</span></div>
@@ -68,7 +90,7 @@ const markup = `
     <section id="byId" class="card" aria-labelledby="byIdTitle">
       <div class="head"><h2 id="byIdTitle">Review any carrier by ID</h2></div>
       <form id="byIdForm" class="body" novalidate autocomplete="off">
-        <p class="caption">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history.</p>
+        <p class="caption">For carriers not in the list, such as taking back an approval. The change and your reason are kept in the carrier's history. If you reject with Documents missing, Duplicate account, Not a carrier business or the bank reason, only the owner sees it in their app, in plain words; the bank reason only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details. If you take back an approval, everyone at the carrier reads that it was taken back.</p>
         <div id="byIdOff"></div>
         <label class="stack"><span class="field-label">Carrier ID</span><input id="byIdCarrier" class="field mono" autocomplete="off" spellcheck="false"></label>
         <fieldset><legend class="field-label">Decision</legend>
@@ -82,11 +104,11 @@ const markup = `
     <section id="payments" class="card span3" aria-labelledby="paymentsTitle">
       <div class="head"><h2 id="paymentsTitle">Payments waiting for release</h2><span id="paymentsCount" class="caption"></span><div class="grow"></div><span id="paymentsUpdated" class="caption"></span><button id="paymentsReload" class="btn btn-quiet btn-sm" type="button">Reload</button></div>
       <div id="paymentsBody"></div>
-    </section>
+    </section>${tripCancelMarkup}
     <section id="team" class="card" aria-labelledby="teamTitle">
       <div class="head"><h2 id="teamTitle">Team access</h2><div class="grow"></div><span id="teamTag"></span></div>
       <div id="teamBody" class="body"></div>
-    </section>
+    </section>${ewayBillMarkup}
   </main>
 </div>
 <dialog id="release" aria-labelledby="releaseTitle" aria-describedby="releaseText">
@@ -95,7 +117,7 @@ const markup = `
   <div id="releaseMoney" class="money"></div>
   <div id="releaseResult"></div>
   <div class="pair"><button id="releaseCancel" class="btn btn-secondary" type="button">Cancel</button><button id="releaseConfirm" class="btn btn-primary" type="button"></button></div>
-</dialog>
+</dialog>${podPhotoMarkup}
 <footer class="caption"><span>NaviG8r operations</span><span>All times IST, 24-hour</span><span>This is the beta page. Today's pages are still at <a href="/ops">/ops</a> and <a href="/ops/v1">/ops/v1</a>.</span></footer>
 `;
 
@@ -152,6 +174,7 @@ const errorWords = {
   otp_incorrect: 'that code is wrong, so check it and try again',
   otp_expired: 'that code has expired, so send a new one',
   otp_challenge_invalid: "that code request isn't valid any more, so send a new code",
+  otp_too_many_wrong_codes: 'too many wrong codes were entered, so send a new code',
   otp_challenge_mismatch: "that code request isn't valid any more, so send a new code",
   otp_challenge_not_found: "that code request isn't valid any more, so send a new code",
   otp_rate_limited: 'too many codes were asked for, so wait until Send code is ready again',
@@ -168,6 +191,10 @@ const errorWords = {
   membership_inactive: "your membership of that organization is switched off",
   active_organization_required: "choose the organization you're acting for first",
   cannot_revoke_last_admin: 'that would leave the organization with no one holding ADMIN',
+  invalid_eway_check: 'say whether you found the bill or found a problem, and choose which problem',
+  eway_bill_not_entered: 'this shipment has no e-way bill entered to check',
+  eway_bill_changed: 'the shipper changed this bill after your list loaded, so reload and look it up again',
+  eway_bill_locked: 'this shipment is already delivered, so its e-way bill can no longer be changed',
   internal_error: 'the server hit an error',
   // The server also sends this for any failure it did not name, a payment provider error included.
   bad_request: 'the server hit an error it did not name',
@@ -176,7 +203,7 @@ const errorWords = {
 // made and not saved, so the page must not say nothing happened.
 const refusedBeforeChange = ['unauthorized', 'forbidden', 'not_found', 'self_verification_forbidden', 'verification_status_and_reason_required',
   'invalid_role', 'payment_hold_active', 'shipment_not_found', 'payment_not_found', 'payment_id_missing', 'checkout_not_completed_for_pod', 'shipment_not_pending_release',
-  'membership_inactive', 'active_organization_required', 'cannot_revoke_last_admin'];
+  'membership_inactive', 'active_organization_required', 'cannot_revoke_last_admin', 'invalid_eway_check', 'eway_bill_not_entered', 'eway_bill_changed', 'eway_bill_locked'];
 async function request(path, method = 'GET', body, headers = {}) {
   const sent = { 'content-type': 'application/json', ...headers };
   if (token) sent.authorization = 'Bearer ' + token;
@@ -195,7 +222,7 @@ async function request(path, method = 'GET', body, headers = {}) {
   }
   const code = out.error || String(response.status);
   if (response.status === 401) byId('signin').hidden = false;
-  if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, unchanged: refusedBeforeChange.includes(code), retryAfterMs: out.retryAfterMs });
+  if (!response.ok) throw Object.assign(Error(errorWords[code] || "the server gave an error this page doesn't recognise (" + code + ')'), { answered: true, code, unchanged: refusedBeforeChange.includes(code), retryAfterMs: out.retryAfterMs });
   return out;
 }
 const nothingChanged = error => error.unchanged ? 'Nothing changed.' : "Couldn't confirm whether it was saved. Reload to see the current status before trying again.";
@@ -306,12 +333,13 @@ function carrierCard(carrier) {
   if (own) for (const button of [approve, reject]) { button.disabled = true; button.setAttribute('aria-describedby', ownId); }
   const choose = decision => {
     const approving = decision === 'APPROVED';
-    const select = element('select', { class: 'field', 'aria-labelledby': cardId + '-reason' });
+    const select = element('select', { class: 'field', 'aria-labelledby': cardId + '-reason', 'aria-describedby': approving ? undefined : cardId + '-reason-note' });
     reasonChoices(select, reasons[decision]);
     const confirm = element('button', { class: 'btn ' + (approving ? 'btn-primary' : 'btn-danger'), type: 'button', text: approving ? 'Confirm approval' : 'Confirm rejection' });
     const back = element('button', { class: 'btn btn-secondary', type: 'button', text: 'Cancel' });
     picker.replaceChildren(
-      element('label', { class: 'stack reason' }, element('span', { id: cardId + '-reason', class: 'field-label' }, approving ? 'Reason for approving' : 'Reason for rejecting', element('span', { class: 'visually-hidden', text: ' ' + name + ' (' + carrier.id + ')' })), select),
+      element('label', { class: 'stack reason' }, element('span', { id: cardId + '-reason', class: 'field-label' }, approving ? 'Reason for approving' : 'Reason for rejecting', element('span', { class: 'visually-hidden', text: ' ' + name + ' (' + carrier.id + ')' })), select,
+        !approving && element('span', { id: cardId + '-reason-note', class: 'caption', text: "Only the owner sees the reason you pick, in their app, in plain words; the bank reason only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details." })),
       confirm, back);
     actions.hidden = true;
     picker.hidden = false;
@@ -451,7 +479,7 @@ function paymentRow(shipment, showAmounts) {
   const route = shipment.pickupAddress && shipment.dropAddress ? shipment.pickupAddress + ' to ' + shipment.dropAddress : null;
   const status = element('td', {}, statusTag(paymentStatus(shipment)));
   const proof = shipment.podAtUtcMs
-    ? element('td', {}, 'Uploaded ' + at(shipment.podAtUtcMs), element('div', { class: 'caption', text: shipment.podAcceptedAtUtcMs ? 'Shipper accepted ' + at(shipment.podAcceptedAtUtcMs) : 'Shipper has not accepted yet' }))
+    ? element('td', {}, 'Uploaded ' + at(shipment.podAtUtcMs), element('div', { class: 'caption', text: shipment.podAcceptedAtUtcMs ? 'Shipper accepted ' + at(shipment.podAcceptedAtUtcMs) : 'Shipper has not accepted yet' }), podPhotoButtons(shipment))
     : element('td', {}, element('span', { class: 'caption', text: 'Not uploaded yet' }));
   const action = element('td');
   const whyId = 'why-' + shipment.id;
@@ -654,7 +682,7 @@ async function loadWorkspace() {
   byId('notice').hidden = true;
   byId('tools').hidden = byId('sections').hidden = false;
   renderTeam();
-  await Promise.all([loadCarriers(), loadPayments()]);
+  await Promise.all([loadCarriers(), loadPayments(), loadTripCancels(), loadEwayBills()]);
 }
 
 // A second click while a sign-in is still running would try the same code again and fail confusingly.
@@ -677,6 +705,39 @@ function waitToResend(ms) {
   };
   if (tick()) resendTimer = setInterval(tick, 1000);
 }
+async function signedIn(accessToken) {
+  token = accessToken;
+  org = '';
+  sessionStorage.setItem('navig8r_access', token);
+  sessionStorage.removeItem('navig8r_org');
+  await loadSession();
+}
+document.addEventListener('navig8r-staff-signed-in', event => run(() => signedIn(event.detail), "Couldn't sign in", byId('signinResult')));
+byId('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
+byId('organization').onchange = () => {
+  org = byId('organization').value;
+  if (org) sessionStorage.setItem('navig8r_org', org); else sessionStorage.removeItem('navig8r_org');
+  run(loadWorkspace, "Couldn't switch the organization");
+};
+byId('carriersReload').onclick = () => run(loadCarriers, "Couldn't reload");
+byId('paymentsReload').onclick = () => run(loadPayments, "Couldn't reload");
+${ewayBillScript}
+${tripCancelScript}
+${podPhotoScript}
+byId('legend').append(...[['Done', 'good'], ['Someone must act', 'attention'], ['Blocked or failed', 'problem'], ['In progress', 'info']].map(statusTag));
+if (!token) byId('signin').hidden = false;
+else {
+  byId('pageMessage').replaceChildren(element('div', { class: 'msg msg-info', role: 'status' }, element('span', { class: 'spin', 'aria-hidden': 'true' }), element('span', { text: 'Loading your account…' })));
+  loadSession().catch(error => {
+    byId('pageMessage').replaceChildren();
+    byId('signin').hidden = false;
+    byId('signinResult').replaceChildren(message('err', "Couldn't open your session: " + error.message + '.'));
+  });
+}
+`;
+
+// Only outside production: the server refuses these routes there.
+const serverCodeSignInScript = `
 // A new phone number starts over: the old code, wait and any reply still on its way belong to the old number.
 byId('phone').oninput = () => {
   challenge = '';
@@ -704,51 +765,33 @@ byId('start').onclick = async () => {
 };
 byId('verify').onclick = () => whileWaiting(byId('verify'), 'Signing in…', () => run(async () => {
   const out = await request('/v1/auth/otp/verify', 'POST', { phone: byId('phone').value, challengeId: challenge, code: byId('code').value });
-  token = out.accessToken;
-  org = '';
-  sessionStorage.setItem('navig8r_access', token);
-  sessionStorage.removeItem('navig8r_org');
-  await loadSession();
+  await signedIn(out.accessToken);
 }, "Couldn't sign in", byId('signinResult')));
-byId('signout').onclick = () => { sessionStorage.removeItem('navig8r_access'); sessionStorage.removeItem('navig8r_org'); location.reload(); };
-byId('organization').onchange = () => {
-  org = byId('organization').value;
-  if (org) sessionStorage.setItem('navig8r_org', org); else sessionStorage.removeItem('navig8r_org');
-  run(loadWorkspace, "Couldn't switch the organization");
-};
-byId('carriersReload').onclick = () => run(loadCarriers, "Couldn't reload");
-byId('paymentsReload').onclick = () => run(loadPayments, "Couldn't reload");
-byId('legend').append(...[['Done', 'good'], ['Someone must act', 'attention'], ['Blocked or failed', 'problem'], ['In progress', 'info']].map(statusTag));
-if (!token) byId('signin').hidden = false;
-else {
-  byId('pageMessage').replaceChildren(element('div', { class: 'msg msg-info', role: 'status' }, element('span', { class: 'spin', 'aria-hidden': 'true' }), element('span', { text: 'Loading your account…' })));
-  loadSession().catch(error => {
-    byId('pageMessage').replaceChildren();
-    byId('signin').hidden = false;
-    byId('signinResult').replaceChildren(message('err', "Couldn't open your session: " + error.message + '.'));
-  });
-}
 `;
 
-const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NaviG8r operations (beta)</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Poppins:wght@600;700&display=swap">
-<style>${opsConsoleBetaStyles}</style></head><body>
-${markup}
-<script>${script}</script>
-</body></html>`;
+function pageScript(signIn: StaffSignIn): string {
+  return signIn.kind === "server-code" ? script + serverCodeSignInScript : script;
+}
 
 const sha256 = (text: string): string => "'sha256-" + createHash("sha256").update(text).digest("base64") + "'";
-/** Only this page's own script and stylesheet may run, fonts come only from Google, and data stays on this server. */
-export const opsConsoleBetaContentSecurityPolicy = [
-  "default-src 'self'",
-  "script-src " + sha256(script),
-  "style-src " + sha256(opsConsoleBetaStyles) + " https://fonts.googleapis.com",
-  "font-src https://fonts.gstatic.com",
-  "frame-src 'none'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join("; ");
+/**
+ * Only this page's own script and stylesheet may run, fonts come only from Google, and data stays on this
+ * server; with Firebase sign-in, also the pinned Firebase code and Google's reCAPTCHA check.
+ */
+export function opsConsoleBetaContentSecurityPolicy(signIn: StaffSignIn): string {
+  const firebase = signIn.kind === "firebase";
+  return [
+    "default-src 'self'",
+    // Proof of delivery photos are fetched with the sign-in and shown from memory.
+    "img-src 'self' blob:",
+    ["script-src", sha256(pageScript(signIn)), ...(firebase ? [sha256(firebaseSignInScript(signIn.settings, signInIds)), ...firebaseSignInPolicySources.script] : [])].join(" "),
+    "style-src " + sha256(opsConsoleBetaStyles) + " https://fonts.googleapis.com",
+    "font-src https://fonts.gstatic.com",
+    ...(firebase ? ["connect-src 'self' " + firebaseSignInPolicySources.connect.join(" ")] : []),
+    firebase ? "frame-src " + firebaseSignInPolicySources.frame.join(" ") : "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}

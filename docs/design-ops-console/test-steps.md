@@ -72,6 +72,36 @@ To switch person: click **Sign out**, or use a new private window.
 15. Open **http://127.0.0.1:3145/ops** and **http://127.0.0.1:3145/ops/v1**.
     **Right:** today's compact page and the full dashboard, working as before.
 
+## F. E-way bills (Operations 8000000005, then Finance 8000000006)
+
+The test server must have e-way bill examples loaded. If the two cards below are empty, ask the person who started it.
+
+16. Signed in as Operations, scroll to **E-way bills to check**, beside **Team access**. In the "Needs someone" row at
+    the top, a button "E-way bills to check" shows the same count.
+    **Right:** each row shows the customer, the route, and four details: bill number in groups of four digits, bill date,
+    GSTIN and invoice number. Every detail has its own **Copy** button.
+    **Wrong:** a detail with no Copy button, or any word in capitals joined by underscores.
+17. Click **Copy** next to the bill number, then paste it into any text box.
+    **Right:** the word "Copied" appears beside the button, and what you paste is 12 digits with no spaces.
+    **Wrong:** nothing appears, or a message other than "Copied" or "Select it and copy it yourself."
+18. Click **Open the government portal**.
+    **Right:** the government e-way bill site opens in a new tab and this page stays open.
+    **Wrong:** the portal replaces this page.
+19. Click **Report a problem**, then **Confirm problem** without choosing.
+    **Right:** the list offers Not found on the portal, Cancelled on the portal, Details here do not match the portal and
+    Other, with nothing chosen. A red message in the row says "Not reported yet. Choose a reason from the list."
+    Click **Cancel**: the two buttons come back.
+    **Wrong:** a reason is already chosen, or the message appears at the top of the page.
+20. Click **Mark as found on the portal**.
+    **Right:** a green message in the row: "Marked as found on the portal by you at HH:MM IST." and the count at the top
+    drops by one. The row stays until you reload.
+21. Look at **Missing**.
+    **Right:** shipments with no e-way bill, with customer, route and booking time. Under them, "Shipper says no e-way bill
+    is needed" lists each shipment with its reason, in plain words.
+    **Wrong:** a reason shown in capitals with underscores.
+22. Sign out and sign in as Finance (8000000006).
+    **Right:** both cards say "Only OPS can check e-way bills. You hold FINANCE." and show no bills.
+
 ## Stop it
 
-16. In Terminal, press **Ctrl+C**.
+23. In Terminal, press **Ctrl+C**.

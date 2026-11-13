@@ -1,16 +1,25 @@
+// Size note: load and save list the same tables and fields (not role, permission or rolePermission: save fills those from
+// fixed lists, load never reads them), so a field on one side only is dropped or blanked on the next save. All use the one
+// Prisma client made near the top; the server imports this file once, only if PERSISTENCE=DB, for load, save and the two paged readers.
 import { migrateAuthorization, ROLES, ROLE_PERMISSIONS, PERMISSIONS, type Role, type AuditEvent } from "./rbac.ts";
 import { dumpStore } from "./persistence.ts";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { createStore, type Store } from "./store.ts";
 import type {
   AnchorTrip,
   TripLiveLocation,
   AuthSession,
+  Conversation,
+  ConversationEscalationGrant,
+  ConversationMessage,
+  ConversationReadState,
   Carrier,
   DriverProfile,
+  EwayBill,
   GeoPoint,
   LedgerLine,
   Membership,
+  Notification,
   Organization,
   OtpChallenge,
   Payment,
@@ -18,7 +27,10 @@ import type {
   Shipment,
   User,
   Vehicle,
+  FirebaseIdentity,
 } from "./types.ts";
+import { TRIP_ASSIGNED_EVENT, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
+import { storedCountryCode } from "./phone.ts";
 
 const prisma = new PrismaClient();
 
@@ -79,6 +91,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     carriers,
     organizations,
     users,
+    firebaseIdentities,
     memberships,
     vehicles,
     driverProfiles,
@@ -89,10 +102,16 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     payments,
     ledgerLines,
     payoutBatches,
+    conversations,
+    conversationMessages,
+    conversationReadStates,
+    notifications,
+    escalationGrants,
   ] = await Promise.all([
     prisma.carrier.findMany(),
     prisma.organization.findMany(),
     prisma.userRow.findMany(),
+    prisma.firebaseIdentityRow.findMany(),
     prisma.membership.findMany(),
     prisma.vehicle.findMany(),
     prisma.driverProfileRow.findMany(),
@@ -103,6 +122,11 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     prisma.paymentRow.findMany(),
     prisma.ledgerLineRow.findMany(),
     prisma.payoutBatchRow.findMany(),
+    prisma.conversationRow.findMany(),
+    prisma.conversationMessageRow.findMany(),
+    prisma.conversationReadStateRow.findMany(),
+    prisma.notificationRow.findMany(),
+    prisma.conversationEscalationGrantRow.findMany(),
   ]);
 
   for (const c of carriers) {
@@ -125,6 +149,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       createdAtUtcMs: Number(o.createdAtUtcMs),
       payoutContactId: o.payoutContactId ?? undefined,
       payoutFundAccountId: o.payoutFundAccountId ?? undefined,
+      transporterId: o.transporterId ?? undefined,
       inactiveAtUtcMs: o.inactiveAtUtcMs != null ? Number(o.inactiveAtUtcMs) : null,
       inactiveReason: o.inactiveReason ?? null,
     };
@@ -135,12 +160,22 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     const user: User = {
       id: u.id,
       phone: u.phone,
+      countryCode: storedCountryCode(u.countryCode),
       fullName: u.fullName,
       createdAtUtcMs: Number(u.createdAtUtcMs),
       inactiveAtUtcMs: u.inactiveAtUtcMs != null ? Number(u.inactiveAtUtcMs) : null,
       inactiveReason: u.inactiveReason ?? null,
     };
     store.users.set(user.id, user);
+  }
+
+  for (const i of firebaseIdentities) {
+    const identity: FirebaseIdentity = {
+      uid: i.uid,
+      userId: i.userId,
+      createdAtUtcMs: Number(i.createdAtUtcMs),
+    };
+    store.firebaseIdentities.set(identity.uid, identity);
   }
 
   for (const m of memberships) {
@@ -185,6 +220,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     const ch: OtpChallenge = {
       id: o.id,
       phone: o.phone,
+      countryCode: storedCountryCode(o.countryCode),
       code: o.code,
       status: o.status as OtpChallenge["status"],
       expiresAtUtcMs: Number(o.expiresAtUtcMs),
@@ -200,6 +236,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       createdAtUtcMs: Number(s.createdAtUtcMs),
       expiresAtUtcMs: Number(s.expiresAtUtcMs),
       revokedAtUtcMs: s.revokedAtUtcMs != null ? Number(s.revokedAtUtcMs) : null,
+      ...(s.authProvider === "firebase" ? { authProvider: "firebase" as const } : {}),
+      ...(s.providerSessionKey ? { providerSessionKey: s.providerSessionKey } : {}),
     };
     store.authSessions.set(sess.id, sess);
   }
@@ -211,6 +249,8 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       startedByUserId: t.startedByUserId ?? undefined,
       completedAtUtcMs: t.completedAtUtcMs == null ? undefined : Number(t.completedAtUtcMs),
       completedByUserId: t.completedByUserId ?? undefined,
+      assignedVehicleId: t.assignedVehicleId ?? undefined,
+      assignedDriverUserId: t.assignedDriverUserId ?? undefined,
       carrierId: t.carrierId,
       originCity: t.originCity,
       destCity: t.destCity,
@@ -257,6 +297,7 @@ export async function loadStoreFromDatabase(): Promise<Store> {
       externalSource: row.externalSource ?? undefined,
       integrationConnectionId: row.integrationConnectionId ?? undefined,
       metadata: (row.metadata ?? undefined) as Record<string, string> | undefined,
+      ...(row.ewayBill != null ? { ewayBill: row.ewayBill as EwayBill } : {}),
       integrationSequence: row.integrationSequence ?? undefined,
       anchorTripId: row.anchorTripId,
       carrierId: row.carrierId,
@@ -324,6 +365,50 @@ export async function loadStoreFromDatabase(): Promise<Store> {
     store.payoutBatches.set(batch.id, batch);
   }
 
+  for (const row of conversations) {
+    const value: Conversation = {
+      id: row.id, shipmentId: row.shipmentId,
+      createdAtUtcMs: Number(row.createdAtUtcMs), updatedAtUtcMs: Number(row.updatedAtUtcMs),
+      ...(row.terminalAtUtcMs != null ? { terminalAtUtcMs: Number(row.terminalAtUtcMs) } : {}),
+      ...(row.replyUntilUtcMs != null ? { replyUntilUtcMs: Number(row.replyUntilUtcMs) } : {}),
+      ...(row.replyPolicyVersion ? { replyPolicyVersion: row.replyPolicyVersion } : {}),
+    };
+    store.conversations.set(value.id, value);
+  }
+  for (const row of conversationMessages) store.conversationMessages.set(row.id, {
+    id: row.id, conversationId: row.conversationId, sequence: Number(row.sequence),
+    senderUserId: row.senderUserId, senderOrgId: row.senderOrgId, body: row.body,
+    clientRequestId: row.clientRequestId, createdAtUtcMs: Number(row.createdAtUtcMs),
+  });
+  for (const row of conversationReadStates) {
+    const value: ConversationReadState = { conversationId: row.conversationId, userId: row.userId, orgId: row.orgId, lastReadSequence: Number(row.lastReadSequence), updatedAtUtcMs: Number(row.updatedAtUtcMs) };
+    store.conversationReadStates.set(`${value.conversationId}:${value.userId}:${value.orgId}`, value);
+  }
+  for (const row of notifications) {
+    // A new-trip notice has no shipment; its trip is kept in data, as the table has no column for it.
+    const tripId = row.shipmentId === "" ? (row.data as Notification["data"])?.tripId : undefined;
+    const value: Notification = {
+      ...(typeof tripId === "string" && tripId !== "" ? { tripId } : {}),
+      id: row.id, recipientSequence: Number(row.recipientSequence), eventId: row.eventId, eventKey: row.eventKey, recipientUserId: row.recipientUserId,
+      recipientOrgId: row.recipientOrgId, shipmentId: row.shipmentId, conversationId: row.conversationId ?? undefined,
+      messageId: row.messageId ?? undefined, createdAtUtcMs: Number(row.createdAtUtcMs),
+      readAtUtcMs: row.readAtUtcMs == null ? undefined : Number(row.readAtUtcMs),
+      data: (row.data ?? undefined) as Notification["data"],
+    };
+    store.notificationSequence = Math.max(store.notificationSequence, value.recipientSequence);
+    store.notifications.set(value.id, value);
+  }
+  for (const row of escalationGrants) {
+    const value: ConversationEscalationGrant = {
+      id: row.id, conversationId: row.conversationId, requesterUserId: row.requesterUserId,
+      approverUserId: row.approverUserId ?? undefined, granteeUserId: row.granteeUserId,
+      reason: row.reason, canRead: row.canRead, canSend: row.canSend, createdAtUtcMs: Number(row.createdAtUtcMs),
+      expiresAtUtcMs: Number(row.expiresAtUtcMs), approvedAtUtcMs: row.approvedAtUtcMs == null ? undefined : Number(row.approvedAtUtcMs),
+      revokedAtUtcMs: row.revokedAtUtcMs == null ? undefined : Number(row.revokedAtUtcMs),
+    };
+    store.conversationEscalationGrants.set(value.id, value);
+  }
+
   const initialized = await prisma.authorizationMigration.findUnique({ where: { key: "rbac-v1" } });
   if (initialized) for (const m of store.memberships.values()) store.membershipRoles.set(`${m.userId}:${m.orgId}`, []);
   for (const a of await prisma.membershipRoleAssignment.findMany()) {
@@ -340,25 +425,142 @@ export async function loadStoreFromDatabase(): Promise<Store> {
   return store;
 }
 
-const integrationMaps = ["integrationConnections", "integrationApiKeys", "integrationIdempotency", "integrationEvents", "integrationWebhookDeliveries"] as const;
+const integrationMaps = [
+  "integrationConnections",
+  "integrationApiKeys",
+  "integrationIdempotency",
+  "integrationEvents",
+  "integrationWebhookDeliveries",
+  "pushDevices",
+  "pushIntents",
+  "pushDeliveries",
+] as const;
 export async function closeDatabase(): Promise<void> { await prisma.$disconnect(); }
+
+/** Read only the bounded candidate rows needed to build one conversation page. */
+export const readTimelinePageFromDatabase: TimelinePageReader = async request => {
+  const before = request.before;
+  const [notificationMax, messageMax] = await Promise.all([
+    request.notificationSequence == null
+      ? prisma.notificationRow.aggregate({ where: { recipientUserId: request.userId, recipientOrgId: request.orgId, shipmentId: request.shipmentId }, _max: { recipientSequence: true } })
+      : Promise.resolve(null),
+    request.messageSequence == null
+      ? prisma.conversationMessageRow.aggregate({ where: { conversationId: request.conversationId }, _max: { sequence: true } })
+      : Promise.resolve(null),
+  ]);
+  const notificationSequence = request.notificationSequence ?? Number(notificationMax?._max.recipientSequence ?? 0n);
+  const messageSequence = request.messageSequence ?? Number(messageMax?._max.sequence ?? 0n);
+  const messageCursor = before == null ? Prisma.empty : before.priority === 0
+    ? Prisma.sql`AND ("createdAtUtcMs" < ${BigInt(before.createdAtUtcMs)} OR ("createdAtUtcMs" = ${BigInt(before.createdAtUtcMs)} AND "id" COLLATE "C" < ${before.id}))`
+    : Prisma.sql`AND "createdAtUtcMs" <= ${BigInt(before.createdAtUtcMs)}`;
+  const eventCursor = before == null ? Prisma.empty : before.priority === 1
+    ? Prisma.sql`AND ("createdAtUtcMs" < ${BigInt(before.createdAtUtcMs)} OR ("createdAtUtcMs" = ${BigInt(before.createdAtUtcMs)} AND "id" COLLATE "C" < ${before.id}))`
+    : Prisma.sql`AND "createdAtUtcMs" < ${BigInt(before.createdAtUtcMs)}`;
+  const [messages, notifications] = await Promise.all([
+    prisma.$queryRaw<Array<{ id: string; conversationId: string; sequence: bigint; senderUserId: string; senderOrgId: string; body: string; clientRequestId: string; createdAtUtcMs: bigint }>>(Prisma.sql`
+      SELECT "id", "conversationId", "sequence", "senderUserId", "senderOrgId", "body", "clientRequestId", "createdAtUtcMs"
+      FROM "ConversationMessageRow"
+      WHERE "conversationId" = ${request.conversationId} AND "sequence" <= ${BigInt(messageSequence)}
+      ${messageCursor}
+      ORDER BY "createdAtUtcMs" DESC, "id" COLLATE "C" DESC
+      LIMIT ${request.limit + 1}
+    `),
+    prisma.$queryRaw<Array<{ id: string; recipientSequence: bigint; eventId: string; eventKey: string; recipientUserId: string; recipientOrgId: string; shipmentId: string; conversationId: string | null; messageId: string | null; createdAtUtcMs: bigint; readAtUtcMs: bigint | null; data: unknown }>>(Prisma.sql`
+      SELECT "id", "recipientSequence", "eventId", "eventKey", "recipientUserId", "recipientOrgId", "shipmentId", "conversationId", "messageId", "createdAtUtcMs", "readAtUtcMs", "data"
+      FROM "NotificationRow"
+      WHERE "recipientUserId" = ${request.userId} AND "recipientOrgId" = ${request.orgId} AND "shipmentId" = ${request.shipmentId}
+        AND "recipientSequence" <= ${BigInt(notificationSequence)} AND "eventKey" <> 'conversation.message'
+        ${request.hidePaymentNotices ? Prisma.sql`AND "eventKey" NOT LIKE 'payment.%'` : Prisma.empty}
+        AND ("conversationId" = ${request.conversationId} OR "conversationId" IS NULL)
+      ${eventCursor}
+      ORDER BY "createdAtUtcMs" DESC, "id" COLLATE "C" DESC
+      LIMIT ${request.limit + 1}
+    `),
+  ]);
+  return {
+    notificationSequence,
+    messageSequence,
+    messages: messages.map(row => ({ id: row.id, conversationId: row.conversationId, sequence: Number(row.sequence), senderUserId: row.senderUserId, senderOrgId: row.senderOrgId, body: row.body, clientRequestId: row.clientRequestId, createdAtUtcMs: Number(row.createdAtUtcMs) })),
+    notifications: notifications.map(row => ({ id: row.id, recipientSequence: Number(row.recipientSequence), eventId: row.eventId, eventKey: row.eventKey, recipientUserId: row.recipientUserId, recipientOrgId: row.recipientOrgId, shipmentId: row.shipmentId, conversationId: row.conversationId ?? undefined, messageId: row.messageId ?? undefined, createdAtUtcMs: Number(row.createdAtUtcMs), readAtUtcMs: row.readAtUtcMs == null ? undefined : Number(row.readAtUtcMs), data: (row.data ?? undefined) as Notification["data"] })),
+  };
+};
+
+/** Aggregate shipment inbox rows in PostgreSQL and fetch only the requested page. */
+export const readGroupedInboxPageFromDatabase: GroupedInboxPageReader = async request => {
+  const notificationSequence = request.notificationSequence ?? Number((await prisma.notificationRow.aggregate({ _max: { recipientSequence: true } }))._max.recipientSequence ?? 0n);
+  // mustNotHearPaymentEvent in SQL, so a group of only payment notices, and their unread count, never appear.
+  const paymentNotices = request.hidePaymentNotices ? Prisma.sql`AND n."eventKey" NOT LIKE 'payment.%'` : Prisma.empty;
+  // One row per shipment, and one per new-trip notice (shipmentId "", the trip in data) while its trip is still
+  // the recipient's to drive. "key" orders the rows and is the cursor: the shipment id, or "notice:<id>".
+  const rows = Prisma.sql`
+    SELECT n."shipmentId" AS "key", n."shipmentId", NULL::text AS "tripId", NULL::text AS "notificationId",
+      MAX(n."createdAtUtcMs") AS "latestAtUtcMs",
+      COUNT(*) FILTER (WHERE n."readAtUtcMs" IS NULL) AS "unreadCount",
+      COALESCE(MAX(s."externalLoadId"), LEFT(UPPER(n."shipmentId"), 8)) AS "shipmentReference"
+    FROM "NotificationRow" n
+    INNER JOIN "ShipmentRow" s ON s."id" = n."shipmentId"
+    WHERE n."recipientUserId" = ${request.userId}
+      AND n."recipientOrgId" = ${request.orgId}
+      AND n."recipientSequence" <= ${BigInt(notificationSequence)}
+      AND s."inactiveAtUtcMs" IS NULL
+      ${paymentNotices}
+      AND ((${request.isShipper} = TRUE AND s."customerOrgId" = ${request.orgId})
+        OR (${request.isCarrier} = TRUE AND s."carrierId" = ${request.orgId}))
+    GROUP BY n."shipmentId"
+    UNION ALL
+    SELECT 'notice:' || n."id", n."shipmentId", t."id", n."id",
+      n."createdAtUtcMs",
+      CASE WHEN n."readAtUtcMs" IS NULL THEN 1::bigint ELSE 0::bigint END,
+      NULL::text
+    FROM "NotificationRow" n
+    INNER JOIN "AnchorTripRow" t ON t."id" = n."data"->>'tripId'
+    WHERE n."shipmentId" = '' AND n."eventKey" = ${TRIP_ASSIGNED_EVENT}
+      AND n."recipientUserId" = ${request.userId}
+      AND n."recipientOrgId" = ${request.orgId}
+      AND n."recipientSequence" <= ${BigInt(notificationSequence)}
+      AND ${request.isCarrier} = TRUE
+      AND t."inactiveAtUtcMs" IS NULL AND t."carrierId" = ${request.orgId} AND t."assignedDriverUserId" = ${request.userId}
+  `;
+  const [groupRows, unreadRow] = await Promise.all([
+    prisma.$queryRaw<Array<{ key: string; shipmentId: string; tripId: string | null; notificationId: string | null; latestAtUtcMs: bigint; unreadCount: bigint; shipmentReference: string | null }>>(Prisma.sql`
+      SELECT * FROM (${rows}) AS inbox
+      ${request.before ? Prisma.sql`WHERE inbox."latestAtUtcMs" < ${BigInt(request.before.latestAt)} OR (inbox."latestAtUtcMs" = ${BigInt(request.before.latestAt)} AND inbox."key" COLLATE "C" < ${request.before.shipmentId})` : Prisma.empty}
+      ORDER BY inbox."latestAtUtcMs" DESC, inbox."key" COLLATE "C" DESC
+      LIMIT ${request.limit + 1}
+    `),
+    prisma.$queryRaw<Array<{ unreadCount: bigint | null }>>(Prisma.sql`
+      SELECT SUM(inbox."unreadCount")::bigint AS "unreadCount" FROM (${rows}) AS inbox
+    `),
+  ]);
+  return {
+    notificationSequence,
+    unreadCount: Number(unreadRow[0]?.unreadCount ?? 0n),
+    groups: groupRows.map(row => row.tripId && row.notificationId
+      ? { shipmentId: "", tripId: row.tripId, notificationId: row.notificationId, latestAtUtcMs: Number(row.latestAtUtcMs), unreadCount: Number(row.unreadCount) }
+      : {
+        shipmentId: row.shipmentId,
+        latestAtUtcMs: Number(row.latestAtUtcMs),
+        unreadCount: Number(row.unreadCount),
+        shipmentReference: row.shipmentReference ?? row.shipmentId.slice(0, 8).toUpperCase(),
+      }),
+  };
+};
 export async function saveStoreToDatabase(store: Store): Promise<void> {
   migrateAuthorization(store);
   await prisma.$transaction(async (tx) => {
     await tx.membershipRoleAssignment.deleteMany();
     await tx.ledgerLineRow.deleteMany();
     await tx.payoutBatchRow.deleteMany();
-    await tx.shipmentRow.deleteMany();
+    // Shipments, users, memberships and organizations are upserted below. These
+    // rows are communication parents and must not be deleted/recreated per write.
     await tx.paymentRow.deleteMany();
     await tx.anchorTripRow.deleteMany();
     await tx.driverProfileRow.deleteMany();
     await tx.vehicle.deleteMany();
-    await tx.membership.deleteMany();
     await tx.authSessionRow.deleteMany();
     await tx.otpChallengeRow.deleteMany();
-    await tx.userRow.deleteMany();
+    // Users are communication parents; reconcile them below without deleting every row.
     await tx.carrier.deleteMany();
-    await tx.organization.deleteMany();
 
     for (const c of store.carriers.values()) {
       await tx.carrier.create({
@@ -371,41 +573,59 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
       });
     }
     for (const o of store.organizations.values()) {
-      await tx.organization.create({
-        data: {
-          id: o.id,
-          kind: o.kind,
-          displayName: o.displayName,
-          kycStatus: o.kycStatus,
-          createdAtUtcMs: BigInt(o.createdAtUtcMs),
-          payoutContactId: o.payoutContactId ?? null,
-          payoutFundAccountId: o.payoutFundAccountId ?? null,
-          ...softToDb(o),
-        },
+      const data = {
+        id: o.id,
+        kind: o.kind,
+        displayName: o.displayName,
+        kycStatus: o.kycStatus,
+        createdAtUtcMs: BigInt(o.createdAtUtcMs),
+        payoutContactId: o.payoutContactId ?? null,
+        payoutFundAccountId: o.payoutFundAccountId ?? null,
+        transporterId: o.transporterId ?? null,
+        ...softToDb(o),
+      };
+      await tx.organization.upsert({
+        where: { id: o.id },
+        create: data,
+        update: data,
       });
     }
+    const organizationIds = [...store.organizations.keys()];
+    await tx.organization.deleteMany(organizationIds.length ? { where: { id: { notIn: organizationIds } } } : undefined);
     for (const u of store.users.values()) {
-      await tx.userRow.create({
-        data: {
-          id: u.id,
-          phone: u.phone,
-          fullName: u.fullName,
-          createdAtUtcMs: BigInt(u.createdAtUtcMs),
-          ...softToDb(u),
-        },
-      });
+      const data = { id: u.id, phone: u.phone, countryCode: storedCountryCode(u.countryCode), fullName: u.fullName, createdAtUtcMs: BigInt(u.createdAtUtcMs), ...softToDb(u) };
+      await tx.userRow.upsert({ where: { id: u.id }, create: data, update: data });
     }
+    const userIds = [...store.users.keys()];
+    await tx.userRow.deleteMany(userIds.length ? { where: { id: { notIn: userIds } } } : undefined);
+    for (const i of store.firebaseIdentities.values()) {
+      const data = {
+        uid: i.uid,
+        userId: i.userId,
+        createdAtUtcMs: BigInt(i.createdAtUtcMs),
+      };
+      await tx.firebaseIdentityRow.upsert({ where: { uid: i.uid }, create: data, update: data });
+    }
+    const firebaseIdentityUids = [...store.firebaseIdentities.keys()];
+    await tx.firebaseIdentityRow.deleteMany(firebaseIdentityUids.length
+      ? { where: { uid: { notIn: firebaseIdentityUids } } }
+      : undefined);
     for (const m of store.memberships.values()) {
-      await tx.membership.create({
-        data: {
-          userId: m.userId,
-          orgId: m.orgId,
-          role: m.role,
-          createdAtUtcMs: BigInt(m.createdAtUtcMs),
-          ...softToDb(m),
-        },
+      const data = {
+        userId: m.userId,
+        orgId: m.orgId,
+        role: m.role,
+        createdAtUtcMs: BigInt(m.createdAtUtcMs),
+        ...softToDb(m),
+      };
+      await tx.membership.upsert({
+        where: { userId_orgId: { userId: m.userId, orgId: m.orgId } },
+        create: data,
+        update: data,
       });
     }
+    const membershipKeys = [...store.memberships.values()].map(({ userId, orgId }) => ({ userId, orgId }));
+    await tx.membership.deleteMany(membershipKeys.length ? { where: { NOT: membershipKeys } } : undefined);
     for (const v of store.vehicles.values()) {
       await tx.vehicle.create({
         data: {
@@ -435,6 +655,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
         data: {
           id: o.id,
           phone: o.phone,
+          countryCode: storedCountryCode(o.countryCode),
           code: o.code,
           status: o.status,
           expiresAtUtcMs: BigInt(o.expiresAtUtcMs),
@@ -450,6 +671,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           createdAtUtcMs: BigInt(s.createdAtUtcMs),
           expiresAtUtcMs: BigInt(s.expiresAtUtcMs),
           revokedAtUtcMs: s.revokedAtUtcMs != null ? BigInt(s.revokedAtUtcMs) : null,
+          authProvider: s.authProvider ?? null,
+          providerSessionKey: s.providerSessionKey ?? null,
         },
       });
     }
@@ -461,6 +684,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           startedByUserId: t.startedByUserId ?? null,
           completedAtUtcMs: t.completedAtUtcMs == null ? null : BigInt(t.completedAtUtcMs),
           completedByUserId: t.completedByUserId ?? null,
+          assignedVehicleId: t.assignedVehicleId ?? null,
+          assignedDriverUserId: t.assignedDriverUserId ?? null,
           carrierId: t.carrierId,
           originCity: t.originCity,
           destCity: t.destCity,
@@ -496,8 +721,7 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
       });
     }
     for (const s of store.shipments.values()) {
-      await tx.shipmentRow.create({
-        data: {
+      const data = {
           id: s.id,
           podAcceptedAtUtcMs: s.podAcceptedAtUtcMs == null ? null : BigInt(s.podAcceptedAtUtcMs),
           podAcceptedByUserId: s.podAcceptedByUserId ?? null,
@@ -507,6 +731,8 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           externalSource: s.externalSource ?? null,
           integrationConnectionId: s.integrationConnectionId ?? null,
           metadata: s.metadata ?? undefined,
+          // DbNull, not undefined: Prisma leaves a column alone on undefined, so a removed bill would return after a restart.
+          ewayBill: s.ewayBill ?? Prisma.DbNull,
           integrationSequence: s.integrationSequence ?? null,
           anchorTripId: s.anchorTripId,
           carrierId: s.carrierId,
@@ -527,16 +753,16 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
           podAtUtcMs: s.podAtUtcMs != null ? BigInt(s.podAtUtcMs) : null,
           podSubmittedByUserId: s.podSubmittedByUserId ?? null,
           podNotes: s.podNotes ?? null,
-          firstPayoutEligibleAtUtcMs: s.firstPayoutEligibleAtUtcMs != null
-            ? BigInt(s.firstPayoutEligibleAtUtcMs)
-            : null,
+          firstPayoutEligibleAtUtcMs: s.firstPayoutEligibleAtUtcMs != null ? BigInt(s.firstPayoutEligibleAtUtcMs) : null,
           payoutBatchCutoffUtcMs: s.payoutBatchCutoffUtcMs != null ? BigInt(s.payoutBatchCutoffUtcMs) : null,
           createdAtUtcMs: BigInt(s.createdAtUtcMs),
           updatedAtUtcMs: BigInt(s.updatedAtUtcMs),
           ...softToDb(s),
-        },
-      });
+      };
+      await tx.shipmentRow.upsert({ where: { id: s.id }, create: data, update: data });
     }
+    const shipmentIds = [...store.shipments.keys()];
+    await tx.shipmentRow.deleteMany(shipmentIds.length ? { where: { id: { notIn: shipmentIds } } } : undefined);
     for (const l of store.ledgerLines.values()) {
       await tx.ledgerLineRow.create({
         data: {
@@ -569,11 +795,36 @@ export async function saveStoreToDatabase(store: Store): Promise<void> {
         },
       });
     }
+    // Communication history is append/update-only here: it must never be erased
+    // by an unrelated full-store persistence operation.
+    for (const c of store.conversations.values()) await tx.conversationRow.upsert({
+      where: { id: c.id },
+      create: { id: c.id, shipmentId: c.shipmentId, createdAtUtcMs: BigInt(c.createdAtUtcMs), updatedAtUtcMs: BigInt(c.updatedAtUtcMs), terminalAtUtcMs: c.terminalAtUtcMs == null ? null : BigInt(c.terminalAtUtcMs), replyUntilUtcMs: c.replyUntilUtcMs == null ? null : BigInt(c.replyUntilUtcMs), replyPolicyVersion: c.replyPolicyVersion ?? null },
+      update: { updatedAtUtcMs: BigInt(c.updatedAtUtcMs), terminalAtUtcMs: c.terminalAtUtcMs == null ? null : BigInt(c.terminalAtUtcMs), replyUntilUtcMs: c.replyUntilUtcMs == null ? null : BigInt(c.replyUntilUtcMs), replyPolicyVersion: c.replyPolicyVersion ?? null },
+    });
+    // The table has no column for the role label; a message read back without it works the label out as before.
+    for (const { senderRoleLabel: _noColumn, ...m } of store.conversationMessages.values()) await tx.conversationMessageRow.upsert({
+      where: { id: m.id }, create: { ...m, sequence: BigInt(m.sequence), createdAtUtcMs: BigInt(m.createdAtUtcMs) }, update: {},
+    });
+    for (const n of store.notifications.values()) await tx.notificationRow.upsert({
+      where: { id: n.id }, create: { id: n.id, recipientSequence: BigInt(n.recipientSequence), eventId: n.eventId, eventKey: n.eventKey, recipientUserId: n.recipientUserId, recipientOrgId: n.recipientOrgId, shipmentId: n.shipmentId, conversationId: n.conversationId ?? null, messageId: n.messageId ?? null, createdAtUtcMs: BigInt(n.createdAtUtcMs), readAtUtcMs: n.readAtUtcMs == null ? null : BigInt(n.readAtUtcMs), data: n.tripId ? { ...n.data, tripId: n.tripId } : n.data ?? undefined },
+      update: { readAtUtcMs: n.readAtUtcMs == null ? null : BigInt(n.readAtUtcMs) },
+    });
+    for (const s of store.conversationReadStates.values()) await tx.conversationReadStateRow.upsert({
+      where: { conversationId_userId_orgId: { conversationId: s.conversationId, userId: s.userId, orgId: s.orgId } },
+      create: { conversationId: s.conversationId, userId: s.userId, orgId: s.orgId, lastReadSequence: BigInt(s.lastReadSequence), updatedAtUtcMs: BigInt(s.updatedAtUtcMs) },
+      update: { lastReadSequence: BigInt(s.lastReadSequence), updatedAtUtcMs: BigInt(s.updatedAtUtcMs) },
+    });
+    for (const g of store.conversationEscalationGrants.values()) await tx.conversationEscalationGrantRow.upsert({
+      where: { id: g.id }, create: { id: g.id, conversationId: g.conversationId, requesterUserId: g.requesterUserId, approverUserId: g.approverUserId ?? null, granteeUserId: g.granteeUserId, reason: g.reason, canRead: g.canRead, canSend: g.canSend, createdAtUtcMs: BigInt(g.createdAtUtcMs), expiresAtUtcMs: BigInt(g.expiresAtUtcMs), approvedAtUtcMs: g.approvedAtUtcMs == null ? null : BigInt(g.approvedAtUtcMs), revokedAtUtcMs: g.revokedAtUtcMs == null ? null : BigInt(g.revokedAtUtcMs) },
+      update: { approverUserId: g.approverUserId ?? null, canRead: g.canRead, canSend: g.canSend, expiresAtUtcMs: BigInt(g.expiresAtUtcMs), approvedAtUtcMs: g.approvedAtUtcMs == null ? null : BigInt(g.approvedAtUtcMs), revokedAtUtcMs: g.revokedAtUtcMs == null ? null : BigInt(g.revokedAtUtcMs) },
+    });
     for (const key of ROLES) await tx.role.upsert({ where: { key }, create: { key }, update: {} });
     for (const key of PERMISSIONS) await tx.permission.upsert({ where: { key }, create: { key }, update: {} });
     for (const roleKey of ROLES) for (const permissionKey of ROLE_PERMISSIONS[roleKey]) await tx.rolePermission.upsert({ where: { roleKey_permissionKey: { roleKey, permissionKey } }, create: { roleKey, permissionKey }, update: {} });
     for (const m of store.memberships.values()) for (const roleKey of store.membershipRoles.get(`${m.userId}:${m.orgId}`) ?? []) await tx.membershipRoleAssignment.create({ data: { userId: m.userId, orgId: m.orgId, roleKey } });
-    for (const e of store.auditEvents.values()) await tx.auditEvent.upsert({ where: { id: e.id }, create: { ...e, timestamp: BigInt(e.timestamp) }, update: {} });
+    // The audit table has no Razorpay payment column, and Prisma refuses a field it does not know.
+    for (const { razorpayPaymentId: _noColumn, ...e } of store.auditEvents.values()) await tx.auditEvent.upsert({ where: { id: e.id }, create: { ...e, timestamp: BigInt(e.timestamp) }, update: {} });
     await tx.authorizationMigration.upsert({ where: { key: "rbac-v1" }, create: { key: "rbac-v1" }, update: {} });
     const dump = dumpStore(store);
     const data = JSON.parse(JSON.stringify(Object.fromEntries(integrationMaps.map(name => [name, dump[name]]))));

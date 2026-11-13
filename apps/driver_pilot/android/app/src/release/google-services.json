@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "965184609612",
+    "project_id": "project-e8131904-7071-4f79-89c",
+    "storage_bucket": "project-e8131904-7071-4f79-89c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:965184609612:android:0f13bcf8e9f9a2cbedc3e9",
+        "android_client_info": {
+          "package_name": "com.navig8r.pilot"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBWuPQvGwE6f_Vryhn4CXzd4K3XOgvQeaM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

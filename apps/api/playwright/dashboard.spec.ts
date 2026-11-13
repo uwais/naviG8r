@@ -284,20 +284,20 @@ test("POD hold is enforced in V1 and release appears in the delivered view", asy
   page,
 }) => {
   await login(page, "8000000006", "/ops/v1");
-  page.on("dialog", (d) => d.accept());
   const f = action(page, "Release payment");
   await f.getByLabel("Shipment ID").fill("load-a-hold");
   await f.getByLabel("Reason code").fill("POD_REVIEWED");
-  await f.getByRole("button").click();
-  await expect(page.locator("#error")).toContainText("payment_hold_active");
+  await f.getByRole("button", { name: "Release payment" }).click();
+  await expect(page.locator("#error")).toContainText("Shipment load-a-hold can't be released yet");
+  await expect(f.getByRole("button", { name: "Confirm release" })).toHaveCount(0);
   await screenshot(page, "11-payment-hold");
-  // The API returns 403 for an active hold; refresh the principal before retrying.
   await page.getByRole("button", { name: "Refresh access" }).click();
   await f.getByLabel("Shipment ID").fill("load-a-expired");
   await f.getByLabel("Reason code").fill("HOLD_EXPIRED");
-  await f.getByRole("button").click();
+  await f.getByRole("button", { name: "Release payment" }).click();
+  await f.getByRole("button", { name: "Confirm release" }).click();
   await expect(page.locator("#notice")).toContainText(
-    "Release payment completed",
+    "Payment released for shipment load-a-expired: ₹",
   );
   await page.getByRole("button", { name: "Recently delivered" }).click();
   await expect(page.locator("#table")).toContainText("load-a-expired");
@@ -344,8 +344,25 @@ test("V1 assisted publish, booking and POD forms execute with attribution", asyn
     "Book shipment completed",
   );
   await screenshot(page, "14-assisted-booking");
+  // Delivery waits for the trip to start. The Hoskote to Kolar trip is the seeded one whose bill lets it start,
+  // so ops starts it for the carrier, as the dashboard's other assisted actions do, before confirming delivery.
+  const tripStartStatus = await page.evaluate(
+    async () =>
+      (
+        await fetch("/v1/pilot/anchor-trips/trip-carrier-a-2/start", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer " + sessionStorage.getItem("navig8r_access"),
+            "x-organization-id": "platform",
+            "x-reason-code": "CARRIER_REQUEST",
+            "x-effective-actor-id": "user-carrier-a",
+          },
+        })
+      ).status,
+  );
+  expect(tripStartStatus).toBe(200);
   const pod = action(page, "Submit POD");
-  await pod.getByLabel("Shipment ID").fill("load-a-booked");
+  await pod.getByLabel("Shipment ID").fill("load-a2-booked");
   await pod.getByLabel("Represented member user ID").fill("user-carrier-a");
   await pod.getByLabel("Reason code").fill("DELIVERY_CONFIRMED");
   await pod.getByRole("button").click();
@@ -360,7 +377,7 @@ test("V2 shipper POD acceptance and finance release still work after V1 submissi
   await page.getByLabel("Phone", { exact: true }).fill("8000000001");
   await sendOtp(page);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  const row = page.locator("article").filter({ hasText: "load-a-booked" });
+  const row = page.locator("article").filter({ hasText: "load-a2-booked" });
   await row.getByRole("button", { name: "Accept POD" }).click();
   await expect(row).toContainText("Ready for payment release");
   await screenshot(page, "16-shipper-acceptance");
@@ -371,8 +388,10 @@ test("V2 shipper POD acceptance and finance release still work after V1 submissi
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   const financeRow = page
     .locator("article")
-    .filter({ hasText: "load-a-booked" });
+    .filter({ hasText: "load-a2-booked" });
   await financeRow.getByRole("button", { name: "Release payment" }).click();
+  await expect(financeRow.getByRole("group")).toContainText(/^Release payment for .+\? ₹[\d,.]+ is credited to .+'s ledger and paid out in the payout batch, not sent now\./);
+  await financeRow.getByRole("button", { name: "Confirm release" }).click();
   await expect(financeRow).toHaveCount(0);
   await screenshot(page, "17-v2-payment-release");
 });

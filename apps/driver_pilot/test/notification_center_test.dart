@@ -1,0 +1,449 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:driver_pilot/authorization_session.dart';
+import 'package:driver_pilot/conversation_drafts.dart';
+import 'package:driver_pilot/notification_center.dart';
+import 'package:driver_pilot/shipment_conversation.dart';
+import 'package:driver_pilot/pilot_api.dart';
+
+import 'support/app_lifecycle.dart';
+
+class _CommunicationAdapter implements HttpClientAdapter {
+  final List<String> calls = [];
+  final List<Map<String, dynamic>> sentMessages = [];
+  int messageCount = 0;
+  String? eventKey;
+  Completer<void>? sendGate;
+  // Holds the inbox and messages loads while set.
+  Completer<void>? loadGate;
+  bool failGatedSend = false;
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions options,
+      Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
+    calls.add('${options.method} ${options.path}');
+    if (options.path == '/v1/notifications/shipments') {
+      if (loadGate != null) await loadGate!.future;
+      return _json({
+        'shipments': [
+          {
+            'shipmentId': 'shipment-1',
+            'shipmentReference': 'SHIPMENT',
+            'latestAtUtcMs': 1791392400000,
+            'unreadCount': 1
+          },
+        ],
+        'unreadCount': 1,
+        'nextBefore': null
+      });
+    }
+    if (options.path.endsWith('/conversation/timeline') &&
+        options.method == 'GET') {
+      if (loadGate != null) await loadGate!.future;
+      return _json({
+        'conversation': {'id': 'shipment-1'},
+        'items': [
+          {
+            'type': 'event',
+            'id': 'event-1',
+            if (eventKey != null) 'eventKey': eventKey,
+            'title': 'Load booked',
+            'body': 'The carrier accepted this shipment.'
+          },
+          if (messageCount > 0)
+            {
+              'type': 'message',
+              'id': 'message-1',
+              'sequence': 1,
+              'senderUserId': 'user-1',
+              'body': 'Pickup confirmed.'
+            }
+        ],
+        'canSend': true,
+        'readWatermark': {'notificationSequence': 1, 'messageSequence': 1}
+      });
+    }
+    if (options.path.endsWith('/conversation/read') &&
+        options.method == 'POST') {
+      return _json({'lastReadSequence': 1});
+    }
+    if (options.path.endsWith('/conversation/messages') &&
+        options.method == 'GET') {
+      return _json({
+        'conversation': {'id': 'shipment-1'},
+        'items': [],
+        'canSend': true,
+        'readWatermark': {'notificationSequence': 0, 'messageSequence': 0}
+      });
+    }
+    if (options.path.endsWith('/conversation/messages') &&
+        options.method == 'POST') {
+      if (options.data is Map) {
+        sentMessages.add(Map<String, dynamic>.from(options.data as Map));
+      }
+      if (sendGate != null) await sendGate!.future;
+      if (failGatedSend) {
+        throw DioException(
+            requestOptions: options, message: 'Injected send failure');
+      }
+      messageCount++;
+      return _json({
+        'created': true,
+        'message': {'id': 'message-1'}
+      });
+    }
+    return _json({
+      'notification': {'id': 'note-1'}
+    });
+  }
+
+  ResponseBody _json(Object value) => ResponseBody.fromString(
+        jsonEncode(value),
+        200,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType]
+        },
+      );
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _DelayedSecureStorage extends FlutterSecureStoragePlatform {
+  final Map<String, String> values = {};
+  Completer<void>? deleteGate;
+  bool deleteStarted = false;
+
+  @override
+  Future<String?> read(
+      {required String key, required Map<String, String> options}) async {
+    return values[key];
+  }
+
+  @override
+  Future<void> write(
+      {required String key,
+      required String value,
+      required Map<String, String> options}) async {
+    values[key] = value;
+  }
+
+  @override
+  Future<bool> containsKey(
+      {required String key, required Map<String, String> options}) async {
+    return values.containsKey(key);
+  }
+
+  @override
+  Future<void> delete(
+      {required String key, required Map<String, String> options}) async {
+    deleteStarted = true;
+    final gate = deleteGate;
+    deleteGate = null;
+    if (gate != null) await gate.future;
+    values.remove(key);
+  }
+
+  @override
+  Future<Map<String, String>> readAll(
+      {required Map<String, String> options}) async {
+    return values;
+  }
+
+  @override
+  Future<void> deleteAll({required Map<String, String> options}) async {
+    values.clear();
+  }
+}
+
+void _configureApi(_CommunicationAdapter adapter) {
+  FlutterSecureStorage.setMockInitialValues({'access_token': 'test-token'});
+  api = Api('https://example.test');
+  api.selectOrganization('org-1');
+  api.dio.httpClientAdapter = adapter;
+  AuthorizationSession.user = {'id': 'user-1'};
+  AuthorizationSession.principal = {
+    'organizationId': 'org-1',
+    'roles': ['SHIPPER'],
+    'permissions': [
+      'notification.read',
+      'conversation.read',
+      'conversation.send'
+    ],
+  };
+}
+
+Future<void> _waitForSendRequest(
+    WidgetTester tester, _CommunicationAdapter adapter) async {
+  for (var attempt = 0;
+      attempt < 20 && adapter.sentMessages.isEmpty;
+      attempt++) {
+    await tester.pump(const Duration(milliseconds: 10));
+  }
+}
+
+void main() {
+  test('draft key is isolated by user and active organization', () {
+    expect(conversationDraftKey('user-1:org-a', 'shipment-1'),
+        isNot(conversationDraftKey('user-2:org-a', 'shipment-1')));
+    expect(conversationDraftKey('user-1:org-a', 'shipment-1'),
+        isNot(conversationDraftKey('user-1:org-b', 'shipment-1')));
+  });
+
+  testWidgets('notification inbox groups activity once per shipment',
+      (tester) async {
+    final adapter = _CommunicationAdapter();
+    _configureApi(adapter);
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      home: const NotificationInboxScreen(),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Updates'), findsOneWidget,
+        reason: 'sh-notifications: the inbox is titled Updates');
+    expect(find.text('Shipment update'), findsOneWidget,
+        reason:
+            'with no shipment list to name it from, the row keeps a plain title');
+    expect(find.text('New update'), findsOneWidget);
+    expect(find.textContaining('SHIPMENT'), findsNothing,
+        reason:
+            'copy.md: a shipment is never named by an ID or reference code');
+    await tester.tap(find.text('Shipment update'));
+    await tester.pumpAndSettle();
+    expect(find.text('Load booked'), findsOneWidget);
+    expect(find.text('The carrier accepted this shipment.'), findsOneWidget);
+    expect(adapter.calls,
+        contains('POST /v1/shipments/shipment-1/conversation/read'));
+  });
+
+  testWidgets(
+      'a known event in the conversation is in plain words, not the server\'s "load"',
+      (tester) async {
+    final adapter = _CommunicationAdapter()
+      ..eventKey = 'shipment.carrier_accepted';
+    _configureApi(adapter);
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      home: const ShipmentConversationScreen(shipmentId: 'shipment-1'),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('The carrier accepted your shipment.'), findsOneWidget);
+    expect(find.text('Load booked'), findsNothing);
+  });
+
+  testWidgets(
+      'conversation restores a scoped draft and sends with server acknowledgement',
+      (tester) async {
+    final adapter = _CommunicationAdapter();
+    _configureApi(adapter);
+    await ConversationDrafts.write(
+        'user-1:org-1', 'shipment-1', 'Draft before open', 'stable-request-1');
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      home: const ShipmentConversationScreen(shipmentId: 'shipment-1'),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Draft before open'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'Pickup confirmed.');
+    await tester.tap(find.byTooltip('Send message'));
+    await tester.pumpAndSettle();
+    expect(adapter.calls,
+        contains('POST /v1/shipments/shipment-1/conversation/messages'));
+    expect(adapter.sentMessages.single['body'], 'Pickup confirmed.');
+    expect(adapter.sentMessages.single['clientRequestId'],
+        isNot('stable-request-1'));
+    expect(find.text('Pickup confirmed.'), findsOneWidget);
+    expect(await ConversationDrafts.read('user-1:org-1', 'shipment-1'), isNull);
+  });
+
+  testWidgets('typing during a successful send preserves the newer draft',
+      (tester) async {
+    final adapter = _CommunicationAdapter()..sendGate = Completer<void>();
+    _configureApi(adapter);
+    await ConversationDrafts.write(
+        'user-1:org-1', 'shipment-1', 'First message', 'initial-send-key');
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      home: const ShipmentConversationScreen(shipmentId: 'shipment-1'),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('First message'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'First message');
+    tester
+        .widget<IconButton>(find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == 'Send message',
+        ))
+        .onPressed!();
+    await tester.pump();
+    await _waitForSendRequest(tester, adapter);
+    expect(adapter.calls,
+        contains('POST /v1/shipments/shipment-1/conversation/messages'));
+    expect(adapter.sentMessages, hasLength(1));
+
+    await tester.enterText(find.byType(TextField), 'Newer draft');
+    adapter.sendGate!.complete();
+    await tester.pump(const Duration(milliseconds: 10));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Newer draft'), findsOneWidget);
+    expect(await ConversationDrafts.read('user-1:org-1', 'shipment-1'),
+        containsPair('body', 'Newer draft'));
+  });
+
+  testWidgets('typing during a failed send preserves the newer draft and key',
+      (tester) async {
+    final adapter = _CommunicationAdapter()
+      ..sendGate = Completer<void>()
+      ..failGatedSend = true;
+    _configureApi(adapter);
+    await ConversationDrafts.write(
+        'user-1:org-1', 'shipment-1', 'First message', 'initial-send-key');
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      home: const ShipmentConversationScreen(shipmentId: 'shipment-1'),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('First message'), findsOneWidget);
+    tester
+        .widget<IconButton>(find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == 'Send message',
+        ))
+        .onPressed!();
+    await tester.pump();
+    await _waitForSendRequest(tester, adapter);
+    expect(adapter.calls,
+        contains('POST /v1/shipments/shipment-1/conversation/messages'));
+    expect(adapter.sentMessages, hasLength(1));
+    final sentRequestId = adapter.sentMessages.single['clientRequestId'];
+
+    await tester.enterText(find.byType(TextField), 'Newer draft');
+    adapter.sendGate!.complete();
+    await tester.pump(const Duration(milliseconds: 10));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Newer draft'), findsOneWidget);
+    final draft = await ConversationDrafts.read('user-1:org-1', 'shipment-1');
+    expect(draft?['body'], 'Newer draft');
+    expect(draft?['clientRequestId'], isNot(sentRequestId));
+  });
+
+  testWidgets(
+      'typing during successful draft cleanup is saved after the delete',
+      (tester) async {
+    final adapter = _CommunicationAdapter()..sendGate = Completer<void>();
+    final deleteGate = Completer<void>();
+    final storage = _DelayedSecureStorage()..deleteGate = deleteGate;
+    _configureApi(adapter);
+    final previousStorage = FlutterSecureStoragePlatform.instance;
+    FlutterSecureStoragePlatform.instance = storage;
+    addTearDown(() {
+      FlutterSecureStoragePlatform.instance = previousStorage;
+    });
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      home: const ShipmentConversationScreen(shipmentId: 'shipment-1'),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'First message');
+    await tester.pump();
+    expect(find.text('First message'), findsOneWidget);
+    tester
+        .widget<IconButton>(find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == 'Send message',
+        ))
+        .onPressed!();
+    await tester.pump();
+    await _waitForSendRequest(tester, adapter);
+    adapter.sendGate!.complete();
+
+    for (var attempt = 0; attempt < 100 && !storage.deleteStarted; attempt++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(adapter.sentMessages, hasLength(1));
+    expect(storage.deleteStarted, isTrue);
+    await tester.enterText(find.byType(TextField), 'Draft during cleanup');
+    deleteGate.complete();
+    for (var attempt = 0;
+        attempt < 20 &&
+            adapter.calls
+                    .where((call) =>
+                        call ==
+                        'GET /v1/shipments/shipment-1/conversation/timeline')
+                    .length <
+                2;
+        attempt++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    await tester.pumpAndSettle();
+
+    expect(find.text('Draft during cleanup'), findsOneWidget);
+    expect(await ConversationDrafts.read('user-1:org-1', 'shipment-1'),
+        containsPair('body', 'Draft during cleanup'));
+  });
+
+  // Second review, 21 Oct 2026: the inbox and the messages screen checked every 30 s with the app in
+  // the background, and a messages check also marks them read.
+  for (final (screen, path) in const [
+    (NotificationInboxScreen(), 'GET /v1/notifications/shipments'),
+    (
+      ShipmentConversationScreen(shipmentId: 'shipment-1'),
+      'GET /v1/shipments/shipment-1/conversation/timeline'
+    ),
+  ]) {
+    testWidgets(
+        '${screen.runtimeType} makes no timed check in the background, and one on return',
+        (tester) async {
+      final adapter = _CommunicationAdapter();
+      _configureApi(adapter);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(splashFactory: NoSplash.splashFactory),
+        home: screen,
+      ));
+      await tester.pumpAndSettle();
+      int checks() => adapter.calls.where((call) => call == path).length;
+      final before = checks();
+      await sendAppToBackground(tester);
+      await tester.pump(const Duration(seconds: 61));
+      expect(checks(), before, reason: 'two 30 s turns pass in the background');
+      await bringAppBack(tester);
+      await tester.pumpAndSettle();
+      expect(checks(), before + 1, reason: 'one check when the app is shown again');
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets(
+        '${screen.runtimeType} sends one timed check at a time, even when the app comes back during one',
+        (tester) async {
+      final adapter = _CommunicationAdapter();
+      _configureApi(adapter);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(splashFactory: NoSplash.splashFactory),
+        home: screen,
+      ));
+      await tester.pumpAndSettle();
+      int checks() => adapter.calls.where((call) => call == path).length;
+      final before = checks();
+      final answer = adapter.loadGate = Completer<void>();
+      await tester.pump(const Duration(seconds: 30));
+      expect(checks(), before + 1, reason: 'the timed check is out');
+      await sendAppToBackground(tester);
+      await bringAppBack(tester);
+      await tester.pump(const Duration(seconds: 30));
+      expect(checks(), before + 1,
+          reason: 'review: coming back, and the next turn, each sent another while one was out');
+      adapter.loadGate = null;
+      answer.complete();
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+}

@@ -1,5 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { authorizationContext, recordAudit } from "./rbac.ts";
 import type { Store } from "./store.ts";
 import type { Payment } from "./types.ts";
+import { expireUnpaidBooking, keepPaymentAfterExpiry } from "./unpaidBookingExpiry.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -15,6 +18,39 @@ function findPaymentByRazorpayPaymentId(store: Store, razorpayPayId: string): Pa
   for (const p of store.payments.values()) {
     if (p.razorpayPaymentId === razorpayPayId) return p;
   }
+}
+
+/**
+ * A cancelled shipment's payment says how it ended; a late event must not bring it back.
+ * An expired unpaid booking has the same status but keeps main's webhook handling, so it is left out.
+ */
+function shipmentCancelled(store: Store, pay: Payment): boolean {
+  const shipment = store.shipments.get(pay.shipmentId);
+  return shipment?.status === "FAILED_CARRIER_REFUNDED" && shipment.unpaidBookingExpiredAtUtcMs == null;
+}
+
+/**
+ * Money Razorpay reports after the shipment was cancelled is recorded, never applied: the shipment stays cancelled,
+ * one audit row per Razorpay payment and event says what arrived, and a capture marks the payment, with the captured
+ * Razorpay payment's id, so Finance refunds it in Razorpay. Razorpay can deliver an event twice or late: an
+ * authorization NaviG8r already held, or the capture of a payment it already refunded, is not new money and is ignored.
+ */
+function recordPaymentAfterCancel(store: Store, pay: Payment, event: "AUTHORIZED" | "CAPTURED", razorpayPayId: string): void {
+  // The payment refunded at the cancel stays refunded after a later capture moves the status on; a released hold does not.
+  const refundedAtCancel = [...store.auditEvents.values()].some((row) =>
+    row.action === "PAYMENT_REFUNDED" && row.resourceType === "shipment" && row.resourceId === pay.shipmentId);
+  if (pay.razorpayPaymentId === razorpayPayId && (event === "AUTHORIZED" || pay.status === "REFUNDED" || refundedAtCancel)) return;
+  const recorded = [...store.auditEvents.values()].some((row) =>
+    row.action === "PAYMENT_AFTER_CANCEL" && row.razorpayPaymentId === razorpayPayId && row.reasonCode === event);
+  if (recorded) return;
+  // A second capture while the first waits for Finance keeps the first id, which is the one the card names.
+  const newCapture = event === "CAPTURED" && pay.status !== "CAPTURED_AFTER_CANCEL";
+  const status = newCapture ? "CAPTURED_AFTER_CANCEL" : pay.status;
+  if (newCapture) store.payments.set(pay.id, { ...pay, status, capturedAfterCancelRazorpayPaymentId: razorpayPayId, updatedAtUtcMs: nowUtcMs() });
+  // A webhook carries no signed-in person, and an audit row needs an actor.
+  const requestId = authorizationContext.getStore()?.requestId ?? randomUUID();
+  authorizationContext.run({ requestId, system: true, systemActor: "system:razorpay-webhook" }, () =>
+    recordAudit(store, "PAYMENT_AFTER_CANCEL", "shipment", pay.shipmentId, pay.status, status, event, razorpayPayId));
 }
 
 function paymentEntity(payload: Record<string, unknown>): { id?: string; order_id?: string; status?: string } | null {
@@ -47,7 +83,15 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     if (!pay || pay.provider !== "RAZORPAY") return;
     const rid = ent.id ?? pay.razorpayPaymentId;
     if (!rid) return;
+    // A payment that arrives after the booking expired does not reopen it.
+    const shipment = store.shipments.get(pay.shipmentId);
+    if (shipment) expireUnpaidBooking(store, shipment, now);
+    if (store.shipments.get(pay.shipmentId)?.unpaidBookingExpiredAtUtcMs != null) {
+      keepPaymentAfterExpiry(store, pay.id, rid, now);
+      return;
+    }
     if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED") return;
+    if (shipmentCancelled(store, pay)) return recordPaymentAfterCancel(store, pay, "AUTHORIZED", rid);
     store.payments.set(pay.id, {
       ...pay,
       status: "AUTHORIZED",
@@ -63,6 +107,7 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     const pay = findPaymentByRazorpayPaymentId(store, razorpayPayId)
       ?? (ent.order_id ? findPaymentByRazorpayOrderId(store, ent.order_id) : undefined);
     if (!pay || pay.provider !== "RAZORPAY") return;
+    if (shipmentCancelled(store, pay)) return recordPaymentAfterCancel(store, pay, "CAPTURED", razorpayPayId);
     store.payments.set(pay.id, {
       ...pay,
       razorpayPaymentId: razorpayPayId,
@@ -78,7 +123,7 @@ export function applyRazorpayWebhookPayload(store: Store, raw: Record<string, un
     const pay = (razorpayPayId ? findPaymentByRazorpayPaymentId(store, razorpayPayId) : undefined)
       ?? (orderId ? findPaymentByRazorpayOrderId(store, orderId) : undefined);
     if (!pay || pay.provider !== "RAZORPAY") return;
-    if (pay.status !== "CREATED" && pay.status !== "FAILED") return;
+    if (pay.status === "AUTHORIZED" || pay.status === "CAPTURED" || pay.status === "REFUNDED" || shipmentCancelled(store, pay)) return;
     store.payments.set(pay.id, {
       ...pay,
       ...(razorpayPayId ? { razorpayPaymentId: razorpayPayId } : {}),

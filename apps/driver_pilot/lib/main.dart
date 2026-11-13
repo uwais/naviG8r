@@ -1,6 +1,6 @@
 import "dart:async";
 
-import "package:flutter/foundation.dart" show kIsWeb;
+import "package:flutter/foundation.dart" show kIsWeb, kReleaseMode;
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
@@ -8,12 +8,18 @@ import "package:go_router/go_router.dart";
 
 import "authorization_session.dart";
 import "organization_access.dart";
-import "customer_flow.dart";
+import "shipper/shipment_screen.dart";
+import "shipper/shipper_routes.dart";
+import "shipper/shipper_scaffold.dart";
 import "driver_flow.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
 import "location_editor.dart";
+import "notification_center.dart";
 import "pilot_api.dart";
+import "shipment_conversation.dart";
+import "push_notifications.dart";
+import "firebase_phone_auth.dart";
 
 Future<void> _copyToClipboard(
     BuildContext context, String label, String value) async {
@@ -67,16 +73,24 @@ void _defaultAnchorTripWindow(
   w2.text = _formatIst(endUtc);
 }
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeFirebasePhoneAuth();
   api = Api(resolveApiBaseUrl());
+  await PushNotifications.instance.initialize(
+    onOpen: _openPushNotification,
+    isAuthenticated: () => AuthorizationSession.signedIn,
+    userId: () => AuthorizationSession.user?['id']?.toString(),
+  );
   runApp(const DriverPilotApp());
 }
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class DriverPilotApp extends StatefulWidget {
-  const DriverPilotApp({super.key});
+  const DriverPilotApp({super.key, this.theme});
+
+  final ThemeData? theme;
 
   @override
   State<DriverPilotApp> createState() => _DriverPilotAppState();
@@ -102,27 +116,32 @@ class _DriverPilotAppState extends State<DriverPilotApp>
             path: "/workspace", builder: (_, __) => const SizedBox.shrink()),
         ...driverFlowRoutes(),
         ...customerFlowRoutes(),
-        GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
         GoRoute(
             path: "/", redirect: (_, __) => kIsWeb ? "/customer" : "/driver"),
-        GoRoute(path: "/register", builder: (_, __) => const RegisterScreen()),
+        // Kept in release for links to /login?mode=customer; without it, release goes to the start.
         GoRoute(
           path: "/login",
           redirect: (context, state) {
             if (state.uri.queryParameters["mode"] == "customer")
               return "/customer/login";
-            return null;
+            return kReleaseMode ? "/" : null;
           },
           builder: (_, __) => const LoginScreen(),
         ),
-        GoRoute(path: "/trips", builder: (_, __) => const MyTripsScreen()),
-        GoRoute(
-          path: "/trips/:tripId",
-          builder: (_, state) =>
-              TripDetailScreen(tripId: state.pathParameters["tripId"] ?? ""),
-        ),
-        GoRoute(
-            path: "/publish", builder: (_, __) => const PublishTripScreen()),
+        // The developer lab is left out of release builds; its link is hidden there too.
+        if (!kReleaseMode) ...[
+          GoRoute(path: "/pilot-lab", builder: (_, __) => const HomeScreen()),
+          GoRoute(
+              path: "/register", builder: (_, __) => const RegisterScreen()),
+          GoRoute(path: "/trips", builder: (_, __) => const MyTripsScreen()),
+          GoRoute(
+            path: "/trips/:tripId",
+            builder: (_, state) =>
+                TripDetailScreen(tripId: state.pathParameters["tripId"] ?? ""),
+          ),
+          GoRoute(
+              path: "/publish", builder: (_, __) => const PublishTripScreen()),
+        ],
       ],
     );
 
@@ -131,6 +150,11 @@ class _DriverPilotAppState extends State<DriverPilotApp>
   }
 
   void _sessionChanged() {
+    final userId = AuthorizationSession.user?['id']?.toString();
+    if (userId != null) {
+      unawaited(
+          PushNotifications.instance.onAuthenticatedSessionChanged(userId));
+    }
     if (!AuthorizationSession.signedIn || AuthorizationSession.switching) {
       // DriverSession.clear() notifies this listener. Only drop the carrier cache.
       DriverSession.clearCarrierCache();
@@ -148,7 +172,12 @@ class _DriverPilotAppState extends State<DriverPilotApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) AuthorizationSession.refresh();
+    if (state == AppLifecycleState.resumed) {
+      AuthorizationSession.refresh();
+      if (AuthorizationSession.signedIn) {
+        unawaited(PushNotifications.instance.refreshPermissionState());
+      }
+    }
   }
 
   @override
@@ -166,14 +195,69 @@ class _DriverPilotAppState extends State<DriverPilotApp>
         pages: [
           MaterialPage<void>(
               child:
-                OrganizationAccess(child: child ?? const SizedBox.shrink()))
+                  OrganizationAccess(child: child ?? const SizedBox.shrink()))
         ],
         onPopPage: (route, result) => route.didPop(result),
       ),
-      title: kIsWeb ? "NaviG8r Customer" : "NaviG8r Driver",
-      theme: DriverTheme.theme(),
+      title: "NaviG8r",
+      theme: widget.theme ?? DriverTheme.theme(),
+      themeMode: ThemeMode.light,
       routerConfig: router,
     );
+  }
+}
+
+Future<void> _openPushNotification(String notificationId) async {
+  if (!AuthorizationSession.signedIn) return;
+  final identityGeneration = AuthorizationSession.identityGeneration;
+  final userId = AuthorizationSession.user?['id']?.toString();
+  bool identityIsCurrent() =>
+      AuthorizationSession.identityGeneration == identityGeneration &&
+      AuthorizationSession.user?['id']?.toString() == userId;
+  try {
+    final response = await api.post<Map<String, dynamic>>(
+      '/v1/notifications/${Uri.encodeComponent(notificationId)}/open',
+    );
+    final route = response.data ?? const <String, dynamic>{};
+    if (!identityIsCurrent()) return;
+    final organizationId = route['organizationId']?.toString();
+    final shipmentId = route['shipmentId']?.toString();
+    // A driver's new-trip notice opens the trip instead of a shipment.
+    final tripId = route['tripId']?.toString();
+    if (organizationId == null || (shipmentId == null && tripId == null)) return;
+    if (!AuthorizationSession.organizations
+        .any((org) => org['id'] == organizationId)) {
+      await AuthorizationSession.refresh();
+    }
+    if (!identityIsCurrent()) return;
+    if (!AuthorizationSession.organizations
+        .any((org) => org['id'] == organizationId)) return;
+    if (AuthorizationSession.organizationId != organizationId) {
+      await AuthorizationSession.selectOrganization(organizationId);
+      // The screens are rebuilt for the new company on the next frames; until then there is no navigator.
+      // One frame more puts the new company's pages in place: a screen pushed before that went with the
+      // old page, so the tap landed on Home.
+      for (var frame = 0;
+          frame < 10 && _rootNavigatorKey.currentContext == null;
+          frame++) {
+        await WidgetsBinding.instance.endOfFrame;
+      }
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (!identityIsCurrent()) return;
+    final context = _rootNavigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    if (tripId != null) {
+      await openTripNotice(context,
+          notificationId: notificationId, tripId: tripId);
+      return;
+    }
+    if (!AuthorizationSession.can('conversation.read')) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ShipmentConversationScreen(shipmentId: shipmentId!),
+    ));
+  } catch (_) {
+    // Push payloads are hints; the authenticated resolver decides whether to open.
   }
 }
 
@@ -294,7 +378,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _logout(BuildContext context) async {
-    await api.clearToken();
+    await AuthorizationSession.signOut();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Logged out (token cleared).")));
@@ -562,6 +646,16 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _verifying = false;
   /** After OTP verify returned an access token (used for customer-flow CTA). */
   bool _verifyIssuedToken = false;
+  PhoneAuthClient? _firebase;
+  bool _useFirebase = firebasePhoneAuthAvailable && !kIsWeb;
+  bool _firebaseCodeSent = false;
+  String? _firebasePhone;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_useFirebase) _firebase = FirebasePhoneAuthClient();
+  }
 
   String? _extractChallengeId(dynamic data) {
     if (data is! Map<String, dynamic>) return null;
@@ -600,6 +694,24 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     try {
+      if (_useFirebase) {
+        _firebasePhone = phone;
+        await _firebase!.requestCode(
+          firebasePhoneNumber(phone),
+          onCodeSent: (_) {
+            if (mounted) setState(() => _firebaseCodeSent = true);
+          },
+          onAutoVerified: () {
+            if (mounted) setState(() => _firebaseCodeSent = true);
+          },
+        );
+        if (mounted) setState(() => _startOut = "Firebase code sent.");
+        return;
+      }
+      if (!legacyOtpFallbackEnabled) {
+        throw StateError(
+            "Legacy OTP is disabled. Enable ALLOW_LEGACY_OTP_FALLBACK explicitly for this pilot-lab surface.");
+      }
       final r = await api.post<Map<String, dynamic>>("/v1/auth/otp/start",
           data: {"phone": phone});
       if (!mounted) return;
@@ -624,6 +736,46 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _verify() async {
     setState(() => _verifying = true);
     final phone = digitsOnly(_phone.text.trim());
+    if (_useFirebase) {
+      try {
+        if (!_firebaseCodeSent || _firebasePhone != phone) {
+          throw Exception("Request a code for this phone number first.");
+        }
+        await _firebase!.verifyCode(_code.text.trim());
+        await exchangeFirebaseToken(await _firebase!.idToken());
+        await AuthorizationSession.refresh();
+        await DriverSession.refresh();
+        if (mounted) {
+          setState(() {
+            _verifyOut = "Firebase sign-in successful.";
+            _verifyIssuedToken = true;
+          });
+          if (GoRouterState.of(context).uri.queryParameters["mode"] !=
+              "customer") {
+            context.go(AuthorizationSession.home);
+          }
+        }
+      } catch (e) {
+        if (mounted)
+          setState(() {
+            _verifyOut = formatApiError(e);
+            _verifyIssuedToken = false;
+          });
+      } finally {
+        if (mounted) setState(() => _verifying = false);
+      }
+      return;
+    }
+    if (!legacyOtpFallbackEnabled) {
+      if (mounted) {
+        setState(() {
+          _verifyOut =
+              "Legacy OTP is disabled. Enable ALLOW_LEGACY_OTP_FALLBACK explicitly for this pilot-lab surface.";
+          _verifying = false;
+        });
+      }
+      return;
+    }
     final challengeId = _challengeId.text.trim();
     final code = _code.text.trim();
     if (phone.length != 10 || challengeId.isEmpty || code.isEmpty) {
@@ -657,6 +809,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _firebase?.dispose();
     _phone.dispose();
     _challengeId.dispose();
     _code.dispose();
@@ -686,6 +839,28 @@ class _LoginScreenState extends State<LoginScreen> {
         TextField(
             controller: _phone,
             decoration: const InputDecoration(labelText: "Phone")),
+        if (firebasePhoneAuthAvailable && !kIsWeb && legacyOtpFallbackEnabled)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text("Use Firebase phone verification"),
+            subtitle: const Text("Turn off only if Firebase is unavailable."),
+            value: _useFirebase,
+            onChanged: _starting || _verifying
+                ? null
+                : (value) {
+                    setState(() {
+                      _useFirebase = value;
+                      if (value) _firebase ??= FirebasePhoneAuthClient();
+                      _firebaseCodeSent = false;
+                      _firebasePhone = null;
+                      _challengeId.clear();
+                      _code.clear();
+                    });
+                  },
+          ),
+        if (firebasePhoneAuthDiagnostic != null)
+          Text(firebasePhoneAuthDiagnostic!,
+              style: const TextStyle(color: Colors.red)),
         FilledButton.icon(
           onPressed: _starting ? null : _start,
           icon: _starting
@@ -694,17 +869,20 @@ class _LoginScreenState extends State<LoginScreen> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.sms),
-          label: const Text("POST /v1/auth/otp/start"),
+          label: Text(
+              _useFirebase ? "Send Firebase code" : "POST /v1/auth/otp/start"),
         ),
         const SizedBox(height: 8),
         SelectableText(_startOut),
         const SizedBox(height: 16),
-        TextField(
-            controller: _challengeId,
-            decoration: const InputDecoration(labelText: "challengeId")),
+        if (!_useFirebase)
+          TextField(
+              controller: _challengeId,
+              decoration: const InputDecoration(labelText: "challengeId")),
         TextField(
             controller: _code,
-            decoration: const InputDecoration(labelText: "6-digit code")),
+            decoration:
+                const InputDecoration(labelText: "6-digit verification code")),
         FilledButton.icon(
           onPressed: _verifying ? null : _verify,
           icon: _verifying
@@ -713,7 +891,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.verified_user),
-          label: const Text("POST /v1/auth/otp/verify"),
+          label: Text(_useFirebase
+              ? "Verify Firebase code"
+              : "POST /v1/auth/otp/verify"),
         ),
         const SizedBox(height: 8),
         SelectableText(_verifyOut),
@@ -805,7 +985,7 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
         IconButton(
           tooltip: "Logout",
           onPressed: () async {
-            await api.clearToken();
+            await AuthorizationSession.signOut();
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text("Logged out (token cleared).")));
@@ -1258,13 +1438,12 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Suggested freight (lane reference)",
+                    "Suggested amount to you (lane reference)",
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    "Advisory — customer quotes use shipment pickup→drop when booked. "
-                    "Tune server env FREIGHT_PAISE_PER_KM_*.",
+                    "Advisory: about what you would receive for a load on this lane.",
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 10),
@@ -1291,14 +1470,14 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
                         .map((s) {
                       final m = Map<String, dynamic>.from(s);
                       final w = m["weightKg"];
-                      final gp = m["grossPaise"];
-                      final rupees = (gp is num)
-                          ? (gp / 100).toStringAsFixed(
-                              (gp.remainder(100).abs() < 1e-6) ? 0 : 2)
+                      final netToCarrierPaise = m["netToCarrierPaise"];
+                      final rupees = (netToCarrierPaise is num)
+                          ? (netToCarrierPaise / 100).toStringAsFixed(
+                              (netToCarrierPaise.remainder(100).abs() < 1e-6) ? 0 : 2)
                           : "?";
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 4),
-                        child: Text("≈ ₹$rupees total at ${w ?? "?"} kg"),
+                        child: Text("≈ ₹$rupees to you at ${w ?? "?"} kg"),
                       );
                     })),
                   ] else

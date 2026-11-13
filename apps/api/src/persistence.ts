@@ -2,9 +2,14 @@ import { migrateAuthorization, type Role, type AuditEvent } from "./rbac.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { createStore, type Store } from "./store.ts";
+import { storedCountryCode } from "./phone.ts";
 import type {
   AnchorTrip,
   AuthSession,
+  Conversation,
+  ConversationEscalationGrant,
+  ConversationMessage,
+  ConversationReadState,
   Carrier,
   DriverProfile,
   IntegrationApiKey,
@@ -14,13 +19,18 @@ import type {
   IntegrationWebhookDelivery,
   LedgerLine,
   Membership,
+  Notification,
   Organization,
   OtpChallenge,
   PayoutBatch,
   Payment,
+  PushDevice,
+  PushIntent,
+  PushDelivery,
   Shipment,
   User,
   Vehicle,
+  FirebaseIdentity,
 } from "./types.ts";
 
 function normalizeHydratedPayment(raw: Payment): Payment {
@@ -82,16 +92,37 @@ type StoreJsonV4 = Omit<StoreJsonV3, "version"> & {
   integrationWebhookDeliveries: IntegrationWebhookDelivery[];
 };
 
-type StoreJsonV5 = Omit<StoreJsonV4, "version"> & { version: 5; membershipRoles: [string, Role[]][]; auditEvents: AuditEvent[] };
+type StoreJsonV5 = Omit<StoreJsonV4, "version"> & { version: 5; membershipRoles: [string, Role[]][]; auditEvents: AuditEvent[]; firebaseIdentities?: FirebaseIdentity[] };
+type LegacyNotification = Omit<Notification, "recipientSequence"> & { recipientSequence?: number };
+type StoreJsonV6 = Omit<StoreJsonV5, "version"> & {
+  version: 6;
+  conversations: Conversation[];
+  conversationMessages: ConversationMessage[];
+  conversationReadStates: ConversationReadState[];
+  notifications: LegacyNotification[];
+  conversationEscalationGrants: ConversationEscalationGrant[];
+};
+type StoreJsonV7 = Omit<StoreJsonV6, "version" | "notifications"> & {
+  version: 7;
+  notificationSequence: number;
+  notifications: Notification[];
+  /** Additive push metadata remains version 7-compatible with existing binaries. */
+  pushDevices?: PushDevice[];
+  pushIntents?: PushIntent[];
+  pushDeliveries?: PushDelivery[];
+};
+type HydratableStoreJsonV4 = StoreJsonV4 & { firebaseIdentities?: FirebaseIdentity[] };
 
-export function dumpStore(store: Store): StoreJsonV5 {
+export function dumpStore(store: Store): StoreJsonV7 {
   return {
-    version: 5,
+    version: 7,
+    notificationSequence: store.notificationSequence,
     membershipRoles: [...store.membershipRoles],
     auditEvents: [...store.auditEvents.values()],
     carriers: [...store.carriers.values()],
     organizations: [...store.organizations.values()],
     users: [...store.users.values()],
+    firebaseIdentities: [...store.firebaseIdentities.values()],
     memberships: [...store.memberships.values()],
     vehicles: [...store.vehicles.values()],
     driverProfiles: [...store.driverProfiles.values()],
@@ -107,6 +138,14 @@ export function dumpStore(store: Store): StoreJsonV5 {
     integrationIdempotency: [...store.integrationIdempotency.values()],
     integrationEvents: [...store.integrationEvents.values()],
     integrationWebhookDeliveries: [...store.integrationWebhookDeliveries.values()],
+    conversations: [...store.conversations.values()],
+    conversationMessages: [...store.conversationMessages.values()],
+    conversationReadStates: [...store.conversationReadStates.values()],
+    notifications: [...store.notifications.values()],
+    conversationEscalationGrants: [...store.conversationEscalationGrants.values()],
+    pushDevices: [...store.pushDevices.values()],
+    pushIntents: [...store.pushIntents.values()],
+    pushDeliveries: [...store.pushDeliveries.values()],
   };
 }
 
@@ -131,15 +170,20 @@ function hydrateIntegrationMaps(
   for (const d of json.integrationWebhookDeliveries ?? []) store.integrationWebhookDeliveries.set(d.id, d);
 }
 
-function hydrateStoreV4(json: StoreJsonV4): Store {
+function hydrateStoreV4(json: HydratableStoreJsonV4): Store {
   const store = createStore();
   for (const c of json.carriers ?? []) store.carriers.set(c.id, c);
   for (const o of json.organizations ?? []) store.organizations.set(o.id, o);
-  for (const u of json.users ?? []) store.users.set(u.id, u);
+  for (const u of json.users ?? []) {
+    store.users.set(u.id, { ...u, countryCode: storedCountryCode(u.countryCode) });
+  }
+  for (const i of json.firebaseIdentities ?? []) store.firebaseIdentities.set(i.uid, i);
   for (const m of json.memberships ?? []) store.memberships.set(membershipKey(m.userId, m.orgId), m);
   for (const v of json.vehicles ?? []) store.vehicles.set(v.id, v);
   for (const d of json.driverProfiles ?? []) store.driverProfiles.set(d.userId, d);
-  for (const o of json.otpChallenges ?? []) store.otpChallenges.set(o.id, o);
+  for (const o of json.otpChallenges ?? []) {
+    store.otpChallenges.set(o.id, { ...o, countryCode: storedCountryCode(o.countryCode) });
+  }
   for (const s of json.authSessions ?? []) store.authSessions.set(s.id, s);
   for (const t of json.anchorTrips ?? []) store.anchorTrips.set(t.id, t);
   for (const s of json.shipments ?? []) store.shipments.set(s.id, s);
@@ -224,10 +268,38 @@ function hydrateStoreV5(json: StoreJsonV5): Store {
   return store;
 }
 
+function hydrateStoreV6(json: StoreJsonV6): Store {
+  const store = hydrateStoreV5({ ...json, version: 5 });
+  for (const row of json.conversations ?? []) store.conversations.set(row.id, row);
+  for (const row of json.conversationMessages ?? []) store.conversationMessages.set(row.id, row);
+  for (const row of json.conversationReadStates ?? []) store.conversationReadStates.set(`${row.conversationId}:${row.userId}:${row.orgId}`, row);
+  const rows = [...(json.notifications ?? [])].sort((a, b) => a.createdAtUtcMs - b.createdAtUtcMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  for (const row of rows) {
+    const recipientSequence = Number.isSafeInteger(row.recipientSequence) && row.recipientSequence! > 0
+      ? row.recipientSequence!
+      : ++store.notificationSequence;
+    store.notificationSequence = Math.max(store.notificationSequence, recipientSequence);
+    store.notifications.set(row.id, { ...row, recipientSequence });
+  }
+  for (const row of json.conversationEscalationGrants ?? []) store.conversationEscalationGrants.set(row.id, row);
+  return store;
+}
+
+function hydrateStoreV7(json: StoreJsonV7): Store {
+  const store = hydrateStoreV6({ ...json, version: 6 });
+  store.notificationSequence = Math.max(Number(json.notificationSequence) || 0, store.notificationSequence);
+  for (const device of json.pushDevices ?? []) store.pushDevices.set(device.id, device);
+  for (const intent of json.pushIntents ?? []) store.pushIntents.set(intent.id, intent);
+  for (const delivery of json.pushDeliveries ?? []) store.pushDeliveries.set(delivery.id, delivery);
+  return store;
+}
+
 export function loadStoreFromDisk(dataFilePath: string): Store {
   try {
     const raw = fs.readFileSync(dataFilePath, "utf8");
-    const parsed = JSON.parse(raw) as StoreJsonV1 | StoreJsonV2 | StoreJsonV3 | StoreJsonV4 | StoreJsonV5;
+    const parsed = JSON.parse(raw) as StoreJsonV1 | StoreJsonV2 | StoreJsonV3 | StoreJsonV4 | StoreJsonV5 | StoreJsonV6 | StoreJsonV7;
+    if (parsed?.version === 7) return hydrateStoreV7(parsed);
+    if (parsed?.version === 6) return hydrateStoreV6(parsed);
     if (parsed?.version === 1) return migrateV1ToStore(parsed);
     if (parsed?.version === 2) return migrateV2JsonToStore(parsed);
     if (parsed?.version === 3) return hydrateStoreV3(parsed);

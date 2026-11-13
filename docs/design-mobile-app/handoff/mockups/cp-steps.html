@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Step list: every state</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 760px; height: 1160px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Step list</h1>
+    <p class="lead" style="max-width: 660px;">An ordered list. Done steps are ticked and short. Only the step that is yours opens, with one sentence and one button. A step that waits on someone else shows who, in a grey panel with no button. Later steps show only their name and who does them.</p>
+  </div>
+  <div class="spec-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px;">
+    <div class="spec-cell"><p class="spec-tag">Done</p>
+      <ol class="steps"><li class="step done"><span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><div class="step-main"><p class="step-title">Booked and paid</p><p class="step-who">17 Oct · ₹2,640 held until delivery</p></div></li></ol>
+      <p class="small">Read aloud: "Done: Booked and paid."</p></div>
+    <div class="spec-cell"><p class="spec-tag">Later</p>
+      <ol class="steps"><li class="step later"><span class="mk">4</span><div class="step-main"><p class="step-title">On the way</p><p class="step-who">Ravi Roadways</p></div></li></ol>
+      <p class="small">Read aloud: "Step 4 of 5, later: On the way, Ravi Roadways."</p></div>
+    <div class="spec-cell"><p class="spec-tag">Yours now (default)</p>
+      <ol class="steps"><li class="step now"><span class="mk">3</span><div class="step-main"><p class="step-title">E-way bill</p><p class="step-who">You</p><div class="step-panel"><p class="h2">Does this load need an e-way bill?</p><div style="display: flex; flex-direction: column; gap: 8px;"><button class="btn btn-primary btn-full" type="button">Yes, make one</button><button class="btn btn-secondary btn-full" type="button">No e-way bill needed</button></div></div></div></li></ol></div>
+    <div class="spec-cell"><p class="spec-tag">Yours now · focus on its button</p>
+      <ol class="steps"><li class="step now"><span class="mk">3</span><div class="step-main"><p class="step-title">E-way bill</p><p class="step-who">You · Part 2 of 2</p><div class="step-panel"><p class="h2">Copy four details from the portal's bill.</p><button class="btn btn-primary btn-full is-focus" type="button">Enter the details</button></div></div></li></ol></div>
+    <div class="spec-cell"><p class="spec-tag">Waiting on someone else</p>
+      <ol class="steps"><li class="step wait"><span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 1.5"/></svg></span><div class="step-main"><p class="step-title">Bill check</p><p class="step-who">NaviG8r staff</p><div class="step-panel" style="padding: 12px;"><p class="cap-ink">NaviG8r staff check the bill on the portal by hand.</p></div></div></li></ol></div>
+    <div class="spec-cell"><p class="spec-tag">Problem (yours to fix)</p>
+      <ol class="steps"><li class="step prob"><span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 7v6M12 16.5v.01"/></svg></span><div class="step-main"><p class="step-title">E-way bill</p><p class="step-who">You</p><div class="step-panel"><p class="cap-ink">The invoice number on the portal's bill is different. Fix it here.</p><button class="btn btn-primary btn-full" type="button">Fix the details</button></div></div></li></ol></div>
+    <div class="spec-cell"><p class="spec-tag">Loading (step saving)</p>
+      <ol class="steps"><li class="step now"><span class="mk">3</span><div class="step-main"><p class="step-title">E-way bill</p><p class="step-who">You</p><div class="step-panel"><p class="cap-ink">Saving your answer.</p><button class="btn btn-primary btn-full" type="button" aria-busy="true"><span class="spinner" aria-hidden="true"></span>Saving</button></div></div></li></ol></div>
+    <div class="spec-cell"><p class="spec-tag">Success (just finished)</p>
+      <p class="msg msg-good" role="status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>E-way bill saved. Nothing more for you to do until delivery.</span></p>
+      <p class="small">The step collapses to Done; this message is announced and stays until the screen is left.</p></div>
+    <div class="spec-cell"><p class="spec-tag">Error (save failed)</p>
+      <div class="step-panel" style="margin: 0; border-color: var(--problem);"><p class="err" role="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/></svg>Could not save. Check your connection and try again. Nothing was lost.</p><button class="btn btn-primary btn-full" type="button">Try again</button></div></div>
+    <div class="spec-cell"><p class="spec-tag">Loading the whole list</p>
+      <div style="display: flex; flex-direction: column; gap: 12px;" aria-busy="true" aria-label="Loading steps"><div style="display: flex; gap: 12px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 50%; background: var(--sunken);"></span><span style="height: 14px; width: 60%; border-radius: 7px; background: var(--sunken);"></span></div><div style="display: flex; gap: 12px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 50%; background: var(--sunken);"></span><span style="height: 14px; width: 45%; border-radius: 7px; background: var(--sunken);"></span></div><p class="small">Loading this shipment's steps.</p></div></div>
+  </div>
+</div>
+
+</body>
+</html>

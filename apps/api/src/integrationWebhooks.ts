@@ -6,6 +6,8 @@ import type {
 } from "./types.ts";
 import type { Store } from "./store.ts";
 import { signWebhookPayload } from "./integrationAuth.ts";
+import { randomUUID } from "node:crypto";
+import { postWebhookToPublicAddress } from "./integrationWebhookAddress.ts";
 
 const EVENT_VERSION = "2026-06-01";
 const WEBHOOK_RETRY_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 24 * 60 * 60_000];
@@ -56,12 +58,14 @@ function carrierVehicleRegistration(
 function carrierOpsSnapshot(
   store: Store,
   shipment: Shipment,
-  trip: { startedByUserId?: string; startedAtUtcMs?: number } | undefined,
+  trip: { startedByUserId?: string; startedAtUtcMs?: number; assignedVehicleId?: string } | undefined,
 ): Record<string, unknown> {
   const driverUserId = trip?.startedByUserId ?? shipment.acceptedByUserId;
+  // The truck the carrier assigned to the trip is the one on the road, whoever started it.
+  const assignedVehicle = trip?.assignedVehicleId ? store.vehicles.get(trip.assignedVehicleId) : undefined;
   return {
     name: carrierDisplayName(store, shipment.carrierId),
-    vehicleNumber: carrierVehicleRegistration(store, shipment.carrierId, driverUserId),
+    vehicleNumber: assignedVehicle?.registrationNumber || carrierVehicleRegistration(store, shipment.carrierId, driverUserId),
     driverName: userDisplayName(store, driverUserId),
   };
 }
@@ -80,11 +84,12 @@ function trackingSnapshot(store: Store, shipment: Shipment): Record<string, unkn
   const staleMs = 15 * 60 * 1000;
   const loc = trip?.lastLiveLocation;
   const fresh = loc != null && nowUtcMs() - loc.recordedAtUtcMs <= staleMs;
-  const isLive = fresh && shipment.status === "BOOKED" && trip?.status === "IN_PROGRESS";
+  const shipperMaySeeTruck = shipment.status === "BOOKED" && trip?.status === "IN_PROGRESS";
+  const isLive = fresh && shipperMaySeeTruck;
   return {
     url: shipmentTrackingUrl(shipment.id),
     isLive,
-    lastLocation: loc ?? null,
+    lastLocation: shipperMaySeeTruck ? loc ?? null : null,
     staleAfterUtcMs: staleMs,
     paymentStatus: payment?.status ?? null,
   };
@@ -237,10 +242,18 @@ export function emitIntegrationEvent(
   return event;
 }
 
+export const WEBHOOKS_OFF_SENTENCE = "The practice server does not send webhooks.";
+
+// The hosted practice server is public and anyone can save a webhook address there, so it must never call one.
+export function outboundWebhooksOff(): boolean {
+  return process.env.OUTBOUND_WEBHOOKS_OFF === "1";
+}
+
 export async function deliverIntegrationWebhook(
   delivery: IntegrationWebhookDelivery,
   webhookSecret: string | undefined,
 ): Promise<{ ok: boolean; httpStatus: number; error?: string }> {
+  if (outboundWebhooksOff()) return { ok: false, httpStatus: 0, error: WEBHOOKS_OFF_SENTENCE };
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "user-agent": "NaviG8r-Integration/1.0",
@@ -250,61 +263,111 @@ export async function deliverIntegrationWebhook(
   }
 
   try {
-    const res = await fetch(delivery.webhookUrl, {
-      method: "POST",
-      headers,
-      body: delivery.payloadJson,
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (res.ok) {
-      return { ok: true, httpStatus: res.status };
-    }
-    const text = await res.text().catch(() => "");
-    return { ok: false, httpStatus: res.status, error: text.slice(0, 500) || res.statusText };
+    return await postWebhookToPublicAddress(delivery.webhookUrl, headers, delivery.payloadJson);
   } catch (e: any) {
     return { ok: false, httpStatus: 0, error: String(e?.message ?? e) };
   }
 }
 
-export async function processPendingWebhookDeliveries(store: Store): Promise<number> {
-  const now = nowUtcMs();
-  let processed = 0;
+export type WebhookDeliveryClaim = {
+  delivery: IntegrationWebhookDelivery;
+  webhookSecret?: string;
+  leaseId: string;
+};
+
+export type WebhookDeliveryClaims = {
+  claims: WebhookDeliveryClaim[];
+  changed: boolean;
+};
+
+/** Claim a bounded batch synchronously so callers can persist the lease before network I/O. */
+export function claimPendingWebhookDeliveries(
+  store: Store,
+  options: { nowUtcMs?: number; leaseMs?: number; limit?: number } = {},
+): WebhookDeliveryClaims {
+  const now = options.nowUtcMs ?? nowUtcMs();
+  const leaseMs = options.leaseMs ?? 45_000;
+  const limit = Math.max(1, Math.min(100, options.limit ?? 10));
+  const claims: WebhookDeliveryClaim[] = [];
+  let changed = false;
 
   for (const d of store.integrationWebhookDeliveries.values()) {
-    if (d.status !== "PENDING") continue;
-    if (d.nextRetryAtUtcMs > now) continue;
-
-    const conn = store.integrationConnections.get(d.connectionId);
-    const result = await deliverIntegrationWebhook(d, conn?.webhookSecret);
-    processed += 1;
-
-    d.attempts += 1;
-    d.updatedAtUtcMs = now;
-    d.lastHttpStatus = result.httpStatus;
-
-    if (result.ok) {
-      d.status = "DELIVERED";
-      d.deliveredAtUtcMs = now;
-      d.lastError = null;
-    } else {
-      d.lastError = result.error ?? "delivery_failed";
-      if (d.attempts >= MAX_WEBHOOK_ATTEMPTS) {
-        d.status = "DEAD";
-      } else {
-        const backoff = WEBHOOK_RETRY_MS[Math.min(d.attempts - 1, WEBHOOK_RETRY_MS.length - 1)]!;
-        d.nextRetryAtUtcMs = now + backoff;
-      }
+    if (d.status !== "PENDING" || d.nextRetryAtUtcMs > now) continue;
+    if ((d.leaseUntilUtcMs ?? 0) > now) continue;
+    if (d.attempts >= MAX_WEBHOOK_ATTEMPTS) {
+      d.status = "DEAD";
+      d.leaseId = null;
+      d.leaseUntilUtcMs = null;
+      d.lastError ??= "delivery_attempts_exhausted";
+      d.updatedAtUtcMs = now;
+      store.integrationWebhookDeliveries.set(d.id, d);
+      changed = true;
+      continue;
     }
-    store.integrationWebhookDeliveries.set(d.id, d);
-  }
+    if (claims.length >= limit) continue;
 
-  return processed;
+    const leaseId = randomUUID();
+    d.attempts += 1; // Count before I/O so a process crash cannot evade the retry bound.
+    d.leaseId = leaseId;
+    d.leaseUntilUtcMs = now + leaseMs;
+    d.updatedAtUtcMs = now;
+    store.integrationWebhookDeliveries.set(d.id, d);
+    changed = true;
+    claims.push({
+      delivery: structuredClone(d),
+      webhookSecret: store.integrationConnections.get(d.connectionId)?.webhookSecret,
+      leaseId,
+    });
+  }
+  return { claims, changed };
+}
+
+/** Conditionally complete only the attempt which still owns this delivery lease. */
+export function completeWebhookDelivery(
+  store: Store,
+  claim: Pick<WebhookDeliveryClaim, "delivery" | "leaseId">,
+  result: { ok: boolean; httpStatus: number; error?: string },
+  now = nowUtcMs(),
+): boolean {
+  const d = store.integrationWebhookDeliveries.get(claim.delivery.id);
+  if (!d || d.leaseId !== claim.leaseId) return false;
+
+  d.updatedAtUtcMs = now;
+  d.lastHttpStatus = result.httpStatus;
+  d.leaseId = null;
+  d.leaseUntilUtcMs = null;
+  if (result.ok) {
+    d.status = "DELIVERED";
+    d.deliveredAtUtcMs = now;
+    d.lastError = null;
+  } else {
+    d.lastError = result.error ?? "delivery_failed";
+    if (d.attempts >= MAX_WEBHOOK_ATTEMPTS) {
+      d.status = "DEAD";
+    } else {
+      const backoff = WEBHOOK_RETRY_MS[Math.min(d.attempts - 1, WEBHOOK_RETRY_MS.length - 1)]!;
+      d.nextRetryAtUtcMs = now + backoff;
+    }
+  }
+  store.integrationWebhookDeliveries.set(d.id, d);
+  return true;
+}
+
+/** Convenience runner for tests and one-off callers; production coordinates claim and completion separately. */
+export async function processPendingWebhookDeliveries(store: Store): Promise<number> {
+  const { claims } = claimPendingWebhookDeliveries(store);
+  for (const claim of claims) {
+    const result = await deliverIntegrationWebhook(claim.delivery, claim.webhookSecret);
+    completeWebhookDelivery(store, claim, result);
+  }
+  return claims.length;
 }
 
 export function retryWebhookDelivery(store: Store, deliveryId: string): IntegrationWebhookDelivery {
   const d = store.integrationWebhookDeliveries.get(deliveryId);
   if (!d) throw new Error("webhook_delivery_not_found");
   d.status = "PENDING";
+  if (d.attempts >= MAX_WEBHOOK_ATTEMPTS) d.attempts = 0;
   d.nextRetryAtUtcMs = nowUtcMs();
   d.updatedAtUtcMs = nowUtcMs();
   store.integrationWebhookDeliveries.set(d.id, d);

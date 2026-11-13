@@ -58,9 +58,9 @@ const ASCII_ONLY = /^[\x00-\x7F]*$/;
  * rest trimmed. Callers should store what comes back rather than what went in,
  * so a lower-case IFSC does not reach the payout provider.
  *
- * `accountNumber` is optional because it is only required once real payouts are
- * switched on; pass an empty string when it is not being collected and it is
- * skipped rather than rejected.
+ * All three fields are required on every server, whatever the payout mode, so a
+ * test server cannot accept a save that production refuses. The inputs are
+ * optional in the type only so a missing field reaches this check and is refused.
  */
 export function validatePayoutBankDetails(input: {
   accountHolderName?: string;
@@ -80,7 +80,7 @@ export function validatePayoutBankDetails(input: {
       ok: false,
       field: "accountHolderName",
       detail:
-        "Account holder name must be 3 to 50 characters and use only letters, numbers, spaces and ' - _ / ( ) , . &",
+        "Account holder name must be 3 to 50 characters, using English letters (A to Z), numbers, spaces and ' - _ / ( ) , . &",
     };
   }
   if (!CONTAINS_A_LETTER.test(accountHolderName)) {
@@ -99,13 +99,14 @@ export function validatePayoutBankDetails(input: {
     };
   }
 
-  // Empty means not being collected yet, which is allowed. A value that is
-  // present but malformed is not.
-  if (accountNumber && !ACCOUNT_NUMBER_PATTERN.test(accountNumber)) {
+  if (!accountNumber) {
+    return { ok: false, field: "accountNumber", detail: "Bank account number is required." };
+  }
+  if (!ACCOUNT_NUMBER_PATTERN.test(accountNumber)) {
     return {
       ok: false,
       field: "accountNumber",
-      detail: "Account number must be 5 to 35 letters or digits, with no spaces or punctuation.",
+      detail: "Bank account number must be 5 to 35 letters or digits, with no spaces or punctuation.",
     };
   }
 
