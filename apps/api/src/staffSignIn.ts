@@ -1,6 +1,7 @@
 /** How the staff pages served by this API sign people in, and the one browser script that does it with Firebase. */
 
 import { serverCodeSignInAllowed } from "./auth.ts";
+import { DEFAULT_COUNTRY_CODE, SUPPORTED_COUNTRY_CODES, type SupportedCountryCode } from "./phone.ts";
 
 /** One pinned release, so every page load gets the same Firebase code; the policy below allows only this path. */
 export const FIREBASE_JS_SDK_VERSION = "10.12.2";
@@ -33,8 +34,40 @@ export function staffSignInFromEnv(env: NodeJS.ProcessEnv = process.env): StaffS
 
 export const staffSignInNotSetUpMarkup = '<p role="alert">Staff sign-in is not set up on this server.</p>';
 
-/** The page's own phone and code fields and buttons, which the Firebase script takes over. */
-export type SignInElementIds = { phone: string; send: string; code: string; verify: string };
+const countryNames: Record<SupportedCountryCode, string> = { "+91": "India", "+1": "United States" };
+
+/** The choices for each staff page's country box, from the server's own list, with India picked first. */
+export const staffCountryOptions = SUPPORTED_COUNTRY_CODES.map((code) =>
+  `<option value="${code}"${code === DEFAULT_COUNTRY_CODE ? " selected" : ""}>${countryNames[code]} (${code})</option>`).join("");
+
+/**
+ * Browser code: phoneForSignIn(typed number, chosen country code) gives { countryCode, phone, e164 }, or
+ * { error, words } with the server's error code. It follows normalizePhone in phone.ts rule for rule, so the
+ * page refuses exactly what the server would; staffSignIn.test.ts checks the two agree.
+ */
+export const phoneForSignInScript = `
+const staffCountryNames = ${JSON.stringify(Object.fromEntries(SUPPORTED_COUNTRY_CODES.map((code) => [code, countryNames[code]])))};
+function phoneForSignIn(raw, countryCode) {
+  const name = staffCountryNames[countryCode];
+  if (!name) return { error: 'invalid_country_code', words: 'Choose a country.' };
+  const text = String(raw == null ? '' : raw).trim();
+  const digits = text.replace(/[^0-9]/g, '');
+  if (!digits) return { error: 'invalid_phone', words: 'Enter your phone number.' };
+  const wrongLength = { error: 'invalid_phone', words: name + ' phone numbers have 10 digits. Check the number.' };
+  let code = countryCode, national = digits;
+  if (text.startsWith('+') || digits.length > 10) {
+    if (digits.length === 12 && digits.startsWith('91')) { code = '+91'; national = digits.slice(2); }
+    else if (digits.length === 11 && digits.startsWith('1')) { code = '+1'; national = digits.slice(1); }
+    else return wrongLength;
+    if (code !== countryCode) return { error: 'phone_country_mismatch', words: 'This number starts with ' + code + '. Choose ' + staffCountryNames[code] + ' as the country.' };
+  }
+  if (national.length !== 10) return wrongLength;
+  return { countryCode: code, phone: national, e164: code + national };
+}
+`;
+
+/** The page's own country box, phone and code fields and buttons, which the Firebase script takes over. */
+export type SignInElementIds = { country: string; phone: string; send: string; code: string; verify: string };
 
 /** Sources the Firebase phone sign-in needs in a page's content security policy, and no others. */
 export const firebaseSignInPolicySources = {
@@ -80,22 +113,19 @@ const exchangeWords = {
   firebase_token_invalid: 'Sign-in did not work. Send a new code.',
 };
 let verifier = null, confirmation = null;
-function indianPhone(raw) {
-  const digits = String(raw).replace(/[^0-9]/g, '');
-  if (digits.length === 10) return '+91' + digits;
-  if (digits.length === 12 && digits.startsWith('91')) return '+' + digits;
-  return null;
-}
-field('phone').addEventListener('input', () => { confirmation = null; field('code').value = ''; });
+${phoneForSignInScript}
+const startOver = () => { confirmation = null; field('code').value = ''; };
+field('phone').addEventListener('input', startOver);
+field('country').addEventListener('change', startOver);
 field('send').addEventListener('click', async event => {
   event.preventDefault();
-  const phone = indianPhone(field('phone').value);
-  if (!phone) return say('Enter a 10-digit phone number.');
+  const phone = phoneForSignIn(field('phone').value, field('country').value);
+  if (phone.error) return say(phone.words);
   field('send').disabled = true;
   say('Sending the code...');
   try {
     verifier = verifier || new RecaptchaVerifier(auth, 'staff-recaptcha', { size: 'invisible' });
-    confirmation = await signInWithPhoneNumber(auth, phone, verifier);
+    confirmation = await signInWithPhoneNumber(auth, phone.e164, verifier);
     say('Code sent. Enter it to sign in.');
     field('code').focus();
   } catch (error) {

@@ -3,7 +3,7 @@ import { ewayBillMarkup, ewayBillScript } from "./opsConsoleBetaEwayBills.ts";
 import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
 import { tripCancelMarkup, tripCancelScript } from "./opsConsoleBetaTripCancels.ts";
 import { podPhotoMarkup, podPhotoScript } from "./opsConsoleBetaPodPhotos.ts";
-import { firebaseSignInMarkup, firebaseSignInPolicySources, firebaseSignInScript, staffSignInNotSetUpMarkup, type SignInElementIds, type StaffSignIn } from "./staffSignIn.ts";
+import { firebaseSignInMarkup, firebaseSignInPolicySources, firebaseSignInScript, phoneForSignInScript, staffCountryOptions, staffSignInNotSetUpMarkup, type SignInElementIds, type StaffSignIn } from "./staffSignIn.ts";
 
 /**
  * The redesigned operations page, served at /ops/beta beside the current /ops page until the team agrees
@@ -37,11 +37,12 @@ const logo = `<svg viewBox="0 0 1400 400" role="img" aria-label="NaviG8r" xmlns=
 </svg>`;
 
 const signInControls = `
+  <label class="stack"><span class="field-label">Country</span><select id="country" class="field">${staffCountryOptions}</select></label>
   <label class="stack"><span class="field-label">Phone</span><input id="phone" class="field" autocomplete="tel" inputmode="tel"></label>
   <div><button id="start" class="btn btn-secondary" type="button">Send code</button></div>
   <label class="stack"><span class="field-label">Verification code</span><input id="code" class="field" autocomplete="one-time-code" inputmode="numeric"></label>
   <div><button id="verify" class="btn btn-primary" type="button">Sign in</button></div>`;
-const signInIds: SignInElementIds = { phone: "phone", send: "start", code: "code", verify: "verify" };
+const signInIds: SignInElementIds = { country: "country", phone: "phone", send: "start", code: "code", verify: "verify" };
 
 function signInContent(signIn: StaffSignIn): string {
   if (signIn.kind === "not-set-up") return staffSignInNotSetUpMarkup;
@@ -745,32 +746,35 @@ byId('phone').oninput = () => {
   byId('signinResult').replaceChildren();
   waitToResend(0);
 };
+byId('country').onchange = byId('phone').oninput;
 byId('start').onclick = async () => {
-  const phone = byId('phone').value;
+  const phone = byId('phone').value, countryCode = byId('country').value;
+  const checked = phoneForSignIn(phone, countryCode);
+  if (checked.error) return byId('signinResult').replaceChildren(message('err', checked.words));
   byId('start').disabled = true;
   byId('start').textContent = 'Sending…';
   byId('signinResult').replaceChildren();
   try {
-    const out = await request('/v1/auth/otp/start', 'POST', { phone });
-    if (byId('phone').value !== phone) return;
+    const out = await request('/v1/auth/otp/start', 'POST', { phone, countryCode });
+    if (byId('phone').value !== phone || byId('country').value !== countryCode) return;
     challenge = out.challengeId;
     if (out.debugCode) byId('code').value = out.debugCode;
     byId('code').focus();
     waitToResend(out.retryAfterMs || 0);
   } catch (error) {
-    if (byId('phone').value !== phone) return;
+    if (byId('phone').value !== phone || byId('country').value !== countryCode) return;
     byId('signinResult').replaceChildren(message('err', "Couldn't send the code: " + error.message + '.'));
     waitToResend(error.retryAfterMs || 0);
   }
 };
 byId('verify').onclick = () => whileWaiting(byId('verify'), 'Signing in…', () => run(async () => {
-  const out = await request('/v1/auth/otp/verify', 'POST', { phone: byId('phone').value, challengeId: challenge, code: byId('code').value });
+  const out = await request('/v1/auth/otp/verify', 'POST', { phone: byId('phone').value, countryCode: byId('country').value, challengeId: challenge, code: byId('code').value });
   await signedIn(out.accessToken);
 }, "Couldn't sign in", byId('signinResult')));
 `;
 
 function pageScript(signIn: StaffSignIn): string {
-  return signIn.kind === "server-code" ? script + serverCodeSignInScript : script;
+  return signIn.kind === "server-code" ? script + phoneForSignInScript + serverCodeSignInScript : script;
 }
 
 const sha256 = (text: string): string => "'sha256-" + createHash("sha256").update(text).digest("base64") + "'";
