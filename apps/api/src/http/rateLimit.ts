@@ -4,11 +4,20 @@ type Bucket = { startedAtUtcMs: number; count: number };
 export class FixedWindowRateLimiter {
   private readonly buckets = new Map<string, Bucket>();
 
+  /** With a cap, a new key past it drops the key whose window started first. */
+  readonly maxKeys: number;
+
+  constructor(maxKeys = Number.POSITIVE_INFINITY) {
+    this.maxKeys = maxKeys;
+  }
+
   consume(key: string, limit: number, windowMs: number, now = Date.now()): { allowed: boolean; retryAfterSeconds: number } {
     let bucket = this.buckets.get(key);
     if (!bucket || now - bucket.startedAtUtcMs >= windowMs || now < bucket.startedAtUtcMs) {
       bucket = { startedAtUtcMs: now, count: 0 };
+      this.buckets.delete(key);
       this.buckets.set(key, bucket);
+      while (this.buckets.size > this.maxKeys) this.buckets.delete(this.buckets.keys().next().value!);
     }
     if (bucket.count >= limit) {
       return {

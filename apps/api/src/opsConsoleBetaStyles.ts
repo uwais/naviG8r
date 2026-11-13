@@ -86,6 +86,8 @@ legend{padding:0;margin-bottom:var(--space-2)}
 dialog{border:0;border-radius:var(--radius-card);padding:var(--space-6);width:min(480px,calc(100vw - 32px));background:var(--card);color:var(--ink)}
 dialog[open]{display:flex;flex-direction:column;gap:var(--space-4)}
 dialog::backdrop{background:var(--scrim)}
+dialog.photo{width:min(960px,calc(100vw - 32px))}
+.pod-photo{display:block;max-width:100%;max-height:70vh;object-fit:contain;margin:0 auto}
 .money{background:var(--sunken);border-radius:var(--radius-button);padding:4px 16px}
 .money div{display:flex;justify-content:space-between;padding:8px 0}
 .money div+div{border-top:1px solid var(--line)}

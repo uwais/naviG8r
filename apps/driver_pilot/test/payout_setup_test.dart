@@ -45,7 +45,7 @@ void main() {
 
   const fieldLabels = {
     'accountHolderName': 'Account holder name',
-    'ifsc': 'IFSC / bank identifier',
+    'ifsc': 'IFSC code',
     'accountNumber': 'Bank account number',
   };
 
@@ -87,9 +87,9 @@ void main() {
 
   // What the owner reads when a save works but text was typed after the tap.
   const serverLine = 'Bank account added.';
-  const changedAfterSaveOpening = 'You changed a field after tapping Save.';
+  const changedAfterSaveOpening = 'You changed something after you tapped Save.';
   const changedAfterSave = '$changedAfterSaveOpening '
-      'The details sent are the ones from when you tapped. '
+      'We sent the details from before. '
       'Tap Save again to send the change.';
 
   fieldLabels.forEach((field, label) {

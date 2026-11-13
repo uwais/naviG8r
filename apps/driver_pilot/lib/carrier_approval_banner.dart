@@ -7,17 +7,17 @@ import "driver_session.dart";
 /// The carrier's approval status in plain words, for screens that show it.
 String approvalStatusInWords(String? kycStatus) => switch (kycStatus) {
       "APPROVED" => "Approved",
-      "SUBMITTED" => "Waiting for NaviG8r review",
+      "SUBMITTED" => "Waiting for NaviG8r to check",
       "REJECTED" => "Not approved",
       _ => "Bank details not added yet",
     };
 
 /// What a rejected carrier's owner reads for each reason ops may share; null for any other code.
 String? rejectionReasonInWords(String? code) => switch (code) {
-      "DOCUMENTS_MISSING" => "NaviG8r needs documents from this carrier.",
+      "DOCUMENTS_MISSING" => "NaviG8r needs documents from your company.",
       "BANK_DETAILS_MISMATCH" =>
-        "The name entered as the bank account holder doesn't match the carrier's name.",
-      "DUPLICATE_ACCOUNT" => "NaviG8r already has an account for this carrier.",
+        "The bank account holder's name does not match your company name.",
+      "DUPLICATE_ACCOUNT" => "NaviG8r already has an account for your company.",
       "NOT_A_CARRIER" => "NaviG8r decided this is not a carrier business.",
       _ => null,
     };
@@ -26,18 +26,25 @@ String? rejectionReasonInWords(String? code) => switch (code) {
 /// Everyone else is told to ask the owner, since the reason is about the carrier's business.
 (String, String?) _rejectedMessage({required bool owner}) {
   final opsDecisionSentence = DriverSession.approvalTakenBack
-      ? "NaviG8r operations took back this carrier's approval."
-      : "NaviG8r operations did not approve this carrier.";
+      ? "NaviG8r took back your company's approval."
+      : "NaviG8r did not approve your company.";
   const blockedSentence =
-      "While this carrier is not approved, you can't accept shipments or start trips.";
+      "Until your company is approved, you cannot accept bookings or start trips.";
   if (!owner) {
     return (
-      [opsDecisionSentence, "Ask the carrier owner for details.", blockedSentence]
+      [opsDecisionSentence, "Ask the owner for details.", blockedSentence]
           .join(" "),
       null,
     );
   }
   final code = DriverSession.rejectionReasonCode;
+  // A duplicate is fixed by switching to the other account, so the owner reads one short line.
+  if (code == "DUPLICATE_ACCOUNT" && !DriverSession.approvalTakenBack) {
+    return (
+      "NaviG8r did not approve this company: it already has an account. If you belong to that account, choose it in the company menu.",
+      null,
+    );
+  }
   final reason = rejectionReasonInWords(code);
   final (nextStep, action) = switch (code) {
     "DOCUMENTS_MISSING" || "NOT_A_CARRIER" => (
@@ -45,13 +52,13 @@ String? rejectionReasonInWords(String? code) => switch (code) {
         null
       ),
     "DUPLICATE_ACCOUNT" => (
-        "If you belong to that account, choose it in the organization menu at the top of the screen. If not, ask whoever runs it to invite your phone number.",
+        "If you belong to that account, choose it in the company menu.",
         null
       ),
     // The bank reason, or none the app knows: new bank details are the one step that can help.
     _ => (
-        "You can submit your bank details for another review.",
-        "Submit bank details"
+        "You can send your bank details for a new check.",
+        "Send bank details"
       ),
   };
   return (
@@ -82,17 +89,17 @@ class CarrierApprovalBanner extends StatelessWidget {
     final owner = DriverSession.canSetUpPayouts;
     final (message, action) = switch (DriverSession.kycStatus) {
       "SUBMITTED" => (
-          "This carrier is waiting for NaviG8r operations to review it. Until it is approved, you can't accept shipments or start trips.",
+          "NaviG8r is checking your company. Until it is approved, you cannot accept bookings or start trips.",
           null
         ),
       "REJECTED" => _rejectedMessage(owner: owner),
       _ => owner
           ? (
-              "Add your bank details so NaviG8r operations can review this carrier. Until it is approved, you can't accept shipments or start trips.",
+              "Add bank details so NaviG8r can check your company. Until then, you cannot accept bookings or start trips.",
               "Add bank details"
             )
           : (
-              "This carrier is not approved yet. Ask the carrier owner to add bank details. Until then, you can't accept shipments or start trips.",
+              "Your company is not approved yet. Ask the owner to add bank details.",
               null
             ),
     };
@@ -101,7 +108,13 @@ class CarrierApprovalBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(message),
+          // At 200% text the message took most of a 360 x 800 phone and pushed the screen under it off the bottom,
+          // so past a quarter of the phone's height it scrolls in its own box.
+          ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height / 4),
+            child: SingleChildScrollView(child: Text(message)),
+          ),
           if (action != null && !currentPath.startsWith("/driver/payout-setup"))
             Padding(
               padding: const EdgeInsets.only(top: 8),

@@ -7,6 +7,7 @@ import type {
 import type { Store } from "./store.ts";
 import { signWebhookPayload } from "./integrationAuth.ts";
 import { randomUUID } from "node:crypto";
+import { postWebhookToPublicAddress } from "./integrationWebhookAddress.ts";
 
 const EVENT_VERSION = "2026-06-01";
 const WEBHOOK_RETRY_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 24 * 60 * 60_000];
@@ -83,11 +84,12 @@ function trackingSnapshot(store: Store, shipment: Shipment): Record<string, unkn
   const staleMs = 15 * 60 * 1000;
   const loc = trip?.lastLiveLocation;
   const fresh = loc != null && nowUtcMs() - loc.recordedAtUtcMs <= staleMs;
-  const isLive = fresh && shipment.status === "BOOKED" && trip?.status === "IN_PROGRESS";
+  const shipperMaySeeTruck = shipment.status === "BOOKED" && trip?.status === "IN_PROGRESS";
+  const isLive = fresh && shipperMaySeeTruck;
   return {
     url: shipmentTrackingUrl(shipment.id),
     isLive,
-    lastLocation: loc ?? null,
+    lastLocation: shipperMaySeeTruck ? loc ?? null : null,
     staleAfterUtcMs: staleMs,
     paymentStatus: payment?.status ?? null,
   };
@@ -240,10 +242,18 @@ export function emitIntegrationEvent(
   return event;
 }
 
+export const WEBHOOKS_OFF_SENTENCE = "The practice server does not send webhooks.";
+
+// The hosted practice server is public and anyone can save a webhook address there, so it must never call one.
+export function outboundWebhooksOff(): boolean {
+  return process.env.OUTBOUND_WEBHOOKS_OFF === "1";
+}
+
 export async function deliverIntegrationWebhook(
   delivery: IntegrationWebhookDelivery,
   webhookSecret: string | undefined,
 ): Promise<{ ok: boolean; httpStatus: number; error?: string }> {
+  if (outboundWebhooksOff()) return { ok: false, httpStatus: 0, error: WEBHOOKS_OFF_SENTENCE };
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "user-agent": "NaviG8r-Integration/1.0",
@@ -253,17 +263,7 @@ export async function deliverIntegrationWebhook(
   }
 
   try {
-    const res = await fetch(delivery.webhookUrl, {
-      method: "POST",
-      headers,
-      body: delivery.payloadJson,
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (res.ok) {
-      return { ok: true, httpStatus: res.status };
-    }
-    const text = await res.text().catch(() => "");
-    return { ok: false, httpStatus: res.status, error: text.slice(0, 500) || res.statusText };
+    return await postWebhookToPublicAddress(delivery.webhookUrl, headers, delivery.payloadJson);
   } catch (e: any) {
     return { ok: false, httpStatus: 0, error: String(e?.message ?? e) };
   }

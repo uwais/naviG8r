@@ -140,7 +140,7 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 
 | Phase | Scope | Outcome |
 |-------|--------|--------|
-| **1 — Estimator** | Server function + `POST /v1/pilot/rates/estimate` (Bearer: pilot on carrier org) | **[Done]** Returns `laneKm`, `samples[]` with `grossPaise` + `breakdown` per sample weight (pilot-only). |
+| **1 — Estimator** | Server function + `POST /v1/pilot/rates/estimate` (Bearer: pilot on carrier org) | **[Done]** Returns `laneKm`, `samples[]` with the carrier's `netToCarrierPaise` per sample weight (pilot-only; never the shipper's price, owner hard rule 21 Oct 2026). |
 | **2 — Driver UI** | `PublishTripScreen` calls estimate after origin/dest + vehicle class change | **[Done]** Debounced “Suggested freight” card (samples 100/250/500 kg); disclaimer that customer price may use shipment km. |
 | **3 — Customer UI** | Extend `POST /shipments/quote` with pickup/drop + `weightKg` + optional `anchorTripId` | **[Done]** Response `quote.grossPaise` + `quote.breakdown`; customer app prints breakdown on Quote. |
 | **4 — Canonical pricing** | `bookShipment` uses same freight model as quote | **[Done]** `grossPaise` reflects distance+weight when coords exist; tests + docs. Coordinate amounts with **B0.1** before live payments. |
@@ -281,6 +281,12 @@ This is the execution checklist for taking the MVP from **file-backed JSON persi
 - [x] **B0.2 freight & pricing (phases 1–4)** — `rates/estimate`, **Publish** suggested freight, **Quote** breakdown + **`bookShipment` parity** when coords exist; tests + docs. **Still open:** optional eligible-trip ~₹ hints (**B0.2c**) + structured estimate logging/metrics.
 - [ ] **Pilot build (completion)**: versioning cadence + chosen distribution channel + crash reporting (**B2**, **B3**).
 - [ ] **10-device rollout** + weekly feedback triage.
+
+### Not for now (decided)
+
+- **Shippers cancelling a booking in the app** (Rishabh, 17 Oct 2026). Today a shipper cannot cancel anywhere; only
+  Finance can cancel, and only before the trip starts. Until this is built, the shipment screen names who to contact and promises no refund
+  amount. Open: which contact it names. Brief: `docs/CLAUDE-DESIGN-BRIEF-mobile-app.md`, step A.5.
 
 ---
 

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Form field: every state</title>
+<link rel="stylesheet" href="./nv.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</head>
+<body>
+
+
+
+
+<div class="spec" style="width: 760px; height: 900px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 class="spec-h">Form field</h1>
+    <p class="lead" style="max-width: 660px;">Label above, always visible. Help under the field says the format. The error replaces the help, says what is wrong and how to fix it, and is linked with aria-describedby. Choices with fixed options are radio rows or chips, never a typed field.</p>
+  </div>
+  <div class="spec-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px;">
+    <div class="spec-cell"><p class="spec-tag">Default with help</p>
+      <div class="field"><span class="field-label">Weight</span><div class="input"><span class="ph">For example 80</span><span class="suffix">kg</span></div><p class="help">Up to 105 kg on this lane.</p></div></div>
+    <div class="spec-cell"><p class="spec-tag">Focus</p>
+      <div class="field"><span class="field-label">Weight</span><div class="input is-focus"><span>80</span><span class="suffix">kg</span></div><p class="help">Up to 105 kg on this lane.</p></div></div>
+    <div class="spec-cell"><p class="spec-tag">Filled</p>
+      <div class="field"><span class="field-label">Invoice number</span><div class="input"><span>ST/2026/0418</span></div></div></div>
+    <div class="spec-cell"><p class="spec-tag">Optional</p>
+      <div class="field"><span class="field-label">Transporter ID <span class="field-opt">(optional)</span></span><div class="input mono"><span class="ph" style="font-family: var(--font-body);">15 characters</span></div><p class="help">Your GSTIN, or a TRANSIN if you have no GST registration.</p></div></div>
+    <div class="spec-cell"><p class="spec-tag">Error</p>
+      <div class="field"><span class="field-label">E-way bill number</span><div class="input mono is-error"><span>34120098765</span></div><p class="err" role="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/></svg>This has 11 digits. An e-way bill number has 12.</p></div></div>
+    <div class="spec-cell"><p class="spec-tag">Disabled, with reason</p>
+      <div class="field"><span class="field-label">Truck number</span><div class="input is-disabled"><span>Not chosen yet</span></div><p class="help">The carrier names the truck when they accept.</p></div></div>
+    <div class="spec-cell"><p class="spec-tag">Read-only (copy, do not edit)</p>
+      <div class="field"><span class="field-label">Your GSTIN</span><div class="input is-readonly mono"><span>33AAACS7781L1ZQ</span></div><p class="help">Change it in your company details.</p></div></div>
+    <div class="spec-cell"><p class="spec-tag">Loading (checking)</p>
+      <div class="field"><span class="field-label">Pickup</span><div class="input"><span>Bommasandra</span><span class="suffix" style="display: flex; align-items: center; gap: 6px;"><span class="spinner" style="width: 14px; height: 14px; color: var(--slate);" aria-hidden="true"></span>Finding places</span></div></div></div>
+    <div class="spec-cell"><p class="spec-tag">Success (saved inline)</p>
+      <div class="field"><span class="field-label">Transporter ID</span><div class="input mono"><span>29ABCDE1234F1Z5</span></div><p class="help" role="status" style="color: var(--good); font-weight: 600;">Saved. Shippers see it on their next e-way bill.</p></div></div>
+    <div class="spec-cell"><p class="spec-tag">Choice (replaces "SMALL|MEDIUM|LARGE")</p>
+      <fieldset style="border: 0; padding: 0; margin: 0;"><legend class="field-label" style="padding: 0; margin-bottom: 6px;">Truck size</legend><div class="chips"><button class="chip" type="button">Small</button><button class="chip on" type="button">Medium</button><button class="chip" type="button">Large</button></div></fieldset></div>
+  </div>
+</div>
+
+</body>
+</html>

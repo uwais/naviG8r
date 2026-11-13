@@ -35,10 +35,10 @@ test("owner/admin subroles retain only their intended extra rights", () => {
   for (const subrole of ["DRIVER", "DISPATCHER"]) assert.equal(effectivePermissions(["CARRIER"], subrole).includes("bank_account.create_token"), false);
   assert.equal(effectivePermissions(["CARRIER"], "DISPATCHER").includes("organization.member.invite"), true);
 });
-test("adding a truck to an e-way bill is an allow-list: drivers and unknown subroles get nothing", () => {
-  for (const subrole of ["OWNER_DRIVER", "OWNER", "DISPATCHER", "CARRIER"]) assert.equal(effectivePermissions(["CARRIER"], subrole).includes("eway_bill.add_truck"), true, subrole);
+test("adding a truck to an e-way bill is the shipper's alone: every carrier login and unknown subroles get nothing", () => {
   for (const subrole of ["CUSTOMER_ADMIN", "CUSTOMER_MEMBER", "SHIPPER"]) assert.equal(effectivePermissions(["SHIPPER"], subrole).includes("eway_bill.add_truck"), true, subrole);
-  for (const subrole of ["DRIVER", "VIEWER", ""]) assert.equal(effectivePermissions(["CARRIER"], subrole).includes("eway_bill.add_truck"), false, subrole);
+  for (const subrole of ["OWNER_DRIVER", "OWNER", "DISPATCHER", "DRIVER", "CARRIER", "VIEWER", ""]) assert.equal(effectivePermissions(["CARRIER"], subrole).includes("eway_bill.add_truck"), false, subrole);
+  assert.equal(effectivePermissions(["SHIPPER"], "VIEWER").includes("eway_bill.add_truck"), false);
 });
 test("naming a trip's truck and driver is an allow-list too: the carrier office only", () => {
   for (const subrole of ["OWNER_DRIVER", "OWNER", "DISPATCHER", "CARRIER"]) assert.equal(effectivePermissions(["CARRIER"], subrole).includes("trip.assign"), true, subrole);

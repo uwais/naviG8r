@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'pilot_api.dart';
+import 'firebase_app.dart';
 
 const _channelId = 'shipment_updates';
 const _channelName = 'Shipment updates';
@@ -61,31 +61,9 @@ AndroidNotificationDetails shipmentUpdateNotificationDetails(String tag) =>
 
 @pragma('vm:entry-point')
 Future<void> _firebaseBackgroundHandler(RemoteMessage message) async {
-  final options = _firebaseOptions;
-  if (options != null && Firebase.apps.isEmpty) {
-    await Firebase.initializeApp(options: options);
-  }
+  await ensureFirebaseApp();
   // Notification messages are rendered by Android while the app is backgrounded.
   // Keep this handler free of network work and sensitive payload processing.
-}
-
-const _firebaseApiKey = String.fromEnvironment('FIREBASE_API_KEY');
-const _firebaseAppId = String.fromEnvironment('FIREBASE_APP_ID');
-const _firebaseSenderId =
-    String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID');
-const _firebaseProjectId = String.fromEnvironment('FIREBASE_PROJECT_ID');
-
-FirebaseOptions? get _firebaseOptions {
-  if (_firebaseApiKey.isEmpty ||
-      _firebaseAppId.isEmpty ||
-      _firebaseSenderId.isEmpty ||
-      _firebaseProjectId.isEmpty) return null;
-  return FirebaseOptions(
-    apiKey: _firebaseApiKey,
-    appId: _firebaseAppId,
-    messagingSenderId: _firebaseSenderId,
-    projectId: _firebaseProjectId,
-  );
 }
 
 class PushOpenRoute {
@@ -131,10 +109,8 @@ class PushNotifications {
     _userId = userId;
     if (_initialized || !_isAndroid) return;
     _initialized = true;
-    final options = _firebaseOptions;
-    if (options == null) return;
     try {
-      if (Firebase.apps.isEmpty) await Firebase.initializeApp(options: options);
+      await ensureFirebaseApp();
       FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundHandler);
       await _local.initialize(
         const InitializationSettings(

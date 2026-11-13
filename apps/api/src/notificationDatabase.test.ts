@@ -27,6 +27,11 @@ test("PostgreSQL grouped inbox and conversation timeline preserve pagination and
   assert.equal(second.status, 201);
   const firstShipmentId = first.body.shipment.id as string;
   const secondShipmentId = second.body.shipment.id as string;
+  // A workflow notice the shipper did not cause: the carrier accepts the first booking once it is paid.
+  const firstPayment = [...fixture.store.payments.values()].find(payment => payment.shipmentId === firstShipmentId);
+  assert.ok(firstPayment);
+  fixture.store.payments.set(firstPayment.id, { ...firstPayment, provider: "MOCK", status: "CAPTURED" });
+  assert.equal((await fixture.request(`/v1/pilot/carrier/shipments/${firstShipmentId}/accept`, "POST", {}, fixture.tokens.carrierA)).status, 200);
 
   const database = await import("./persistenceDb.ts");
   const existingStore = await database.loadStoreFromDatabase();
@@ -36,20 +41,20 @@ test("PostgreSQL grouped inbox and conversation timeline preserve pagination and
     fixture.store.notifications.set(id, { ...notification, recipientSequence: ++notificationSequence });
   }
   fixture.store.notificationSequence = notificationSequence;
-  const pushSource = [...fixture.store.notifications.values()].find(notification =>
-    notification.recipientUserId === fixture.shipperA.user.id &&
-    notification.recipientOrgId === fixture.shipperA.org.id);
+  // Any canonical notice will do: the push rows only have to survive a save and reload. A booking notifies the
+  // carrier, not the shipper who booked it.
+  const pushSource = [...fixture.store.notifications.values()].find(notification => notification.shipmentId);
   assert.ok(pushSource, "fixture should contain a canonical notification for the push snapshot");
   fixture.store.pushDevices.set("db-push-device", {
-    id: "db-push-device", installationId: "db-push-installation", userId: fixture.shipperA.user.id,
+    id: "db-push-device", installationId: "db-push-installation", userId: pushSource.recipientUserId,
     platform: "ANDROID", tokenCiphertext: "encrypted-test-token", tokenHash: "test-token-hash",
     environment: "DEVELOPMENT", consentedAtUtcMs: Date.now(), permissionGrantedHint: true,
     channelEnabledHint: true, ownershipGeneration: 3, createdAtUtcMs: Date.now(), updatedAtUtcMs: Date.now(),
     lastSeenAtUtcMs: Date.now(), revokedAtUtcMs: null,
   });
   fixture.store.pushIntents.set("db-push-intent", {
-    id: "db-push-intent", notificationId: pushSource.id, recipientUserId: fixture.shipperA.user.id,
-    recipientOrgId: fixture.shipperA.org.id, shipmentId: pushSource.shipmentId,
+    id: "db-push-intent", notificationId: pushSource.id, recipientUserId: pushSource.recipientUserId,
+    recipientOrgId: pushSource.recipientOrgId, shipmentId: pushSource.shipmentId,
     presentationKey: "opaque-test-key", createdAtUtcMs: Date.now(), expiresAtUtcMs: Date.now() + 86_400_000,
   });
   fixture.store.pushDeliveries.set("db-push-delivery", {
@@ -84,7 +89,8 @@ test("PostgreSQL grouped inbox and conversation timeline preserve pagination and
     });
     return { status: response.status, body: await response.json() as Record<string, any> };
   };
-  const firstPage = await request("/v1/notifications/shipments?limit=1");
+  // The carrier is told about both bookings; the shipper who made them is not.
+  const firstPage = await request("/v1/notifications/shipments?limit=1", fixture.tokens.carrierA);
   assert.equal(firstPage.status, 200);
   assert.equal(firstPage.body.unreadCount, 2);
   assert.equal(firstPage.body.shipments.length, 1);
@@ -96,7 +102,7 @@ test("PostgreSQL grouped inbox and conversation timeline preserve pagination and
   });
   assert.equal(lateInboxMessage.status, 201);
 
-  const secondPage = await request(`/v1/notifications/shipments?limit=1&before=${encodeURIComponent(firstPage.body.nextBefore)}`);
+  const secondPage = await request(`/v1/notifications/shipments?limit=1&before=${encodeURIComponent(firstPage.body.nextBefore)}`, fixture.tokens.carrierA);
   assert.equal(secondPage.status, 200);
   assert.equal(secondPage.body.notificationSequence, firstPage.body.notificationSequence);
   assert.equal(secondPage.body.unreadCount, firstPage.body.unreadCount);

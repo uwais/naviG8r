@@ -275,8 +275,9 @@ Each links to the fix on the backlog.
   [why](UX-REVIEW.md#23-the-publish-form-ships-pre-filled-with-a-real-bookable-lane)
 - **Timestamps are typed by hand.** Publish asks for `2026-05-12T00:00:00+05:30` in a text
   field, on a phone. There is no date picker. [why](UX-REVIEW.md#26-publish-field-labels-are-raw-api-parameter-names)
-- **Nothing in the app asks "are you sure".** Accept, start, POD and publish are all one tap
-  and all irreversible. There is not a single `showDialog` in 2,554 lines. [why](UX-REVIEW.md#22-there-is-not-one-confirmation-dialog-in-the-entire-driver-app)
+- **Nothing in the app asks "are you sure".** Accept, start, POD and publish are all
+  irreversible and none asks first. Accept is one tap, except that an office login accepting on a
+  trip with no truck gets a truck sheet first. [why](UX-REVIEW.md#22-there-is-not-one-confirmation-dialog-in-the-entire-driver-app)
 - **You accept a load without seeing what it pays.** The price is not on the accept card, and
   the tap through to the screen that shows it is disabled for exactly those rows.
   [why](UX-REVIEW.md#21-a-carrier-accepts-a-binding-load-without-ever-seeing-what-it-pays)

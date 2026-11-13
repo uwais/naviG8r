@@ -4,7 +4,9 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'firebase_phone_auth.dart';
 import 'pilot_api.dart';
+import 'plain_error_sentence.dart';
 import 'push_notifications.dart';
 
 /// Only the server-resolved principal for the selected organization grants UI access.
@@ -38,7 +40,7 @@ abstract final class AuthorizationSession {
   static String get home => hasRole('SHIPPER')
       ? '/customer'
       : hasRole('CARRIER')
-          ? '/driver/loads'
+          ? '/driver'
           : '/workspace';
   static String get scopeKey => '${user?['id']}:$organizationId';
 
@@ -74,9 +76,17 @@ abstract final class AuthorizationSession {
   }
 
   static Future<void> signOut() async {
+    if (firebasePhoneAuthAvailable) {
+      try {
+        await FirebasePhoneAuthClient().signOut();
+      } catch (_) {
+        // The server session is still cleared below if Firebase sign-out fails.
+      }
+    }
     if (!signedIn) {
       await PushNotifications.instance.onAuthorizationLost();
     }
+    // Still signed in here, so clearToken removes this device's alert registration before the token goes.
     await api.clearToken();
     clear();
   }
@@ -149,7 +159,7 @@ abstract final class AuthorizationSession {
         if (api.activeOrganizationId != null) api.selectOrganization(null);
         error = null;
       } else {
-        error = formatApiError(e);
+        error = plainErrorSentence(e);
       }
     } finally {
       if (generation == _generation) {

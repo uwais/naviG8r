@@ -1,17 +1,25 @@
+// One file over 800 lines on purpose: it is the route table, one ordered chain of matches, and splitting it would hide that order.
 import { dashboardList, onboardCarrier, setInternalAccess } from "./dashboard.ts";
 import { adminDashboardV1Html } from "./adminDashboardV1.ts";
 import { opsPortalHtml } from "./opsPortal.ts";
 import { opsConsoleBetaContentSecurityPolicy, opsConsoleBetaHtml } from "./opsConsoleBeta.ts";
+import { staffSignInFromEnv } from "./staffSignIn.ts";
 import { assertAdminRemains, authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
 import { guardRequest, requestContext } from "./rbacRoutes.ts";
 import { carrierRejection } from "./carrierRejection.ts";
 import { addEwayBillTruck, checkEwayBill, listEwayBillsForOps, removeEwayBill, saveEwayBill } from "./ewayBill.ts";
 import { ewayPortalAddress, handleEwayDemoPortal, isEwayDemoPortalPath } from "./ewayDemoPortal.ts";
 import { assignTrip, carrierFleet } from "./tripAssignment.ts";
+import { remindShipperOfEwayBill } from "./ewayBillReminder.ts";
+import { cancelTrip, listPaymentsCollectedAfterCancelForOps, listTripCancelRequestsForOps, markRefundedInRazorpay, requestTripCancel, withdrawTripCancelRequest } from "./tripCancel.ts";
+import { setCarrierTransporterId } from "./carrierTransporterId.ts";
 import { serializeResponse } from "./rbacResponses.ts";
+import { isPodPhotoUploadPath, podPhotosRoot, type PodPhotoUpload } from "./podPhotos.ts";
+import { handlePodPhotoRoute, receivePodPhotoUpload } from "./podPhotoRoutes.ts";
 import http from "node:http";
 import { URL } from "node:url";
-import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer } from "./auth.ts";
+import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotOtpStart, pilotOtpVerify, verifyBearer, firebasePhoneExchangeVerified } from "./auth.ts";
+import { verifyFirebasePhoneToken } from "./providers/firebasePhoneAuth.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import { FixedWindowRateLimiter } from "./http/rateLimit.ts";
 import {
@@ -54,6 +62,7 @@ import {
   pilotListMyAnchorTrips,
   pilotRatesEstimate,
   pilotListCarrierShipments,
+  bookingReadyToAccept,
   pilotCarrierEarningsSummary,
   pilotSubmitPayoutSetup,
   pilotListCarrierLedger,
@@ -77,9 +86,12 @@ import {
   shipmentVisibleToCustomerUser,
 } from "./services.ts";
 import { verifyRazorpayWebhookSignature, razorpayPaymentsEnabled, publicRazorpayKeyId } from "./razorpayPayments.ts";
+import { findUserByPhone, normalizePhone } from "./phone.ts";
 import { payoutsMode } from "./razorpayPayouts.ts";
 import { applyRazorpayWebhookPayload } from "./razorpayWebhook.ts";
 import { handleIntegrationPortalRoutes, handleIntegrationRoutes } from "./integrationHttp.ts";
+import { setIntegrationPaymentPolicyAsStaff } from "./integrationServices.ts";
+import { expireUnpaidBookings } from "./unpaidBookingExpiry.ts";
 import { captureTerminalConversationWindows, captureWorkflowNotifications, CommunicationError, decideConversationEscalation, listConversationMessages, listConversationTimeline, listGroupedNotifications, listNotifications, markConversationRead, markNotificationRead, requestConversationEscalation, resolveNotificationOpenRoute, revokeConversationEscalation, sendConversationMessage, workflowSnapshot, type GroupedInboxPageReader, type TimelinePageReader } from "./notifications.ts";
 
 class CommunicationPersistenceError extends Error {}
@@ -89,9 +101,16 @@ function restoreMap<K, V>(target: Map<K, V>, saved: ReadonlyMap<K, V>): void {
   for (const [key, value] of saved) target.set(key, value);
 }
 
-async function readRawBody(req: http.IncomingMessage): Promise<string> {
+/** Razorpay webhook events are a few KB; the cap applies before the signature is checked. */
+async function readRawBody(req: http.IncomingMessage, maxBytes = 256 * 1024): Promise<string> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+  let byteLength = 0;
+  for await (const c of req) {
+    const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+    byteLength += chunk.length;
+    if (byteLength > maxBytes) throw new AuthorizationError("payload_too_large", 413);
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks).toString("utf8");
 }
 
@@ -174,6 +193,20 @@ function header(req: http.IncomingMessage, name: string): string | null {
   return v ?? null;
 }
 
+function clientIp(req: http.IncomingMessage, trustProxy: boolean): string {
+  const forwardedFor = trustProxy ? header(req, "x-forwarded-for")?.split(",")[0]?.trim() : undefined;
+  return forwardedFor || req.socket.remoteAddress || "unknown";
+}
+
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const value = raw === undefined ? fallback : Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0 || (raw !== undefined && raw.trim() === "")) {
+    throw new Error(`${name}_invalid`);
+  }
+  return value;
+}
+
 function bearerToken(req: http.IncomingMessage): string | null {
   const h = header(req, "authorization");
   if (!h) return null;
@@ -244,6 +277,43 @@ function consumePushRateLimit(
   return false;
 }
 
+const SIGN_UP_IP_LIMIT = 30;
+const SIGN_UP_PHONE_LIMIT = 5;
+const SIGN_UP_WINDOW_MS = 600_000;
+
+/**
+ * The three sign-up routes share one budget per phone number, and one per connecting address only when
+ * OTP_TRUST_PROXY=1, because without it every visitor may arrive from the proxy address. Each budget has its own
+ * limiter, so filling one with keys cannot push out the other.
+ */
+function consumeSignUpRateLimit(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  limiters: { byAddress: FixedWindowRateLimiter; byPhone: FixedWindowRateLimiter },
+  trustProxy: boolean,
+  phone: string,
+  countryCode?: string,
+): boolean {
+  const now = Date.now();
+  let phoneKey: string | null = null;
+  try {
+    phoneKey = normalizePhone(phone, countryCode).key;
+  } catch {
+    // The registration function returns the validation error; invalid input gets no phone budget.
+  }
+  const ipLimit = trustProxy
+    ? limiters.byAddress.consume(`sign-up:ip:${clientIp(req, trustProxy)}`, SIGN_UP_IP_LIMIT, SIGN_UP_WINDOW_MS, now)
+    : { allowed: true, retryAfterSeconds: 0 };
+  const phoneLimit = ipLimit.allowed && phoneKey
+    ? limiters.byPhone.consume(`sign-up:phone:${phoneKey}`, SIGN_UP_PHONE_LIMIT, SIGN_UP_WINDOW_MS, now)
+    : null;
+  const blocked = !ipLimit.allowed ? ipLimit : phoneLimit && !phoneLimit.allowed ? phoneLimit : null;
+  if (!blocked) return true;
+  res.setHeader("retry-after", String(blocked.retryAfterSeconds));
+  json(res, 429, { error: "sign_up_rate_limited" });
+  return false;
+}
+
 function userCanReceiveShipmentPush(store: ReturnType<typeof loadStoreFromDisk>, userId: string): boolean {
   for (const membership of store.memberships.values()) {
     if (membership.userId !== userId) continue;
@@ -276,7 +346,10 @@ export async function createApp(options: {
     throw new Error("PUSH_SENDER_ENABLED requires FCM_SERVICE_ACCOUNT_JSON");
   }
   const otp = createOtpDependencies();
+  const staffSignIn = staffSignInFromEnv();
   const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (options.dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
+  // Beside the data file, so a test or the demo with its own data file gets its own photos folder.
+  const podPhotoRoot = podPhotosRoot(dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
 
   let store: ReturnType<typeof loadStoreFromDisk>;
   let rawPersist: () => Promise<void>;
@@ -309,6 +382,8 @@ export async function createApp(options: {
       saveStoreToDisk(dataFilePath!, store);
     };
   }
+  // Once at start as well as before each save, so a chat recorded before the acceptance rule is locked before anyone reads it.
+  captureTerminalConversationWindows(store);
   eventSnapshot = workflowSnapshot(store);
 
   type MutationSnapshot = {
@@ -358,12 +433,13 @@ export async function createApp(options: {
     const challenges = new Map(store.otpChallenges);
     const sessions = new Map(store.authSessions);
     let result: T;
-    let expiryError: unknown;
+    let savedError: unknown;
     try {
       result = operation();
     } catch (error) {
-      if (!(error instanceof Error) || error.message !== "otp_expired") throw error;
-      expiryError = error;
+      // These errors still changed the challenge (expired, wrong-code count, or failed), so it is saved.
+      if (!(error instanceof Error) || !["otp_expired", "otp_incorrect", "otp_too_many_wrong_codes"].includes(error.message)) throw error;
+      savedError = error;
     }
     try {
       await persist();
@@ -374,7 +450,7 @@ export async function createApp(options: {
       for (const [key, value] of sessions) store.authSessions.set(key, value);
       throw error;
     }
-    if (expiryError) throw expiryError;
+    if (savedError) throw savedError;
     return result!;
   }
 
@@ -417,6 +493,67 @@ export async function createApp(options: {
   }
 
   const pushRateLimiter = new FixedWindowRateLimiter();
+  const signUpRateLimiters = { byAddress: new FixedWindowRateLimiter(10_000), byPhone: new FixedWindowRateLimiter(10_000) };
+  const firebaseExchangeIpLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IP_LIMIT", 30);
+  const firebaseExchangeIdentityLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IDENTITY_LIMIT", 10);
+  const firebaseExchangeWindowMs = positiveIntegerEnv("FIREBASE_EXCHANGE_WINDOW_MS", 600_000);
+  const firebaseExchangeIpRateLimiter = new FixedWindowRateLimiter();
+  const firebaseExchangeIdentityRateLimiter = new FixedWindowRateLimiter();
+
+  async function handleFirebaseExchange(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    try {
+      const method = req.method ?? "GET";
+      const url = new URL(req.url ?? "/", "http://localhost");
+      applyCors(req, res);
+      guardRequest(req, store, url);
+      if (method !== "POST") return json(res, 404, { error: "not_found" });
+
+      // Without OTP_TRUST_PROXY every visitor may arrive from the proxy address, so this budget would be shared
+      // by everyone; only the per-identity limit below applies then, as for the other sign-in routes.
+      const ipLimit = otp.trustProxy
+        ? firebaseExchangeIpRateLimiter.consume(`firebase-exchange:ip:${clientIp(req, otp.trustProxy)}`, firebaseExchangeIpLimit, firebaseExchangeWindowMs)
+        : { allowed: true, retryAfterSeconds: 0 };
+      if (!ipLimit.allowed) {
+        res.setHeader("retry-after", String(ipLimit.retryAfterSeconds));
+        return json(res, 429, { error: "firebase_exchange_rate_limited" });
+      }
+
+      const body = await readJson(req, 16 * 1024);
+      const verified = await verifyFirebasePhoneToken(String(body?.idToken ?? body?.token ?? ""));
+      const claims = verified.claims;
+      const identityLimit = firebaseExchangeIdentityRateLimiter.consume(
+        `firebase-exchange:uid:${claims.uid}`,
+        firebaseExchangeIdentityLimit,
+        firebaseExchangeWindowMs,
+      );
+      if (!identityLimit.allowed) {
+        res.setHeader("retry-after", String(identityLimit.retryAfterSeconds));
+        return json(res, 429, { error: "firebase_exchange_rate_limited" });
+      }
+
+      const exchanged = await runSerialized(async () => {
+        const out = firebasePhoneExchangeVerified(store, claims, verified.exchangeKey);
+        if (out.stateChanged) await persist();
+        return out;
+      });
+      const { stateChanged: _stateChanged, ...out } = exchanged;
+      return json(res, 200, { ...out, isOpsAdmin: isOpsAdmin(store, out.user.id) });
+    } catch (e: any) {
+      if (e instanceof AuthorizationError) return json(res, e.status, { error: e.message });
+      if (e instanceof OtpRateLimitError) {
+        res.setHeader("retry-after", String(Math.max(1, Math.ceil(e.retryAfterMs / 1000))));
+        return json(res, 429, { error: "otp_rate_limited", retryAfterMs: e.retryAfterMs });
+      }
+      if (e instanceof ApiError) {
+        const status = e.httpStatus ?? 400;
+        return json(res, status, { error: e.message });
+      }
+      const msg = String(e?.message ?? "bad_request");
+      if (msg === "account_inactive") return json(res, 403, { error: msg });
+      return json(res, 400, { error: msg });
+    }
+  }
+
   const server = http.createServer((req, res) => {
     // The practice portal takes form bodies from anyone and never touches the store. Served outside the
     // queue, a sender that trickles its body in cannot hold up every other request.
@@ -428,8 +565,13 @@ export async function createApp(options: {
     }
     const method = req.method ?? "GET";
     const urlPath = (req.url ?? "/").split("?", 1)[0];
+    if (method === "POST" && urlPath === "/v1/auth/firebase/exchange") {
+      void authorizationContext.run(requestContext(), () => handleFirebaseExchange(req, res))
+        .catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
+      return;
+    }
     const capturesState = !["GET", "HEAD", "OPTIONS"].includes(method) || /\/conversation\/(?:timeline|messages)$/.test(urlPath);
-    void runSerialized(() => authorizationContext.run(requestContext(), async () => {
+    const handleRequest = (podPhotoUpload: PodPhotoUpload | null) => runSerialized(() => authorizationContext.run(requestContext(), async () => {
     try {
       const method = req.method ?? "GET";
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -441,9 +583,11 @@ export async function createApp(options: {
         res.end();
         return;
       }
+      // Every route that reads trip space or bookings sees unpaid bookings past their window as closed.
+      expireUnpaidBookings(store);
 
-      if (method === "GET" && ["/admin/v1", "/ops/v1"].includes(url.pathname)) return html(res, 200, adminDashboardV1Html(url.pathname === "/ops/v1"));
-      if (method === "GET" && ["/admin/v2", "/ops/v2"].includes(url.pathname)) return html(res, 200, opsPortalHtml({ operations: url.pathname === "/ops/v2" }));
+      if (method === "GET" && ["/admin/v1", "/ops/v1"].includes(url.pathname)) return html(res, 200, adminDashboardV1Html(url.pathname === "/ops/v1", staffSignIn));
+      if (method === "GET" && ["/admin/v2", "/ops/v2"].includes(url.pathname)) return html(res, 200, opsPortalHtml({ operations: url.pathname === "/ops/v2", signIn: staffSignIn }));
       if (method === "GET" && /^\/v1\/ops\/dashboard\/[^/]+$/.test(url.pathname)) return json(res, 200, dashboardList(store, url.pathname.split("/")[4]!, url.searchParams));
       if (method === "POST" && url.pathname === "/v1/ops/carrier-organizations") {
         const out = onboardCarrier(store, await readJson(req)); await persist(); return json(res, out.created ? 201 : 200, out);
@@ -617,6 +761,8 @@ export async function createApp(options: {
           return json(res, 200, out);
         } catch (e: any) {
           if (e instanceof ApiError) {
+            // The booking was closed and the late payment id kept; both must be saved.
+            if (e.message === "booking_expired_unpaid") await persist();
             const status = e.httpStatus ?? 400;
             return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
           }
@@ -656,9 +802,17 @@ export async function createApp(options: {
         await persist();
         return json(res, 200, { org: store.organizations.get(orgId) });
       }
+      if (method === "PUT" && /^\/v1\/ops\/organizations\/[^/]+\/integration-payment-policy$/.test(url.pathname)) {
+        const p = requirePermission(store, "directory.read");
+        if (!/^[A-Z][A-Z0-9_]{2,63}$/.test(authorizationContext.getStore()?.reason ?? "")) throw new AuthorizationError("reason_required", 400);
+        const body = await readJson(req);
+        const conn = setIntegrationPaymentPolicyAsStaff(store, url.pathname.split("/")[4]!, String(body?.paymentPolicy ?? "") as never, p.userId);
+        await persist();
+        return json(res, 200, { connection: { id: conn.id, orgId: conn.orgId, paymentPolicy: conn.paymentPolicy } });
+      }
       if (method === "GET" && url.pathname === "/v1/audit") {
         const p = requirePermission(store, "audit.read");
-        const financial = new Set(["PAYMENT_CAPTURED", "PAYMENT_REFUNDED", "SETTLEMENT_RELEASED"]);
+        const financial = new Set(["PAYMENT_CAPTURED", "PAYMENT_REFUNDED", "PAYMENT_HOLD_RELEASED", "PAYMENT_AFTER_CANCEL", "PAYMENT_MARKED_REFUNDED", "SETTLEMENT_RELEASED"]);
         const events = [...store.auditEvents.values()].filter(e => p.internal ?
           ((p.roles.includes("ADMIN") && ["ROLE_ASSIGNED", "ROLE_REMOVED", "USER_DEACTIVATED"].includes(e.action)) || (p.roles.includes("FINANCE") && financial.has(e.action)) || (p.roles.includes("OPS") && !financial.has(e.action) && !e.action.startsWith("ROLE_"))) : e.actorOrganizationId === p.organizationId && e.actorUserId === p.userId);
         return json(res, 200, { events });
@@ -666,21 +820,23 @@ export async function createApp(options: {
 
       // --- v1 auth (pilot OTP + bearer token) ---
       if (method === "POST" && url.pathname === "/v1/auth/otp/start") {
-        const forwardedFor = otp.trustProxy ? header(req, "x-forwarded-for")?.split(",")[0]?.trim() : undefined;
-        const clientIp = forwardedFor || req.socket.remoteAddress || "unknown";
-        otp.consumeIpStart(clientIp);
+        otp.consumeIpStart(clientIp(req, otp.trustProxy));
         const body = await readJson(req);
         const phone = String(body?.phone ?? "");
-        const reused = pilotOtpCooldownReuse(store, { phone }, otp);
+        const countryCode = body?.countryCode == null ? undefined : String(body.countryCode);
+        const reused = pilotOtpCooldownReuse(store, { phone, countryCode }, otp);
         if (reused) return json(res, 200, reused);
-        const out = await persistOtp(() => pilotOtpStart(store, { phone }, otp));
+        const out = await persistOtp(() => pilotOtpStart(store, { phone, countryCode }, otp));
         return json(res, 200, out);
       }
 
       if (method === "POST" && url.pathname === "/v1/auth/otp/verify") {
+        // Without OTP_TRUST_PROXY every visitor may arrive from the proxy address, so only the per-code limit applies.
+        if (otp.trustProxy) otp.consumeIpVerify(clientIp(req, otp.trustProxy));
         const body = await readJson(req);
         const out = await persistOtp(() => pilotOtpVerify(store, {
           phone: String(body?.phone ?? ""),
+          countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
           challengeId: String(body?.challengeId ?? ""),
           code: String(body?.code ?? ""),
         }, otp));
@@ -715,7 +871,10 @@ export async function createApp(options: {
         if (!userId) return;
         requirePermission(store, "user.role_manage");
         const body = await readJson(req);
-        const entry = grantOpsAdmin(store, { phone: String(body?.phone ?? "") });
+        const entry = grantOpsAdmin(store, {
+          phone: String(body?.phone ?? ""),
+          countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
+        });
         await persist();
         return json(res, 201, { opsAdmin: entry });
       }
@@ -725,7 +884,11 @@ export async function createApp(options: {
         if (!userId) return;
         requirePermission(store, "user.role_manage");
         const phone = decodeURIComponent(url.pathname.split("/")[3] ?? "");
-        const out = revokeOpsAdmin(store, { phone, actingUserId: userId });
+        const out = revokeOpsAdmin(store, {
+          phone,
+          countryCode: url.searchParams.get("countryCode") ?? undefined,
+          actingUserId: userId,
+        });
         await persist();
         return json(res, 200, out);
       }
@@ -754,10 +917,11 @@ export async function createApp(options: {
               detail: "Pass /v1/ops/users/:userId or ?phone=",
             });
           }
-          const digits = phoneRaw.replace(/[^\d]/g, "");
-          const phone =
-            digits.length === 12 && digits.startsWith("91") ? digits.slice(-10) : digits;
-          const found = [...store.users.values()].find((u) => u.phone === phone);
+          const found = findUserByPhone(
+            store,
+            phoneRaw,
+            url.searchParams.get("countryCode") ?? undefined,
+          );
           if (!found) return json(res, 404, { error: "user_not_found" });
           targetUserId = found.id;
         }
@@ -769,13 +933,16 @@ export async function createApp(options: {
       // --- v1 pilot API resources (Flutter Driver app first) ---
       if (method === "POST" && url.pathname === "/v1/pilot/driver/register") {
         const body = await readJson(req);
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""), body?.countryCode == null ? undefined : String(body.countryCode))) return;
         const out = registerSoloOwnerOperatorDriver(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
+          countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
           orgDisplayName: String(body?.orgDisplayName ?? ""),
           vehicleRegistrationNumber: String(body?.vehicleRegistrationNumber ?? ""),
           vehicleClass: body?.vehicleClass,
           vehicleCapacityKg: Number(body?.vehicleCapacityKg ?? 0),
+          transporterId: body?.transporterId,
         });
         await persist();
         return json(res, 201, out);
@@ -784,7 +951,11 @@ export async function createApp(options: {
       if (method === "POST" && url.pathname === "/v1/pilot/driver/login") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
         const body = await readJson(req);
-        const out = pilotLoginDriverByPhone(store, String(body?.phone ?? ""));
+        const out = pilotLoginDriverByPhone(
+          store,
+          String(body?.phone ?? ""),
+          body?.countryCode == null ? undefined : String(body.countryCode),
+        );
         return json(res, 200, out);
       }
 
@@ -913,7 +1084,34 @@ export async function createApp(options: {
         await persist();
         return json(res, 200, out);
       }
+      if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/shipments\/[^/]+\/eway-bill-reminder$/.test(url.pathname)) {
+        const parts = url.pathname.split("/");
+        const out = remindShipperOfEwayBill(store, parts[4]!, parts[6]!);
+        // Saved even when nothing was sent: an out-of-date reminder may have been marked read.
+        await persist();
+        return json(res, 200, out);
+      }
+      if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/cancel$/.test(url.pathname)) {
+        const out = cancelTrip(store, url.pathname.split("/")[4]!);
+        await persist();
+        return json(res, 200, out);
+      }
+      if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/cancel-request$/.test(url.pathname)) {
+        const out = requestTripCancel(store, url.pathname.split("/")[4]!, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, out);
+      }
+      if (method === "POST" && /^\/v1\/pilot\/anchor-trips\/[^/]+\/cancel-request\/withdraw$/.test(url.pathname)) {
+        const out = withdrawTripCancelRequest(store, url.pathname.split("/")[4]!);
+        await persist();
+        return json(res, 200, out);
+      }
       if (method === "GET" && url.pathname === "/v1/pilot/carrier/fleet") return json(res, 200, carrierFleet(store));
+      if (method === "PATCH" && url.pathname === "/v1/pilot/carrier/transporter-id") {
+        const org = setCarrierTransporterId(store, (await readJson(req, 8 * 1024)) ?? {});
+        await persist();
+        return json(res, 200, { org });
+      }
 
       if (method === "POST" && url.pathname === "/v1/pilot/rates/estimate") {
         const body = await readJson(req);
@@ -930,9 +1128,11 @@ export async function createApp(options: {
       if (method === "GET" && url.pathname === "/v1/pilot/carrier/shipments") {
         const userId = requireUserId(req, store);
         const anchorTripId = url.searchParams.get("anchorTripId") ?? undefined;
-        const shipments = pilotListCarrierShipments(store, userId, { anchorTripId }).map((s) =>
-          shipmentWithCarrierDisplay(store, s),
-        );
+        // readyToAccept tells the app which waiting bookings hold the trip's start, in words with no payment state.
+        const shipments = pilotListCarrierShipments(store, userId, { anchorTripId }).map((s) => ({
+          ...shipmentWithCarrierDisplay(store, s),
+          ...(s.status === "PENDING_CARRIER_ACCEPT" ? { readyToAccept: bookingReadyToAccept(store, s) } : {}),
+        }));
         return json(res, 200, { shipments });
       }
 
@@ -948,8 +1148,10 @@ export async function createApp(options: {
         ) {
           const userId = requireUserId(req, store);
           const shipmentId = parts[4] ?? "";
+          // Optional { vehicleId }: older app builds send no body and accept exactly as before.
+          const body = await readJson(req, 8 * 1024);
           try {
-            const shipment = acceptCarrierShipment(store, { shipmentId, userId });
+            const shipment = acceptCarrierShipment(store, { shipmentId, userId, vehicleId: body?.vehicleId });
             await persist();
             return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
           } catch (e) {
@@ -972,13 +1174,16 @@ export async function createApp(options: {
           const out = inviteCarrierDriver(store, userId, {
             orgId: String(body?.orgId ?? ""),
             phone: String(body?.phone ?? ""),
+            countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
             role: body?.role,
             vehicleRegistrationNumber: String(body?.vehicleRegistrationNumber ?? ""),
             vehicleClass: body?.vehicleClass,
             vehicleCapacityKg: Number(body?.vehicleCapacityKg ?? 0),
           });
           await persist();
-          return json(res, 201, out);
+          // The invitee's stored name and user id are theirs, not the inviter's; the inviter typed only the phone.
+          const { orgId, role, createdAtUtcMs } = out.membership;
+          return json(res, 201, { membership: { orgId, role, createdAtUtcMs }, vehicle: out.vehicle });
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;
@@ -1041,9 +1246,11 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/register") {
         const body = await readJson(req);
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""), body?.countryCode == null ? undefined : String(body.countryCode))) return;
         const out = registerCustomerOrgAdmin(store, {
           fullName: String(body?.fullName ?? ""),
           phone: String(body?.phone ?? ""),
+          countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
           orgDisplayName: String(body?.orgDisplayName ?? ""),
         });
         await persist();
@@ -1052,10 +1259,12 @@ export async function createApp(options: {
 
       if (method === "POST" && url.pathname === "/v1/pilot/customer/users/register") {
         const body = await readJson(req);
+        if (!consumeSignUpRateLimit(req, res, signUpRateLimiters, otp.trustProxy, String(body?.phone ?? ""), body?.countryCode == null ? undefined : String(body.countryCode))) return;
         try {
           const out = registerCustomerUser(store, {
             fullName: String(body?.fullName ?? ""),
             phone: String(body?.phone ?? ""),
+            countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
           });
           await persist();
           return json(res, 201, out);
@@ -1078,10 +1287,13 @@ export async function createApp(options: {
           const out = inviteCustomerMember(store, userId, {
             orgId: String(body?.orgId ?? ""),
             phone: String(body?.phone ?? ""),
+            countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
             role: body?.role,
           });
           await persist();
-          return json(res, 201, out);
+          // The invitee's stored name and user id are theirs, not the inviter's; the inviter typed only the phone.
+          const { orgId, role, createdAtUtcMs } = out.membership;
+          return json(res, 201, { membership: { orgId, role, createdAtUtcMs }, org: out.org });
         } catch (e) {
           if (e instanceof ApiError) {
             const status = e.httpStatus ?? 400;
@@ -1136,8 +1348,8 @@ export async function createApp(options: {
         return json(res, 200, { users });
       }
 
-      if (method === "GET" && url.pathname === "/admin") return html(res, 200, opsPortalHtml());
-      if (method === "GET" && url.pathname === "/workflow") return html(res, 200, opsPortalHtml({ workflowOnly: true }));
+      if (method === "GET" && url.pathname === "/admin") return html(res, 200, opsPortalHtml({ signIn: staffSignIn }));
+      if (method === "GET" && url.pathname === "/workflow") return html(res, 200, opsPortalHtml({ workflowOnly: true, signIn: staffSignIn }));
 
       if (method === "POST" && url.pathname === "/carriers") {
         if (!requireLegacyDemoSurface(res, method, url.pathname)) return;
@@ -1179,7 +1391,10 @@ export async function createApp(options: {
       }
 
       if (method === "GET" && url.pathname === "/anchor-trips") {
-        const trips = [...store.anchorTrips.values()].filter(t => t.inactiveAtUtcMs == null).map((t) => tripForPublicListing(store, t));
+        // A trip its carrier cancelled, or asked NaviG8r to cancel, is no longer on offer.
+        const trips = [...store.anchorTrips.values()]
+          .filter(t => t.inactiveAtUtcMs == null && t.status !== "CANCELLED" && t.status !== "CANCEL_REQUESTED")
+          .map((t) => tripForPublicListing(store, t));
         return json(res, 200, { trips });
       }
 
@@ -1310,6 +1525,8 @@ export async function createApp(options: {
         }
       }
 
+      if (await handlePodPhotoRoute(req, res, url, podPhotoUpload, { store, root: podPhotoRoot, persist, json })) return;
+
       if (method === "POST" && /^\/shipments\/[^/]+\/eway-bill$/.test(url.pathname)) {
         const shipment = saveEwayBill(store, url.pathname.split("/")[2]!, (await readJson(req, 8 * 1024)) ?? {});
         await persist();
@@ -1326,9 +1543,8 @@ export async function createApp(options: {
         return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
       }
       if (method === "POST" && /^\/v1\/pilot\/carrier\/shipments\/[^/]+\/eway-bill\/truck$/.test(url.pathname)) {
-        const shipment = addEwayBillTruck(store, url.pathname.split("/")[5]!, (await readJson(req, 8 * 1024)) ?? {});
-        await persist();
-        return json(res, 200, { shipment: shipmentWithCarrierDisplay(store, shipment) });
+        // Kept so an older carrier app gets "forbidden", not "not found": the shipper adds the truck (owner decision, 18 Oct 2026).
+        throw new AuthorizationError("forbidden");
       }
       if (method === "GET" && url.pathname === "/ops/eway-bills") {
         return json(res, 200, { ...listEwayBillsForOps(store), portalAddress: ewayPortalAddress() });
@@ -1354,6 +1570,10 @@ export async function createApp(options: {
         }
         const shipments = opsListPendingRelease(store);
         return json(res, 200, { shipments });
+      }
+
+      if (method === "GET" && url.pathname === "/ops/trip-cancel-requests") {
+        return json(res, 200, { requests: listTripCancelRequestsForOps(store), collectedAfterCancel: listPaymentsCollectedAfterCancelForOps(store) });
       }
 
       if (method === "GET" && url.pathname === "/ops/shipments/delivered") {
@@ -1402,14 +1622,14 @@ export async function createApp(options: {
 
       if (method === "GET" && url.pathname === "/ops/beta") {
         // This page can release payments and change roles: no other site may frame it, and only its own code runs.
-        res.setHeader("content-security-policy", opsConsoleBetaContentSecurityPolicy);
+        res.setHeader("content-security-policy", opsConsoleBetaContentSecurityPolicy(staffSignIn));
         res.setHeader("x-frame-options", "DENY");
         res.setHeader("x-content-type-options", "nosniff");
         res.setHeader("referrer-policy", "same-origin");
-        return html(res, 200, opsConsoleBetaHtml());
+        return html(res, 200, opsConsoleBetaHtml(staffSignIn));
       }
       if (method === "GET" && url.pathname === "/ops") {
-        return html(res, 200, opsPortalHtml({ operations: true }));
+        return html(res, 200, opsPortalHtml({ operations: true, signIn: staffSignIn }));
       }
 
       if (method === "POST" && /^\/shipments\/[^/]+\/accept-pod$/.test(url.pathname)) {
@@ -1418,9 +1638,16 @@ export async function createApp(options: {
         return json(res, 200, { shipment });
       }
       if (method === "POST" && /^\/shipments\/[^/]+\/fail-refund$/.test(url.pathname)) {
-        const shipment = await failCarrierAndRefund(store, { shipmentId: url.pathname.split("/")[2]! });
+        const body = (await readJson(req, 8 * 1024)) ?? {};
+        const shipment = await failCarrierAndRefund(store, { shipmentId: url.pathname.split("/")[2]!, fromCancelRequest: body.fromCancelRequest === true });
         await persist();
         return json(res, 200, { shipment });
+      }
+      if (method === "POST" && /^\/shipments\/[^/]+\/mark-refunded$/.test(url.pathname)) {
+        const body = (await readJson(req, 8 * 1024)) ?? {};
+        const out = markRefundedInRazorpay(store, url.pathname.split("/")[2]!, typeof body.razorpayPaymentId === "string" ? body.razorpayPaymentId : undefined);
+        await persist();
+        return json(res, 200, out);
       }
 
       if (method === "GET" && url.pathname.startsWith("/carriers/") && url.pathname.endsWith("/ledger")) {
@@ -1464,6 +1691,9 @@ export async function createApp(options: {
         return json(res, status, { error: e.message, ...(e.message.includes("provider") || e.message.includes("razorpay") ? {} : e.extra) } as Record<string, unknown>);
       }
       const msg = String(e?.message ?? "bad_request");
+      if (msg === "otp_sign_in_retired") {
+        return json(res, 410, { error: msg, message: "This sign-in is no longer used. Reload the page or update the app. If it still fails, try again later." });
+      }
       if (msg === "unauthorized" || msg === "invalid_token" || msg === "token_expired") {
         return json(res, 401, { error: "unauthorized" });
       }
@@ -1473,6 +1703,13 @@ export async function createApp(options: {
       return json(res, 400, { error: msg });
     }
   }), capturesState).catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
+    if (method === "POST" && isPodPhotoUploadPath(urlPath)) {
+      // Before any refusal, so the app in a browser can read why.
+      applyCors(req, res);
+      receivePodPhotoUpload(req, res, store, json, handleRequest);
+      return;
+    }
+    void handleRequest(null);
   });
 
   return { server, store, persist, runSerialized, dataFilePath };

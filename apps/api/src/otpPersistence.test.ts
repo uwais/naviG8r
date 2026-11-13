@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { PrismaClient } from "@prisma/client";
 import {
   createOtpDependencies,
   pilotOtpStart,
@@ -184,7 +185,38 @@ test(
       deps(NOW, "000042"),
     );
     await saveStoreToDatabase(pending.store);
+    const audit = new PrismaClient();
+    await audit.$executeRawUnsafe(
+      `CREATE TABLE IF NOT EXISTS "firebase_user_delete_audit" (id text NOT NULL)`,
+    );
+    await audit.$executeRawUnsafe(
+      `CREATE OR REPLACE FUNCTION record_firebase_user_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO "firebase_user_delete_audit" (id) VALUES (OLD.id); RETURN OLD; END $$`,
+    );
+    await audit.$executeRawUnsafe(
+      `DROP TRIGGER IF EXISTS firebase_user_delete_audit_trigger ON "UserRow"`,
+    );
+    await audit.$executeRawUnsafe(
+      `CREATE TRIGGER firebase_user_delete_audit_trigger BEFORE DELETE ON "UserRow" FOR EACH ROW EXECUTE FUNCTION record_firebase_user_delete()`,
+    );
+    t.after(async () => {
+      await audit.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS firebase_user_delete_audit_trigger ON "UserRow"`,
+      );
+      await audit.$executeRawUnsafe(`DROP FUNCTION IF EXISTS record_firebase_user_delete()`);
+      await audit.$executeRawUnsafe(`DROP TABLE IF EXISTS "firebase_user_delete_audit"`);
+      await audit.$disconnect();
+    });
     const pendingReload = await loadStoreFromDatabase();
+    pendingReload.firebaseIdentities.set("firebase-persist", {
+      uid: "firebase-persist",
+      userId: pending.user.id,
+      createdAtUtcMs: NOW,
+    });
+    await saveStoreToDatabase(pendingReload);
+    const deletes = await audit.$queryRawUnsafe<Array<{ count: bigint }>>(
+      `SELECT COUNT(*)::bigint AS count FROM "firebase_user_delete_audit"`,
+    );
+    assert.equal(Number(deletes[0]?.count ?? 0), 0);
     const verified = pilotOtpVerify(
       pendingReload,
       {

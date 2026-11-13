@@ -16,6 +16,8 @@ export async function httpFixture(t: TestContext, createAppOptions: Parameters<t
   process.env.PAYOUTS_MODE = "BOOKKEEPING";
   process.env.AUTH_SECRET = "synthetic-test-signing-value-only";
   process.env.OTP_DEBUG = "1";
+  // Signs everyone in with the server code, which only test and pre-release settings allow.
+  process.env.NODE_ENV = "test";
   const app = await createApp(createAppOptions);
   app.server.listen(0, "127.0.0.1"); await once(app.server, "listening");
   const address = app.server.address(); assert.ok(address && typeof address === "object");

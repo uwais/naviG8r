@@ -1,5 +1,7 @@
 import "dart:js" as js;
 
+import "pilot_api.dart";
+
 typedef CheckoutSuccess = void Function({
   required String orderId,
   required String paymentId,
@@ -48,6 +50,7 @@ class CustomerCheckoutController {
       "name": "NaviG8r",
       "description": "Authorize shipment payment",
       "order_id": orderId,
+      "timeout": razorpayCheckoutTimeoutSeconds,
       "handler": handler,
       "modal": {
         "ondismiss": js.allowInterop(() => onError("Payment cancelled.")),
