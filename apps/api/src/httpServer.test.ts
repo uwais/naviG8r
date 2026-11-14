@@ -245,6 +245,7 @@ test("GET /ops returns ops portal HTML", async (t) => {
     assert.ok(html.includes("<h1>Operations workspace</h1>"));
     assert.ok(html.includes("pending-release"));
     assert.ok(html.includes("/ops/compliance/pending"));
+    assert.ok(html.includes("Reason code for "));
   });
 });
 

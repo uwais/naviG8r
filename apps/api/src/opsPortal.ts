@@ -35,7 +35,7 @@ ${workflowOnly ? "" : `<header class="dashboard-header"><div><strong>NaviG8r</st
 <section id="login">${loginContent}</section>
 <section id="workspace" hidden><label>Acting organization<select id="organization"><option value="">Select an organization</option></select></label><button id="signout">Sign out</button><p id="roles"></p><p id="access"></p><p id="released" role="status" tabindex="-1"></p><div id="shipments"></div>
 <section id="roleManagement" hidden><h2>Membership roles</h2><label>User ID<input id="memberUser"></label><label>Organization ID<input id="memberOrg"></label><label>Roles (comma separated)<input id="memberRoles" placeholder="OPS,FINANCE"></label><button id="saveRoles">Save roles</button></section>
-<section id="compliance" hidden><h2>Carrier compliance review</h2><p id="notice" role="status"></p><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="reason"></label><p>If you reject with DOCUMENTS_MISSING, BANK_DETAILS_MISMATCH, DUPLICATE_ACCOUNT or NOT_A_CARRIER, only the carrier's owner sees that reason in their app, in plain words; BANK_DETAILS_MISMATCH only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details.</p><h3>Not yet approved</h3><p id="kycEmpty" hidden>Every carrier is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Carrier organization ID<input id="carrierOrg"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
+<section id="compliance" hidden><h2>Carrier compliance review</h2><p id="notice" role="status"></p><p>If you reject with DOCUMENTS_MISSING, BANK_DETAILS_MISMATCH, DUPLICATE_ACCOUNT or NOT_A_CARRIER, only the carrier's owner sees that reason in their app, in plain words; BANK_DETAILS_MISMATCH only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details.</p><h3>Not yet approved</h3><p id="reasonHint"><small>Type a reason code in the box for the carrier you are reviewing, for example DOCUMENTS_REVIEWED.</small></p><p id="kycEmpty" hidden>Every carrier is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Carrier organization ID<input id="carrierOrg"></label><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="idReviewReason"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
 ${workflowOnly ? "" : "</main>"}<script>
 const workflowOnly = ${workflowOnly};
 let challenge = '', principal, token = sessionStorage.getItem('navig8r_access') || '', org = sessionStorage.getItem('navig8r_org') || '', otpCooldownUntil = 0, otpCooldownTimer, otpPhoneRevision = 0;
@@ -108,27 +108,29 @@ async function askToRelease(row,button,shipmentId){
 }
 const kycLabels={SUBMITTED:'Bank details submitted',NOT_STARTED:'No bank details yet',REJECTED:'Rejected'};
 async function loadKycQueue(){
- const out=await request('/ops/compliance/pending'); $('kycQueue').replaceChildren(); $('kycEmpty').hidden=out.organizations.length>0;
+ const out=await request('/ops/compliance/pending'); $('kycQueue').replaceChildren(); $('kycEmpty').hidden=out.organizations.length>0; $('reasonHint').hidden=out.organizations.length===0;
  for(const o of out.organizations){
   const row=document.createElement('article'), name=document.createElement('strong'), detail=document.createElement('small');
   name.textContent=o.displayName; detail.textContent=(kycLabels[o.kycStatus]||o.kycStatus)+' · joined '+new Date(o.createdAtUtcMs).toLocaleDateString()+' · '+o.id; row.append(name,detail);
-  for(const status of ['APPROVED','REJECTED']){const b=document.createElement('button');b.textContent=status==='APPROVED'?'Approve':'Reject';b.onclick=perform(()=>recordReview(o.id,status));row.append(b);}
+  const carrier=o.displayName+' ('+o.id+')', reasonLabel=document.createElement('label'), reasonInput=document.createElement('input');
+  reasonInput.setAttribute('aria-describedby','reasonHint'); reasonLabel.append('Reason code for '+carrier,reasonInput); row.append(reasonLabel);
+  for(const status of ['APPROVED','REJECTED']){const b=document.createElement('button');b.textContent=status==='APPROVED'?'Approve':'Reject';b.onclick=perform(()=>recordReview(o.id,status,reasonInput,carrier));row.append(b);}
   $('kycQueue').append(row);
  }
 }
-async function recordReview(orgId,status){
- const reason=$('reason').value.trim(), buttons=$('compliance').querySelectorAll('button');
+async function recordReview(orgId,status,reasonInput,carrier){
+ const reason=reasonInput.value.trim(), buttons=$('compliance').querySelectorAll('button');
  if(!orgId) throw Error('Enter the carrier organization ID.');
- if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(reason)) throw Error('Reason code must be 3 to 64 capitals, numbers or underscores, starting with a letter, for example DOCUMENTS_REVIEWED.');
+ if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(reason)){ reasonInput.focus(); throw Error('Reason code for '+carrier+' must be 3 to 64 capitals, numbers or underscores, starting with a letter, for example DOCUMENTS_REVIEWED.'); }
  buttons.forEach(b=>b.disabled=true);
  try{
   const out=await request('/v1/organizations/'+encodeURIComponent(orgId)+'/kyc','POST',{status},{'x-reason-code':reason});
-  $('reason').value=''; $('notice').textContent='Last review recorded: '+out.org.displayName+' ('+out.org.id+') is now '+out.org.kycStatus+'.';
+  reasonInput.value=''; $('notice').textContent='Last review recorded: '+out.org.displayName+' ('+out.org.id+') is now '+out.org.kycStatus+'.';
   await loadKycQueue();
  }finally{buttons.forEach(b=>b.disabled=false);}
 }
 $('saveRoles').onclick=perform(async()=>{await request('/v1/roles','POST',{userId:$('memberUser').value,orgId:$('memberOrg').value,roles:$('memberRoles').value.split(',').map(s=>s.trim()).filter(Boolean)});await loadWorkspace();});
-$('verifyKyc').onclick=perform(()=>recordReview($('carrierOrg').value.trim(),$('kycStatus').value));
+$('verifyKyc').onclick=perform(()=>recordReview($('carrierOrg').value.trim(),$('kycStatus').value,$('idReviewReason'),$('carrierOrg').value.trim()));
 if(token) perform(loadOrganizations)();
 </script></body></html>`;
 }
