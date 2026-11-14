@@ -1,7 +1,7 @@
 import { authorizationContext } from "./rbac.ts";
 import { randomUUID } from "node:crypto";
 import { createApp } from "./httpServer.ts";
-import { runPayoutBatch } from "./services.ts";
+import { runScheduledPayouts } from "./scheduledPayoutRun.ts";
 import {
   claimPendingWebhookDeliveries,
   completeWebhookDelivery,
@@ -39,14 +39,10 @@ async function main(): Promise<void> {
   setInterval(() => {
     void (async () => {
       try {
-        const batch = await runSerialized(() => authorizationContext.run({ system: true, requestId: randomUUID() }, async () => {
-          const result = await runPayoutBatch(store, { nowUtcMs: Date.now() });
-          if (result.lineIds.length > 0) await persist();
-          return result;
-        }));
+        const batch = await runScheduledPayouts({ store, runSerialized, persist });
         if (batch.lineIds.length > 0) {
           // eslint-disable-next-line no-console
-          console.log(`Payout batch ${batch.id}: paid ${batch.lineIds.length} lines (cutoffUtcMs=${batch.cutoffUtcMs})`);
+          console.log(`Payout batch ${batch.id}: paid ${batch.lineIds.length} lines (earliestDueCutoffUtcMs=${batch.cutoffUtcMs})`);
         }
       } catch (e) {
         // eslint-disable-next-line no-console

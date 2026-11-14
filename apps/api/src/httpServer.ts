@@ -338,7 +338,7 @@ export async function createApp(options: {
   server: http.Server;
   store: ReturnType<typeof loadStoreFromDisk>;
   persist: () => Promise<void>;
-  runSerialized: <T>(operation: () => Promise<T> | T) => Promise<T>;
+  runSerialized: <T>(operation: () => Promise<T> | T, captureSnapshot?: boolean) => Promise<T>;
   dataFilePath: string | null;
 }> {
   if (pushFlagEnabled("PUSH_DEVICE_REGISTRATION_ENABLED")) assertPushTokenEncryptionConfigured();
@@ -570,7 +570,8 @@ export async function createApp(options: {
         .catch(() => { if (!res.headersSent) json(res, 500, { error: "internal_error" }); else res.end(); });
       return;
     }
-    const capturesState = !["GET", "HEAD", "OPTIONS"].includes(method) || /\/conversation\/(?:timeline|messages)$/.test(urlPath);
+    // A payout run takes no snapshot: on a failed save, rolling back would erase records of payouts already sent.
+    const capturesState = (!["GET", "HEAD", "OPTIONS"].includes(method) && urlPath !== "/payout-batches/run") || /\/conversation\/(?:timeline|messages)$/.test(urlPath);
     const handleRequest = (podPhotoUpload: PodPhotoUpload | null) => runSerialized(() => authorizationContext.run(requestContext(), async () => {
     try {
       const method = req.method ?? "GET";
@@ -1662,7 +1663,7 @@ export async function createApp(options: {
         const userId = requireUserId(req, store);
         if (!principalFor(store).internal) throw new AuthorizationError("forbidden");
         const body = await readJson(req);
-        const batch = await runPayoutBatch(store, {});
+        const batch = await runPayoutBatch(store, { saveBeforePayout: persist });
         await persist();
         return json(res, 200, { batch });
       }
