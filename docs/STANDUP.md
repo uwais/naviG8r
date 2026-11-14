@@ -65,17 +65,27 @@ These stay on the agenda every week until they are gone. Remove a line only when
 > Replace this block each Monday. Move the previous week's copy to `STANDUP-ARCHIVE.md`;
 > do not let this file grow.
 
-**Week of 2026-09-22**
+**Week of 2026-10-12**
 
-- Numbers: _paste prep output_
-- Incidents: _none recorded_
-- Shipped: PR #107, the driver landing rebuild plus the UX review and backlog
-- Blocked: the entire review queue — **70 of 71** open PRs have no review decision, and the one
-  that does (#103) is still unmerged. Nobody has reviewed a PR since 4 September.
-- Roadmap: `ROADMAP.md` section A (database persistence) is marked achieved but production
-  measured as file-backed on 16 Sep. Confirm before the call.
+- Numbers (generated 12 Oct): 80 open PRs, 9 with a review decision, oldest #2 (1 May); 5 merged in
+  the last 7 days; 30 open bugs in `BUGS.md`, 6 critical. Production health: not run.
+- Incidents: _none recorded here_
+- Shipped, merged only: #142 shipment notifications and conversation timeline (Sundeep); #143 to #146
+  bank-details wording and checks, rejection reasons, and a message for text typed after Save.
+  Deployed (US Eastern dates): #143 to #145 on 11 Oct, #142 and #146 on 12 Oct once Uwais approved
+  the production step. Runs checked, not the live service.
+- Blocked, approved by the Cursor bot only: #139 payouts and #140 paid booking merge cleanly and have
+  been idle since 3 Oct. #120 merges cleanly; since 26 Sep it has asked Uwais: merge as it is, or
+  restore #107's landing? #141 sign-in limit (Rishabh's) conflicts with main in `docs/pilot-api.md`
+  since #142 and needs a rebase.
 - Decisions needed:
-  - Who reviews the security PRs, and by when. This is the decision the meeting exists for
-  - Whether to stop the bot that opens a near-duplicate PR every day
-  - Screenshot storage for the feedback feature — blocked on #102
-  - Whether Hindi enters the roadmap this quarter or next
+  1. Merges: who merges each PR above, and by when?
+  2. "Live and stable": what it means, who judges it, by when. The split of `driver_flow.dart`
+     (2,827 lines) waits on it.
+  3. #146 on a device: who tries it with a slowed network, and when? It has not yet been tried.
+  4. Bank-details save: does one waiting server change go ahead? Rishabh to explain.
+  5. Rejected carriers: which contact channel in the app, who answers, what hours?
+  6. Carrier approval: which documents it needs, and may carriers upload files; both checks (documents
+     and bank details) or one; the bank-name rule (does an account in the owner's own name match the
+     carrier?); a message when a carrier is approved.
+  7. Uwais: does the live API keep its data across deploys? (standing item above, PR #102)
