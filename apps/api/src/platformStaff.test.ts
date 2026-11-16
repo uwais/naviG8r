@@ -59,20 +59,43 @@ test("adding staff needs a reason code, a country and at least one staff role, a
   assert.equal(registeredWith(f, usStaff.phone), undefined);
 });
 
-test("an admin gives a role to someone who already has an account and to existing staff, keeping their stored name", async t => {
+test("someone who already has an account is added only when the typed name matches the name on it", async t => {
   const f = await httpFixture(t);
   const { user } = registerCustomerUser(f.store, { fullName: "Synthetic Existing Person", phone: "8000000031" });
-  const added = await f.request("/v1/ops/staff", "POST", { fullName: "Typed Name", phone: "8000000031", countryCode: "+91", roles: ["FINANCE"] }, f.tokens.admin, reason);
+  const mismatch = await f.request("/v1/ops/staff", "POST", { fullName: "Typed Name", phone: "8000000031", countryCode: "+91", roles: ["FINANCE"] }, f.tokens.admin, reason);
+  assert.equal(mismatch.status, 409);
+  assert.equal(mismatch.body.error, "staff_name_mismatch");
+  assert.equal(JSON.stringify(mismatch.body).includes("Synthetic Existing Person"), false, "the stored name is never revealed");
+  assert.equal(f.store.memberships.has(`${user.id}:${f.admin.orgId}`), false);
+
+  const added = await f.request("/v1/ops/staff", "POST", { fullName: "  synthetic  existing PERSON ", phone: "8000000031", countryCode: "+91", roles: ["FINANCE"] }, f.tokens.admin, reason);
   assert.equal(added.status, 201);
   assert.equal(added.body.staffMember.userId, user.id);
   assert.equal(f.store.users.get(user.id)!.fullName, "Synthetic Existing Person");
   assert.deepEqual(f.store.membershipRoles.get(`${user.id}:${f.admin.orgId}`), ["FINANCE"]);
+  const audits = [...f.store.auditEvents.values()].filter(e => e.resourceId === `${user.id}:${f.admin.orgId}`);
+  assert.deepEqual(audits.map(e => [e.action, e.newState, e.actorUserId]), [["ROLE_ASSIGNED", "FINANCE", f.admin.user.id]]);
+});
 
-  const changed = await f.request("/v1/ops/staff", "POST", { phone: f.ops.user.phone, countryCode: "+91", roles: ["OPS", "FINANCE"] }, f.tokens.admin, reason);
-  assert.equal(changed.status, 201);
-  assert.deepEqual(f.store.membershipRoles.get(`${f.ops.user.id}:${f.ops.orgId}`), ["OPS", "FINANCE"]);
-  const opsAudits = [...f.store.auditEvents.values()].filter(e => e.resourceId === `${f.ops.user.id}:${f.ops.orgId}`);
-  assert.deepEqual(opsAudits.map(e => [e.action, e.newState, e.actorUserId]), [["ROLE_ASSIGNED", "FINANCE", f.admin.user.id]]);
+test("adding someone who is already staff is refused and leaves their roles as they were", async t => {
+  const f = await httpFixture(t);
+  const out = await f.request("/v1/ops/staff", "POST", { fullName: f.finance.user.fullName, phone: f.finance.user.phone, countryCode: "+91", roles: ["OPS"] }, f.tokens.admin, reason);
+  assert.equal(out.status, 409);
+  assert.equal(out.body.error, "already_staff");
+  assert.deepEqual(f.store.membershipRoles.get(`${f.finance.user.id}:${f.finance.orgId}`), ["FINANCE"]);
+});
+
+test("Admin is never given when adding; it is given from the list to someone already staff", async t => {
+  const f = await httpFixture(t);
+  const refused = await f.request("/v1/ops/staff", "POST", { ...usStaff, roles: ["OPS", "ADMIN"] }, f.tokens.admin, reason);
+  assert.equal(refused.status, 400);
+  assert.equal(refused.body.error, "admin_needs_existing_staff");
+  assert.equal(registeredWith(f, usStaff.phone), undefined, "no account was made");
+
+  const added = (await f.request("/v1/ops/staff", "POST", usStaff, f.tokens.admin, reason)).body.staffMember;
+  const promoted = await f.request(`/v1/ops/staff/${added.userId}`, "PUT", { roles: ["OPS", "ADMIN"] }, f.tokens.admin, reason);
+  assert.equal(promoted.status, 200);
+  assert.deepEqual(promoted.body.staffMember.roles, ["OPS", "ADMIN"]);
 });
 
 test("a shipper's or carrier's number cannot be made staff", async t => {
@@ -92,11 +115,12 @@ test("the last admin cannot be removed; once there is another admin, removal wor
   assert.equal(last.body.error, "cannot_revoke_last_admin");
   assert.equal((await f.request(`/v1/ops/staff/${f.admin.user.id}`, "PUT", { roles: ["OPS"] }, f.tokens.admin, reason)).status, 409);
 
-  const second = (await f.request("/v1/ops/staff", "POST", { ...usStaff, roles: ["ADMIN"] }, f.tokens.admin, reason)).body.staffMember;
+  const second = (await f.request("/v1/ops/staff", "POST", usStaff, f.tokens.admin, reason)).body.staffMember;
+  assert.equal((await f.request(`/v1/ops/staff/${second.userId}`, "PUT", { roles: ["ADMIN"] }, f.tokens.admin, reason)).status, 200);
   const removed = await f.request(`/v1/ops/staff/${f.admin.user.id}`, "PUT", { roles: [] }, f.tokens.admin, reason);
   assert.equal(removed.status, 200);
   assert.deepEqual(removed.body.staffMember.roles, []);
-  const removal = [...f.store.auditEvents.values()].find(e => e.action === "ROLE_REMOVED");
+  const removal = [...f.store.auditEvents.values()].find(e => e.action === "ROLE_REMOVED" && e.resourceId === `${f.admin.user.id}:${f.admin.orgId}`);
   assert.deepEqual([removal?.previousState, removal?.actorUserId, removal?.reasonCode], ["ADMIN", f.admin.user.id, "NEW_STAFF"]);
   assert.equal((await f.request("/v1/ops/staff", "GET", undefined, f.tokens.admin)).status, 403, "the removed admin can no longer list staff");
   assert.equal((await f.request(`/v1/ops/staff/${second.userId}`, "PUT", { roles: [] }, f.tokens.admin, reason)).status, 403);
@@ -149,7 +173,9 @@ test("the staff section is not on the shipment workspace page, and stays hidden 
   const workflow = await (await fetch(f.base + "/workflow")).text();
   assert.equal(workflow.includes('id="staffManagement"') || workflow.includes("/v1/ops/staff"), false);
   for (const path of ["/admin", "/admin/v2", "/ops", "/ops/v2"]) {
-    assert.ok((await (await fetch(f.base + path)).text()).includes('<section id="staffManagement" hidden>'), path);
+    const markup = await (await fetch(f.base + path)).text();
+    assert.ok(markup.includes('<section id="staffManagement" hidden>'), path);
+    assert.equal(markup.includes('id="staffNewADMIN"'), false, `${path}: Admin is given from the list, not the add form`);
   }
 });
 

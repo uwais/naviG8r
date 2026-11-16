@@ -2,7 +2,7 @@
 import { dashboardList, onboardCarrier, setInternalAccess } from "./dashboard.ts";
 import { adminDashboardV1Html } from "./adminDashboardV1.ts";
 import { opsPortalHtml } from "./opsPortal.ts";
-import { addStaff, changeStaffRoles, listStaff } from "./platformStaff.ts";
+import { staffRoutes } from "./platformStaff.ts";
 import { opsConsoleBetaContentSecurityPolicy, opsConsoleBetaHtml } from "./opsConsoleBeta.ts";
 import { staffSignInFromEnv } from "./staffSignIn.ts";
 import { assertAdminRemains, authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
@@ -494,7 +494,7 @@ export async function createApp(options: {
   }
 
   const pushRateLimiter = new FixedWindowRateLimiter();
-  const staffWriteRateLimiter = new FixedWindowRateLimiter();
+  const staffRoute = staffRoutes();
   const signUpRateLimiters = { byAddress: new FixedWindowRateLimiter(10_000), byPhone: new FixedWindowRateLimiter(10_000) };
   const firebaseExchangeIpLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IP_LIMIT", 30);
   const firebaseExchangeIdentityLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IDENTITY_LIMIT", 10);
@@ -597,20 +597,8 @@ export async function createApp(options: {
       if (method === "POST" && url.pathname === "/v1/ops/dashboard-access") {
         const out = setInternalAccess(store, await readJson(req)); await persist(); return json(res, 200, out);
       }
-      if (method === "GET" && url.pathname === "/v1/ops/staff") return json(res, 200, { staff: listStaff(store) });
-      const staffMemberRoute = /^\/v1\/ops\/staff\/([^/]+)$/.exec(url.pathname);
-      if ((method === "POST" && url.pathname === "/v1/ops/staff") || (method === "PUT" && staffMemberRoute)) {
-        // Adding staff makes accounts, so one admin session gets a bounded number of writes.
-        const limit = staffWriteRateLimiter.consume(`staff-write:user:${authorizationContext.getStore()?.principal?.userId}`, 30, 600_000);
-        if (!limit.allowed) {
-          res.setHeader("retry-after", String(limit.retryAfterSeconds));
-          return json(res, 429, { error: "staff_write_rate_limited" });
-        }
-        const body = await readJson(req);
-        const staffMember = staffMemberRoute ? changeStaffRoles(store, decodeURIComponent(staffMemberRoute[1]!), body ?? {}) : addStaff(store, body ?? {});
-        await persist();
-        return json(res, staffMemberRoute ? 200 : 201, { staffMember });
-      }
+      const staffReply = await staffRoute(store, method, url.pathname, () => readJson(req));
+      if (staffReply) { if (staffReply.retryAfterSeconds) res.setHeader("retry-after", String(staffReply.retryAfterSeconds)); else if (method !== "GET") await persist(); return json(res, staffReply.status, staffReply.body); }
 
       if (method === "GET" && url.pathname === "/health") {
         return json(res, 200, {

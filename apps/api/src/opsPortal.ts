@@ -3,22 +3,25 @@ import { firebaseSignInMarkup, phoneForSignInScript, staffCountryOptions, staffS
 const signInControls = `<label>Country<select id="country">${staffCountryOptions}</select></label><label>Phone<input id="phone" autocomplete="tel"></label><button id="start">Send code</button><label>Verification code<input id="code" autocomplete="one-time-code"></label><button id="verify">Sign in</button>`;
 
 const staffRoleNames = { ADMIN: "Admin: adds and removes staff", OPS: "Operations: trips, carriers and support", FINANCE: "Finance: payments and payouts" };
-const staffRoleBoxes = (prefix: string) => Object.entries(staffRoleNames)
-  .map(([role, words]) => `<label><input type="checkbox" id="${prefix}${role}" value="${role}"> ${words}</label>`).join("");
+// Admin is not offered when adding; it is ticked in the person's row once they are listed.
+const addableRoles = ["OPS", "FINANCE"] as const;
+const newStaffRoleBoxes = addableRoles
+  .map((role) => `<label><input type="checkbox" id="staffNew${role}" value="${role}"> ${staffRoleNames[role]}</label>`).join("");
 
 // Shown only to someone who may manage roles; the API refuses everyone else whatever the page shows.
-const staffSection = `<section id="staffManagement" hidden><h2>NaviG8r staff</h2><p>People who run NaviG8r. Someone you add signs in on this page with their phone. Shipper and carrier numbers cannot be added.</p>
+const staffSection = `<section id="staffManagement" hidden><h2>NaviG8r staff</h2><p>People who run NaviG8r. Someone you add signs in on this page with their phone. Shipper and carrier numbers cannot be added. To make someone an admin, add them first, then tick Admin in their row and save.</p>
 <label>Reason code, used for every change below (for example NEW_STAFF)<input id="staffReason"></label><p id="staffNotice" role="status"></p><div id="staffList"></div>
-<h3>Add staff</h3><label>Name<input id="staffName" autocomplete="off"></label><label>Country<select id="staffCountry">${staffCountryOptions}</select></label><label>Phone<input id="staffPhone" inputmode="tel" autocomplete="off"></label><fieldset><legend>Roles</legend>${staffRoleBoxes("staffNew")}</fieldset><button id="addStaff">Add staff</button></section>`;
+<h3>Add staff</h3><label>Name<input id="staffName" autocomplete="off"></label><label>Country<select id="staffCountry">${staffCountryOptions}</select></label><label>Phone<input id="staffPhone" inputmode="tel" autocomplete="off"></label><fieldset><legend>Roles</legend>${newStaffRoleBoxes}</fieldset><button id="addStaff">Add staff</button></section>`;
 
 const staffScript = `
 const staffRoleNames = ${JSON.stringify(Object.fromEntries(Object.entries(staffRoleNames).map(([role, words]) => [role, words.split(":")[0]])))};
-const staffErrors = {staff_number_has_customer_account:'This number belongs to a shipper or carrier account. Staff need a different number.',cannot_revoke_last_admin:'NaviG8r needs at least one admin. Make someone else an admin first.',reason_required:'Enter a reason code: 3 to 64 capitals, numbers or underscores, starting with a letter, for example NEW_STAFF.',invalid_role:'Choose at least one role.',invalid_phone:'Phone numbers have 10 digits. Check the number.',phone_country_mismatch:'The number and the country do not match. Check the country.',invalid_country_code:'Choose a country.',invalid_fullName:'Enter a name of up to 100 characters.',account_inactive:'This account was turned off and cannot be added.',staff_write_rate_limited:'Too many changes in a short time. Wait a few minutes and try again.',not_found:'This person is no longer on the staff list. Reload the page.'};
+const staffErrors = {staff_number_has_customer_account:'This number belongs to a shipper or carrier account. Staff need a different number.',already_staff:'This person is already staff. Change their roles in their row above.',staff_name_mismatch:'This number already has an account under a different name. Check the number, or ask the person for the name on their account.',admin_needs_existing_staff:'Add the person first, then tick Admin in their row.',cannot_revoke_last_admin:'NaviG8r needs at least one admin. Make someone else an admin first.',reason_required:'Enter a reason code: 3 to 64 capitals, numbers or underscores, starting with a letter, for example NEW_STAFF.',invalid_role:'Choose at least one role.',invalid_phone:'Phone numbers have 10 digits. Check the number.',phone_country_mismatch:'The number and the country do not match. Check the country.',invalid_country_code:'Choose a country.',invalid_fullName:'Enter a name of up to 100 characters.',account_inactive:'This account was turned off and cannot be added.',staff_write_rate_limited:'Too many changes in a short time. Wait a few minutes and try again.',not_found:'This person is no longer on the staff list. Reload the page.'};
 const staffAction = fn => perform(async () => { $('staffNotice').textContent=''; try { await fn(); } catch (e) { throw Error(staffErrors[e.message] || e.message); } });
 const staffHeaders = () => ({'x-reason-code': $('staffReason').value.trim()});
 const checkedRoles = boxes => [...boxes].filter(b => b.checked).map(b => b.value);
-const newStaffRoleBoxes = () => Object.keys(staffRoleNames).map(role => $('staffNew'+role));
-const newStaffRoles = () => Object.keys(staffRoleNames).filter(role => $('staffNew'+role).checked);
+const addableRoles = ${JSON.stringify(addableRoles)};
+const newStaffRoleBoxes = () => addableRoles.map(role => $('staffNew'+role));
+const newStaffRoles = () => addableRoles.filter(role => $('staffNew'+role).checked);
 async function loadStaff(){
  const out=await request('/v1/ops/staff'); $('staffList').replaceChildren();
  for(const s of out.staff){

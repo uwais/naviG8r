@@ -390,8 +390,8 @@ Lists users + memberships for a customer org. Requires `CUSTOMER_ADMIN` on that 
 ### NaviG8r staff (staff pages only, never the app)
 All three need `user.role_manage` (ADMIN on the platform org); the writes also need `X-Reason-Code`. The "NaviG8r staff" section on `/admin` (and `/admin/v2`) uses them. Writes: 30 per admin per 10 minutes.
 - `GET /v1/ops/staff` lists `{ staff: [{ userId, fullName, countryCode, phoneLastFour, roles }] }`, never the whole number.
-- `POST /v1/ops/staff` `{ fullName, phone, countryCode: "+91" | "+1", roles: ["ADMIN" | "OPS" | "FINANCE", ...] }` makes the account if the number has none (name, phone, country; no company), then sets the platform roles. An existing account keeps its stored name. A number with a shipper or carrier membership gets `409 staff_number_has_customer_account`. Reply `201 { staffMember }`.
-- `PUT /v1/ops/staff/:userId` `{ roles }` changes a staff member's roles; `roles: []` removes them. Removing the last admin gets `409 cannot_revoke_last_admin`.
+- `POST /v1/ops/staff` `{ fullName, phone, countryCode: "+91" | "+1", roles: ["OPS" | "FINANCE", ...] }` makes the account if the number has none (name, phone, country; no company), then gives the platform roles. Reply `201 { staffMember }`. Refusals: `ADMIN` in `roles` gets `400 admin_needs_existing_staff` (give Admin with `PUT` once the person is listed); a number with a shipper or carrier membership gets `409 staff_number_has_customer_account`; someone already staff gets `409 already_staff` (use `PUT`); an existing account whose name differs from `fullName` (case and spaces aside) gets `409 staff_name_mismatch`, which never carries the stored name.
+- `PUT /v1/ops/staff/:userId` `{ roles }` sets a staff member's roles, Admin included; `roles: []` removes them. Removing the last admin gets `409 cannot_revoke_last_admin`.
 Every change is in the audit log (`STAFF_USER_CREATED`, `ROLE_ASSIGNED`, `ROLE_REMOVED`) with the acting admin and reason code. The new person then signs in at `/admin` with their phone.
 
 ### E-way bill (link-out demo)
