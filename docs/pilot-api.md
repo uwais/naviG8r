@@ -387,6 +387,13 @@ Lists users + memberships for a customer org. Requires `CUSTOMER_ADMIN` on that 
 
 **Multi-user visibility:** shipments booked while signed in with a CUSTOMER org are tagged with `customerOrgId`. Any user with a membership to that org (admin or member) can list/view them via `GET /shipments`.
 
+### NaviG8r staff (staff pages only, never the app)
+All three need `user.role_manage` (ADMIN on the platform org); the writes also need `X-Reason-Code`. The "NaviG8r staff" section on `/admin` (and `/admin/v2`) uses them. Writes: 30 per admin per 10 minutes.
+- `GET /v1/ops/staff` lists `{ staff: [{ userId, fullName, countryCode, phoneLastFour, roles }] }`, never the whole number.
+- `POST /v1/ops/staff` `{ fullName, phone, countryCode: "+91" | "+1", roles: ["ADMIN" | "OPS" | "FINANCE", ...] }` makes the account if the number has none (name, phone, country; no company), then sets the platform roles. An existing account keeps its stored name. A number with a shipper or carrier membership gets `409 staff_number_has_customer_account`. Reply `201 { staffMember }`.
+- `PUT /v1/ops/staff/:userId` `{ roles }` changes a staff member's roles; `roles: []` removes them. Removing the last admin gets `409 cannot_revoke_last_admin`.
+Every change is in the audit log (`STAFF_USER_CREATED`, `ROLE_ASSIGNED`, `ROLE_REMOVED`) with the acting admin and reason code. The new person then signs in at `/admin` with their phone.
+
 ### E-way bill (link-out demo)
 
 The shipper types in an e-way bill made on the government portal, or says none is needed. Ops looks it up by hand and records what it saw. naviG8r never makes, changes or verifies a bill. Design and copy: `docs/design-eway-bill/contract.md`. The record is `shipment.ewayBill`, cut by role: shipper and ops get everything except user ids, carrier logins (owner, dispatcher, driver) get only the kind, the bill number, the truck and valid-until, the "not needed" reason and the check, finance and admin get nothing. ERP integration responses never carry it. **Database mode:** the `ShipmentRow."ewayBill"` JSONB column must exist first (`ALTER TABLE "ShipmentRow" ADD COLUMN "ewayBill" JSONB;`), or every shipment read fails.
