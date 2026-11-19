@@ -9,6 +9,10 @@ ARG RELEASE_SHA=unknown
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH
 ENV FLUTTER_SUPPRESS_ANALYTICS=true
+# Render's rootless builder cannot apply the numeric ownership stored in
+# Flutter's Gradle-wrapper archive. Keep extracted files owned by the build
+# user instead of failing tar during `flutter precache --web`.
+ENV TAR_OPTIONS=--no-same-owner
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

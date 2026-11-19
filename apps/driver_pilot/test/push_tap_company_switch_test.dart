@@ -3,6 +3,7 @@
 import 'dart:convert';
 
 import 'package:driver_pilot/authorization_session.dart';
+import 'package:driver_pilot/firebase_app.dart';
 import 'package:driver_pilot/main.dart' as app;
 import 'package:driver_pilot/pilot_api.dart';
 import 'package:driver_pilot/shipment_conversation.dart';
@@ -25,6 +26,8 @@ void main() {
       }),
     });
     AuthorizationSession.clear();
+    skipFirebaseStart = true;
+    addTearDown(() => skipFirebaseStart = false);
     await app.main();
     api.dio.httpClientAdapter = MockApiAdapter((request) async {
       await Future<void>.delayed(const Duration(milliseconds: 30));

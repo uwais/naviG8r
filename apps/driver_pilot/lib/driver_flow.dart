@@ -54,6 +54,7 @@ import "ui/nv_step_list.dart";
 import "ui/pending_copy.dart";
 import "ui/tokens.dart";
 import "unassigned_driver_notice.dart";
+import "phone_country.dart";
 
 /// Nested navigator for the driver shell (tabs + pushed detail routes).
 final GlobalKey<NavigatorState> driverShellNavigatorKey =
@@ -298,6 +299,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   String? _truckSize;
   final _cap = TextEditingController();
   final _transporterId = TextEditingController();
+  String _countryCode = "+91";
   bool _busy = false;
 
   @override
@@ -339,6 +341,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
         data: {
           "fullName": _fullName.text.trim(),
           "phone": phone,
+          "countryCode": _countryCode,
           "orgDisplayName": _org.text.trim(),
           "vehicleRegistrationNumber": _reg.text.trim(),
           "vehicleClass": vc,
@@ -354,7 +357,8 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
         const SnackBar(
             content: Text("Company created. Now sign in with your mobile number.")),
       );
-      context.go("/customer/login", extra: PhoneForSignIn(phone));
+      context.go("/customer/login",
+          extra: PhoneForSignIn(phone, countryCode: _countryCode));
     } catch (e) {
       // Ten seconds because the server's sentence (what a transporter ID looks like, say) is too long to read in four.
       if (mounted)
@@ -383,12 +387,13 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
               controller: _fullName,
               maxLength: 100,
               decoration: const InputDecoration(labelText: "Your name")),
-          TextField(
+          PhoneNumberField(
               controller: _phone,
               maxLength: 20,
-              keyboardType: TextInputType.phone,
-              decoration:
-                  const InputDecoration(labelText: "Mobile number (10 digits)")),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Mobile number (10 digits)"),
           TextField(
               controller: _org,
               maxLength: 100,
@@ -447,6 +452,7 @@ class DriverJoinScreen extends StatefulWidget {
 class _DriverJoinScreenState extends State<DriverJoinScreen> {
   final _fullName = TextEditingController();
   final _phone = TextEditingController();
+  String _countryCode = "+91";
   bool _busy = false;
 
   @override
@@ -462,7 +468,11 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
       final phone = digitsOnly(_phone.text.trim());
       await api.post<Map<String, dynamic>>(
         "/v1/pilot/customer/users/register",
-        data: {"fullName": _fullName.text.trim(), "phone": phone},
+        data: {
+          "fullName": _fullName.text.trim(),
+          "phone": phone,
+          "countryCode": _countryCode,
+        },
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -496,12 +506,13 @@ class _DriverJoinScreenState extends State<DriverJoinScreen> {
               controller: _fullName,
               maxLength: 100,
               decoration: const InputDecoration(labelText: "Your name")),
-          TextField(
+          PhoneNumberField(
               controller: _phone,
               maxLength: 20,
-              keyboardType: TextInputType.phone,
-              decoration:
-                  const InputDecoration(labelText: "Mobile number (10 digits)")),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Mobile number (10 digits)"),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _busy ? null : _submit,
@@ -535,6 +546,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
   String? _truckSize;
   final _cap = TextEditingController();
   String? _role;
+  String _countryCode = "+91";
   bool _loading = true;
   bool _inviting = false;
   String? _error;
@@ -591,6 +603,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
       final payload = <String, dynamic>{
         "orgId": orgId,
         "phone": digitsOnly(_phone.text.trim()),
+        "countryCode": _countryCode,
         "role": role,
       };
       if (role == "DRIVER") {
@@ -635,7 +648,7 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
         ),
         const SizedBox(height: 8),
         const Text(
-          "The driver must register their mobile number first.",
+          "The driver must register their mobile number first. Someone at another carrier cannot be added yet.",
           style: TextStyle(color: DriverTheme.muted, height: 1.4),
         ),
         if (!DriverSession.canInviteDrivers) ...[
@@ -644,11 +657,12 @@ class _DriverFleetInviteScreenState extends State<DriverFleetInviteScreen> {
               style: const TextStyle(color: Colors.red)),
         ] else ...[
           const SizedBox(height: 16),
-          TextField(
+          PhoneNumberField(
               controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration:
-                  const InputDecoration(labelText: "Driver's mobile number (10 digits)")),
+              countryCode: _countryCode,
+              onCountryChanged: (value) =>
+                  setState(() => _countryCode = value),
+              label: "Driver's mobile number (10 digits)"),
           const SizedBox(height: NvSpace.s3),
           NvChoiceChips<String>(
             label: "Invite as",
@@ -5220,10 +5234,10 @@ class _DriverPayoutSetupScreenState extends State<DriverPayoutSetupScreen> {
   InputDecoration _decoration(String label, String field) {
     if (_refusedField != field) return InputDecoration(labelText: label);
     final theme = Theme.of(context);
-    final box =
-        (theme.inputDecorationTheme.border ?? const OutlineInputBorder())
-            .copyWith(
-                borderSide: BorderSide(color: theme.colorScheme.error, width: 2));
+    final box = (theme.inputDecorationTheme.border ??
+            const OutlineInputBorder())
+        .copyWith(
+            borderSide: BorderSide(color: theme.colorScheme.error, width: 2));
     return InputDecoration(
         labelText: label, enabledBorder: box, focusedBorder: box);
   }

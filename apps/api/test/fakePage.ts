@@ -142,7 +142,7 @@ export class FakePage {
     const page = this;
     return vm.createContext({
       // CSS selectors are not supported: they find nothing, which is what a page with no such markup would find.
-      document: { getElementById: (id: string) => page.byId(id), createElement: (tag: string) => new FakeElement(tag, page), querySelector: () => null, querySelectorAll: () => [] },
+      document: { getElementById: (id: string) => page.byId(id), createElement: (tag: string) => new FakeElement(tag, page), querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
       AbortSignal,
       sessionStorage: {
         getItem: (key: string) => page.session.get(key) ?? null,

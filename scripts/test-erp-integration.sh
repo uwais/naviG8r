@@ -4,9 +4,8 @@
 #   BASE_URL=https://navig8r.onrender.com bash scripts/test-erp-integration.sh
 #   BASE_URL=http://127.0.0.1:3000 bash scripts/test-erp-integration.sh
 #
-# Requires: curl, jq (optional but recommended for pretty output)
-# Every call stops the script on a reply that is not 2xx (curl --fail-with-body, curl 7.76 or later).
-# The payment policy is not set here: only NaviG8r staff set it (docs/erp-integration.md, Payment policies).
+# Requires: curl 7.76 or later, jq (optional but recommended for pretty output)
+# Every request uses curl --fail-with-body, so any non-2xx reply stops the script.
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:3000}"

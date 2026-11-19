@@ -125,6 +125,7 @@ test("OTP verify sends the current leading-zero code and explains expired or inc
   await expect(page.locator("#error")).toContainText("expired");
   expect(submitted).toEqual({
     phone: "9111009900",
+    countryCode: "+91",
     challengeId: "otp_current",
     code: "012304",
   });

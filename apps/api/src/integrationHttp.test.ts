@@ -60,6 +60,19 @@ async function postJson(
   });
 }
 
+async function patchJson(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
 async function customerBearer(baseUrl: string): Promise<{ token: string; orgId: string }> {
   const phone = "9111008800";
   const reg = await postJson(baseUrl, "/v1/pilot/customer/register", {
@@ -133,7 +146,10 @@ test("POST /v1/integrations/loads creates and idempotently returns shipment", as
     assert.equal(keyRes.status, 201);
     const keyBody = (await keyRes.json()) as { token: string };
 
-    updateIntegrationConnection(app.store, orgId, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(app.store, "OPS").userId });
+    updateIntegrationConnection(app.store, orgId, {
+      paymentPolicy: "erp_preauthorized",
+      changedByUserId: internalUser(app.store, "ADMIN").userId,
+    });
 
     const loadBody = {
       externalLoadId: "ERP-HTTP-001",
@@ -200,5 +216,97 @@ test("POST /v1/integrations/loads without token returns 401", async (t) => {
     });
     assert.equal(res.status, 401);
     assert.deepEqual(await res.json(), { error: "integration_unauthorized" });
+  });
+});
+
+test("a shipper cannot change the payment policy and gets 403", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const res = await patchJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/connection?orgId=${orgId}`,
+      { paymentPolicy: "erp_preauthorized" },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(res.status, 403);
+    assert.deepEqual(await res.json(), { error: "payment_policy_staff_only" });
+
+    const summary = await fetch(`${baseUrl}/v1/pilot/customer/integrations?orgId=${orgId}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = (await summary.json()) as { connection: { paymentPolicy: string } };
+    assert.equal(body.connection.paymentPolicy, "portal_checkout");
+  });
+});
+
+test("a shipper still changes the webhook URL and display name", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const res = await patchJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/connection?orgId=${orgId}`,
+      { webhookUrl: "https://erp.example.com/hook", displayName: "Our ERP", paymentPolicy: "portal_checkout" },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { connection: { webhookUrl: string; displayName: string; paymentPolicy: string } };
+    assert.equal(body.connection.webhookUrl, "https://erp.example.com/hook");
+    assert.equal(body.connection.displayName, "Our ERP");
+    assert.equal(body.connection.paymentPolicy, "portal_checkout");
+  });
+});
+
+test("an unknown payment policy is refused with 400", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const res = await patchJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/connection?orgId=${orgId}`,
+      { paymentPolicy: "pay_later" },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: "invalid_payment_policy" });
+  });
+});
+
+test("a portal request body over 1 MB is refused with 413", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const res = await postJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/keys?orgId=${orgId}`,
+      { scopes: ["loads:read"], padding: "a".repeat(1_100_000) },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: "payload_too_large" });
+  });
+});
+
+test("an integration API request body over 1 MB is refused with 413", async (t) => {
+  testEnv(t);
+  await withApp(t, async (baseUrl) => {
+    const { token, orgId } = await customerBearer(baseUrl);
+    const keyRes = await postJson(
+      baseUrl,
+      `/v1/pilot/customer/integrations/keys?orgId=${orgId}`,
+      { scopes: ["loads:read", "loads:write"] },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.equal(keyRes.status, 201);
+    const keyBody = (await keyRes.json()) as { token: string };
+    const res = await postJson(
+      baseUrl,
+      "/v1/integrations/loads",
+      { externalLoadId: "ERP-HTTP-BIG", weightKg: 100, metadata: { note: "a".repeat(1_100_000) } },
+      { authorization: `Bearer ${keyBody.token}` },
+    );
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: "payload_too_large" });
   });
 });

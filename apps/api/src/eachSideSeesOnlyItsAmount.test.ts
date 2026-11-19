@@ -142,6 +142,10 @@ test("a shipper's ERP gets no carrier amount, cut or payout data from the API or
   };
   for (const [what, body] of Object.entries(seen)) assert.deepEqual(carrierAmountKeysIn(body), [], what);
   assert.equal(typeof (seen.snapshot as { grossPaise?: number }).grossPaise, "number", "the ERP still sees the shipper's price");
+  for (const what of ["snapshot", "tracking"]) {
+    const trip = (seen[what] as { trip?: { carrierDisplayName?: unknown } }).trip;
+    assert.equal(typeof trip?.carrierDisplayName, "string", `the ${what} trip keeps carrierDisplayName, as on main`);
+  }
 });
 
 test("an object with no branch of its own still loses the other side's amounts", async t => {

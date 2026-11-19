@@ -59,6 +59,8 @@ projects:
             envVars:
               - key: NODE_ENV
                 value: alpha
+              - key: FIREBASE_PROJECT_ID
+                value: navig8r-beta
               - key: OTP_DEBUG
                 value: "1"
               - key: DATA_FILE
@@ -79,6 +81,10 @@ projects:
                 sync: false
               - key: RAZORPAY_WEBHOOK_SECRET
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
 
           - type: web
             name: navig8r-customer-web-alpha
@@ -96,6 +102,16 @@ projects:
                 value: https://navig8r-api-alpha.onrender.com
               - key: MAPS_API_KEY
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
+              - key: FIREBASE_WEB_MESSAGING_SENDER_ID
+                sync: false
+              - key: FIREBASE_WEB_PROJECT_ID
+                value: navig8r-beta
+              - key: FIREBASE_WEB_AUTH_DOMAIN
+                value: navig8r-beta.firebaseapp.com
 
           - type: web
             name: navig8r-www-alpha
@@ -138,6 +154,8 @@ projects:
             envVars:
               - key: NODE_ENV
                 value: beta
+              - key: FIREBASE_PROJECT_ID
+                value: navig8r-beta
               - key: OTP_DEBUG
                 value: "0"
               - key: DATA_FILE
@@ -158,6 +176,10 @@ projects:
                 sync: false
               - key: RAZORPAY_WEBHOOK_SECRET
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
 
           - type: web
             name: navig8r-customer-web-beta
@@ -175,6 +197,16 @@ projects:
                 value: https://navig8r-api-beta.onrender.com
               - key: MAPS_API_KEY
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
+              - key: FIREBASE_WEB_MESSAGING_SENDER_ID
+                sync: false
+              - key: FIREBASE_WEB_PROJECT_ID
+                value: navig8r-beta
+              - key: FIREBASE_WEB_AUTH_DOMAIN
+                value: navig8r-beta.firebaseapp.com
 
           - type: web
             name: navig8r-www-beta
@@ -224,6 +256,8 @@ projects:
             envVars:
               - key: NODE_ENV
                 value: production
+              - key: FIREBASE_PROJECT_ID
+                value: project-e8131904-7071-4f79-89c
               # Keep Production FILE-based FCM opt-in explicit and disabled by default.
               - key: PUSH_ALLOW_FILE_PRODUCTION
                 value: "0"
@@ -244,6 +278,10 @@ projects:
               - key: RAZORPAY_KEY_SECRET
                 sync: false
               - key: RAZORPAY_WEBHOOK_SECRET
+                sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
                 sync: false
               - key: RAZORPAYX_ACCOUNT_NUMBER
                 sync: false
@@ -266,6 +304,16 @@ projects:
                 value: https://navig8r.onrender.com
               - key: MAPS_API_KEY
                 sync: false
+              - key: FIREBASE_WEB_API_KEY
+                sync: false
+              - key: FIREBASE_WEB_APP_ID
+                sync: false
+              - key: FIREBASE_WEB_MESSAGING_SENDER_ID
+                sync: false
+              - key: FIREBASE_WEB_PROJECT_ID
+                value: project-e8131904-7071-4f79-89c
+              - key: FIREBASE_WEB_AUTH_DOMAIN
+                value: project-e8131904-7071-4f79-89c.firebaseapp.com
 
           - type: web
             name: navig8r-www-image

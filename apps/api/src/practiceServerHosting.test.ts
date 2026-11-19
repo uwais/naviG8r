@@ -131,7 +131,7 @@ test("practice server writes the Maps key into the page when MAPS_API_KEY is set
   }
 });
 
-test("hosted practice server refuses the webhook test ping and calls nothing; the local one still sends it", async () => {
+test("hosted practice server refuses the webhook test ping and calls nothing; the local one refuses a private address", async () => {
   let requestsReceived = 0;
   const listener = createServer((_req, res) => { requestsReceived += 1; res.end("ok"); });
   await new Promise<void>(resolveListening => listener.listen(0, "127.0.0.1", resolveListening));
@@ -156,9 +156,9 @@ test("hosted practice server refuses the webhook test ping and calls nothing; th
     assert.equal(hosted.body.detail, "The practice server does not send webhooks.");
     assert.equal(requestsReceived, 0);
 
+    // The local one tries, and sends only to a public address, as every API does.
     const local = await sendTestPing({ RBAC_MANUAL_WEB_DIR: "" });
-    assert.equal(local.status, 200);
-    assert.equal(requestsReceived, 1);
+    assert.deepEqual([local.status, local.body.ok, requestsReceived], [502, false, 0]);
   } finally {
     listener.close();
   }

@@ -6,10 +6,13 @@ import "package:flutter_secure_storage/flutter_secure_storage.dart";
 
 import "authorization_session.dart";
 
-/// Production API. Override at run/build time:
+/// API is paired with the bundled Firebase project. Override explicitly at run/build time:
 /// `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000` (Android emulator → host)
 /// `flutter run --dart-define=API_BASE_URL=http://192.168.x.x:3000` (physical device → LAN)
-const String kDefaultBaseUrl = "https://navig8r.onrender.com";
+const bool _releaseBuild = bool.fromEnvironment("dart.vm.product");
+const String kDefaultBaseUrl = _releaseBuild
+    ? "https://navig8r.onrender.com"
+    : "https://navig8r-api-beta.onrender.com";
 
 String normalizeApiBaseUrl(String raw) {
   var value = raw.trim();
@@ -166,11 +169,6 @@ class Api {
     return token != null && token.isNotEmpty;
   }
 
-  Future<String?> bearerToken() async {
-    await _tokenWrite;
-    return _storage.read(key: "access_token");
-  }
-
   Future<Response<T>> get<T>(String path, {Map<String, dynamic>? query}) =>
       dio.get<T>(path, queryParameters: query);
   Future<Response<T>> post<T>(String path, {Object? data}) =>
@@ -190,12 +188,13 @@ String formatApiError(Object e) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
     final code = body is Map ? body["error"] : null;
-    // A code check and a sign-up count tries, not code requests, so they say so, with the wait in whole minutes.
-    if ((code == "otp_rate_limited" &&
-            e.requestOptions.path.endsWith("/v1/auth/otp/verify")) ||
-        (code == "rate_limited" && body["retryAfterMs"] is num)) {
+    if (code == "otp_rate_limited" &&
+        e.requestOptions.path.endsWith("/v1/auth/otp/verify")) {
       final retry = body["retryAfterMs"];
-      final minutes = retry is num && retry > 0 ? (retry / 60000).ceil() : 1;
+      if (retry is! num) {
+        return "Too many tries. Please wait a few minutes and try again.";
+      }
+      final minutes = retry > 60000 ? (retry / 60000).ceil() : 1;
       return "Too many tries. Please wait $minutes ${minutes == 1 ? "minute" : "minutes"} and try again.";
     }
     if (code == "otp_rate_limited") {
@@ -225,7 +224,7 @@ String formatApiError(Object e) {
           "invalid_trip_assignment",
           "trip_cancel_requested",
           "trip_already_started",
-          "booking_expired",
+          "booking_expired_unpaid",
           "pod_photo_required"
         ].contains(code) &&
         detail is String &&
@@ -247,7 +246,7 @@ String formatApiError(Object e) {
       // A 409 from every register screen; without it the screen blamed the connection.
       "phone_already_registered":
           "This number already has an account. Sign in instead.",
-      // A 429 that carries no wait. Sign-ups send their wait, so they are worded above with it.
+      // A 429 that carries no wait.
       "rate_limited": "Too many tries. Wait a few minutes, then try again.",
       // Invite refusals. The other one, user_not_found, is worded on the invite screens, which can
       // say "invite"; sign-in words it its own way.
@@ -279,6 +278,21 @@ String formatApiError(Object e) {
       "shipment_not_deliverable": "Delivery already confirmed.",
       // Confirm delivery or a delivery photo before the trip has started.
       "trip_not_started": "Start the trip first.",
+      "sign_up_rate_limited":
+          "Too many sign-up tries. Please wait a few minutes and try again.",
+      "otp_sign_in_retired":
+          "This sign-in is no longer used. Reload the page or update the app. If it still fails, try again later.",
+      "user_not_found":
+          "This phone number has no NaviG8r account. Create an account first.",
+      "account_inactive":
+          "This account is turned off. Contact NaviG8r support.",
+      "firebase_identity_conflict":
+          "This phone number cannot sign in here. Contact NaviG8r support.",
+      "firebase_token_invalid": "Sign-in did not work. Send a new code.",
+      "firebase_phone_provider_required":
+          "Sign-in did not work. Send a new code.",
+      "firebase_exchange_rate_limited":
+          "Too many tries. Please wait a few minutes and try again.",
     };
     // An owner-driver is the office, so is not sent to ask it.
     if (code == "checkout_not_completed_for_pod" &&
@@ -406,6 +420,16 @@ String formatIstIsoFromUtc(DateTime utc) {
   final s = ist.second.toString().padLeft(2, "0");
   return "$y-$m-${d}T$h:$min:$s+05:30";
 }
+
+const unpaidBookingExpiredSentence =
+    "This booking expired because it was not paid within 30 minutes.";
+
+/// Shown next to Book and pay. The API tells users the same 30 minutes (UNPAID_BOOKING_WINDOW_MS).
+const payWithinWindowLine = "Pay within 30 minutes, or this booking closes.";
+
+/// Razorpay Checkout closes itself after this many seconds, so a shipper cannot finish paying after the
+/// 30 minutes they are told; the API closes the booking 10 minutes after those 30.
+const razorpayCheckoutTimeoutSeconds = 25 * 60;
 
 String tripStatusLabel(String status) {
   switch (status) {

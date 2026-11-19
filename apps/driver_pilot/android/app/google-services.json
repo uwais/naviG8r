@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1042433974298",
+    "project_id": "navig8r-beta",
+    "storage_bucket": "navig8r-beta.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1042433974298:android:c7b60ef8223cad8fe7b1a3",
+        "android_client_info": {
+          "package_name": "com.navig8r.pilot"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBOoCQovbMFmzY42vLh2zCCftO6mvgAl8w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

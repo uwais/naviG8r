@@ -183,6 +183,8 @@ void main() {
     expect(bannerMessage(tester),
         'NaviG8r did not approve this company: it already has an account. If you belong to that account, choose it in the company menu.');
     expect(find.byType(FilledButton), findsNothing);
+    // Inviting someone whose carrier was turned down is refused, so the banner must not suggest it.
+    expect(bannerMessage(tester), isNot(contains('invite')));
     expect(bannerMessage(tester), isNot(contains("You can't send documents")));
     // The other account cannot invite this owner: the server refuses someone still at another carrier.
     signInCarrier(

@@ -2,14 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:dio/dio.dart' show Options;
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'pilot_api.dart';
+import 'firebase_app.dart';
 
 const _channelId = 'shipment_updates';
 const _channelName = 'Shipment updates';
@@ -70,31 +69,9 @@ AndroidNotificationDetails shipmentUpdateNotificationDetails(String tag) =>
 
 @pragma('vm:entry-point')
 Future<void> _firebaseBackgroundHandler(RemoteMessage message) async {
-  final options = _firebaseOptions;
-  if (options != null && Firebase.apps.isEmpty) {
-    await Firebase.initializeApp(options: options);
-  }
+  await ensureFirebaseApp();
   // Notification messages are rendered by Android while the app is backgrounded.
   // Keep this handler free of network work and sensitive payload processing.
-}
-
-const _firebaseApiKey = String.fromEnvironment('FIREBASE_API_KEY');
-const _firebaseAppId = String.fromEnvironment('FIREBASE_APP_ID');
-const _firebaseSenderId =
-    String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID');
-const _firebaseProjectId = String.fromEnvironment('FIREBASE_PROJECT_ID');
-
-FirebaseOptions? get _firebaseOptions {
-  if (_firebaseApiKey.isEmpty ||
-      _firebaseAppId.isEmpty ||
-      _firebaseSenderId.isEmpty ||
-      _firebaseProjectId.isEmpty) return null;
-  return FirebaseOptions(
-    apiKey: _firebaseApiKey,
-    appId: _firebaseAppId,
-    messagingSenderId: _firebaseSenderId,
-    projectId: _firebaseProjectId,
-  );
 }
 
 class PushOpenRoute {
@@ -140,10 +117,8 @@ class PushNotifications {
     _userId = userId;
     if (_initialized || !_isAndroid) return;
     _initialized = true;
-    final options = _firebaseOptions;
-    if (options == null) return;
     try {
-      if (Firebase.apps.isEmpty) await Firebase.initializeApp(options: options);
+      await ensureFirebaseApp();
       FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundHandler);
       await _local.initialize(
         const InitializationSettings(
@@ -281,18 +256,12 @@ class PushNotifications {
     }
   }
 
-  /// After sign-out the stored token is gone, so [bearerToken] carries the old one; [timeLimit] stops
-  /// a slow removal from holding later push work.
-  Future<void> revokeForCurrentUser(
-      {String? bearerToken, Duration? timeLimit}) async {
+  Future<void> revokeForCurrentUser() async {
     _identityTransitionInProgress = true;
     _registrationEpoch++;
     try {
       await _serializeLifecycle(() async {
-        final removal = _revokeStoredRegistration(bearerToken: bearerToken);
-        await (timeLimit == null
-            ? removal
-            : removal.timeout(timeLimit, onTimeout: () {}));
+        await _revokeStoredRegistration();
         await _storage.delete(key: _consentKey);
         await _storage.delete(key: _consentOwnerKey);
         await _storage.delete(key: _pendingNotificationKey);
@@ -369,7 +338,7 @@ class PushNotifications {
     }
   }
 
-  Future<void> _revokeStoredRegistration({String? bearerToken}) async {
+  Future<void> _revokeStoredRegistration() async {
     _registered = false;
     final owner = await _storage.read(key: _deviceOwnerKey);
     final deviceId = await _storage.read(key: _deviceIdKey);
@@ -384,8 +353,7 @@ class PushNotifications {
               decoded['userId'] == owner &&
               decoded['generation'] is int &&
               (decoded['generation'] as int) >= generation) {
-            await _revokeMarker(existingMarker,
-                expectedUserId: owner, bearerToken: bearerToken);
+            await _revokeMarker(existingMarker, expectedUserId: owner);
             return;
           }
         } catch (_) {
@@ -398,8 +366,7 @@ class PushNotifications {
         'generation': generation,
       });
       await _storage.write(key: _revocationKey, value: marker);
-      await _revokeMarker(marker,
-          expectedUserId: owner, bearerToken: bearerToken);
+      await _revokeMarker(marker, expectedUserId: owner);
     }
   }
 
@@ -560,10 +527,9 @@ class PushNotifications {
     return id;
   }
 
-  Future<String?> _currentUserId([String? bearerToken]) async {
+  Future<String?> _currentUserId() async {
     try {
-      final response = await api.dio.get<Map<String, dynamic>>('/v1/auth/me',
-          options: _withBearer(bearerToken));
+      final response = await api.get<Map<String, dynamic>>('/v1/auth/me');
       return response.data?['user']?['id']?.toString();
     } catch (_) {
       return null;
@@ -592,23 +558,15 @@ class PushNotifications {
     }
   }
 
-  // The stored token, when there is one, still wins in Api's interceptor, so a newer sign-in is never
-  // sent with the old token.
-  Options? _withBearer(String? bearerToken) =>
-      bearerToken == null || bearerToken.isEmpty
-          ? null
-          : Options(headers: {'authorization': 'Bearer $bearerToken'});
-
   Future<void> _revokeMarker(String marker,
-      {required String expectedUserId, String? bearerToken}) async {
+      {required String expectedUserId}) async {
     final decoded = jsonDecode(marker) as Map<String, dynamic>;
-    final actualUserId = await _currentUserId(bearerToken);
+    final actualUserId = await _currentUserId();
     if (actualUserId != expectedUserId) return;
     try {
-      await api.dio.delete<Map<String, dynamic>>(
+      await api.delete<Map<String, dynamic>>(
         '/v1/me/push-devices/${Uri.encodeComponent(decoded['deviceId'] as String)}',
         data: {'ownershipGeneration': decoded['generation']},
-        options: _withBearer(bearerToken),
       );
       if (await _storage.read(key: _revocationKey) == marker) {
         await _storage.delete(key: _revocationKey);

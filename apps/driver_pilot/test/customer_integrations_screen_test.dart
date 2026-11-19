@@ -183,6 +183,41 @@ void main() {
         reason: "only NaviG8r staff set the payment policy");
   });
 
+  testWidgets(
+      "Saving settings leaves the payment policy out; it is shown as set by staff",
+      (tester) async {
+    CustomerSession.applyForTest(
+      userFullName: "ERP Admin",
+      userPhone: "9111009900",
+      customerOrgId: "org_test",
+      customerOrgName: "ERP Smoke Co",
+      customerRole: "CUSTOMER_ADMIN",
+    );
+
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: DriverTheme.theme(),
+        home: const CustomerIntegrationsScreen(),
+      ),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    expect(find.text("Set by NaviG8r staff."), findsOneWidget);
+    await tester.tap(find.text("Save settings"));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    final savedConnections =
+        sent.where((options) => options.method == "PATCH").toList();
+    expect(savedConnections, hasLength(1));
+    final saved = savedConnections.single.data as Map;
+    expect(saved["webhookUrl"], "https://erp.example.com/hook");
+    expect(saved.containsKey("paymentPolicy"), isFalse);
+  });
+
   testWidgets("CustomerIntegrationsScreen shows admin required for non-admin",
       (tester) async {
     CustomerSession.applyForTest(
