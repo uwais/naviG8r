@@ -2570,11 +2570,30 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   bool _loaded = false;
   String? _error;
   _TripGroup _shown = _TripGroup.open;
+  // Matches the town a trip leaves from or goes to.
+  final _townWords = TextEditingController();
+  bool _showPast = false;
 
   @override
   void initState() {
     super.initState();
+    _townWords.addListener(_townWordsChanged);
     _load();
+  }
+
+  void _townWordsChanged() => setState(() {});
+
+  @override
+  void dispose() {
+    _townWords.dispose();
+    super.dispose();
+  }
+
+  bool _matchesTownWords(Map<String, dynamic> trip) {
+    final words = _townWords.text.trim().toLowerCase();
+    if (words.isEmpty) return true;
+    return [trip["originCity"], trip["destCity"]]
+        .any((town) => town is String && town.toLowerCase().contains(words));
   }
 
   Future<void> _load() async {
@@ -2681,7 +2700,13 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
     );
   }
 
-  Widget _empty() => switch (_shown) {
+  Widget _empty({required bool pastHidden}) => switch (_shown) {
+        _ when _townWords.text.trim().isNotEmpty => const NvListEmpty(
+            title: "No trips match these towns.",
+            help: "Check the town name, or look under another group."),
+        _TripGroup.done when pastHidden => const NvListEmpty(
+            title: "No finished trips yet.",
+            help: "Past trips are hidden. Turn on Show past trips to see them."),
         _TripGroup.open => NvListEmpty(
             title: "No open trips.",
             help: AuthorizationSession.can("trip.publish") &&
@@ -2694,7 +2719,13 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final shown = _trips.where((trip) => _tripGroup(trip) == _shown).toList();
+    final inGroup =
+        _trips.where((trip) => _tripGroup(trip) == _shown).toList();
+    final pastHidden = !_showPast && inGroup.any(_tripIsPast);
+    final shown = inGroup
+        .where((trip) => _showPast || !_tripIsPast(trip))
+        .where(_matchesTownWords)
+        .toList();
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -2713,6 +2744,25 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
             trailing: NvRefreshButton(loading: _loading, onPressed: _load),
           ),
           const SizedBox(height: NvSpace.s4),
+          if (_trips.isNotEmpty) ...[
+            NvField(
+              label: "Search towns",
+              hint: "From or to, for example Chennai",
+              controller: _townWords,
+              textCapitalization: TextCapitalization.words,
+            ),
+            if (_shown == _TripGroup.done)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text("Show past trips", style: NvText.body),
+                subtitle: const Text(
+                    "Open trips whose last leaving day passed with nothing booked.",
+                    style: NvText.caption),
+                value: _showPast,
+                onChanged: (show) => setState(() => _showPast = show),
+              ),
+            const SizedBox(height: NvSpace.s3),
+          ],
           if (_loading && !_loaded) ...[
             Semantics(
                 liveRegion: true,
@@ -2725,7 +2775,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
           else if (_trips.isEmpty && DriverSession.carrierRole == "DRIVER")
             const UnassignedDriverNotice()
           else if (shown.isEmpty)
-            _empty(),
+            _empty(pastHidden: pastHidden),
           for (final trip in shown) ...[
             _card(trip),
             const SizedBox(height: NvSpace.s3),

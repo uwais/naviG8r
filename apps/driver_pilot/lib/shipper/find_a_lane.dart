@@ -1,6 +1,7 @@
-// Just over 500 lines on purpose: one screen, Find a lane, with its two views sharing the lane
-// cards. The two place boxes in the Match form are most of the growth; splitting the views apart
-// would put the shared cards in a third file for no reader's gain.
+// Over 500 lines on purpose: one screen, Find a lane, with its two views sharing the lane cards and
+// the filters over them (trip_filters.dart holds the filters themselves). The two place boxes in the
+// Match form are most of the growth; splitting the views apart would put the shared cards in a third
+// file for no reader's gain.
 import "dart:async";
 
 import "package:flutter/material.dart";
@@ -23,6 +24,7 @@ import "shipper_words.dart";
 import "search_summary.dart";
 import "announce.dart";
 import "book_a_lane.dart";
+import "trip_filters.dart";
 
 NvStatusLabel _laneStatusLabel(String status) {
   final word = tripStatusLabel(status);
@@ -77,6 +79,29 @@ List<Widget> _laneCards(BuildContext context, List<Map<String, dynamic>> lanes,
 }
 
 String _laneCount(int count) => count == 1 ? "1 trip" : "$count trips";
+
+/// The filter bar over [all], then how many are shown, or what to change when none are. On a desktop the bar
+/// keeps to the width of the side column.
+List<Widget> _filtered(BuildContext context, TripFilters filters,
+    {required List<Map<String, dynamic>> all,
+    required List<Map<String, dynamic>> shown}) {
+  final bar = TripFilterBar(filters: filters, trips: all);
+  final count = tripFilterCount(filters, shown.length, all.length);
+  return [
+    const SizedBox(height: NvSpace.s3),
+    if (customerIsDesktop(context))
+      Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(width: CustomerBreakpoints.sideColumn, child: bar))
+    else
+      bar,
+    if (count != null) ...[const SizedBox(height: NvSpace.s3), count],
+    if (shown.isEmpty) ...[
+      const SizedBox(height: NvSpace.s3),
+      tripFiltersEmpty(filters),
+    ],
+  ];
+}
 
 enum _LaneView { browse, match }
 
@@ -175,6 +200,15 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
   bool _loading = true;
   bool _failed = false;
   List<Map<String, dynamic>> _lanes = [];
+  late final _filters = TripFilters()..addListener(_filtersChanged);
+
+  void _filtersChanged() => setState(() {});
+
+  @override
+  void dispose() {
+    _filters.dispose();
+    super.dispose();
+  }
 
   Future<void> _load() async {
     setState(() {
@@ -193,7 +227,7 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
               .where((lane) => !laneLeaveWindowEnded(lane))
               .toList()
           : <Map<String, dynamic>>[];
-      setState(() => _lanes = lanes);
+      setState(() => _lanes = soonestToLeaveFirst(lanes));
       announce(
           context,
           lanes.isEmpty
@@ -214,6 +248,7 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
 
   @override
   Widget build(BuildContext context) {
+    final shown = _filters.apply(_lanes);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -221,7 +256,7 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
         padding: const EdgeInsets.symmetric(vertical: NvSpace.s3),
         children: [
           const Text(
-              "All trips, not by distance. For the closest, use Search by route.",
+              "All trips, soonest to leave first, not by distance. For the closest, use Search by route.",
               style: NvText.caption),
           if (_loading) ...[
             const SizedBox(height: NvSpace.s3),
@@ -239,13 +274,15 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
             const NvListEmpty(
                 title: "No trips are open right now.",
                 help: "New trips show here when carriers add them."),
-          ] else
-            ..._laneCards(context, _lanes,
+          ] else ...[
+            ..._filtered(context, _filters, all: _lanes, shown: shown),
+            ..._laneCards(context, shown,
                 onOpen: (lane) => context.go(Uri(
                         path: "/customer/book",
                         queryParameters: {
                           "anchorTripId": lane["id"]?.toString() ?? ""
                         }).toString())),
+          ],
         ],
       ),
     );
@@ -288,12 +325,16 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   int? _searchedWeightKg;
   SearchedPlace? _searchedPickup;
   SearchedPlace? _searchedDrop;
+  late final _filters = TripFilters()..addListener(_filtersChanged);
+
+  void _filtersChanged() => setState(() {});
 
   @override
   void dispose() {
     _pickupName.dispose();
     _dropName.dispose();
     _weightKg.dispose();
+    _filters.dispose();
     super.dispose();
   }
 
@@ -535,23 +576,27 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
         const SizedBox(height: NvSpace.s3),
       ];
 
-  List<Widget> _laneResults() => [
-        if (_lanes.isEmpty)
-          _NoMatchBox(
-            title: _emptyTitle(_searchedWeightKg!),
-            onChangeWeight: () => setState(() => _editing = true),
-            onBrowseAll: widget.onBrowseAll,
-          )
-        else ...[
-          Semantics(
-              liveRegion: true,
-              child:
-                  Text(_resultLine(_lanes.length), style: NvText.caption)),
-          ..._laneCards(context, _lanes,
-              onOpen: (lane) =>
-                  context.go(_bookPath(lane), extra: _searchedPlaces)),
-        ],
+  List<Widget> _laneResults() {
+    if (_lanes.isEmpty) {
+      return [
+        _NoMatchBox(
+          title: _emptyTitle(_searchedWeightKg!),
+          onChangeWeight: () => setState(() => _editing = true),
+          onBrowseAll: widget.onBrowseAll,
+        )
       ];
+    }
+    final shown = _filters.apply(_lanes);
+    return [
+      Semantics(
+          liveRegion: true,
+          child: Text(_resultLine(_lanes.length), style: NvText.caption)),
+      ..._filtered(context, _filters, all: _lanes, shown: shown),
+      ..._laneCards(context, shown,
+          onOpen: (lane) =>
+              context.go(_bookPath(lane), extra: _searchedPlaces)),
+    ];
+  }
 }
 
 /// Match found nothing: say so, and offer a lower weight or every lane (sh-lanes-empty).
