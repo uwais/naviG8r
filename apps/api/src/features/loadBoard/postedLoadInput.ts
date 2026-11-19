@@ -4,7 +4,7 @@
  * code, as the route form's are. Fields it does not read, such as the note an older app sends, are ignored, as the
  * route form ignores them.
  */
-import { MAX_WEIGHT_KG } from "../../config.ts";
+import { MAX_WEIGHT_KG } from "../../services.ts";
 import {
   MAX_DAYS_TO_EARLIEST_PICKUP,
   MAX_PICKUP_WINDOW_DAYS,

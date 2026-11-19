@@ -3,7 +3,7 @@
 import test from "node:test";
 import type { TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { UNPAID_BOOKING_EXPIRY_MS, UNPAID_BOOKING_GRACE_MS } from "../../../config.ts";
+import { UNPAID_BOOKING_CLOSES_AFTER_MS } from "../../../unpaidBookingExpiry.ts";
 import { distanceBetweenGeoPointsKm } from "../../../services.ts";
 import { createIntegrationApiKey, createIntegrationLoad } from "../../../integrationServices.ts";
 import { resolveIntegrationAuth } from "../../../integrationAuth.ts";
@@ -235,7 +235,7 @@ test("a route for an open load with too little room left says so", async t => {
 /** As the unpaid-booking tests do: the booking is old and its Razorpay checkout never finished. */
 function leaveUnpaid(fx: Fixture, shipmentId: string): void {
   const shipment = fx.f.store.shipments.get(shipmentId)!;
-  fx.f.store.shipments.set(shipmentId, { ...shipment, createdAtUtcMs: Date.now() - UNPAID_BOOKING_EXPIRY_MS - UNPAID_BOOKING_GRACE_MS - 1000 });
+  fx.f.store.shipments.set(shipmentId, { ...shipment, createdAtUtcMs: Date.now() - UNPAID_BOOKING_CLOSES_AFTER_MS - 1000 });
   const payment = fx.f.store.payments.get(shipment.paymentId)!;
   fx.f.store.payments.set(payment.id, { ...payment, provider: "RAZORPAY", status: "CREATED", razorpayOrderId: `order_${shipmentId}` });
 }
