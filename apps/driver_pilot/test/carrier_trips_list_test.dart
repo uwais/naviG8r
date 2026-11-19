@@ -89,4 +89,37 @@ void main() {
           reason: 'the card is its only tap target, and it opens the trip');
     });
   });
+
+  group('Trips whose last leaving day has passed', () {
+    // The server marks the trip; the app does no date sums of its own.
+    Map<String, dynamic> ended(Map<String, dynamic> trip) =>
+        {...trip, 'leaveWindowEnded': true};
+    final trips = [
+      tripAt('trip-bookable', reservedKg: 0, startDay: 20),
+      ended(tripAt('trip-past', reservedKg: 0, startDay: 10)),
+      ended(tripAt('trip-ended-booked', reservedKg: 100, startDay: 12)),
+      tripAt('trip-done', status: 'COMPLETED', startDay: 2),
+    ];
+
+    testWidgets(
+        'an open trip with nothing booked leaves Open for Done, as Past; one with bookings stays under Open',
+        (tester) async {
+      signInWith(Server(allowed: ownerAllowed, trips: trips));
+      await mount(tester, const DriverLoadsScreen());
+      expect(find.text('20 – 21 Oct'), findsOneWidget,
+          reason: 'a trip shippers can still book');
+      expect(find.text('12 – 13 Oct'), findsOneWidget,
+          reason: 'a trip with a booking still has to run');
+      expect(find.text('10 – 11 Oct'), findsNothing,
+          reason: 'Open leaves out a trip nobody can book any more');
+      expect(find.text('Past'), findsNothing);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Done'));
+      await tester.pumpAndSettle();
+      expect(find.text('10 – 11 Oct'), findsOneWidget);
+      expect(find.text('Past'), findsOneWidget, reason: 'its status word');
+      expect(find.text('2 – 3 Oct'), findsOneWidget,
+          reason: 'finished trips stay in Done');
+    });
+  });
 }

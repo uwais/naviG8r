@@ -121,8 +121,8 @@ TRIP=$(post_json "/v1/pilot/anchor-trips" "$(cat <<EOF
   "destCity":"Jaipur",
   "origin":{"lat":28.4595,"lng":77.0266,"label":"Gurugram"},
   "destination":{"lat":26.9124,"lng":75.7873,"label":"Jaipur"},
-  "windowStart":"2026-04-24T00:00:00+05:30",
-  "windowEnd":"2026-04-25T23:59:59+05:30",
+  "windowStart":"2099-04-24T00:00:00+05:30",
+  "windowEnd":"2099-04-25T23:59:59+05:30",
   "vehicleClass":"MEDIUM",
   "capacityKg":1000
 }

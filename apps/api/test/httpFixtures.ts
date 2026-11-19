@@ -29,7 +29,7 @@ export async function httpFixture(t: TestContext, createAppOptions: Parameters<t
   const carrierB = registerSoloOwnerOperatorDriver(app.store, { fullName: "Synthetic Carrier B", phone: "8000000004", orgDisplayName: "Synthetic Carrier B", vehicleRegistrationNumber: "TEST-B", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
   for (const c of [carrierA, carrierB]) app.store.organizations.set(c.org.id, { ...c.org, kycStatus: "APPROVED" });
   const ops = internalUser(app.store, "OPS"), finance = internalUser(app.store, "FINANCE"), admin = internalUser(app.store, "ADMIN");
-  const trip = publishAnchorTrip(app.store, { carrierId: carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2026-09-16", windowEnd: "2026-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
+  const trip = publishAnchorTrip(app.store, { carrierId: carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2099-09-16", windowEnd: "2099-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
   async function request(path: string, method = "GET", body?: unknown, token?: string, headers: Record<string, string> = {}) {
     const response = await fetch(base + path, { method, headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
     const out = await response.json(); return { status: response.status, body: out };

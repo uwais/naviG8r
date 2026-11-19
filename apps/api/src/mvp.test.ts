@@ -20,8 +20,8 @@ test("vertical slice: publish trip -> book (capture) -> POD -> ledger -> weekly 
     carrierId: driver.org.id,
     originCity: "Gurugram",
     destCity: "Jaipur",
-    windowStart: "2026-04-24T00:00:00+05:30",
-    windowEnd: "2026-04-25T23:59:59+05:30",
+    windowStart: "2099-04-24T00:00:00+05:30",
+    windowEnd: "2099-04-25T23:59:59+05:30",
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });

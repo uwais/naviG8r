@@ -186,8 +186,12 @@ class _CustomerBrowseTripsTabState extends State<_CustomerBrowseTripsTab> {
       final r = await api.get<Map<String, dynamic>>("/anchor-trips");
       final raw = r.data?["trips"];
       if (!mounted) return;
+      // The server keeps an ended trip on this list only for naming shipments booked on it.
       final lanes = raw is List
-          ? raw.whereType<Map<String, dynamic>>().toList()
+          ? raw
+              .whereType<Map<String, dynamic>>()
+              .where((lane) => !laneLeaveWindowEnded(lane))
+              .toList()
           : <Map<String, dynamic>>[];
       setState(() => _lanes = lanes);
       announce(

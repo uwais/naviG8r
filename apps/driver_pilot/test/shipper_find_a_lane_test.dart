@@ -158,6 +158,21 @@ void main() {
     });
 
     testWidgets(
+        'Browse leaves out a trip whose last leaving day has passed, which the server keeps only for naming shipments',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/trips');
+      server.answer('/anchor-trips', {
+        'trips': [
+          lane(),
+          {...lane(id: 'lane-old', to: 'Mysuru'), 'leaveWindowEnded': true},
+        ]
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Bengaluru to Chennai'), findsOneWidget);
+      expect(find.text('Bengaluru to Mysuru'), findsNothing);
+    });
+
+    testWidgets(
         'Match keeps the server order and says "closest to your route first"',
         (tester) async {
       final server = await showShipperApp(tester, '/customer/trips?tab=match');

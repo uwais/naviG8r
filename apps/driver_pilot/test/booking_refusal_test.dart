@@ -25,4 +25,9 @@ void main() {
     expect(formatApiError(refusal('anchor_trip_not_open')),
         'This trip is no longer taking bookings. Choose another trip.');
   });
+
+  test('a lane whose last leaving day has passed gets a sentence', () {
+    expect(formatApiError(refusal('anchor_trip_leave_window_ended')),
+        'The last day this trip can leave has passed. Choose another trip.');
+  });
 }
