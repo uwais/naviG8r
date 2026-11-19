@@ -83,6 +83,42 @@ test("integration load create is idempotent by externalLoadId", async () => {
   assert.equal(second.shipment.id, first.shipment.id);
 });
 
+test("an ERP load never lands on a trip whose last leaving day has passed", async () => {
+  process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
+  const store = createStore();
+  const { trip: current, driver } = seedOpenTrip(store);
+  const past = publishAnchorTripAsPilotDriver(store, {
+    userId: driver.user.id,
+    orgId: driver.org.id,
+    originCity: "Gurugram",
+    destCity: "Jaipur",
+    origin: GURGAON,
+    destination: JAIPUR,
+    windowStart: "2020-01-01T00:00:00+05:30",
+    windowEnd: "2020-01-02T23:59:59+05:30",
+    vehicleClass: "MEDIUM",
+    capacityKg: 1000,
+  });
+  const admin = registerCustomerOrgAdmin(store, { fullName: "ERP Admin", phone: "9111001188", orgDisplayName: "ERP Old Date Co" });
+  const { token } = createIntegrationApiKey(store, admin.org.id);
+  updateIntegrationConnection(store, admin.org.id, { paymentPolicy: "erp_preauthorized", changedByUserId: internalUser(store, "ADMIN").userId });
+  const ctx = resolveIntegrationAuth(store, { bearerToken: token });
+  const load = (externalLoadId: string, extra = {}) => createIntegrationLoad(store, ctx, {
+    externalLoadId, weightKg: 100, pickupAddress: "Warehouse A, Gurugram", dropAddress: "Plant B, Jaipur",
+    pickup: GURGAON, drop: JAIPUR, ...extra,
+  });
+
+  const matched = await load("ERP-OLD-DATE-1");
+  assert.equal(matched.shipment.anchorTripId, current.id, "auto match picks the trip that can still leave");
+
+  await assert.rejects(load("ERP-OLD-DATE-2", { lanePreference: "explicit", anchorTripId: past.id }),
+    (e: Error) => e.message === "anchor_trip_leave_window_ended", "naming a past trip is refused");
+
+  store.anchorTrips.set(current.id, { ...store.anchorTrips.get(current.id)!, status: "CANCELLED" });
+  await assert.rejects(load("ERP-OLD-DATE-3"), (e: Error) => e.message === "no_eligible_lane",
+    "with only a past trip on the lane, the ERP is told there is none rather than booked onto it");
+});
+
 test("ERP lookups by external load id and idempotency key skip a booking the unpaid expiry closed", async () => {
   process.env.AUTH_SECRET = "test-secret-min-16-chars!!";
   const store = createStore();
