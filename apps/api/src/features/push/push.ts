@@ -4,6 +4,7 @@ import { effectivePermissions, legacyRoles } from "../../rbac.ts";
 import { isActiveEntity } from "../../softDelete.ts";
 import { assignedDriverMaySee } from "../../tripAssignmentRules.ts";
 import { mustNotHearPaymentEvent, tripNoticeStillTheirs } from "../../notifications.ts";
+import { postedLoadNoticeStillTheirs } from "../loadBoard/loadBoardAudience.ts";
 import type { Notification, PushDevice, PushDelivery, PushIntent } from "../../types.ts";
 import type { FcmDeliveryMessage, FcmSendResult } from "./fcmSender.ts";
 
@@ -162,7 +163,8 @@ export function revokePushDevice(store: Store, input: {
 }
 
 function presentationKey(notification: Notification): string {
-  const value = `${notification.recipientUserId}\n${notification.recipientOrgId}\n${notification.tripId ? `trip:${notification.tripId}` : notification.shipmentId}`;
+  const subject = notification.tripId ? `trip:${notification.tripId}` : notification.postedLoadId ? `load:${notification.postedLoadId}` : notification.shipmentId;
+  const value = `${notification.recipientUserId}\n${notification.recipientOrgId}\n${subject}`;
   return createHash("sha256").update(value).digest("hex").slice(0, 32);
 }
 
@@ -265,6 +267,12 @@ function eligibleCurrentRecipient(store: Store, notification: Notification, devi
       device.environment !== pushEnvironment() || !device.permissionGrantedHint || !device.channelEnabledHint || !device.consentedAtUtcMs) return false;
   // A new-trip notice has no shipment; it goes only while the trip is still this driver's.
   if (notification.tripId) return tripNoticeStillTheirs(store, notification);
+  // A Load Board notice goes only while its recipient is still in its audience; a carrier who turned load alerts
+  // off since it was queued does not get it.
+  if (notification.postedLoadId) {
+    const alertsOff = notification.data?.audience === "CARRIER" && store.loadAlertSettings.get(notification.recipientUserId)?.loadAlertsOn === false;
+    return !alertsOff && postedLoadNoticeStillTheirs(store, notification);
+  }
   const shipment = store.shipments.get(notification.shipmentId);
   const membership = store.memberships.get(`${notification.recipientUserId}:${notification.recipientOrgId}`);
   const organization = store.organizations.get(notification.recipientOrgId);
@@ -280,12 +288,24 @@ function eligibleCurrentRecipient(store: Store, notification: Notification, devi
   return stillOnTrip && !mustNotHearPaymentEvent(membership!.role, notification.eventKey) && roles.includes(role) && effectivePermissions(roles, membership!.role).includes("notification.read");
 }
 
+/**
+ * What the lock screen says. A shipment's push says nothing of the shipment; a Load Board notice says only which kind
+ * it is, never a town, weight or name. The app's words for the same notices are in push_notifications.dart.
+ */
+function lockScreenWords(notification: Notification): Pick<FcmDeliveryMessage, "title" | "body" | "notice"> {
+  if (!notification.postedLoadId) return { title: "Shipment update", body: "There is an update for a shipment." };
+  return notification.data?.audience === "CARRIER"
+    ? { title: "New load on the Load Board", body: "Open the Load Board to see it.", notice: "LOAD_BOARD" }
+    : { title: "A carrier added a trip for your load", body: "Open My loads to see it.", notice: "MY_LOADS" };
+}
+
 export function pushFcmMessage(claim: PushDeliveryClaim, token: string, now = Date.now()): FcmDeliveryMessage {
   return {
     token,
     notificationId: claim.notification.id,
     presentationKey: claim.intent.presentationKey,
     ttlMs: Math.max(0, Math.min(PUSH_INTENT_TTL_MS, claim.intent.expiresAtUtcMs - now)),
+    ...lockScreenWords(claim.notification),
   };
 }
 

@@ -33,7 +33,7 @@ void main() {
       Future<void> fillIn(WidgetTester tester) async {
         for (final (index, place) in [(0, 'Hoskote'), (1, 'Kolar')]) {
           await tester.enterText(find.byType(TextField).at(index), place);
-          await tester.tap(find.byTooltip('Search for place').at(index));
+          await tester.tap(find.byTooltip(index == 0 ? 'Search for From' : 'Search for To'));
           await tester.pumpAndSettle();
         }
         for (final _ in [1, 2]) {
@@ -60,8 +60,8 @@ void main() {
         expect(fieldTexts(tester),
             ['Hoskote', 'Kolar', '1000'],
             reason: 'owner run: leaving Publish wiped the form');
-        expect(find.byType(GoogleMap), findsNWidgets(3),
-            reason: 'both places keep their points, so their maps and the route map show');
+        expect(find.byType(GoogleMap), findsOneWidget,
+            reason: 'both places keep their points, so the one map shows');
         expect(find.text('Choose a date'), findsNothing,
             reason: 'both leaving days are kept');
         expect(

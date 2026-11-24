@@ -165,6 +165,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         .length;
     final accepted = _shipments.where((s) => s["status"] == "BOOKED").length;
     final showsUpdates = AuthorizationSession.can("notification.read");
+    final postsLoads = AuthorizationSession.can("load.create");
 
     return CustomerScaffold(
       title: "Home",
@@ -189,7 +190,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   onRetry: _loadShipments),
               const SizedBox(height: NvSpace.s4),
             ],
-            if (waiting > 0 || accepted > 0 || showsUpdates) ...[
+            if (waiting > 0 || accepted > 0 || showsUpdates || postsLoads) ...[
               Semantics(
                 header: true,
                 child: Text("Your shipments",
@@ -226,6 +227,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                         unawaited(NotificationWatch.check());
                       },
                     ),
+                  ),
+                if (postsLoads)
+                  _HomeRow(
+                    leading: const ExcludeSemantics(
+                        child: Icon(Icons.inventory_2_outlined,
+                            color: NvColors.slate)),
+                    title: "My loads",
+                    caption: "Loads you posted for carriers",
+                    onTap: () => context.go("/customer/loads"),
                   ),
               ]),
               const SizedBox(height: NvSpace.s4),

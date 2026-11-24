@@ -22,6 +22,10 @@ import { createOtpDependencies, OtpRateLimitError, pilotOtpCooldownReuse, pilotO
 import { verifyFirebasePhoneToken } from "./providers/firebasePhoneAuth.ts";
 import { loadStoreFromDisk, saveStoreToDisk } from "./persistence.ts";
 import { FixedWindowRateLimiter } from "./http/rateLimit.ts";
+import { listBoard, listLoadsForOps, listMyLoads, postLoad, withdrawLoad } from "./features/loadBoard/postedLoads.ts";
+import { checkRouteForPostedLoad, recordRouteForPostedLoad, tripEndsForPostedLoad } from "./features/loadBoard/routeForPostedLoad.ts";
+import { markPostedLoadBooked, sweepPostedLoads } from "./features/loadBoard/postedLoadLifecycle.ts";
+import { loadAlertsOn, setLoadAlerts } from "./features/loadBoard/loadAlerts.ts";
 import {
   assertPushTokenEncryptionConfigured,
   pushFlagEnabled,
@@ -278,6 +282,15 @@ function consumePushRateLimit(
   return false;
 }
 
+/** Requests per signed-in user per minute to any Load Board write. Posts and routes made also have hourly caps, counted in the store. */
+function consumeLoadBoardRateLimit(res: http.ServerResponse, limiter: FixedWindowRateLimiter, userId: string): boolean {
+  const blocked = limiter.consume(`load-board:user:${userId}`, 30, 60_000);
+  if (blocked.allowed) return true;
+  res.setHeader("retry-after", String(blocked.retryAfterSeconds));
+  json(res, 429, { error: "rate_limited", retryAfterMs: blocked.retryAfterSeconds * 1000 });
+  return false;
+}
+
 const SIGN_UP_IP_LIMIT = 30;
 const SIGN_UP_PHONE_LIMIT = 5;
 const SIGN_UP_WINDOW_MS = 600_000;
@@ -494,6 +507,7 @@ export async function createApp(options: {
   }
 
   const pushRateLimiter = new FixedWindowRateLimiter();
+  const loadBoardRateLimiter = new FixedWindowRateLimiter();
   const signUpRateLimiters = { byAddress: new FixedWindowRateLimiter(10_000), byPhone: new FixedWindowRateLimiter(10_000) };
   const firebaseExchangeIpLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IP_LIMIT", 30);
   const firebaseExchangeIdentityLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IDENTITY_LIMIT", 10);
@@ -586,6 +600,8 @@ export async function createApp(options: {
       }
       // Every route that reads trip space or bookings sees unpaid bookings past their window as closed.
       expireUnpaidBookings(store);
+      // The Load Board's sweep after it, so a load whose booking just closed is back on the board in the same request.
+      if (sweepPostedLoads(store) > 0) await persist();
 
       if (method === "GET" && ["/admin/v1", "/ops/v1"].includes(url.pathname)) return html(res, 200, adminDashboardV1Html(url.pathname === "/ops/v1", staffSignIn));
       if (method === "GET" && ["/admin/v2", "/ops/v2"].includes(url.pathname)) return html(res, 200, opsPortalHtml({ operations: url.pathname === "/ops/v2", signIn: staffSignIn }));
@@ -1061,10 +1077,40 @@ export async function createApp(options: {
         }
       }
 
+      // The Load Board (features/loadBoard). Making a route for a load is the route form below, with postedLoadId.
+      if (method === "POST" && url.pathname === "/v1/posted-loads") {
+        if (!consumeLoadBoardRateLimit(res, loadBoardRateLimiter, principalFor(store).userId)) return;
+        const load = postLoad(store, await readJson(req, 8 * 1024));
+        await persist();
+        return json(res, 201, { load });
+      }
+      if (method === "GET" && url.pathname === "/v1/posted-loads") return json(res, 200, { loads: listMyLoads(store) });
+      const withdrawLoadRoute = method === "POST" ? /^\/v1\/posted-loads\/([^/]+)\/withdraw$/.exec(url.pathname) : null;
+      if (withdrawLoadRoute) {
+        if (!consumeLoadBoardRateLimit(res, loadBoardRateLimiter, principalFor(store).userId)) return;
+        const load = withdrawLoad(store, withdrawLoadRoute[1]!);
+        await persist();
+        return json(res, 200, { load });
+      }
+      if (method === "GET" && url.pathname === "/v1/load-board") return json(res, 200, { loads: listBoard(store) });
+      if ((method === "GET" || method === "PATCH") && url.pathname === "/v1/me/settings") {
+        const userId = requireBearerUserId(req, res, store);
+        if (!userId) return;
+        if (method === "PATCH") {
+          if (!consumeLoadBoardRateLimit(res, loadBoardRateLimiter, userId)) return;
+          const body = await readJson(req, 8 * 1024);
+          if (typeof body?.loadAlerts !== "boolean") return json(res, 400, { error: "invalid_settings" });
+          setLoadAlerts(store, userId, body.loadAlerts);
+          await persist();
+        }
+        return json(res, 200, { loadAlerts: loadAlertsOn(store, userId) });
+      }
+      if (method === "GET" && url.pathname === "/ops/posted-loads") return json(res, 200, { loads: listLoadsForOps(store) });
+
       if (method === "POST" && url.pathname === "/v1/pilot/anchor-trips") {
         const body = await readJson(req);
         const userId = requireUserId(req, store);
-        const trip = publishAnchorTripAsPilotDriver(store, {
+        const route = {
           userId,
           orgId: String(body?.orgId ?? ""),
           originCity: String(body?.originCity ?? ""),
@@ -1075,7 +1121,12 @@ export async function createApp(options: {
           windowEnd: String(body?.windowEnd ?? ""),
           vehicleClass: body?.vehicleClass,
           capacityKg: Number(body?.capacityKg ?? 0),
-        });
+        };
+        const forPostedLoad = body?.postedLoadId != null;
+        if (forPostedLoad && !consumeLoadBoardRateLimit(res, loadBoardRateLimiter, userId)) return;
+        const postedLoad = forPostedLoad ? checkRouteForPostedLoad(store, body.postedLoadId, route) : undefined;
+        const trip = publishAnchorTripAsPilotDriver(store, postedLoad ? { ...route, ...tripEndsForPostedLoad(postedLoad) } : route);
+        if (postedLoad) recordRouteForPostedLoad(store, postedLoad, trip, userId);
         await persist();
         return json(res, 201, { trip: tripWithCarrierDisplay(store, trip) });
       }
@@ -1488,6 +1539,7 @@ export async function createApp(options: {
           throw e;
         }
 
+        markPostedLoadBooked(store, shipment);
         recordAudit(store, "SHIPMENT_BOOKED", "shipment", shipment.id, "ABSENT", shipment.status);
         await persist();
 
