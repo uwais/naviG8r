@@ -8,10 +8,10 @@ import { createApp } from "./httpServer.ts";
 import { setFirebaseTokenVerifierForTests } from "./auth.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
 import { createStore, type Store } from "./store.ts";
-import { grantOpsAdminFromList, isOpsAdmin, opsAdminPhonesFromEnv, registerCustomerOrgAdmin } from "./services.ts";
+import { grantOpsAdminFromList, isOpsAdmin, opsAdminPhoneKeysFromEnv, registerCustomerOrgAdmin } from "./services.ts";
 
 const PLATFORM_ORG = "org_platform_ops";
-// Synthetic numbers: 555-01xx is reserved for fiction in the US, 80000001xx matches the repo's other fixtures.
+// Synthetic numbers: 555-01xx is reserved for fiction in the US.
 const US_PHONE = "2025550143";
 const US_PHONE_TWO = "2025550144";
 const INDIA_PHONE = "8000000101";
@@ -116,7 +116,7 @@ async function assertSignedInAsPlatformAdmin(app: Awaited<ReturnType<typeof star
 
 test("OPS_ADMIN_PHONES keeps entries that carry a country code and ignores the rest without logging the number", (t) => {
   const warn = t.mock.method(console, "warn", () => {});
-  const keys = opsAdminPhonesFromEnv({
+  const keys = opsAdminPhoneKeysFromEnv({
     OPS_ADMIN_PHONES: ` +1 (202) 555-0143, +918000000101,918000000102, ${INDIA_PHONE_THREE}, , +44 20 7946 0000, 12025550144 `,
   });
   assert.deepEqual([...keys].sort(), ["+1:2025550143", "+91:8000000101", "+91:8000000102"]);
@@ -126,7 +126,7 @@ test("OPS_ADMIN_PHONES keeps entries that carry a country code and ignores the r
   assert.match(logged[1]!, /entry 6\b/);
   assert.match(logged[2]!, /entry 7\b/);
   for (const line of logged) assert.doesNotMatch(line, /8000000103|7946|2025550144|5550144/);
-  assert.equal(opsAdminPhonesFromEnv({}).size, 0);
+  assert.equal(opsAdminPhoneKeysFromEnv({}).size, 0);
   assert.equal(warn.mock.callCount(), 3);
 });
 
@@ -245,6 +245,8 @@ test("a listed number with a customer membership keeps it and gains the platform
   const app = await startApp(t, `+91${INDIA_PHONE}`, await tempDataFile(t));
   const customer = registerCustomerOrgAdmin(app.store, { fullName: "Synthetic shipper", phone: INDIA_PHONE, countryCode: "+91", orgDisplayName: "Synthetic Shipper" });
   const signedIn = await app.otpSignIn(INDIA_PHONE, "+91");
+  // With two memberships and no company chosen, the sign-in flag cannot say admin; the platform org can.
+  assert.equal(signedIn.isOpsAdmin, false);
   const record = platformRecord(app.store, customer.user.id);
   assert.equal(record.membershipCount, 2);
   assert.equal(record.membership?.role, "OPS_ADMIN");

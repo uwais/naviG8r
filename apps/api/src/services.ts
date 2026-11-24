@@ -409,19 +409,22 @@ export function getOrCreatePlatformOpsOrg(store: Store): Organization {
  * Phone keys listed in OPS_ADMIN_PHONES. Each entry must carry its country code (a leading +, or 91 then
  * 10 digits): a bare 10-digit number could belong to a different person in another country, so it is skipped.
  */
-export function opsAdminPhonesFromEnv(env: NodeJS.ProcessEnv = process.env): Set<string> {
+export function opsAdminPhoneKeysFromEnv(env: NodeJS.ProcessEnv = process.env): Set<string> {
   const keys = new Set<string>();
   String(env.OPS_ADMIN_PHONES ?? "").split(",").forEach((rawEntry, index) => {
     const entry = rawEntry.trim();
     if (!entry) return;
     const digits = entry.replace(/[^\d]/g, "");
     const hasCountryCode = entry.startsWith("+") || (digits.length === 12 && digits.startsWith("91"));
+    // The position only: logs must not carry the number.
+    if (!hasCountryCode) {
+      console.warn(`OPS_ADMIN_PHONES entry ${index + 1} ignored: write it with its country code, such as +91 or +1 then 10 digits.`);
+      return;
+    }
     try {
-      if (!hasCountryCode) throw new Error("country_code_missing");
       keys.add(normalizePhone(entry).key);
     } catch {
-      // The position only: logs must not carry the number.
-      console.warn(`OPS_ADMIN_PHONES entry ${index + 1} ignored: write it with its country code, such as +91 or +1 then 10 digits.`);
+      console.warn(`OPS_ADMIN_PHONES entry ${index + 1} ignored: its country code or length is not supported (+91 or +1 then 10 digits).`);
     }
   });
   return keys;
@@ -437,6 +440,7 @@ export function grantOpsAdminFromList(store: Store, userId: string, listedPhoneK
   const org = getOrCreatePlatformOpsOrg(store);
   const key = membershipKey(user.id, org.id);
   // revokeOpsAdmin deletes the row, so its audit entry is the only trace that this user was an admin before.
+  // Trimming or archiving audit events would make a revoked, still-listed admin an admin again.
   const hadPlatformRow = store.memberships.has(key) ||
     [...store.auditEvents.values()].some((e) => e.resourceType === "membership" && e.resourceId === key);
   if (hadPlatformRow) return false;
@@ -448,7 +452,10 @@ export function grantOpsAdminFromList(store: Store, userId: string, listedPhoneK
   return true;
 }
 
-/** True if this user is a naviG8r operations admin: an active platform-ops membership whose roles include ADMIN. */
+/**
+ * True if this user is a naviG8r operations admin: an active platform-ops membership whose roles include ADMIN.
+ * False for someone who also belongs to a company, since no company is chosen here.
+ */
 export function isOpsAdmin(store: Store, userId: string): boolean {
   try { const p = principalFor(store, userId); return p.internal && p.roles.includes("ADMIN"); } catch { return false; }
 }
@@ -543,7 +550,7 @@ export function grantOpsAdmin(store: Store, params: { phone: string; countryCode
 
 /**
  * Revokes OPS_ADMIN from the user with the given phone. Guards:
- *   - At least one ops admin must remain (counting both DB rows and env-var phones).
+ *   - At least one ops admin must remain.
  *   - Cannot revoke yourself if you are the last DB ops admin.
  */
 export function revokeOpsAdmin(
@@ -564,8 +571,7 @@ export function revokeOpsAdmin(
   const remainingDb = [...store.memberships.values()].filter(
     (x) => (x.role === "OPS_ADMIN" || x.role === "OPS_AGENT") && x.userId !== user.id,
   ).length;
-  const envCount = 0;
-  if (remainingDb + envCount === 0) {
+  if (remainingDb === 0) {
     throw new ApiError("cannot_revoke_last_ops_admin", {
       detail: "At least one ops admin must remain.",
     });

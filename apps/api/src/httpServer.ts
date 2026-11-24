@@ -45,7 +45,7 @@ import {
   listCustomerOrgMembers,
   isOpsAdmin,
   listOpsAdmins,
-  opsAdminPhonesFromEnv,
+  opsAdminPhoneKeysFromEnv,
   markPodDelivered,
   opsListPendingRelease,
   opsListUnapprovedCarriers,
@@ -350,7 +350,7 @@ export async function createApp(options: {
   }
   const otp = createOtpDependencies();
   const staffSignIn = staffSignInFromEnv();
-  const listedOpsAdminPhones = opsAdminPhonesFromEnv();
+  const listedOpsAdminPhoneKeys = opsAdminPhoneKeysFromEnv();
   const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (options.dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
   // Beside the data file, so a test or the demo with its own data file gets its own photos folder.
   const podPhotoRoot = podPhotosRoot(dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
@@ -537,7 +537,7 @@ export async function createApp(options: {
 
       const exchanged = await runSerialized(async () => {
         const out = firebasePhoneExchangeVerified(store, claims, verified.exchangeKey);
-        const madeAdmin = grantOpsAdminFromList(store, out.user.id, listedOpsAdminPhones);
+        const madeAdmin = grantOpsAdminFromList(store, out.user.id, listedOpsAdminPhoneKeys);
         if (out.stateChanged || madeAdmin) await persist();
         return out;
       });
@@ -846,7 +846,7 @@ export async function createApp(options: {
             challengeId: String(body?.challengeId ?? ""),
             code: String(body?.code ?? ""),
           }, otp);
-          grantOpsAdminFromList(store, verified.user.id, listedOpsAdminPhones);
+          grantOpsAdminFromList(store, verified.user.id, listedOpsAdminPhoneKeys);
           return verified;
         });
         return json(res, 200, { ...out, isOpsAdmin: isOpsAdmin(store, out.user.id) });
