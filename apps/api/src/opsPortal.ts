@@ -11,7 +11,7 @@ const newStaffRoleBoxes = addableRoles
 // Shown only to someone who may manage roles; the API refuses everyone else whatever the page shows.
 const staffSection = `<section id="staffManagement" hidden><h2>NaviG8r staff</h2><p>People who run NaviG8r. Someone you add signs in on this page with their phone. Shipper and carrier numbers cannot be added. To make someone an admin, add them first, then tick Admin in their row and save.</p>
 <label>Reason code, used for every change below (for example NEW_STAFF)<input id="staffReason"></label><p id="staffNotice" role="status"></p><div id="staffList"></div>
-<h3>Add staff</h3><label>Name<input id="staffName" autocomplete="off"></label><label>Country<select id="staffCountry">${staffCountryOptions}</select></label><label>Phone<input id="staffPhone" inputmode="tel" autocomplete="off"></label><fieldset><legend>Roles</legend>${newStaffRoleBoxes}</fieldset><button id="addStaff">Add staff</button></section>`;
+<h3>Add staff</h3><label>Staff name<input id="staffName" autocomplete="off"></label><label>Staff country<select id="staffCountry">${staffCountryOptions}</select></label><label>Staff phone<input id="staffPhone" inputmode="tel" autocomplete="off"></label><fieldset><legend>Roles</legend>${newStaffRoleBoxes}</fieldset><button id="addStaff">Add staff</button></section>`;
 
 const staffScript = `
 const staffRoleNames = ${JSON.stringify(Object.fromEntries(Object.entries(staffRoleNames).map(([role, words]) => [role, words.split(":")[0]])))};
