@@ -405,26 +405,55 @@ export function getOrCreatePlatformOpsOrg(store: Store): Organization {
   return org;
 }
 
-function envOpsAdminPhones(): string[] {
-  return String(process.env.OPS_ADMIN_PHONES ?? "")
-    .split(",")
-    .map((s) => s.trim().replace(/[^\d]/g, ""))
-    .map((d) => (d.length === 12 && d.startsWith("91") ? d.slice(-10) : d))
-    .filter((d) => d.length === 10);
+/**
+ * Phone keys listed in OPS_ADMIN_PHONES. Each entry must carry its country code (a leading +, or 91 then
+ * 10 digits): a bare 10-digit number could belong to a different person in another country, so it is skipped.
+ */
+export function opsAdminPhonesFromEnv(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  const keys = new Set<string>();
+  String(env.OPS_ADMIN_PHONES ?? "").split(",").forEach((rawEntry, index) => {
+    const entry = rawEntry.trim();
+    if (!entry) return;
+    const digits = entry.replace(/[^\d]/g, "");
+    const hasCountryCode = entry.startsWith("+") || (digits.length === 12 && digits.startsWith("91"));
+    try {
+      if (!hasCountryCode) throw new Error("country_code_missing");
+      keys.add(normalizePhone(entry).key);
+    } catch {
+      // The position only: logs must not carry the number.
+      console.warn(`OPS_ADMIN_PHONES entry ${index + 1} ignored: write it with its country code, such as +91 or +1 then 10 digits.`);
+    }
+  });
+  return keys;
 }
 
 /**
- * True if this user is an authorized naviG8r operations admin.
- * Two grant paths:
- *   1. Membership row with role "OPS_ADMIN" in the platform-ops org (preferred, DB-managed).
- *   2. OPS_ADMIN_PHONES env var — bootstrap-only fallback for the first admin(s).
- *      Once a DB grant exists for that phone, the env var entry can be removed.
+ * Makes a listed phone's user a platform admin at sign-in, once. Any platform row or role history the user
+ * already has is left as it is, so an admin revoked on the admin page stays revoked while still listed.
  */
+export function grantOpsAdminFromList(store: Store, userId: string, listedPhoneKeys: ReadonlySet<string>): boolean {
+  const user = store.users.get(userId);
+  if (!user || !listedPhoneKeys.has(phoneKeyForUser(user))) return false;
+  const org = getOrCreatePlatformOpsOrg(store);
+  const key = membershipKey(user.id, org.id);
+  // revokeOpsAdmin deletes the row, so its audit entry is the only trace that this user was an admin before.
+  const hadPlatformRow = store.memberships.has(key) ||
+    [...store.auditEvents.values()].some((e) => e.resourceType === "membership" && e.resourceId === key);
+  if (hadPlatformRow) return false;
+  store.memberships.set(key, { userId: user.id, orgId: org.id, role: "OPS_ADMIN", createdAtUtcMs: nowUtcMs() });
+  store.membershipRoles.set(key, ["ADMIN", "OPS"]);
+  const requestId = authorizationContext.getStore()?.requestId ?? randomUUID();
+  authorizationContext.run({ requestId, system: true, systemActor: "system:ops-admin-phones" }, () =>
+    recordAudit(store, "ROLE_ASSIGNED", "membership", key, "ABSENT", "ADMIN,OPS", "OPS_ADMIN_PHONES"));
+  return true;
+}
+
+/** True if this user is a naviG8r operations admin: an active platform-ops membership whose roles include ADMIN. */
 export function isOpsAdmin(store: Store, userId: string): boolean {
   try { const p = principalFor(store, userId); return p.internal && p.roles.includes("ADMIN"); } catch { return false; }
 }
 
-/** Ops/support agent: platform OPS_AGENT or OPS_ADMIN membership (or env bootstrap). */
+/** Ops/support agent: platform OPS_AGENT or OPS_ADMIN membership. */
 export function isOpsAgent(store: Store, userId: string): boolean {
   try { const p = principalFor(store, userId); return p.internal && p.roles.includes("OPS"); } catch { return false; }
 }
