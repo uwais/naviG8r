@@ -2,6 +2,44 @@ import { firebaseSignInMarkup, phoneForSignInScript, staffCountryOptions, staffS
 
 const signInControls = `<label>Country<select id="country">${staffCountryOptions}</select></label><label>Phone<input id="phone" autocomplete="tel"></label><button id="start">Send code</button><label>Verification code<input id="code" autocomplete="one-time-code"></label><button id="verify">Sign in</button>`;
 
+const staffRoleNames = { ADMIN: "Admin: adds and removes staff", OPS: "Operations: trips, carriers and support", FINANCE: "Finance: payments and payouts" };
+// Admin is not offered when adding; it is ticked in the person's row once they are listed.
+const addableRoles = ["OPS", "FINANCE"] as const;
+const newStaffRoleBoxes = addableRoles
+  .map((role) => `<label><input type="checkbox" id="staffNew${role}" value="${role}"> ${staffRoleNames[role]}</label>`).join("");
+
+// Shown only to someone who may manage roles; the API refuses everyone else whatever the page shows.
+const staffSection = `<section id="staffManagement" hidden><h2>NaviG8r staff</h2><p>People who run NaviG8r. Someone you add signs in on this page with their phone. Shipper and carrier numbers cannot be added. To make someone an admin, add them first, then tick Admin in their row and save.</p>
+<label>Reason code, used for every change below (for example NEW_STAFF)<input id="staffReason"></label><p id="staffNotice" role="status"></p><div id="staffList"></div>
+<h3>Add staff</h3><label>Staff name<input id="staffName" autocomplete="off"></label><label>Staff country<select id="staffCountry">${staffCountryOptions}</select></label><label>Staff phone<input id="staffPhone" inputmode="tel" autocomplete="off"></label><fieldset><legend>Roles</legend>${newStaffRoleBoxes}</fieldset><button id="addStaff">Add staff</button></section>`;
+
+const staffScript = `
+const staffRoleNames = ${JSON.stringify(Object.fromEntries(Object.entries(staffRoleNames).map(([role, words]) => [role, words.split(":")[0]])))};
+const staffErrors = {staff_number_has_customer_account:'This number belongs to a shipper or carrier account. Staff need a different number.',already_staff:'This person is already staff. Change their roles in their row above.',staff_name_mismatch:'This number already has an account under a different name. Check the number, or ask the person for the name on their account.',admin_needs_existing_staff:'Add the person first, then tick Admin in their row.',cannot_revoke_last_admin:'NaviG8r needs at least one admin. Make someone else an admin first.',reason_required:'Enter a reason code: 3 to 64 capitals, numbers or underscores, starting with a letter, for example NEW_STAFF.',invalid_role:'Choose at least one role.',invalid_phone:'Phone numbers have 10 digits. Check the number.',phone_country_mismatch:'The number and the country do not match. Check the country.',invalid_country_code:'Choose a country.',invalid_fullName:'Enter a name of up to 100 characters.',account_inactive:'This account was turned off and cannot be added.',staff_write_rate_limited:'Too many changes in a short time. Wait a few minutes and try again.',not_found:'This person is no longer on the staff list. Reload the page.'};
+const staffAction = fn => perform(async () => { $('staffNotice').textContent=''; try { await fn(); } catch (e) { throw Error(staffErrors[e.message] || e.message); } });
+const staffHeaders = () => ({'x-reason-code': $('staffReason').value.trim()});
+const checkedRoles = boxes => [...boxes].filter(b => b.checked).map(b => b.value);
+const addableRoles = ${JSON.stringify(addableRoles)};
+const newStaffRoleBoxes = () => addableRoles.map(role => $('staffNew'+role));
+const newStaffRoles = () => addableRoles.filter(role => $('staffNew'+role).checked);
+async function loadStaff(){
+ const out=await request('/v1/ops/staff'); $('staffList').replaceChildren();
+ for(const s of out.staff){
+  const row=document.createElement('article'), name=document.createElement('strong'), phone=document.createElement('small'), boxes=document.createElement('div');
+  name.textContent=s.fullName; phone.textContent=s.countryCode+' number ending '+s.phoneLastFour+' · '+s.roles.map(r=>staffRoleNames[r]||r).join(', ');
+  for(const role of Object.keys(staffRoleNames)){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=role;box.checked=s.roles.includes(role);label.append(box,' '+staffRoleNames[role]);boxes.append(label);}
+  const save=document.createElement('button'), remove=document.createElement('button'); save.textContent='Save roles'; remove.textContent='Remove from staff';
+  const change=roles=>staffAction(async()=>{await request('/v1/ops/staff/'+encodeURIComponent(s.userId),'PUT',{roles},staffHeaders()); $('staffNotice').textContent=roles.length?'Roles saved for '+s.fullName+'.':s.fullName+' is no longer staff.'; await loadStaff();});
+  save.onclick=()=>{const roles=checkedRoles(boxes.querySelectorAll('input'));if(!roles.length){$('error').textContent='Choose at least one role, or use Remove from staff.';return;}return change(roles)();};
+  remove.onclick=change([]);
+  row.append(name,phone,boxes,save,remove); $('staffList').append(row);
+ }
+}
+$('addStaff').onclick=staffAction(async()=>{const out=await request('/v1/ops/staff','POST',{fullName:$('staffName').value.trim(),phone:$('staffPhone').value,countryCode:$('staffCountry').value,roles:newStaffRoles()},staffHeaders());
+ $('staffName').value='';$('staffPhone').value='';newStaffRoleBoxes().forEach(b=>b.checked=false);
+ $('staffNotice').textContent=out.staffMember.fullName+' is now staff. They can sign in on this page with their phone.'; await loadStaff();});
+`;
+
 // Only outside production: the server refuses these routes there.
 const serverCodeSignIn = `$('phone').oninput = () => { otpPhoneRevision++; challenge = ''; $('code').value = ''; otpCooldownUntil = 0; renderOtpCooldown(); };
 $('country').onchange = $('phone').oninput;
@@ -34,6 +72,7 @@ ${workflowOnly ? "" : `<header class="dashboard-header"><div><strong>NaviG8r</st
 <h1>${heading}</h1>${workflowOnly ? '<nav><a href="/admin">Admin workspace</a></nav><p><a href="/admin/v1">Open full dashboard (V1)</a></p>' : ""}<p id="error" role="alert"></p>
 <section id="login">${loginContent}</section>
 <section id="workspace" hidden><label>Acting organization<select id="organization"><option value="">Select an organization</option></select></label><button id="signout">Sign out</button><p id="roles"></p><p id="access"></p><p id="released" role="status" tabindex="-1"></p><div id="shipments"></div>
+${workflowOnly ? "" : staffSection}
 <section id="roleManagement" hidden><h2>Membership roles</h2><label>User ID<input id="memberUser"></label><label>Organization ID<input id="memberOrg"></label><label>Roles (comma separated)<input id="memberRoles" placeholder="OPS,FINANCE"></label><button id="saveRoles">Save roles</button></section>
 <section id="compliance" hidden><h2>Carrier compliance review</h2><p id="notice" role="status"></p><label>Reason code (for example DOCUMENTS_REVIEWED)<input id="reason"></label><p>If you reject with DOCUMENTS_MISSING, BANK_DETAILS_MISMATCH, DUPLICATE_ACCOUNT or NOT_A_CARRIER, only the carrier's owner sees that reason in their app, in plain words; BANK_DETAILS_MISMATCH only if the carrier has saved bank details. Dispatchers and drivers see no reason; they are told to ask the owner for details.</p><h3>Not yet approved</h3><p id="kycEmpty" hidden>Every carrier is approved.</p><div id="kycQueue"></div><h3>Review by organization ID</h3><label>Carrier organization ID<input id="carrierOrg"></label><select id="kycStatus"><option>APPROVED</option><option>REJECTED</option></select><button id="verifyKyc">Record review</button></section></section>
 ${workflowOnly ? "" : "</main>"}<script>
@@ -68,7 +107,7 @@ async function loadOrganizations() {
  if(!org && me.organizations.length===1) org=me.organizations[0].id;
  $('organization').value=org; if(org) await loadWorkspace();
 }
-$('organization').onchange=perform(async()=>{org=$('organization').value;sessionStorage.setItem('navig8r_org',org);$('shipments').replaceChildren();principal=undefined;$('roleManagement').hidden=true;$('compliance').hidden=true;if(org) await loadWorkspace();});
+$('organization').onchange=perform(async()=>{org=$('organization').value;sessionStorage.setItem('navig8r_org',org);$('shipments').replaceChildren();principal=undefined;$('roleManagement').hidden=true;$('compliance').hidden=true;$('staffManagement')&&($('staffManagement').hidden=true);if(org) await loadWorkspace();});
 async function loadWorkspace(){
  const me=await request('/v1/auth/me'); principal=me.principal; $('shipments').replaceChildren();
  if(!principal){$('access').textContent='Select an active membership.';return;}
@@ -84,6 +123,7 @@ async function loadWorkspace(){
   $('shipments').append(row);
  }
  if(!$('compliance').hidden) await loadKycQueue();
+ if($('staffManagement')){$('staffManagement').hidden=!principal.permissions.includes('user.role_manage'); if(!$('staffManagement').hidden) await loadStaff();}
 }
 const rupees=paise=>'₹'+(paise/100).toLocaleString('en-IN',{minimumFractionDigits:paise%100?2:0,maximumFractionDigits:2});
 // Releasing sends money, so the first tap only asks, with the amount, carrier and route read fresh from the server.
@@ -128,7 +168,7 @@ async function recordReview(orgId,status){
  }finally{buttons.forEach(b=>b.disabled=false);}
 }
 $('saveRoles').onclick=perform(async()=>{await request('/v1/roles','POST',{userId:$('memberUser').value,orgId:$('memberOrg').value,roles:$('memberRoles').value.split(',').map(s=>s.trim()).filter(Boolean)});await loadWorkspace();});
-$('verifyKyc').onclick=perform(()=>recordReview($('carrierOrg').value.trim(),$('kycStatus').value));
+${workflowOnly ? "" : staffScript}$('verifyKyc').onclick=perform(()=>recordReview($('carrierOrg').value.trim(),$('kycStatus').value));
 if(token) perform(loadOrganizations)();
 </script></body></html>`;
 }

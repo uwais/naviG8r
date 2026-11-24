@@ -2,6 +2,7 @@
 import { dashboardList, onboardCarrier, setInternalAccess } from "./dashboard.ts";
 import { adminDashboardV1Html } from "./adminDashboardV1.ts";
 import { opsPortalHtml } from "./opsPortal.ts";
+import { staffRoutes } from "./platformStaff.ts";
 import { opsConsoleBetaContentSecurityPolicy, opsConsoleBetaHtml } from "./opsConsoleBeta.ts";
 import { staffSignInFromEnv } from "./staffSignIn.ts";
 import { assertAdminRemains, authorizationContext, AuthorizationError, resolvePrincipal, principalFor, requirePermission, acceptPod, recordAudit, compatibleRole, legacyRoles, ROLES } from "./rbac.ts";
@@ -507,6 +508,7 @@ export async function createApp(options: {
   }
 
   const pushRateLimiter = new FixedWindowRateLimiter();
+  const staffRoute = staffRoutes();
   const loadBoardRateLimiter = new FixedWindowRateLimiter();
   const signUpRateLimiters = { byAddress: new FixedWindowRateLimiter(10_000), byPhone: new FixedWindowRateLimiter(10_000) };
   const firebaseExchangeIpLimit = positiveIntegerEnv("FIREBASE_EXCHANGE_IP_LIMIT", 30);
@@ -612,6 +614,8 @@ export async function createApp(options: {
       if (method === "POST" && url.pathname === "/v1/ops/dashboard-access") {
         const out = setInternalAccess(store, await readJson(req)); await persist(); return json(res, 200, out);
       }
+      const staffReply = await staffRoute(store, method, url.pathname, () => readJson(req));
+      if (staffReply) { if (staffReply.retryAfterSeconds) res.setHeader("retry-after", String(staffReply.retryAfterSeconds)); else if (method !== "GET") await persist(); return json(res, staffReply.status, staffReply.body); }
 
       if (method === "GET" && url.pathname === "/health") {
         return json(res, 200, {
@@ -831,7 +835,7 @@ export async function createApp(options: {
         const p = requirePermission(store, "audit.read");
         const financial = new Set(["PAYMENT_CAPTURED", "PAYMENT_REFUNDED", "PAYMENT_HOLD_RELEASED", "PAYMENT_AFTER_CANCEL", "PAYMENT_MARKED_REFUNDED", "SETTLEMENT_RELEASED"]);
         const events = [...store.auditEvents.values()].filter(e => p.internal ?
-          ((p.roles.includes("ADMIN") && ["ROLE_ASSIGNED", "ROLE_REMOVED", "USER_DEACTIVATED"].includes(e.action)) || (p.roles.includes("FINANCE") && financial.has(e.action)) || (p.roles.includes("OPS") && !financial.has(e.action) && !e.action.startsWith("ROLE_"))) : e.actorOrganizationId === p.organizationId && e.actorUserId === p.userId);
+          ((p.roles.includes("ADMIN") && ["ROLE_ASSIGNED", "ROLE_REMOVED", "USER_DEACTIVATED", "STAFF_USER_CREATED"].includes(e.action)) || (p.roles.includes("FINANCE") && financial.has(e.action)) || (p.roles.includes("OPS") && !financial.has(e.action) && !e.action.startsWith("ROLE_"))) : e.actorOrganizationId === p.organizationId && e.actorUserId === p.userId);
         return json(res, 200, { events });
       }
 
