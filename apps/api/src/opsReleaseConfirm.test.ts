@@ -13,7 +13,7 @@ const rupees = (paise: number) => "₹" + (paise / 100).toLocaleString("en-IN", 
  * own: delivery waits for the trip to start, and a started trip takes no more bookings.
  */
 async function readyToRelease(f: Awaited<ReturnType<typeof httpFixture>>) {
-  const trip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2026-09-16", windowEnd: "2026-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
+  const trip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2099-09-16", windowEnd: "2099-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
   const id = (await f.book(f.tokens.shipperA, { anchorTripId: trip.id })).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${id}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
   startTestTrip(f.store, id);

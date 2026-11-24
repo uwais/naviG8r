@@ -42,7 +42,7 @@ export function serializeResponse(value: unknown): unknown {
       // The carrier office (whoever may assign trips) reads its own transporter ID; its drivers have no use for it.
       ...(p !== undefined && p.roles.includes("CARRIER") && p.permissions.includes("trip.assign") && v.id === p.organizationId ? ["transporterId"] : [])]);
   } else if ("originCity" in v && "reservedKg" in v) {
-    out = pick(v, ["id", "carrierId", "carrierDisplayName", "originCity", "destCity", "origin", "destination", "windowStart", "windowEnd", "vehicleClass", "capacityKg", "reservedKg", "status", "createdAtUtcMs", "startedAtUtcMs", "completedAtUtcMs",
+    out = pick(v, ["id", "carrierId", "carrierDisplayName", "originCity", "destCity", "origin", "destination", "windowStart", "windowEnd", "leaveWindowEnded", "vehicleClass", "capacityKg", "reservedKg", "status", "createdAtUtcMs", "startedAtUtcMs", "completedAtUtcMs",
       // Who drives is the carrier's own business, and ops'. Shippers and public trip lists never get it.
       ...(p?.roles.some(r => ["CARRIER", "OPS"].includes(r)) ? ["assignedVehicleId", "assignedDriverUserId", "assignedTruckNumber", "assignedDriverName"] : []),
       // The carrier's reason and note for asking NaviG8r to cancel are for the operations team only.

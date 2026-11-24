@@ -53,6 +53,7 @@ import { expireUnpaidBooking, HELD_PAYMENT_RETURN_DETAIL, keepPaymentAfterExpiry
 import { isActiveEntity, markInactive } from "./softDelete.ts";
 import { assignedDriverMaySee, assignedTruckNumber, soloOwnerOperatorAssignment, tripAssignmentDisplay, truckOnUnfinishedTrip } from "./tripAssignmentRules.ts";
 import { shipmentsBlockingStart } from "./ewayBillStartGate.ts";
+import { leaveWindowEnded } from "./tripLeaveWindow.ts";
 
 function nowUtcMs(): number {
   return Date.now();
@@ -215,8 +216,8 @@ export function carrierDisplayName(store: Store, carrierId: string): string {
   return store.organizations.get(carrierId)?.displayName ?? carrierId;
 }
 
-export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTrip & { carrierDisplayName: string } & ReturnType<typeof tripAssignmentDisplay> {
-  return { ...trip, carrierDisplayName: carrierDisplayName(store, trip.carrierId), ...tripAssignmentDisplay(store, trip) };
+export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTrip & { carrierDisplayName: string; leaveWindowEnded: boolean } & ReturnType<typeof tripAssignmentDisplay> {
+  return { ...trip, carrierDisplayName: carrierDisplayName(store, trip.carrierId), leaveWindowEnded: leaveWindowEnded(trip, nowUtcMs()), ...tripAssignmentDisplay(store, trip) };
 }
 
 /**
@@ -229,7 +230,7 @@ export function tripWithCarrierDisplay(store: Store, trip: AnchorTrip): AnchorTr
 export function tripForPublicListing(
   store: Store,
   trip: AnchorTrip,
-): Omit<AnchorTrip, "lastLiveLocation" | "startedByUserId" | "completedByUserId" | "assignedVehicleId" | "assignedDriverUserId"> & { carrierDisplayName: string } {
+): Omit<AnchorTrip, "lastLiveLocation" | "startedByUserId" | "completedByUserId" | "assignedVehicleId" | "assignedDriverUserId"> & { carrierDisplayName: string; leaveWindowEnded: boolean } {
   // None of these reach an unauthenticated caller. lastLiveLocation is where the
   // driver is right now; the user ids are stable per driver, so collecting them
   // across trips maps which driver runs which lanes without ever needing a token.
@@ -245,6 +246,20 @@ export function tripForPublicListing(
     ...rest
   } = tripWithCarrierDisplay(store, trip);
   return rest;
+}
+
+/**
+ * The trips Book a trip lists. A trip whose leave window has ended stays only while a shipment is on it, because
+ * the shipper's shipment lists name each shipment from this list by its trip's route and date.
+ */
+export function tripsForBookATrip(store: Store): ReturnType<typeof tripForPublicListing>[] {
+  const now = nowUtcMs();
+  const tripIdsWithShipments = new Set([...store.shipments.values()].map((s) => s.anchorTripId));
+  // A trip its carrier cancelled, or asked NaviG8r to cancel, is no longer on offer.
+  return [...store.anchorTrips.values()]
+    .filter((t) => t.inactiveAtUtcMs == null && t.status !== "CANCELLED" && t.status !== "CANCEL_REQUESTED")
+    .filter((t) => !leaveWindowEnded(t, now) || tripIdsWithShipments.has(t.id))
+    .map((t) => tripForPublicListing(store, t));
 }
 
 /**
@@ -1364,8 +1379,10 @@ export function customerEligibleAnchorTripsPhaseA(store: Store, params: {
     eligibility: { eligible: boolean; reason: string; score: number; pickupDistanceKm: number; dropDistanceKm: number };
   }> = [];
 
+  const now = nowUtcMs();
   for (const trip of store.anchorTrips.values()) {
     if (trip.status !== "OPEN") continue;
+    if (leaveWindowEnded(trip, now)) continue;
     const remaining = trip.capacityKg - trip.reservedKg;
     if (remaining < params.weightKg) continue;
     if (!trip.origin || !trip.destination) continue; // Phase A requires endpoints
@@ -1625,6 +1642,9 @@ export function bookShipment(store: Store, params: {
   const trip = store.anchorTrips.get(params.anchorTripId);
   if (!trip || !isActiveEntity(trip)) throw new Error("anchor_trip_not_found");
   if (trip.status !== "OPEN") throw new Error("anchor_trip_not_open");
+  if (leaveWindowEnded(trip, nowUtcMs())) {
+    throw new ApiError("anchor_trip_leave_window_ended", { detail: "The last day this trip can leave has passed. Choose another trip." }, 409);
+  }
   if (!weightKgInRange(params.weightKg)) throw new Error("invalid_weightKg");
   if (trip.reservedKg + params.weightKg > trip.capacityKg) throw new Error("insufficient_capacity");
 

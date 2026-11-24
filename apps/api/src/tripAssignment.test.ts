@@ -24,7 +24,7 @@ async function fleetWithTwoDrivers(t: TestContext) {
   const f = await httpFixture(t);
   const first = await hireDriver(f, "8000000013", "Synthetic Driver One", "ka 01-ab 1234");
   const second = await hireDriver(f, "8000000014", "Synthetic Driver Two", "KA02XY9999");
-  const secondTrip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "C", destCity: "D", windowStart: "2026-09-16", windowEnd: "2026-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
+  const secondTrip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "C", destCity: "D", windowStart: "2099-09-16", windowEnd: "2099-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
   return { f, first, second, secondTripId: secondTrip.id };
 }
 
@@ -117,7 +117,7 @@ test("the fleet list gives owners trucks and driver names, never phone numbers; 
 
 test("a trip the solo owner-operator publishes names them and their truck; a dispatcher's and older trips stay unassigned", async t => {
   const f = await httpFixture(t);
-  const lane = { orgId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2026-10-16", windowEnd: "2026-10-17", vehicleClass: "MEDIUM", capacityKg: 500 };
+  const lane = { orgId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2099-10-16", windowEnd: "2099-10-17", vehicleClass: "MEDIUM", capacityKg: 500 };
   const published = await f.request("/v1/pilot/anchor-trips", "POST", lane, f.tokens.carrierA);
   assert.equal(published.status, 201);
   assert.deepEqual(
@@ -266,7 +266,7 @@ test("before the carrier accepts, the shipper sees the trip's truck, never the d
 
   // The solo owner-operator's truck is named when the trip is published, so it too shows before acceptance.
   const solo = await httpFixture(t);
-  const lane = { orgId: solo.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2026-10-16", windowEnd: "2026-10-17", vehicleClass: "MEDIUM", capacityKg: 500 };
+  const lane = { orgId: solo.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2099-10-16", windowEnd: "2099-10-17", vehicleClass: "MEDIUM", capacityKg: 500 };
   const published = await solo.request("/v1/pilot/anchor-trips", "POST", lane, solo.tokens.carrierA);
   assert.equal(published.status, 201);
   const onPublished = await solo.book(solo.tokens.shipperA, { anchorTripId: published.body.trip.id });
@@ -392,7 +392,7 @@ test("an owner-driver whose carrier became a fleet by inviting a driver publishe
   inviteCarrierDriver(f.store, f.carrierA.user.id, { orgId: f.carrierA.org.id, phone: "8000000013", role: "DRIVER", vehicleRegistrationNumber: "KA02XY9999", vehicleClass: "MEDIUM", vehicleCapacityKg: 1000 });
   assert.equal(f.store.organizations.get(f.carrierA.org.id)?.kind, "CARRIER_FLEET", "precondition: inviting a driver makes the carrier a fleet");
   assert.equal(f.store.memberships.get(`${f.carrierA.user.id}:${f.carrierA.org.id}`)?.role, "OWNER_DRIVER", "precondition: the owner keeps their role");
-  const lane = { orgId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2026-10-16", windowEnd: "2026-10-17", vehicleClass: "MEDIUM", capacityKg: 500 };
+  const lane = { orgId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2099-10-16", windowEnd: "2099-10-17", vehicleClass: "MEDIUM", capacityKg: 500 };
   const published = await f.request("/v1/pilot/anchor-trips", "POST", lane, f.tokens.carrierA);
   assert.equal(published.status, 201);
   assert.deepEqual([published.body.trip.assignedDriverUserId, published.body.trip.assignedVehicleId], [undefined, undefined]);
@@ -404,7 +404,7 @@ test("public trip lists and the eligible-trip search carry neither the truck nor
   const f = await httpFixture(t);
   const lane = {
     orgId: f.carrierA.org.id, originCity: "Bengaluru", destCity: "Chennai", origin: { lat: 12.97, lng: 77.59 }, destination: { lat: 13.08, lng: 80.27 },
-    windowStart: "2026-10-16", windowEnd: "2026-10-17", vehicleClass: "MEDIUM", capacityKg: 500,
+    windowStart: "2099-10-16", windowEnd: "2099-10-17", vehicleClass: "MEDIUM", capacityKg: 500,
   };
   const published = await f.request("/v1/pilot/anchor-trips", "POST", lane, f.tokens.carrierA);
   assert.equal(published.status, 201);

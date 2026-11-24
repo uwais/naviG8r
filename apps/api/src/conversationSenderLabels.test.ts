@@ -78,7 +78,7 @@ test("the timeline names its shipment by route and leave date, with no ID and no
   for (const token of [f.tokens.shipperA, f.tokens.carrierA, driverToken]) {
     const timeline = await f.request(`/v1/shipments/${shipmentId}/conversation/timeline`, "GET", undefined, token);
     assert.equal(timeline.status, 200);
-    assert.deepEqual(timeline.body.shipmentSummary, { originCity: "A", destCity: "B", windowStart: "2026-09-16" });
+    assert.deepEqual(timeline.body.shipmentSummary, { originCity: "A", destCity: "B", windowStart: "2099-09-16" });
     assert.doesNotMatch(JSON.stringify(timeline.body), /Paise|commission|gross|amount|price|fee/i);
   }
 });

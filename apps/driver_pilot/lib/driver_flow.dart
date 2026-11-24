@@ -1598,8 +1598,9 @@ class _DriverTodayState extends State<_DriverToday> {
   }
 
   /// A trip whose carrier asked NaviG8r to cancel it still has shippers booked, so it stays listed, as on Trips.
+  /// A past trip, with nothing booked, is not, as on Trips.
   static bool _notStarted(Map<String, dynamic> trip) =>
-      trip["status"] == "OPEN" ||
+      (trip["status"] == "OPEN" && !_tripIsPast(trip)) ||
       trip["status"] == "FULL" ||
       trip["status"] == "CANCEL_REQUESTED";
 
@@ -2516,16 +2517,29 @@ String? _nonEmpty(Object? value) =>
 
 enum _TripGroup { open, inTransit, done }
 
-_TripGroup? _tripGroup(Map<String, dynamic> trip) => switch (trip["status"]) {
-      "OPEN" || "FULL" || "CANCEL_REQUESTED" => _TripGroup.open,
-      "IN_PROGRESS" => _TripGroup.inTransit,
-      "COMPLETED" || "CANCELLED" => _TripGroup.done,
-      _ => null,
-    };
+/// An open trip with nothing booked whose last leaving day has passed, by the server's India date: shippers can
+/// no longer book it, so it sits with Done. A trip with bookings stays where it was, since it still has to run.
+bool _tripIsPast(Map<String, dynamic>? trip) {
+  final reserved = trip?["reservedKg"];
+  return trip?["status"] == "OPEN" &&
+      trip?["leaveWindowEnded"] == true &&
+      (reserved is num ? reserved : 0) == 0;
+}
+
+_TripGroup? _tripGroup(Map<String, dynamic> trip) => _tripIsPast(trip)
+    ? _TripGroup.done
+    : switch (trip["status"]) {
+        "OPEN" || "FULL" || "CANCEL_REQUESTED" => _TripGroup.open,
+        "IN_PROGRESS" => _TripGroup.inTransit,
+        "COMPLETED" || "CANCELLED" => _TripGroup.done,
+        _ => null,
+      };
 
 /// The status word for a trip, or null for a status the app has no word for (never the code itself).
 NvStatusLabel? _tripStatusLabel(Map<String, dynamic>? trip) =>
     switch (trip?["status"]) {
+      "OPEN" when _tripIsPast(trip) =>
+        const NvStatusLabel("Past", tone: NvStatusTone.ended),
       "OPEN" => const NvStatusLabel("Open", tone: NvStatusTone.good),
       "FULL" => const NvStatusLabel("Full", tone: NvStatusTone.ended),
       "IN_PROGRESS" =>
@@ -2575,10 +2589,14 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   bool _wasShown = false;
   // A load already running may have started before the trip was added, so it runs once more after.
   bool _reloadWhenDone = false;
+  // Matches the town a trip leaves from or goes to.
+  final _townWords = TextEditingController();
+  bool _showPast = false;
 
   @override
   void initState() {
     super.initState();
+    _townWords.addListener(_townWordsChanged);
     _load();
   }
 
@@ -2612,10 +2630,20 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
     _wasShown = shown;
   }
 
+  void _townWordsChanged() => setState(() {});
+
   @override
   void dispose() {
     _router?.routerDelegate.removeListener(_routeChanged);
+    _townWords.dispose();
     super.dispose();
+  }
+
+  bool _matchesTownWords(Map<String, dynamic> trip) {
+    final words = _townWords.text.trim().toLowerCase();
+    if (words.isEmpty) return true;
+    return [trip["originCity"], trip["destCity"]]
+        .any((town) => town is String && town.toLowerCase().contains(words));
   }
 
   Future<void> _load() async {
@@ -2726,7 +2754,13 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
     );
   }
 
-  Widget _empty() => switch (_shown) {
+  Widget _empty({required bool pastHidden}) => switch (_shown) {
+        _ when _townWords.text.trim().isNotEmpty => const NvListEmpty(
+            title: "No trips match these towns.",
+            help: "Check the town name, or look under another group."),
+        _TripGroup.done when pastHidden => const NvListEmpty(
+            title: "No finished trips yet.",
+            help: "Past trips are hidden. Turn on Show past trips to see them."),
         _TripGroup.open => NvListEmpty(
             title: "No open trips.",
             help: AuthorizationSession.can("trip.publish") &&
@@ -2739,7 +2773,13 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final shown = _trips.where((trip) => _tripGroup(trip) == _shown).toList();
+    final inGroup =
+        _trips.where((trip) => _tripGroup(trip) == _shown).toList();
+    final pastHidden = !_showPast && inGroup.any(_tripIsPast);
+    final shown = inGroup
+        .where((trip) => _showPast || !_tripIsPast(trip))
+        .where(_matchesTownWords)
+        .toList();
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -2769,6 +2809,25 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
             trailing: NvRefreshButton(loading: _loading, onPressed: _load),
           ),
           const SizedBox(height: NvSpace.s4),
+          if (_trips.isNotEmpty) ...[
+            NvField(
+              label: "Search towns",
+              hint: "From or to, for example Chennai",
+              controller: _townWords,
+              textCapitalization: TextCapitalization.words,
+            ),
+            if (_shown == _TripGroup.done)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text("Show past trips", style: NvText.body),
+                subtitle: const Text(
+                    "Open trips whose last leaving day passed with nothing booked.",
+                    style: NvText.caption),
+                value: _showPast,
+                onChanged: (show) => setState(() => _showPast = show),
+              ),
+            const SizedBox(height: NvSpace.s3),
+          ],
           if (_loading && !_loaded) ...[
             Semantics(
                 liveRegion: true,
@@ -2781,7 +2840,7 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
           else if (_trips.isEmpty && DriverSession.carrierRole == "DRIVER")
             const UnassignedDriverNotice()
           else if (shown.isEmpty)
-            _empty(),
+            _empty(pastHidden: pastHidden),
           for (final trip in shown) ...[
             _card(trip),
             const SizedBox(height: NvSpace.s3),

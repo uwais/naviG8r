@@ -17,7 +17,7 @@ test("PostgreSQL keeps a trip's truck and driver across a save and reload, and a
   const previousDatabaseUrl = process.env.DATABASE_URL;
   process.env.DATABASE_URL = disposableDatabaseUrl;
   const f = await httpFixture(t);
-  const unassigned = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "C", destCity: "D", windowStart: "2026-09-16", windowEnd: "2026-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
+  const unassigned = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "C", destCity: "D", windowStart: "2099-09-16", windowEnd: "2099-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
   const choice = { vehicleId: f.carrierA.vehicle.id, driverUserId: f.carrierA.user.id };
   assert.equal((await f.request(`/v1/pilot/anchor-trips/${f.trip.id}/assignment`, "POST", choice, f.tokens.carrierA)).status, 200);
   const database = await import("./persistenceDb.ts");

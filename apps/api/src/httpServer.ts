@@ -77,6 +77,7 @@ import {
   startAnchorTripAsPilot,
   tripWithCarrierDisplay,
   tripForPublicListing,
+  tripsForBookATrip,
   publishAnchorTrip,
   publishAnchorTripAsPilotDriver,
   quoteShipmentMarketplace,
@@ -1442,11 +1443,7 @@ export async function createApp(options: {
       }
 
       if (method === "GET" && url.pathname === "/anchor-trips") {
-        // A trip its carrier cancelled, or asked NaviG8r to cancel, is no longer on offer.
-        const trips = [...store.anchorTrips.values()]
-          .filter(t => t.inactiveAtUtcMs == null && t.status !== "CANCELLED" && t.status !== "CANCEL_REQUESTED")
-          .map((t) => tripForPublicListing(store, t));
-        return json(res, 200, { trips });
+        return json(res, 200, { trips: tripsForBookATrip(store) });
       }
 
       if (method === "POST" && url.pathname === "/shipments/quote") {
