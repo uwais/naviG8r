@@ -44,11 +44,13 @@ import {
   ensureRazorpayCapturedBeforePod,
   failCarrierAndRefund,
   grantOpsAdmin,
+  grantOpsAdminFromList,
   inviteCarrierDriver,
   inviteCustomerMember,
   listCustomerOrgMembers,
   isOpsAdmin,
   listOpsAdmins,
+  opsAdminPhoneKeysFromEnv,
   markPodDelivered,
   opsListPendingRelease,
   opsListUnapprovedCarriers,
@@ -362,6 +364,7 @@ export async function createApp(options: {
   }
   const otp = createOtpDependencies();
   const staffSignIn = staffSignInFromEnv();
+  const listedOpsAdminPhoneKeys = opsAdminPhoneKeysFromEnv();
   const dataFilePath = process.env.PERSISTENCE === "DB" ? null : (options.dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
   // Beside the data file, so a test or the demo with its own data file gets its own photos folder.
   const podPhotoRoot = podPhotosRoot(dataFilePath ?? process.env.DATA_FILE ?? "./data/store.json");
@@ -550,7 +553,8 @@ export async function createApp(options: {
 
       const exchanged = await runSerialized(async () => {
         const out = firebasePhoneExchangeVerified(store, claims, verified.exchangeKey);
-        if (out.stateChanged) await persist();
+        const madeAdmin = grantOpsAdminFromList(store, out.user.id, listedOpsAdminPhoneKeys);
+        if (out.stateChanged || madeAdmin) await persist();
         return out;
       });
       const { stateChanged: _stateChanged, ...out } = exchanged;
@@ -855,12 +859,16 @@ export async function createApp(options: {
         // Without OTP_TRUST_PROXY every visitor may arrive from the proxy address, so only the per-code limit applies.
         if (otp.trustProxy) otp.consumeIpVerify(clientIp(req, otp.trustProxy));
         const body = await readJson(req);
-        const out = await persistOtp(() => pilotOtpVerify(store, {
-          phone: String(body?.phone ?? ""),
-          countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
-          challengeId: String(body?.challengeId ?? ""),
-          code: String(body?.code ?? ""),
-        }, otp));
+        const out = await persistOtp(() => {
+          const verified = pilotOtpVerify(store, {
+            phone: String(body?.phone ?? ""),
+            countryCode: body?.countryCode == null ? undefined : String(body.countryCode),
+            challengeId: String(body?.challengeId ?? ""),
+            code: String(body?.code ?? ""),
+          }, otp);
+          grantOpsAdminFromList(store, verified.user.id, listedOpsAdminPhoneKeys);
+          return verified;
+        });
         return json(res, 200, { ...out, isOpsAdmin: isOpsAdmin(store, out.user.id) });
       }
 
