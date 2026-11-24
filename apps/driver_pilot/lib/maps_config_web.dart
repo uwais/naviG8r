@@ -22,3 +22,13 @@ String get kMapsApiKey {
     return "";
   }
 }
+
+/// False when Google's map script in web/index.html did not load (no connection, blocked), so no map
+/// can draw. The place boxes still work without it.
+bool get mapsCanDraw {
+  try {
+    return js_util.hasProperty(html.window, "google");
+  } catch (_) {
+    return false;
+  }
+}

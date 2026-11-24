@@ -35,7 +35,7 @@ void main() {
         (tester) async {
       signInWith(
           Server(allowed: ownerAllowed, trips: trips, bookings: bookings));
-      // Tall enough that the lazy list builds all three cards under the search box.
+      // Tall enough that the lazy list builds all three open cards under the search box and Add trip button.
       await mount(tester, const DriverLoadsScreen(),
           size: const Size(360, 1400));
       for (final chip in ['Open', 'On the way', 'Done']) {

@@ -130,7 +130,7 @@ void main() {
 
     for (final (organization, subrole, tabs) in [
       (sharma, 'CUSTOMER_ADMIN', ['Home', 'Book a trip', 'Shipments']),
-      (ravi, 'OWNER', ['Home', 'Bookings', 'Trips', 'Add trip', 'Profile']),
+      (ravi, 'OWNER', ['Home', 'Bookings', 'Trips', 'Load Board', 'Profile']),
     ]) {
       testWidgets('the one sign-in lands a $subrole on their own Home',
           (tester) async {
@@ -296,15 +296,16 @@ void main() {
 
     for (final subrole in ['OWNER', 'DISPATCHER']) {
       testWidgets(
-          'the office ($subrole) has exactly Home, Bookings, Trips, Add trip, Profile',
+          'the office ($subrole) has exactly Home, Bookings, Trips, Load Board, Profile',
           (tester) async {
         await launchSignedIn(tester,
             person: 'Ravi Shetty',
             startAt: 'org-ravi',
             subroleAt: {'org-ravi': subrole});
         expect(tabLabels(tester),
-            ['Home', 'Bookings', 'Trips', 'Add trip', 'Profile'],
-            reason: 'screens.md: the office tabs are renamed, not removed');
+            ['Home', 'Bookings', 'Trips', 'Load Board', 'Profile'],
+            reason:
+                'owner, 5 Nov 2026: Load Board takes the Add trip tab, which is a button now');
         expect(find.text('Home'), findsWidgets,
             reason: 'the office home is titled Home');
       });
@@ -317,6 +318,8 @@ void main() {
           subroleAt: {'org-ravi': 'DRIVER'});
       expect(tabLabels(tester), ['Home', 'Trips', 'Profile'],
           reason: 'screens.md: drivers do not publish or manage bookings');
+      expect(find.text('Load Board'), findsNothing,
+          reason: 'a driver never sees the Load Board');
     });
 
     testWidgets('Book opens from a lane link, under Book a trip, with Back to it',

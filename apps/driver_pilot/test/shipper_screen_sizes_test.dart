@@ -224,7 +224,7 @@ void doubleTextTests() {
       await searchPlace(tester, 'Pickup', 'Bommasandra, Bengaluru');
       await scrollTo(tester, placeField('Drop'));
       await searchPlace(tester, 'Drop', 'Guindy, Chennai');
-      await expectNoOverflowToTheEnd(tester, 'the Match form with both maps');
+      await expectNoOverflowToTheEnd(tester, 'the Match form with its one map');
       await scrollTo(tester, field('Weight'));
       await tester.enterText(field('Weight'), '80');
       await scrollTo(tester, find.text('Find trips'));

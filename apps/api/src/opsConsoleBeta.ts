@@ -3,6 +3,7 @@ import { ewayBillMarkup, ewayBillScript } from "./opsConsoleBetaEwayBills.ts";
 import { opsConsoleBetaStyles } from "./opsConsoleBetaStyles.ts";
 import { tripCancelMarkup, tripCancelScript } from "./opsConsoleBetaTripCancels.ts";
 import { podPhotoMarkup, podPhotoScript } from "./opsConsoleBetaPodPhotos.ts";
+import { postedLoadMarkup, postedLoadScript } from "./opsConsoleBetaPostedLoads.ts";
 import { firebaseSignInMarkup, firebaseSignInPolicySources, firebaseSignInScript, phoneForSignInScript, staffCountryOptions, staffSignInNotSetUpMarkup, type SignInElementIds, type StaffSignIn } from "./staffSignIn.ts";
 
 /**
@@ -11,7 +12,7 @@ import { firebaseSignInMarkup, firebaseSignInPolicySources, firebaseSignInScript
  * Built from the "NaviG8r ops console" design on the NaviG8r design system; token names match that system.
  *
  * Over 500 lines because markup and script are one screen: every element id the script reads is defined
- * here, or in opsConsoleBetaEwayBills.ts, opsConsoleBetaTripCancels.ts or opsConsoleBetaPodPhotos.ts, which are pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
+ * here, or in opsConsoleBetaEwayBills.ts, opsConsoleBetaTripCancels.ts, opsConsoleBetaPodPhotos.ts or opsConsoleBetaPostedLoads.ts, which are pasted in with it, and splitting them would leave each half unreadable without the other. The stylesheet lives apart.
  */
 export function opsConsoleBetaHtml(signIn: StaffSignIn): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -80,6 +81,7 @@ const markup = (signInSection: string) => `
     <a class="jump" href="#ewayBills" id="jumpEwayBills">E-way bills to check <span class="count" id="countEwayBills">0</span></a>
     <a class="jump" href="#ewayMissing" id="jumpEwayMissing">Missing e-way bills <span class="count" id="countEwayMissing">0</span></a>
     <a class="jump" href="#team">Team access</a>
+    <a class="jump" href="#postedLoads">Load Board</a>
     <div class="grow"></div>
     <div id="legend" class="legend" role="group" aria-label="Status key"><span class="caption">Status key</span></div>
   </div>
@@ -109,7 +111,7 @@ const markup = (signInSection: string) => `
     <section id="team" class="card" aria-labelledby="teamTitle">
       <div class="head"><h2 id="teamTitle">Team access</h2><div class="grow"></div><span id="teamTag"></span></div>
       <div id="teamBody" class="body"></div>
-    </section>${ewayBillMarkup}
+    </section>${ewayBillMarkup}${postedLoadMarkup}
   </main>
 </div>
 <dialog id="release" aria-labelledby="releaseTitle" aria-describedby="releaseText">
@@ -683,7 +685,7 @@ async function loadWorkspace() {
   byId('notice').hidden = true;
   byId('tools').hidden = byId('sections').hidden = false;
   renderTeam();
-  await Promise.all([loadCarriers(), loadPayments(), loadTripCancels(), loadEwayBills()]);
+  await Promise.all([loadCarriers(), loadPayments(), loadTripCancels(), loadEwayBills(), loadPostedLoads()]);
 }
 
 // A second click while a sign-in is still running would try the same code again and fail confusingly.
@@ -725,6 +727,7 @@ byId('paymentsReload').onclick = () => run(loadPayments, "Couldn't reload");
 ${ewayBillScript}
 ${tripCancelScript}
 ${podPhotoScript}
+${postedLoadScript}
 byId('legend').append(...[['Done', 'good'], ['Someone must act', 'attention'], ['Blocked or failed', 'problem'], ['In progress', 'info']].map(statusTag));
 if (!token) byId('signin').hidden = false;
 else {

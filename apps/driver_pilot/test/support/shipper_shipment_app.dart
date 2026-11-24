@@ -135,6 +135,10 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
           GoRoute(
               path: 'trips', builder: (_, __) => const Text('Lanes screen')),
           GoRoute(
+              path: 'loads',
+              builder: (_, __) =>
+                  const Scaffold(body: Text('My loads screen'))),
+          GoRoute(
               path: 'shipments',
               builder: (_, __) => const CustomerShipmentsScreen()),
           GoRoute(

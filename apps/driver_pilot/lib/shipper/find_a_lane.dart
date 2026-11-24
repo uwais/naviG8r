@@ -8,10 +8,13 @@ import "package:flutter/material.dart";
 import "package:go_router/go_router.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 
+import "../authorization_session.dart";
 import "../google_geocoding.dart";
 import "../customer_layout.dart";
+import "../load_board/post_a_load.dart";
 import "../location_editor.dart";
 import "../pilot_api.dart";
+import "../two_place_map.dart";
 import "../ui/format.dart";
 import "../ui/nv_button.dart";
 import "../ui/nv_field.dart";
@@ -305,6 +308,7 @@ class _CustomerMatchTripsTab extends StatefulWidget {
 class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   final _pickupName = TextEditingController();
   final _dropName = TextEditingController();
+  final _mapPins = TwoPlaceMapPins();
   LatLng? _pickupPin;
   LatLng? _dropPin;
   PinAddress? _pickupPinAddress;
@@ -333,6 +337,7 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   void dispose() {
     _pickupName.dispose();
     _dropName.dispose();
+    _mapPins.dispose();
     _weightKg.dispose();
     _filters.dispose();
     super.dispose();
@@ -350,9 +355,9 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   /// trips were found), or a dragged pin still being named (a lane card would carry the old name, or
   /// no name, to Book).
   String? get _searchBlockedBy => _searchingPickup || _searchingDrop
-      ? "Searching for the place…"
+      ? "Waiting for the place search."
       : _namingPickupPin || _namingDropPin
-          ? "Updating address from pin…"
+          ? "Waiting for the address at the pin."
           : null;
 
   Future<void> _search() async {
@@ -478,15 +483,14 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
       );
 
   List<Widget> _form() => [
-        // Each map shows once its place has a pin, so the form stays short while typing.
         _placeWithError(
           LocationEndpointEditor(
             title: "Pickup",
             hint: "Address for the driver",
             example: "House or plot, street, area",
             labelController: _pickupName,
-            markerId: "match_pickup",
-            markerHue: BitmapDescriptor.hueGreen,
+            pins: _mapPins,
+            place: MapPlace.start,
             position: _pickupPin ?? pinNotPlacedYet,
             onPositionChanged: (pin) => setState(() {
               _pickupPin = pin;
@@ -499,7 +503,6 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             onPinAddress: (address) =>
                 setState(() => _pickupPinAddress = address),
             readOnly: _searching,
-            showMap: _pickupPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
             namePin: widget.namePin,
@@ -516,8 +519,8 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             hint: "Address for the driver",
             example: "House or plot, street, area",
             labelController: _dropName,
-            markerId: "match_drop",
-            markerHue: BitmapDescriptor.hueRed,
+            pins: _mapPins,
+            place: MapPlace.end,
             position: _dropPin ?? pinNotPlacedYet,
             onPositionChanged: (pin) => setState(() {
               _dropPin = pin;
@@ -530,7 +533,6 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             onPinAddress: (address) =>
                 setState(() => _dropPinAddress = address),
             readOnly: _searching,
-            showMap: _dropPin != null,
             showApiKeyHint: false,
             findPlace: widget.findPlace,
             namePin: widget.namePin,
@@ -539,6 +541,20 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
             staysAliveOffScreen: true,
           ),
           _dropError,
+        ),
+        // Always in the list, empty until a place has a pin or a search, so the rows below keep their
+        // places and their state.
+        TwoPlaceMap(
+          pins: _mapPins,
+          start: _pickupPin,
+          end: _dropPin,
+          startTitle: "Pickup",
+          endTitle: "Drop",
+          pinsLabel: "Pickup and drop",
+          failedHelp:
+              "Your pickup and drop are still set. You can search without the map.",
+          pinsAreAddresses: true,
+          readOnly: _searching,
         ),
         const SizedBox(height: NvSpace.s4),
         NvField(
@@ -583,6 +599,15 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
           title: _emptyTitle(_searchedWeightKg!),
           onChangeWeight: () => setState(() => _editing = true),
           onBrowseAll: widget.onBrowseAll,
+          // The search is open to anyone; posting is for a signed-in shipper who may book.
+          onPostLoad: AuthorizationSession.signedIn &&
+                  AuthorizationSession.can("load.create")
+              ? () => context.go("/customer/post-load",
+                  extra: LoadToPost(
+                      pickup: _searchedPickup!,
+                      drop: _searchedDrop!,
+                      weightKg: _searchedWeightKg!))
+              : null,
         )
       ];
     }
@@ -599,15 +624,20 @@ class _CustomerMatchTripsTabState extends State<_CustomerMatchTripsTab> {
   }
 }
 
-/// Match found nothing: say so, and offer a lower weight or every lane (sh-lanes-empty).
+/// Match found nothing: say so, and offer a lower weight, every lane (sh-lanes-empty), or posting the load
+/// for carriers (Load Board, 4 Nov 2026).
 class _NoMatchBox extends StatelessWidget {
   const _NoMatchBox(
       {required this.title,
       required this.onChangeWeight,
-      required this.onBrowseAll});
+      required this.onBrowseAll,
+      required this.onPostLoad});
   final String title;
   final VoidCallback onChangeWeight;
   final VoidCallback onBrowseAll;
+
+  /// Null when this person cannot post a load, as when signed out.
+  final VoidCallback? onPostLoad;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -643,6 +673,18 @@ class _NoMatchBox extends StatelessWidget {
                 kind: NvButtonKind.secondary,
                 fullWidth: true,
                 onPressed: onBrowseAll),
+            if (onPostLoad != null) ...[
+              const SizedBox(height: NvSpace.s4),
+              const Text(
+                  "Or post your load. Carriers going your way can add a trip for it.",
+                  style: NvText.body),
+              const SizedBox(height: NvSpace.s2),
+              NvButton(
+                  label: "Post a load",
+                  kind: NvButtonKind.secondary,
+                  fullWidth: true,
+                  onPressed: onPostLoad),
+            ],
           ],
         ),
       );
