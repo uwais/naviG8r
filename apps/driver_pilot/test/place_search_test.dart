@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/google_geocoding.dart';
 import 'package:driver_pilot/location_editor.dart';
+import 'package:driver_pilot/two_place_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -249,23 +250,43 @@ void main() {
     Future<TextEditingController> mountEditor(WidgetTester tester,
         {PlaceFinder? findPlace,
         required PinNamer namePin,
-        VoidCallback? onPinStale}) async {
+        VoidCallback? onPinStale,
+        bool readOnly = false}) async {
       final field = TextEditingController();
+      final pins = TwoPlaceMapPins();
+      addTearDown(pins.dispose);
+      var pin = const LatLng(13.07, 77.79);
+      // The box with the screen's one map under it, which shows the box's pin where the box last put it.
       await tester.pumpWidget(MaterialApp(
           home: Scaffold(
               body: SingleChildScrollView(
-                  child: LocationEndpointEditor(
-        title: 'From',
-        hint: 'City or area',
-        labelController: field,
-        markerId: 'from',
-        markerHue: BitmapDescriptor.hueOrange,
-        position: const LatLng(13.07, 77.79),
-        onPositionChanged: (_) {},
-        onPinStale: onPinStale,
-        findPlace: findPlace ?? (place) async => GeocodeOutcome.fail('ZERO_RESULTS'),
-        namePin: namePin,
-      )))));
+                  child: StatefulBuilder(
+                      builder: (context, setState) => Column(children: [
+                            LocationEndpointEditor(
+                              title: 'From',
+                              hint: 'City or area',
+                              labelController: field,
+                              pins: pins,
+                              place: MapPlace.start,
+                              position: pin,
+                              onPositionChanged: (moved) => setState(() => pin = moved),
+                              onPinStale: onPinStale,
+                              readOnly: readOnly,
+                              findPlace: findPlace ??
+                                  (place) async => GeocodeOutcome.fail('ZERO_RESULTS'),
+                              namePin: namePin,
+                            ),
+                            TwoPlaceMap(
+                              pins: pins,
+                              start: pin,
+                              end: null,
+                              startTitle: 'From',
+                              endTitle: 'To',
+                              pinsLabel: 'From and To',
+                              failedHelp: 'Your From and To are still set.',
+                              readOnly: readOnly,
+                            ),
+                          ]))))));
       return field;
     }
 
@@ -288,6 +309,30 @@ void main() {
           findsOneWidget);
       expect(find.textContaining('ZERO_RESULTS'), findsNothing,
           reason: 'no raw codes');
+    });
+
+    testWidgets('a tap on the map moves the pin there and names the place, like a drag',
+        (tester) async {
+      LatLng? named;
+      final field = await mountEditor(tester, namePin: (point) async {
+        named = point;
+        return GeocodeOutcome.ok(point, 'Kolar, Karnataka, India', 'Kolar');
+      });
+      field.text = 'Hoskote';
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      map.onTap!(const LatLng(13.2, 78.1));
+      await tester.pumpAndSettle();
+      expect(named, const LatLng(13.2, 78.1));
+      expect(tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.single.position,
+          const LatLng(13.2, 78.1));
+      expect(field.text, 'Kolar');
+    });
+
+    testWidgets('a read-only map ignores taps', (tester) async {
+      await mountEditor(tester,
+          readOnly: true,
+          namePin: (point) async => GeocodeOutcome.fail('ZERO_RESULTS'));
+      expect(tester.widget<GoogleMap>(find.byType(GoogleMap)).onTap, isNull);
     });
 
     testWidgets('a pin dragged to a town takes its name, with the address below',
@@ -342,12 +387,12 @@ void main() {
       map.markers.single.onDragEnd!(const LatLng(13.2, 78.1));
       await tester.pump();
       await tester.enterText(find.byType(TextField), 'Hoskote');
-      await tester.tap(find.byTooltip('Search for place'));
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       answer.complete(GeocodeOutcome.ok(const LatLng(13.2, 78.1), 'Malur, Karnataka, India', 'Malur'));
       await tester.pumpAndSettle();
       expect(field.text, 'Hoskote');
-      expect(find.text('Updating address from pin…'), findsNothing);
+      expect(find.text('Looking up the address at the pin.'), findsNothing);
     });
 
     testWidgets('a slow search does not overwrite a newer drag', (tester) async {
@@ -357,7 +402,7 @@ void main() {
           namePin: (point) async =>
               GeocodeOutcome.ok(point, 'Kolar, Karnataka, India', 'Kolar'));
       await tester.enterText(find.byType(TextField), 'Hoskote');
-      await tester.tap(find.byTooltip('Search for place'));
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pump();
       // Pumped by hand: the search's spinner never settles while it waits.
       tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.single.onDragEnd!(const LatLng(13.2, 78.1));
@@ -382,7 +427,7 @@ void main() {
           namePin: (point) async => GeocodeOutcome.fail('NO_API_KEY'),
           onPinStale: () => stale++);
       await tester.enterText(find.byType(TextField), 'hoskote');
-      await tester.tap(find.byTooltip('Search for place'));
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       expect(field.text, 'Hoskote');
       expect(stale, 0, reason: 'the search names the place it found');
@@ -427,7 +472,7 @@ void main() {
           findPlace: (place) async => GeocodeOutcome.fail('NETWORK'),
           namePin: (point) async => GeocodeOutcome.fail('NO_API_KEY'));
       await tester.enterText(find.byType(TextField), 'Hoskote');
-      await tester.tap(find.byTooltip('Search for place'));
+      await tester.tap(find.byTooltip('Search for From'));
       await tester.pumpAndSettle();
       const sentence =
           'Could not reach the map service. Check your connection, then search again.';

@@ -1,4 +1,5 @@
-// The Updates inbox: one row per shipment with new activity, and one per new trip for a driver.
+// The Updates inbox: one row per shipment with new activity, one per new trip for a driver, and one per
+// Load Board notice.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -23,10 +24,21 @@ Future<void> openNotificationInbox(BuildContext context) =>
 
 /// A driver's new-trip notice has no shipment to open: it is marked read, and its trip opens.
 Future<void> openTripNotice(BuildContext context,
-    {required String notificationId, required String tripId}) async {
+        {required String notificationId, required String tripId}) =>
+    _markReadAndGo(context, notificationId,
+        '/driver/trip/${Uri.encodeComponent(tripId)}/active');
+
+/// A Load Board notice: a shipper's opens My loads, a carrier office's opens the Load Board.
+Future<void> openPostedLoadNotice(BuildContext context,
+        {required String notificationId, required bool forShipper}) =>
+    _markReadAndGo(context, notificationId,
+        forShipper ? '/customer/loads' : '/driver/load-board');
+
+Future<void> _markReadAndGo(
+    BuildContext context, String notificationId, String path) async {
   final router = GoRouter.maybeOf(context);
-  // Updates is pushed over the router's pages, on the root navigator; the trip opens as a page under the
-  // shell, so screens pushed like that are closed first or the trip opens behind them.
+  // Updates is pushed over the router's pages, on the root navigator; the page opens under the
+  // shell, so screens pushed like that are closed first or it opens behind them.
   final navigators = {
     Navigator.of(context),
     Navigator.of(context, rootNavigator: true)
@@ -36,7 +48,7 @@ Future<void> openTripNotice(BuildContext context,
       await api.patch(
           '/v1/notifications/${Uri.encodeComponent(notificationId)}/read');
     } catch (_) {
-      // The trip still opens; the notice stays new until the next try.
+      // The page still opens; the notice stays new until the next try.
     }
   }
   if (router == null) return;
@@ -45,7 +57,7 @@ Future<void> openTripNotice(BuildContext context,
       navigator.popUntil((route) => route.settings is Page);
     }
   }
-  router.go('/driver/trip/${Uri.encodeComponent(tripId)}/active');
+  router.go(path);
 }
 
 /// "Updates" (sh-notifications): one row per shipment with new activity, named by its route and
@@ -83,8 +95,10 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
           raw is List ? raw.whereType<Map<String, dynamic>>().toList() : <Map<String, dynamic>>[];
       // As on Messages: earlier rows the reader loaded stay after the newest page, with their cursor,
       // unless the page shares no row with the list, when it starts over as a first load does.
-      String rowKey(Map<String, dynamic> item) =>
-          '${item['shipmentId']}:${item['tripId']}';
+      // A Load Board row has no shipment or trip, only its notice; one load can have several.
+      String rowKey(Map<String, dynamic> item) => item['postedLoadId'] != null
+          ? 'notice:${item['notificationId']}'
+          : '${item['shipmentId']}:${item['tripId']}';
       final newestKeys = {for (final item in newest) rowKey(item)};
       final overlaps = _items.any((item) => newestKeys.contains(rowKey(item)));
       final earlier = [
@@ -219,10 +233,15 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
   Future<void> _open(Map<String, dynamic> item) async {
     final tripId = item['tripId']?.toString() ?? '';
     final shipmentId = item['shipmentId']?.toString() ?? '';
+    final postedLoadId = item['postedLoadId']?.toString() ?? '';
     if (tripId.isNotEmpty) {
       await openTripNotice(context,
           notificationId: item['notificationId']?.toString() ?? '',
           tripId: tripId);
+    } else if (postedLoadId.isNotEmpty) {
+      await openPostedLoadNotice(context,
+          notificationId: item['notificationId']?.toString() ?? '',
+          forShipper: AuthorizationSession.hasRole('SHIPPER'));
     } else if (shipmentId.isNotEmpty) {
       await openShipmentConversation(context, shipmentId);
     }
@@ -234,14 +253,18 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
 
   Widget _row(Map<String, dynamic> item) {
     final shipment = _shipmentsById[item['shipmentId']?.toString()];
-    // A driver's new-trip row is named by the trip's route, which the server sends with it.
+    // A driver's new-trip row is named by the trip's route, and a Load Board row by the load's towns, which the
+    // server sends with it.
     final isTrip = (item['tripId']?.toString() ?? '').isNotEmpty;
+    final isLoad = (item['postedLoadId']?.toString() ?? '').isNotEmpty;
     final name = isTrip
         ? item['tripRoute']?.toString()
-        : shipment == null
-            ? null
-            : shipmentRouteName(shipment,
-                lane: laneOfShipment(shipment, _lanesById));
+        : isLoad
+            ? item['loadRoute']?.toString()
+            : shipment == null
+                ? null
+                : shipmentRouteName(shipment,
+                    lane: laneOfShipment(shipment, _lanesById));
     final unread = _unreadOf(item);
     final latest = item['latestAtUtcMs'];
     final when = latest is num
@@ -272,13 +295,23 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name ?? (isTrip ? 'New trip' : 'Shipment update'),
+                    Text(
+                        name ??
+                            (isTrip
+                                ? 'New trip'
+                                : isLoad
+                                    ? 'Load Board'
+                                    : 'Shipment update'),
                         style: NvText.bodyStrong
                             .copyWith(color: NvColors.navyInk)),
                     Text(
                         switch (unread) {
                           0 => 'No unread updates',
                           _ when isTrip => 'You have a new trip.',
+                          _ when isLoad =>
+                            AuthorizationSession.hasRole('SHIPPER')
+                                ? 'A carrier added a trip for your load.'
+                                : 'New load on the Load Board.',
                           1 => 'New update',
                           _ => '$unread new updates',
                         },

@@ -33,7 +33,7 @@ void main() {
                 .onPressed,
             isNull,
             reason: '$title cannot be searched');
-        expect(pinIn(tester, title).draggable, isFalse,
+        expect(pinOnMap(tester, title).draggable, isFalse,
             reason: 'the $title pin cannot be dragged');
       }
 
@@ -41,7 +41,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(field('Weight')).readOnly, isFalse,
           reason: 'after a failed booking the form can be changed again');
-      expect(pinIn(tester, 'Drop').draggable, isTrue);
+      expect(pinOnMap(tester, 'Pickup').draggable, isTrue,
+          reason: 'the pin the map moves can be dragged again');
     });
 
     testWidgets('a fast second tap on Book and pay sends one booking',

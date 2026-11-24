@@ -125,7 +125,8 @@ String? mobileAccessRedirect(String path) {
         ? 'organization.member.invite'
         : path == '/customer/integrations'
             ? 'integration.manage'
-            : path == '/customer/book'
+            : const ['/customer/book', '/customer/post-load', '/customer/loads']
+                    .contains(path)
                 ? 'load.create'
                 : 'load.read';
     if (!AuthorizationSession.can(permission)) return '/customer';
@@ -143,7 +144,10 @@ String? mobileAccessRedirect(String path) {
             ? 'organization.member.invite'
             : path == '/driver/publish'
                 ? 'trip.publish'
-                : path.endsWith('/pod')
+                // The Load Board is the office's: a driver holds trip.publish but never trip.assign.
+                : path.startsWith('/driver/load-board')
+                    ? 'trip.assign'
+                    : path.endsWith('/pod')
                     ? 'pod.upload'
                     : path.contains('payout') || path == '/driver/earnings'
                         ? 'payment.read'

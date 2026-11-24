@@ -57,7 +57,7 @@ Future<FakeServer> fillBook(WidgetTester tester, Map<String, dynamic> trip,
 }
 
 Future<void> movePin(WidgetTester tester, String title, LatLng to) async {
-  pinIn(tester, title).onDragEnd!(to);
+  await dragPinOnMap(tester, title, to);
   await tester.pumpAndSettle();
 }
 
@@ -197,11 +197,11 @@ void main() {
     server.answers['/shipments/quote'] = (_) => answer.future;
     await tester.enterText(placeField('Drop'), 'Kolar Bus Stand');
     await tester.tap(find.descendant(
-        of: placeBox('Drop'), matching: find.byTooltip('Search for place')));
+        of: placeBox('Drop'), matching: find.byTooltip('Search for drop')));
     await pumpWhileWaiting(tester);
     expect(server.countOf('/shipments/quote'), 1, reason: 'the price is out');
 
-    pinIn(tester, 'Drop').onDragEnd!(kolarHimachal);
+    await dragPinOnMap(tester, 'Drop', kolarHimachal);
     await pumpWhileWaiting(tester);
     answer.complete(jsonResponse({'quote': {'grossPaise': 264000}}));
     await tester.pumpAndSettle();

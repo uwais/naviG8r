@@ -128,6 +128,35 @@ void main() {
     await leave(tester);
   });
 
+  testWidgets('a Load Board notice has its own banner words, and View opens My loads',
+      (tester) async {
+    final server = await showShipperApp(tester, '/customer/shipments/shp_9f2c41');
+    server.answers['/shipments/shp_9f2c41'] = {'shipment': booking()};
+    server.answers['/v1/notifications'] = _notices(0);
+    await tester.pumpAndSettle();
+    server.answers['/v1/notifications'] = {
+      'unreadCount': 1,
+      'notifications': [
+        {
+          'id': 'notice-1',
+          'eventKey': 'posted_load.route_made',
+          'shipmentId': '',
+          'postedLoadId': 'load-1',
+          'data': {'postedLoadId': 'load-1', 'audience': 'SHIPPER'},
+        }
+      ],
+    };
+    await _pumpUntilShown(
+        tester, find.text('A carrier added a trip for your load.'));
+    await tester.pumpAndSettle();
+    expect(find.text('A carrier added a trip for your load.'), findsOneWidget);
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    expect(find.text('My loads screen'), findsOneWidget);
+    expect(_countOf(server, '/v1/notifications/notice-1/read'), 1);
+    await leave(tester);
+  });
+
   testWidgets('two bells on screen share one check every 30 s', (tester) async {
     final server = await showShipperApp(tester, '/customer/shipments/shp_9f2c41');
     server.answers['/shipments/shp_9f2c41'] = {'shipment': booking()};

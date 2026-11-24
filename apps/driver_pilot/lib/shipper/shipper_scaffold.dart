@@ -42,11 +42,14 @@ class CustomerScaffold extends StatelessWidget {
   /// A small button at the end of the title row, such as Refresh.
   final Widget? titleAction;
 
-  // Book has no tab: it opens from a trip card, so it sits under Book a trip.
+  // Book has no tab: it opens from a trip card, so it sits under Book a trip. Post a load opens from a
+  // search, and My loads books its trips, so they sit there too.
   int _indexForPath(String path) {
     if (path.startsWith("/customer/trips") ||
         path.startsWith("/customer/eligible") ||
-        path.startsWith("/customer/book")) return 1;
+        path.startsWith("/customer/book") ||
+        path.startsWith("/customer/post-load") ||
+        path.startsWith("/customer/loads")) return 1;
     if (path.startsWith("/customer/shipments")) return 2;
     return 0;
   }

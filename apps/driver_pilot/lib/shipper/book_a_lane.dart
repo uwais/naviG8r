@@ -18,6 +18,7 @@ import "../customer_session.dart";
 import "../location_editor.dart";
 import "../pilot_api.dart";
 import "../plain_error_sentence.dart";
+import "../two_place_map.dart";
 import "../ui/format.dart";
 import "../ui/nv_action_bar.dart";
 import "../ui/nv_button.dart";
@@ -123,6 +124,7 @@ class _CustomerBookShipmentScreenState
       TextEditingController(text: widget.searchedPickup?.words ?? "");
   late final _dropName =
       TextEditingController(text: widget.searchedDrop?.words ?? "");
+  final _mapPins = TwoPlaceMapPins();
   late LatLng? _pickupPin = widget.searchedPickup?.point;
   late LatLng? _dropPin = widget.searchedDrop?.point;
   late PinAddress? _pickupPinAddress = widget.searchedPickup?.pinAddress;
@@ -201,6 +203,7 @@ class _CustomerBookShipmentScreenState
     _weightKg.dispose();
     _pickupName.dispose();
     _dropName.dispose();
+    _mapPins.dispose();
     super.dispose();
   }
 
@@ -496,9 +499,9 @@ class _CustomerBookShipmentScreenState
   /// What still has to be filled in before there is a price, or null when nothing is missing.
   String? _missingBeforePrice() {
     // A search still out would move a pin after Book and pay; wait for it.
-    if (_searchingPickup || _searchingDrop) return "Searching for the place…";
+    if (_searchingPickup || _searchingDrop) return "Waiting for the place search.";
     // A dragged pin is priced at once but named later; booking before then sends the old name.
-    if (_namingPickupPin || _namingDropPin) return "Updating address from pin…";
+    if (_namingPickupPin || _namingDropPin) return "Waiting for the address at the pin.";
     if (_farPinsHelp ?? _pinsRefusedHelp case final help?) return help;
     final inputs = _priceInputs;
     final weightMissing = inputs.weightKg == null || inputs.weightKg! <= 0;
@@ -581,12 +584,7 @@ class _CustomerBookShipmentScreenState
               ],
               if (_placesToCheck case final places?) ...[
                 const SizedBox(height: NvSpace.s4),
-                // The price card comes and goes above it with each price; the key keeps its map instead of
-                // building a new one each time.
-                BookPinsCheck(
-                    key: const ValueKey("book-pins-check"),
-                    pickup: places.pickup,
-                    drop: places.drop),
+                BookPinsCheck(pickup: places.pickup, drop: places.drop),
               ],
             ],
           ],
@@ -595,8 +593,8 @@ class _CustomerBookShipmentScreenState
     );
   }
 
-  /// Both places for the pins check, once both are in: on one map last in the list, and as a Pin line
-  /// each just above Book and pay (owner, 21 Oct 2026). The pin decides the place, so the shipper checks it.
+  /// Both places for the pins check, once both are in: last in the list, and as a Pin line each just
+  /// above Book and pay (owner, 21 Oct 2026). The pin decides the place, so the shipper checks it.
   ({BookPlace pickup, BookPlace drop})? get _placesToCheck {
     final (pickup: pickupPin, drop: dropPin, weightKg: _) = _priceInputs;
     if (pickupPin == null || dropPin == null) return null;
@@ -619,14 +617,13 @@ class _CustomerBookShipmentScreenState
         readOnly: _booking,
       ),
       const SizedBox(height: NvSpace.s4),
-      // Each map shows once its place has a pin; a place from the match search arrives with one.
       withFarPinLine(farKm: _pickupFarKm, town: _startTown, LocationEndpointEditor(
         title: "Pickup",
         hint: "Address for the driver",
         example: "House or plot, street, area",
         labelController: _pickupName,
-        markerId: "book_pickup",
-        markerHue: BitmapDescriptor.hueGreen,
+        pins: _mapPins,
+        place: MapPlace.start,
         position: _pickupPin ?? pinNotPlacedYet,
         onPositionChanged: (pin) {
           setState(() => _pickupPin = pin);
@@ -638,7 +635,6 @@ class _CustomerBookShipmentScreenState
         onPinAddress: (address) =>
             setState(() => _pickupPinAddress = address),
         readOnly: _booking,
-        showMap: _pickupPin != null,
         showApiKeyHint: false,
         findPlace: _findPlace,
         namePin: widget.namePin,
@@ -652,8 +648,8 @@ class _CustomerBookShipmentScreenState
         hint: "Address for the driver",
         example: "House or plot, street, area",
         labelController: _dropName,
-        markerId: "book_drop",
-        markerHue: BitmapDescriptor.hueRed,
+        pins: _mapPins,
+        place: MapPlace.end,
         position: _dropPin ?? pinNotPlacedYet,
         onPositionChanged: (pin) {
           setState(() => _dropPin = pin);
@@ -665,7 +661,6 @@ class _CustomerBookShipmentScreenState
         onPinAddress: (address) =>
             setState(() => _dropPinAddress = address),
         readOnly: _booking,
-        showMap: _dropPin != null,
         showApiKeyHint: false,
         findPlace: _findPlace,
         namePin: widget.namePin,
@@ -673,6 +668,18 @@ class _CustomerBookShipmentScreenState
         // A drag naming or a search still out when the box scrolls off screen would be lost.
         staysAliveOffScreen: true,
       )),
+      // The one map; a move goes through the place box, so it clears the price as a search does.
+      TwoPlaceMap(
+        pins: _mapPins,
+        start: _pickupPin,
+        end: _dropPin,
+        startTitle: "Pickup",
+        endTitle: "Drop",
+        pinsLabel: "Pickup and drop",
+        failedHelp: "Your pickup and drop are still set. You can book without the map.",
+        pinsAreAddresses: true,
+        readOnly: _booking,
+      ),
       // Last in the list: a row added above the place boxes would rebuild them and lose their search state.
       if (_tooHeavy || _farPinsHelp != null || _pinsRefusedHelp != null) ...[
         const SizedBox(height: NvSpace.s4),

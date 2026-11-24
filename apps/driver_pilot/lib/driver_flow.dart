@@ -22,6 +22,9 @@ import "eway_bill_words.dart";
 import "driver_session.dart";
 import "driver_theme.dart";
 import "google_geocoding.dart";
+import "load_board/load_alerts_switch.dart";
+import "load_board/load_board_screen.dart";
+import "load_board/trip_for_load.dart";
 import "location_editor.dart";
 import "maps_config.dart";
 import "pilot_api.dart";
@@ -34,6 +37,7 @@ import "sign_in_screen.dart";
 import "transporter_id_section.dart";
 import "trip_assignment_card.dart";
 import "trip_cancel_card.dart";
+import "two_place_map.dart";
 import "ui/format.dart";
 import "ui/nv_action_bar.dart";
 import "ui/nv_button.dart";
@@ -60,6 +64,8 @@ final GlobalKey<NavigatorState> driverShellNavigatorKey =
 String driverShellTitle(String path, {bool forDriver = false}) {
   if (path == "/driver") return "Home";
   if (path.startsWith("/driver/shipments")) return "Bookings";
+  if (path.startsWith("/driver/load-board/")) return "Add a trip";
+  if (path.startsWith("/driver/load-board")) return "Load Board";
   if (path.startsWith("/driver/loads")) return "Trips";
   if (path.startsWith("/driver/publish")) return "Add a trip";
   if (path.startsWith("/driver/track")) return "Track";
@@ -91,14 +97,15 @@ class DriverShell extends StatelessWidget {
   final Widget child;
   final bool showBottomNav;
 
-  // Drivers do not publish or manage bookings, so they get three tabs; the office gets five.
+  // Drivers do not manage bookings or see the Load Board, so they get three tabs; the office gets five.
+  // Add trip is a button on the office Home and Trips, not a tab (owner, 5 Nov 2026).
   static bool get _forDriver => DriverSession.carrierRole == "DRIVER";
 
   static const _officeTabPaths = [
     "/driver",
     "/driver/shipments",
     "/driver/loads",
-    "/driver/publish",
+    "/driver/load-board",
     "/driver/profile",
   ];
   static const _driverTabPaths = [
@@ -121,9 +128,9 @@ class DriverShell extends StatelessWidget {
         selectedIcon: Icon(Icons.local_shipping),
         label: "Trips"),
     NavigationDestination(
-        icon: Icon(Icons.add_road_outlined),
-        selectedIcon: Icon(Icons.add_road),
-        label: "Add trip"),
+        icon: Icon(Icons.list_alt_outlined),
+        selectedIcon: Icon(Icons.list_alt),
+        label: "Load Board"),
     NavigationDestination(
         icon: Icon(Icons.person_outline),
         selectedIcon: Icon(Icons.person),
@@ -166,11 +173,13 @@ class DriverShell extends StatelessWidget {
         path.startsWith("/driver/shipment/")) {
       return 1;
     }
-    if (path.startsWith("/driver/loads") || path.startsWith("/driver/trip/")) {
+    if (path.startsWith("/driver/loads") ||
+        path.startsWith("/driver/trip/") ||
+        path.startsWith("/driver/publish") ||
+        path.startsWith("/driver/track")) {
       return 2;
     }
-    if (path.startsWith("/driver/publish")) return 3;
-    if (path.startsWith("/driver/track")) return 3;
+    if (path.startsWith("/driver/load-board")) return 3;
     if (path.startsWith("/driver/profile") ||
         path.startsWith("/driver/earnings") ||
         path.startsWith("/driver/payout")) {
@@ -1417,9 +1426,15 @@ class _OfficeHomeState extends State<_OfficeHome> {
             NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
         children: [
           // A web browser cannot pull down, so Refresh is a button too, as on a driver's Home.
-          Align(
-              alignment: Alignment.centerRight,
-              child: NvRefreshButton(loading: _loading, onPressed: _load)),
+          Row(children: [
+            if (AuthorizationSession.can("trip.publish"))
+              NvButton(
+                  label: "Add trip",
+                  kind: NvButtonKind.secondary,
+                  onPressed: () => _open("/driver/publish")),
+            const Spacer(),
+            NvRefreshButton(loading: _loading, onPressed: _load),
+          ]),
           const SizedBox(height: NvSpace.s2),
           ...content,
         ],
@@ -2570,6 +2585,10 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
   bool _loaded = false;
   String? _error;
   _TripGroup _shown = _TripGroup.open;
+  GoRouter? _router;
+  bool _wasShown = false;
+  // A load already running may have started before the trip was added, so it runs once more after.
+  bool _reloadWhenDone = false;
   // Matches the town a trip leaves from or goes to.
   final _townWords = TextEditingController();
   bool _showPast = false;
@@ -2581,10 +2600,41 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
     _load();
   }
 
+  // Add trip opens over this screen and, once the trip is added, goes back to /driver/loads. That keeps
+  // this screen as it was under the form, so it loads again whenever it is the top page again.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final router = GoRouter.maybeOf(context);
+    if (router == _router) return;
+    _router?.routerDelegate.removeListener(_routeChanged);
+    _router = router?..routerDelegate.addListener(_routeChanged);
+    _wasShown = _shownNow;
+  }
+
+  // The top page, not the address: a pushed page leaves the address as it was.
+  bool get _shownNow =>
+      _router?.routerDelegate.currentConfiguration.lastOrNull
+          ?.matchedLocation ==
+      "/driver/loads";
+
+  void _routeChanged() {
+    final shown = _shownNow;
+    if (shown && !_wasShown) {
+      if (_loading) {
+        _reloadWhenDone = true;
+      } else {
+        _load();
+      }
+    }
+    _wasShown = shown;
+  }
+
   void _townWordsChanged() => setState(() {});
 
   @override
   void dispose() {
+    _router?.routerDelegate.removeListener(_routeChanged);
     _townWords.dispose();
     super.dispose();
   }
@@ -2629,6 +2679,10 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
       if (mounted) setState(() => _error = _listLoadFailedWords("trips", e));
     } finally {
       if (mounted) setState(() => _loading = false);
+      if (mounted && _reloadWhenDone) {
+        _reloadWhenDone = false;
+        _load();
+      }
     }
   }
 
@@ -2659,8 +2713,8 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
 
   Future<void> _open(Map<String, dynamic> trip) async {
     await context.push("/driver/trip/${trip["id"]}/active");
-    // Assigning or starting there moves the trip between groups.
-    if (mounted) _load();
+    // Assigning or starting there moves the trip between groups. Coming back may have started a load already.
+    if (mounted && !_loading) _load();
   }
 
   String? _truckAndDriverWords(Map<String, dynamic> trip) {
@@ -2733,6 +2787,17 @@ class _DriverLoadsScreenState extends State<DriverLoadsScreen> {
         padding: const EdgeInsets.fromLTRB(
             NvSpace.gutter, 0, NvSpace.gutter, NvSpace.s6),
         children: [
+          if (AuthorizationSession.can("trip.publish") &&
+              DriverSession.carrierRole != "DRIVER") ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: NvButton(
+                  label: "Add trip",
+                  kind: NvButtonKind.secondary,
+                  onPressed: () => context.push("/driver/publish")),
+            ),
+            const SizedBox(height: NvSpace.s3),
+          ],
           NvChoiceChips<_TripGroup>(
             options: const [
               NvChoice(_TripGroup.open, "Open"),
@@ -3167,6 +3232,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             // Owners only: dispatchers and drivers never see bank details or payments (spec: ca-profile).
             if (_seesPaymentAmounts) ...[gap, _bankDetails()],
             if (DriverSession.canInviteDrivers) ...[gap, _team()],
+            if (seesLoadBoard()) ...[gap, const LoadAlertsSwitch()],
           ] else ...[
             _aboutYou(phone),
             gap,
@@ -5476,13 +5542,16 @@ String _publishDraftOwner() =>
     "${AuthorizationSession.identityGeneration}:${AuthorizationSession.scopeKey}";
 
 /// ca-publish: every field starts empty (or as left on another tab), the truck size is a choice, and Publish stays
-/// visible at the bottom.
+/// visible at the bottom. With [forLoad] it is a trip for a posted load: filled in from the load, kept apart from the
+/// draft, and sent with the load's id and no places, since the server sets the trip's towns and ends from the load.
 class DriverPublishTripScreen extends StatefulWidget {
   const DriverPublishTripScreen(
       {super.key,
+      this.forLoad,
       this.findPlace = GoogleGeocodingService.forwardAddress,
       this.namePin = GoogleGeocodingService.reverseLatLng});
 
+  final LoadForTrip? forLoad;
   final PlaceFinder findPlace;
   final PinNamer namePin;
 
@@ -5494,6 +5563,7 @@ class DriverPublishTripScreen extends StatefulWidget {
 class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   final _origin = TextEditingController();
   final _dest = TextEditingController();
+  final _mapPins = TwoPlaceMapPins();
   LatLng? _originPos;
   LatLng? _destPos;
   bool _namingOriginPin = false;
@@ -5513,7 +5583,16 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
   void initState() {
     super.initState();
     final draft = _publishDraft;
-    if (draft != null && draft.owner == _draftOwner) {
+    final load = widget.forLoad;
+    if (load != null) {
+      // The leaving days start inside the load's pickup days.
+      final today = _todayInIndia();
+      _firstLeavingDay =
+          load.firstPickupDay.isBefore(today) ? today : load.firstPickupDay;
+      _lastLeavingDay =
+          load.lastPickupDay.isBefore(today) ? null : load.lastPickupDay;
+      _room.text = "${load.weightKgRoundedUp}";
+    } else if (draft != null && draft.owner == _draftOwner) {
       // A draft kept past midnight can hold a day that has gone; the form only checks that one was chosen.
       final today = _todayInIndia();
       bool notGone(DateTime? day) => day != null && !day.isBefore(today);
@@ -5533,22 +5612,26 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
 
   @override
   void dispose() {
-    // A publish still sending may yet land; its draft would let the same trip be sent again.
-    _publishDraft = _published || _submitting || _publishDraftOwner() != _draftOwner
-        ? null
-        : (
-            owner: _draftOwner,
-            from: _origin.text,
-            fromPoint: _originPos,
-            to: _dest.text,
-            toPoint: _destPos,
-            firstLeavingDay: _firstLeavingDay,
-            lastLeavingDay: _lastLeavingDay,
-            truckSize: _truckSize,
-            room: _room.text,
-          );
+    // A publish still sending may yet land; its draft would let the same trip be sent again. A trip for a load
+    // leaves the carrier's own draft as it was.
+    if (widget.forLoad == null) {
+      _publishDraft = _published || _submitting || _publishDraftOwner() != _draftOwner
+          ? null
+          : (
+              owner: _draftOwner,
+              from: _origin.text,
+              fromPoint: _originPos,
+              to: _dest.text,
+              toPoint: _destPos,
+              firstLeavingDay: _firstLeavingDay,
+              lastLeavingDay: _lastLeavingDay,
+              truckSize: _truckSize,
+              room: _room.text,
+            );
+    }
     _origin.dispose();
     _dest.dispose();
+    _mapPins.dispose();
     _room.dispose();
     _form.dispose();
     super.dispose();
@@ -5565,14 +5648,27 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
 
   Future<void> _chooseDay({required bool firstDay}) async {
     final today = _todayInIndia();
-    final earliest = firstDay ? today : (_firstLeavingDay ?? today);
+    // A trip for a load leaves on one of its pickup days: the server refuses any other day.
+    final load = widget.forLoad;
+    final soonest = load != null && load.firstPickupDay.isAfter(today)
+        ? load.firstPickupDay
+        : today;
+    final latest = load?.lastPickupDay ?? today.add(const Duration(days: 365));
+    final earliest = firstDay ? soonest : (_firstLeavingDay ?? soonest);
+    if (latest.isBefore(earliest)) {
+      _showError("The pickup days of this load have passed.");
+      return;
+    }
     final current = firstDay ? _firstLeavingDay : _lastLeavingDay;
     final picked = await showDatePicker(
       context: context,
-      initialDate:
-          current != null && !current.isBefore(earliest) ? current : earliest,
+      initialDate: current != null &&
+              !current.isBefore(earliest) &&
+              !current.isAfter(latest)
+          ? current
+          : earliest,
       firstDate: earliest,
-      lastDate: today.add(const Duration(days: 365)),
+      lastDate: latest,
     );
     if (picked == null || !mounted) return;
     final day = DateTime.utc(picked.year, picked.month, picked.day);
@@ -5591,10 +5687,11 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
 
   /// What is missing before the trip can be published, or null.
   String? _missing() {
-    if (_origin.text.trim().isEmpty || _originPos == null) {
+    final load = widget.forLoad;
+    if (load == null && (_origin.text.trim().isEmpty || _originPos == null)) {
       return "Search for the From place so shippers can find this trip.";
     }
-    if (_dest.text.trim().isEmpty || _destPos == null) {
+    if (load == null && (_dest.text.trim().isEmpty || _destPos == null)) {
       return "Search for the To place so shippers can find this trip.";
     }
     if (_firstLeavingDay == null) {
@@ -5606,6 +5703,9 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
     if (_truckSize == null) return _chooseTruckSizeSentence;
     final room = int.tryParse(_room.text.trim()) ?? 0;
     if (room <= 0) return "Enter the capacity in kg.";
+    if (load != null && room < load.weightKg) {
+      return "The capacity must be at least ${formatKg(load.weightKg)} for this load.";
+    }
     return null;
   }
 
@@ -5635,21 +5735,26 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
           .add(const Duration(days: 1))
           .subtract(india)
           .subtract(const Duration(seconds: 1));
+      final load = widget.forLoad;
       await api.post<Map<String, dynamic>>(
         "/v1/pilot/anchor-trips",
         data: {
           "orgId": orgId,
-          "originCity": _origin.text.trim(),
-          "destCity": _dest.text.trim(),
-          "origin": {
-            "lat": _originPos!.latitude,
-            "lng": _originPos!.longitude,
-            "label": _origin.text.trim()
-          },
-          "destination": {
-            "lat": _destPos!.latitude,
-            "lng": _destPos!.longitude,
-            "label": _dest.text.trim()
+          if (load != null)
+            "postedLoadId": load.id
+          else ...{
+            "originCity": _origin.text.trim(),
+            "destCity": _dest.text.trim(),
+            "origin": {
+              "lat": _originPos!.latitude,
+              "lng": _originPos!.longitude,
+              "label": _origin.text.trim()
+            },
+            "destination": {
+              "lat": _destPos!.latitude,
+              "lng": _destPos!.longitude,
+              "label": _dest.text.trim()
+            },
           },
           "windowStart": formatIstIsoFromUtc(windowStart),
           "windowEnd": formatIstIsoFromUtc(windowEnd),
@@ -5659,12 +5764,14 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
       );
       // Both: the screen may already be gone, having kept the draft, when the publish lands.
       _published = true;
-      _publishDraft = null;
+      if (load == null) _publishDraft = null;
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(tripPublishedMessage());
+      ScaffoldMessenger.of(context).showSnackBar(load == null
+          ? tripPublishedMessage()
+          : const SnackBar(content: Text("Trip added. We told the shipper.")));
       context.go("/driver/loads");
     } catch (e) {
-      if (mounted) _showError(ewayBillErrorSentence(e));
+      if (mounted) _showError(tripForLoadRefusal(e) ?? ewayBillErrorSentence(e));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -5713,51 +5820,57 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
                 NvMessage(_error!, tone: NvMessageTone.problem),
                 gap,
               ],
-              const Text("Shippers can book it once you add it.",
-                  style: NvText.body),
-              gap,
-              // Each map shows once its place has a point, so the form stays short while typing.
-              LocationEndpointEditor(
-                title: "From",
-                hint: "City or area",
-                labelController: _origin,
-                markerId: "pub_origin",
-                markerHue: BitmapDescriptor.hueOrange,
-                position: _originPos ?? pinNotPlacedYet,
-                onPositionChanged: (p) => setState(() => _originPos = p),
-                onPinStale: () => setState(() => _originPos = null),
-                onPinNaming: (naming) =>
-                    setState(() => _namingOriginPin = naming),
-                readOnly: _submitting,
-                showMap: _originPos != null,
-                findPlace: widget.findPlace,
-                namePin: widget.namePin,
-              ),
-              gap,
-              LocationEndpointEditor(
-                title: "To",
-                hint: "City or area",
-                labelController: _dest,
-                markerId: "pub_dest",
-                markerHue: BitmapDescriptor.hueAzure,
-                position: _destPos ?? pinNotPlacedYet,
-                onPositionChanged: (p) => setState(() => _destPos = p),
-                onPinStale: () => setState(() => _destPos = null),
-                onPinNaming: (naming) => setState(() => _namingDestPin = naming),
-                readOnly: _submitting,
-                showMap: _destPos != null,
-                findPlace: widget.findPlace,
-                namePin: widget.namePin,
-              ),
-              if (_originPos != null && _destPos != null) ...[
+              // A trip for a load has no place search: the server sets its towns and ends from the load.
+              if (widget.forLoad case final load?)
+                LoadForTripSummary(load)
+              else ...[
+                const Text("Shippers can book it once you add it.",
+                    style: NvText.body),
                 gap,
-                NvMap(
-                  map: routePreviewMap(
-                      a: _originPos!,
-                      b: _destPos!,
-                      aPinHue: BitmapDescriptor.hueOrange,
-                      bPinHue: BitmapDescriptor.hueAzure),
+                LocationEndpointEditor(
+                  title: "From",
+                  hint: "City or area",
+                  labelController: _origin,
+                  pins: _mapPins,
+                  place: MapPlace.start,
+                  position: _originPos ?? pinNotPlacedYet,
+                  onPositionChanged: (p) => setState(() => _originPos = p),
+                  onPinStale: () => setState(() => _originPos = null),
+                  onPinNaming: (naming) =>
+                      setState(() => _namingOriginPin = naming),
+                  readOnly: _submitting,
+                  findPlace: widget.findPlace,
+                  namePin: widget.namePin,
+                  // The one map below moves this pin even when the box has scrolled off screen.
+                  staysAliveOffScreen: true,
+                ),
+                gap,
+                LocationEndpointEditor(
+                  title: "To",
+                  hint: "City or area",
+                  labelController: _dest,
+                  pins: _mapPins,
+                  place: MapPlace.end,
+                  position: _destPos ?? pinNotPlacedYet,
+                  onPositionChanged: (p) => setState(() => _destPos = p),
+                  onPinStale: () => setState(() => _destPos = null),
+                  onPinNaming: (naming) =>
+                      setState(() => _namingDestPin = naming),
+                  readOnly: _submitting,
+                  findPlace: widget.findPlace,
+                  namePin: widget.namePin,
+                  staysAliveOffScreen: true,
+                ),
+                TwoPlaceMap(
+                  pins: _mapPins,
+                  start: _originPos,
+                  end: _destPos,
+                  startTitle: "From",
+                  endTitle: "To",
                   pinsLabel: "From and To",
+                  failedHelp:
+                      "Your From and To are still set. You can add the trip without the map.",
+                  readOnly: _submitting,
                 ),
               ],
               gap,
@@ -5798,7 +5911,7 @@ class _DriverPublishTripScreenState extends State<DriverPublishTripScreen> {
         child: NvButton(
           label: "Add trip",
           onPressed: namingPin ? null : _submit,
-          disabledReason: namingPin ? "Updating address from pin…" : null,
+          disabledReason: namingPin ? "Waiting for the address at the pin." : null,
           loading: _submitting,
           loadingLabel: "Adding",
           fullWidth: true,
@@ -5856,6 +5969,21 @@ List<RouteBase> driverFlowRoutes() {
             GoRoute(
                 path: "publish",
                 builder: (_, __) => const DriverPublishTripScreen()),
+            GoRoute(
+              path: "load-board",
+              builder: (_, __) => const LoadBoardScreen(),
+              routes: [
+                // The board hands over its load in memory; a reload has none, so it goes back to the board.
+                GoRoute(
+                  path: "trip",
+                  redirect: (_, state) => state.extra is LoadForTrip
+                      ? null
+                      : "/driver/load-board",
+                  builder: (_, state) => DriverPublishTripScreen(
+                      forLoad: state.extra as LoadForTrip),
+                ),
+              ],
+            ),
             GoRoute(
                 path: "track", builder: (_, __) => const DriverTrackScreen()),
             GoRoute(

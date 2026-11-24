@@ -99,7 +99,7 @@ export class ApiError extends Error {
 }
 
 /** Upper bound for any load weight or truck and trip capacity; far above what one truck carries. */
-const MAX_WEIGHT_KG = 100_000;
+export const MAX_WEIGHT_KG = 100_000;
 
 /** A load weight or capacity: a finite number above zero, at most MAX_WEIGHT_KG. NaN and text fail here. */
 function weightKgInRange(kg: unknown): boolean {

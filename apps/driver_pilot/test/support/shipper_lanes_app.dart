@@ -4,6 +4,8 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:driver_pilot/authorization_session.dart';
+import 'package:driver_pilot/load_board/my_loads.dart';
+import 'package:driver_pilot/load_board/post_a_load.dart';
 import 'package:driver_pilot/location_editor.dart';
 import 'package:driver_pilot/shipper/book_a_lane.dart';
 import 'package:driver_pilot/shipper/find_a_lane.dart';
@@ -23,6 +25,8 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'mock_api.dart';
+
+export 'one_map.dart';
 
 /// A lane with no town pins, so Book's 15 km rule leaves the synthetic places where they are, as the
 /// server does for such a trip. Tests of the rule add the pins (shipper_book_far_pin_test.dart).
@@ -79,19 +83,12 @@ Future<void> searchPlace(
     WidgetTester tester, String title, String words) async {
   await tester.enterText(placeField(title), words);
   final search = find.descendant(
-      of: placeBox(title), matching: find.byTooltip('Search for place'));
+      of: placeBox(title), matching: find.byTooltip('Search for ${title.toLowerCase()}'));
   await tester.ensureVisible(search);
   await tester.pumpAndSettle();
   await tester.tap(search);
   await tester.pumpAndSettle();
 }
-
-/// The map pin inside the place box titled [title].
-Marker pinIn(WidgetTester tester, String title) => tester
-    .widget<GoogleMap>(
-        find.descendant(of: placeBox(title), matching: find.byType(GoogleMap)))
-    .markers
-    .single;
 
 /// Lets requests that are answered run while one is still waiting; pumpAndSettle would wait
 /// forever on the waiting button's progress ring.
@@ -159,6 +156,11 @@ Future<FakeServer> showShipperApp(WidgetTester tester, String start,
                   findPlace: findPlace,
                   namePin: namePin,
                   mapsApiKey: mapsApiKey)),
+          GoRoute(
+              path: 'post-load',
+              builder: (_, state) =>
+                  PostALoadScreen(search: state.extra as LoadToPost)),
+          GoRoute(path: 'loads', builder: (_, __) => const MyLoadsScreen()),
           GoRoute(
               path: 'shipments',
               builder: (_, __) => const Text('Shipments list')),
