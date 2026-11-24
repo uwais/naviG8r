@@ -48,7 +48,8 @@ jobs:
 
   test:
     name: Repository Tests
-    runs-on: ubuntu-latest
+    # Pinned (all jobs here): Playwright cannot install chromium on Ubuntu 26.04, now ubuntu-latest.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -86,7 +87,7 @@ jobs:
   build:
     name: Build and Publish Images
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     outputs:
       api_digest: ${{ steps.api.outputs.digest }}
@@ -152,7 +153,7 @@ jobs:
   deploy-alpha:
     name: Deploy Alpha
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: alpha
       url: https://navig8r-www-alpha.onrender.com
@@ -232,7 +233,7 @@ jobs:
       - build
       - deploy-alpha
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     environment:
       name: beta
@@ -333,7 +334,7 @@ jobs:
       - build
       - deploy-beta
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     environment:
       name: production

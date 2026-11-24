@@ -1,7 +1,9 @@
-// The office's Trips list (ca-trips, PR 7 of the redesign): what each card shows, and that the card is its
-// only tap target.
+// The office's Trips list (ca-trips, PR 7 of the redesign): what each card shows, that the card is its
+// only tap target, where past trips go, and the town search.
 import 'package:driver_pilot/driver_flow.dart';
 import 'package:driver_pilot/driver_session.dart';
+import 'package:driver_pilot/ui/nv_field.dart';
+import 'package:driver_pilot/ui/tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
@@ -33,7 +35,9 @@ void main() {
         (tester) async {
       signInWith(
           Server(allowed: ownerAllowed, trips: trips, bookings: bookings));
-      await mount(tester, const DriverLoadsScreen());
+      // Tall enough that the lazy list builds all three cards under the search box.
+      await mount(tester, const DriverLoadsScreen(),
+          size: const Size(360, 1400));
       for (final chip in ['Open', 'On the way', 'Done']) {
         expect(find.widgetWithText(ChoiceChip, chip), findsOneWidget,
             reason: 'copy.md Trips list chips');
@@ -87,6 +91,143 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Opened /driver/trip/trip-open/active'), findsOneWidget,
           reason: 'the card is its only tap target, and it opens the trip');
+    });
+  });
+
+  group('Trips whose last leaving day has passed', () {
+    // The server marks the trip; the app does no date sums of its own.
+    Map<String, dynamic> ended(Map<String, dynamic> trip) =>
+        {...trip, 'leaveWindowEnded': true};
+    final trips = [
+      tripAt('trip-bookable', reservedKg: 0, startDay: 20),
+      ended(tripAt('trip-past', reservedKg: 0, startDay: 10)),
+      ended(tripAt('trip-ended-booked', reservedKg: 100, startDay: 12)),
+      tripAt('trip-done', status: 'COMPLETED', startDay: 2),
+    ];
+
+    testWidgets(
+        'an open trip with nothing booked leaves Open for Done, as Past; one with bookings stays under Open',
+        (tester) async {
+      signInWith(Server(allowed: ownerAllowed, trips: trips));
+      await mount(tester, const DriverLoadsScreen(),
+          size: const Size(360, 1400));
+      expect(find.text('20 – 21 Oct'), findsOneWidget,
+          reason: 'a trip shippers can still book');
+      expect(find.text('12 – 13 Oct'), findsOneWidget,
+          reason: 'a trip with a booking still has to run');
+      expect(find.text('10 – 11 Oct'), findsNothing,
+          reason: 'Open leaves out a trip nobody can book any more');
+      expect(find.text('Past'), findsNothing);
+      expect(find.text('Show past trips'), findsNothing,
+          reason: 'the switch is for Done, where past trips go');
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Done'));
+      await tester.pumpAndSettle();
+      expect(find.text('2 – 3 Oct'), findsOneWidget,
+          reason: 'finished trips stay in Done');
+      expect(find.text('10 – 11 Oct'), findsNothing,
+          reason: 'past trips are hidden until asked for');
+      expect(
+          tester
+              .widget<SwitchListTile>(
+                  find.widgetWithText(SwitchListTile, 'Show past trips'))
+              .value,
+          isFalse);
+
+      await tester.tap(find.text('Show past trips'));
+      await tester.pumpAndSettle();
+      expect(find.text('10 – 11 Oct'), findsOneWidget);
+      expect(find.text('Past'), findsOneWidget, reason: 'its status word');
+      expect(find.text('2 – 3 Oct'), findsOneWidget);
+    });
+
+    testWidgets(
+        'with only past trips in Done, the empty line says they are hidden and how to see them',
+        (tester) async {
+      signInWith(Server(
+          allowed: ownerAllowed,
+          trips: [ended(tripAt('trip-past', reservedKg: 0, startDay: 10))]));
+      await mount(tester, const DriverLoadsScreen());
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Done'));
+      await tester.pumpAndSettle();
+      expect(
+          find.text(
+              'Past trips are hidden. Turn on Show past trips to see them.'),
+          findsOneWidget);
+    });
+  });
+
+  group('Search towns on Trips', () {
+    final trips = [
+      tripAt('trip-chennai', reservedKg: 0, startDay: 18),
+      {
+        ...tripAt('trip-mysuru', reservedKg: 0, startDay: 20),
+        'originCity': 'Mysuru',
+        'destCity': 'Hassan',
+      },
+    ];
+
+    testWidgets(
+        'matches the town a trip leaves from or goes to, in any case, and says when none match',
+        (tester) async {
+      signInWith(Server(allowed: ownerAllowed, trips: trips));
+      await mount(tester, const DriverLoadsScreen(),
+          size: const Size(360, 1400));
+      expect(find.text('Bengaluru to Chennai'), findsOneWidget);
+      expect(find.text('Mysuru to Hassan'), findsOneWidget);
+
+      final search = find.descendant(
+          of: find.widgetWithText(NvField, 'Search towns'),
+          matching: find.byType(TextField));
+      await tester.enterText(search, 'hass');
+      await tester.pumpAndSettle();
+      expect(find.text('Mysuru to Hassan'), findsOneWidget,
+          reason: 'the town it goes to');
+      expect(find.text('Bengaluru to Chennai'), findsNothing);
+
+      await tester.enterText(search, 'BENGALURU');
+      await tester.pumpAndSettle();
+      expect(find.text('Bengaluru to Chennai'), findsOneWidget,
+          reason: 'the town it leaves from');
+      expect(find.text('Mysuru to Hassan'), findsNothing);
+
+      await tester.enterText(search, 'Pune');
+      await tester.pumpAndSettle();
+      expect(find.text('No trips match these towns.'), findsOneWidget);
+      expect(find.text('Check the town name, or look under another group.'),
+          findsOneWidget);
+    });
+
+    testWidgets(
+        'on a 360 x 640 phone at 200% text the search, the switch and the cards fit, with 48 dp targets',
+        (tester) async {
+      signInWith(Server(allowed: ownerAllowed, trips: [
+        ...trips,
+        {...tripAt('trip-past', reservedKg: 0, startDay: 10), 'leaveWindowEnded': true},
+      ]));
+      await mount(tester, const DriverLoadsScreen(),
+          size: const Size(360, 640), textScale: 2);
+      expect(tester.takeException(), isNull);
+      final search = find.descendant(
+          of: find.widgetWithText(NvField, 'Search towns'),
+          matching: find.byType(TextField));
+      expect(tester.getSize(search).height,
+          greaterThanOrEqualTo(NvSpace.targetMin));
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Done'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final toggle = find.widgetWithText(SwitchListTile, 'Show past trips');
+      await tester.ensureVisible(toggle);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(toggle).height,
+          greaterThanOrEqualTo(NvSpace.targetMin));
+      expect(tester.getSize(toggle).width, lessThanOrEqualTo(360));
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Past'), 200,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Past'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 }

@@ -5,6 +5,13 @@ import "../ui/format.dart";
 const maxWeightKg = 100000;
 const overMaxWeightSentence = "Enter a weight of 100000 kg or less.";
 
+/// The server marks a lane whose last leaving day has passed, by the date in India.
+bool laneLeaveWindowEnded(Map<String, dynamic> lane) =>
+    lane["leaveWindowEnded"] == true;
+
+bool laneTakesBookings(Map<String, dynamic> lane) =>
+    lane["status"]?.toString() == "OPEN" && !laneLeaveWindowEnded(lane);
+
 String laneRoute(Map<String, dynamic> lane) =>
     "${lane["originCity"]} to ${lane["destCity"]}";
 

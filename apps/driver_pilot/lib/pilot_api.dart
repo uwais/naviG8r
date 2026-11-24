@@ -268,6 +268,8 @@ String formatApiError(Object e) {
           "This trip does not have enough capacity for that weight. Enter less weight, or choose another trip.",
       "anchor_trip_not_open":
           "This trip is no longer taking bookings. Choose another trip.",
+      "anchor_trip_leave_window_ended":
+          "The last day this trip can leave has passed. Choose another trip.",
       "address_too_long": "That address is too long. Shorten it.",
       "checkout_not_completed_for_accept":
           "The shipper has not finished paying for this booking yet. You can accept it once they do.",

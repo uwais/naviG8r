@@ -31,8 +31,8 @@ test("booking awaits carrier accept then trip start before live tracking", () =>
     orgId: onboard.org.id,
     originCity: "Gurugram",
     destCity: "Jaipur",
-    windowStart: "2026-04-24T00:00:00+05:30",
-    windowEnd: "2026-04-25T23:59:59+05:30",
+    windowStart: "2099-04-24T00:00:00+05:30",
+    windowEnd: "2099-04-25T23:59:59+05:30",
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });
@@ -79,8 +79,8 @@ test("POD on last booking auto-completes IN_PROGRESS trip", () => {
     orgId: onboard.org.id,
     originCity: "Gurugram",
     destCity: "Jaipur",
-    windowStart: "2026-04-24T00:00:00+05:30",
-    windowEnd: "2026-04-25T23:59:59+05:30",
+    windowStart: "2099-04-24T00:00:00+05:30",
+    windowEnd: "2099-04-25T23:59:59+05:30",
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });
@@ -119,8 +119,8 @@ test("completeAnchorTripAsPilot requires all shipments POD'd", () => {
     orgId: onboard.org.id,
     originCity: "Gurugram",
     destCity: "Jaipur",
-    windowStart: "2026-04-24T00:00:00+05:30",
-    windowEnd: "2026-04-25T23:59:59+05:30",
+    windowStart: "2099-04-24T00:00:00+05:30",
+    windowEnd: "2099-04-25T23:59:59+05:30",
     vehicleClass: "MEDIUM",
     capacityKg: 1000,
   });

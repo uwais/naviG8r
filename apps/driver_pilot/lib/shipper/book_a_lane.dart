@@ -44,6 +44,9 @@ String _apiErrorCode(Object error) {
   return body is Map ? body["error"]?.toString() ?? "" : "";
 }
 
+/// Refusals that mean the trip itself stopped taking bookings: the screen reloads it and says so.
+const _tripClosedCodes = {"anchor_trip_not_open", "anchor_trip_leave_window_ended"};
+
 const _couldNotPrice =
     "Could not get a price. Check your connection, then try again.";
 
@@ -265,7 +268,7 @@ class _CustomerBookShipmentScreenState
     });
     final lane = _lane;
     if (lane == null ||
-        lane["status"]?.toString() != "OPEN" ||
+        !laneTakesBookings(lane) ||
         weightKg == null ||
         weightKg <= 0 ||
         weightKg > maxWeightKg ||
@@ -463,7 +466,7 @@ class _CustomerBookShipmentScreenState
       final code = _apiErrorCode(error);
       if (code == "insufficient_capacity") {
         _showTooHeavy();
-      } else if (code == "anchor_trip_not_open") {
+      } else if (_tripClosedCodes.contains(code)) {
         setState(() => _quote = null);
       } else if (code == "phase_a_not_eligible") {
         final refusal = farPinsRefusal(_apiErrorBody(error),
@@ -479,9 +482,11 @@ class _CustomerBookShipmentScreenState
       }
       // The room shown is from when the screen opened; after a room refusal, show what is left now. After a
       // pins refusal the trip's town pins may have moved, so its rule here follows.
-      if (const ["insufficient_capacity", "anchor_trip_not_open", "phase_a_not_eligible"]
-          .contains(code)) {
-        unawaited(_loadLane(priceAfter: code == "anchor_trip_not_open"));
+      final tripClosed = _tripClosedCodes.contains(code);
+      if (tripClosed ||
+          code == "insufficient_capacity" ||
+          code == "phase_a_not_eligible") {
+        unawaited(_loadLane(priceAfter: tripClosed));
       }
     } finally {
       if (mounted && !checkoutOpened) setState(() => _booking = false);
@@ -514,7 +519,7 @@ class _CustomerBookShipmentScreenState
   @override
   Widget build(BuildContext context) {
     final lane = _lane;
-    final laneOpen = lane != null && lane["status"]?.toString() == "OPEN";
+    final laneOpen = lane != null && laneTakesBookings(lane);
     // On a desktop the price and Book and pay sit together in the side column (wb-book).
     final desktop = customerIsDesktop(context);
     final priceCard = laneOpen && _pricePaise != null

@@ -109,7 +109,7 @@ void main() {
 
   group('Book a trip', () {
     testWidgets(
-        'Browse shows lane cards with route, carrier, size and room left, unsorted',
+        'Browse shows lane cards with route, carrier, size and room left, soonest to leave first',
         (tester) async {
       final server = await showShipperApp(tester, '/customer/trips');
       server.answer('/anchor-trips', {
@@ -129,10 +129,10 @@ void main() {
           reason: 'copy.md: lanes sub');
       expect(
           find.text(
-              'All trips, not by distance. For the closest, use Search by route.'),
+              'All trips, soonest to leave first, not by distance. For the closest, use Search by route.'),
           findsOneWidget,
           reason:
-              'copy.md: Browse is not ranked and says so; it lists full and finished lanes too (RECON gap 19), so it never says "open"');
+              'Browse is ordered only by date, never ranked, and says so; it lists full and finished lanes too (RECON gap 19), so it never says "open"');
       expect(find.text('Bengaluru to Chennai'), findsOneWidget,
           reason: 'copy.md: lane card route');
       expect(find.text('Ravi Roadways · Medium truck'), findsOneWidget,
@@ -155,6 +155,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Book this trip'), findsOneWidget,
           reason: 'a lane card opens Book for that lane');
+    });
+
+    testWidgets(
+        'Browse leaves out a trip whose last leaving day has passed, which the server keeps only for naming shipments',
+        (tester) async {
+      final server = await showShipperApp(tester, '/customer/trips');
+      server.answer('/anchor-trips', {
+        'trips': [
+          lane(),
+          {...lane(id: 'lane-old', to: 'Mysuru'), 'leaveWindowEnded': true},
+        ]
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Bengaluru to Chennai'), findsOneWidget);
+      expect(find.text('Bengaluru to Mysuru'), findsNothing);
     });
 
     testWidgets(
