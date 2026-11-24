@@ -194,7 +194,7 @@ test("a photo can be removed before delivery is confirmed, not after; a driver c
   assert.equal((await photo(f, id, second, f.tokens.shipperA)).status, 200, "the shipper sees it once delivery is confirmed");
 
   // On a trip of its own: the first trip has started, so it takes no more bookings.
-  const secondTrip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2026-09-16", windowEnd: "2026-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
+  const secondTrip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: "2099-09-16", windowEnd: "2099-09-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
   const assisted = (await f.book(f.tokens.shipperA, { anchorTripId: secondTrip.id })).body.shipment.id as string;
   assert.equal((await f.request(`/v1/pilot/carrier/shipments/${assisted}/accept`, "POST", {}, f.tokens.carrierA)).status, 200);
   startTestTrip(f.store, assisted);
@@ -257,7 +257,7 @@ async function fourDeliveriesWaitingForPhotos(t: TestContext) {
   const deliveries: { id: string; token: string }[] = [];
   for (const n of [1, 2, 3, 4]) {
     const driver = await hireDriver(f, `800000003${n}`, `Synthetic Driver ${n}`, `KA0${n}CD123${n}`);
-    const trip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: `2026-10-${10 + 2 * n}`, windowEnd: `2026-10-${11 + 2 * n}`, vehicleClass: "MEDIUM", capacityKg: 1000 });
+    const trip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "A", destCity: "B", windowStart: `2099-10-${10 + 2 * n}`, windowEnd: `2099-10-${11 + 2 * n}`, vehicleClass: "MEDIUM", capacityKg: 1000 });
     assert.equal((await f.request(`/v1/pilot/anchor-trips/${trip.id}/assignment`, "POST", { vehicleId: driver.vehicleId, driverUserId: driver.userId }, f.tokens.carrierA)).status, 200);
     const booking = await f.book(f.tokens.shipperA, { anchorTripId: trip.id });
     assert.equal(booking.status, 201);

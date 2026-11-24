@@ -173,6 +173,22 @@ void main() {
       expect(find.text('Ask NaviG8r to cancel'), findsOneWidget);
       expect(find.text('Cancel this trip'), findsNothing);
     });
+
+    testWidgets(
+        'a past trip, its last leaving day gone and nothing booked, is closed the same way in one call',
+        (tester) async {
+      final server = _TripServer(trip: {
+        ...tripAt('trip-a', reservedKg: 0),
+        'leaveWindowEnded': true,
+      }).signIn();
+      await _openTrip(tester);
+      await _tapText(tester, 'Cancel this trip');
+      await _tapText(tester, 'Cancel trip');
+      expect(server.paths, ['/v1/pilot/anchor-trips/trip-a/cancel'],
+          reason: 'one request, with no NaviG8r review');
+      expect(find.text(_cancelled), findsOneWidget);
+      expect(find.text('Cancelled'), findsOneWidget);
+    });
   });
 
   group('Ask NaviG8r to cancel (bookings)', () {

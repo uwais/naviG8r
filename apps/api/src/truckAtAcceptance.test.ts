@@ -144,7 +144,7 @@ test("the shipper's shipments carry the carrier's transporter ID from acceptance
   assert.equal("carrierTransporterId" in (await get(`/shipments/${id}`, f.tokens.shipperA)).body.shipment, false, "gone once the driver confirms delivery");
 
   // A carrier with no transporter ID: the field is left out, not sent empty.
-  const tripOfCarrierB = publishAnchorTrip(f.store, { carrierId: f.carrierB.org.id, originCity: "C", destCity: "D", windowStart: "2026-10-16", windowEnd: "2026-10-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
+  const tripOfCarrierB = publishAnchorTrip(f.store, { carrierId: f.carrierB.org.id, originCity: "C", destCity: "D", windowStart: "2099-10-16", windowEnd: "2099-10-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
   const onCarrierB = await f.book(f.tokens.shipperA, { anchorTripId: tripOfCarrierB.id });
   assert.equal(onCarrierB.status, 201);
   const onCarrierBId = onCarrierB.body.shipment.id as string;
@@ -220,7 +220,7 @@ test("a vehicleId is ignored when the trip already names a truck, and when the c
 
   // A trip that names the driver and no truck yet. Accepting on a started trip is refused (owner, 23 Oct 2026),
   // so this is no longer a legacy trip the driver started.
-  const driverOnlyTrip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "C", destCity: "D", windowStart: "2026-10-16", windowEnd: "2026-10-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
+  const driverOnlyTrip = publishAnchorTrip(f.store, { carrierId: f.carrierA.org.id, originCity: "C", destCity: "D", windowStart: "2099-10-16", windowEnd: "2099-10-17", vehicleClass: "MEDIUM", capacityKg: 1000 });
   const onDriverOnlyTrip = (await f.book(f.tokens.shipperA, { anchorTripId: driverOnlyTrip.id })).body.shipment.id as string;
   f.store.anchorTrips.set(driverOnlyTrip.id, { ...f.store.anchorTrips.get(driverOnlyTrip.id)!, assignedDriverUserId: staff.driverUserId });
   const byDriver = await accept(f, onDriverOnlyTrip, { vehicleId: staff.driverTruckId }, staff.driverToken);

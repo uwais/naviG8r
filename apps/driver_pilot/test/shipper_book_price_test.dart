@@ -291,6 +291,24 @@ void main() {
           reason: 'no price for a lane that takes no bookings');
     });
 
+    testWidgets(
+        'an open lane whose last leaving day has passed says so instead of offering a price',
+        (tester) async {
+      final server =
+          await showShipperApp(tester, '/customer/book?anchorTripId=lane-1');
+      server.answer('/anchor-trips/lane-1',
+          {'trip': {...lane(), 'leaveWindowEnded': true}});
+      await tester.pumpAndSettle();
+      expect(
+          find.text(
+              'This trip is no longer taking bookings. Choose another trip.'),
+          findsOneWidget,
+          reason: 'a link to an old trip still opens it');
+      expect(find.textContaining('Book and pay'), findsNothing);
+      expect(server.countOf('/shipments/quote'), 0,
+          reason: 'no price is asked for');
+    });
+
     testWidgets('the price state fits 360 dp at 200% text', (tester) async {
       tester.platformDispatcher.textScaleFactorTestValue = 2;
       addTearDown(tester.platformDispatcher.clearAllTestValues);
