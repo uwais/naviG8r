@@ -231,7 +231,7 @@ export function dashboardList(
   };
 }
 
-function reason() {
+export function reason() {
   if (
     !/^[A-Z][A-Z0-9_]{2,63}$/.test(
       authorizationContext.getStore()?.reason ?? "",
