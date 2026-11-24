@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { validatePayoutBankDetails } from "./bankAccountValidation.ts";
 import { checkTransporterId } from "./transporterIdValidation.ts";
-import { assertAdminRemains, authorizationContext, AuthorizationError, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible, type Principal } from "./rbac.ts";
+import { assertAdminRemains, authorizationContext, AuthorizationError, legacyRoles, principalFor, resolvePrincipal, requirePermission, requireAssistance, recordAudit, paymentReady, visible, type Principal } from "./rbac.ts";
 import { computePayoutBatchAssignment } from "../../../packages/core/src/payoutSchedule.ts";
 import {
   COMMISSION_BPS,
@@ -431,13 +431,18 @@ export function opsAdminPhoneKeysFromEnv(env: NodeJS.ProcessEnv = process.env): 
 }
 
 /**
- * Makes a listed phone's user a platform admin at sign-in, once. Any platform row or role history the user
+ * Makes a listed phone's user a platform admin at sign-in, once, while no admin exists. Any platform row or role history the user
  * already has is left as it is, so an admin revoked on the admin page stays revoked while still listed.
  */
 export function grantOpsAdminFromList(store: Store, userId: string, listedPhoneKeys: ReadonlySet<string>): boolean {
   const user = store.users.get(userId);
   if (!user || !listedPhoneKeys.has(phoneKeyForUser(user))) return false;
   const org = getOrCreatePlatformOpsOrg(store);
+  // The list only bootstraps: once any admin exists, more admins are added on the admin page by that admin.
+  const anAdminExists = [...store.memberships.values()].some((m) =>
+    m.orgId === org.id && isActiveEntity(m) && isActiveEntity(store.users.get(m.userId)) &&
+    (store.membershipRoles.get(membershipKey(m.userId, m.orgId)) ?? legacyRoles(m, org)).includes("ADMIN"));
+  if (anAdminExists) return false;
   const key = membershipKey(user.id, org.id);
   // revokeOpsAdmin deletes the row, so its audit entry is the only trace that this user was an admin before.
   // Trimming or archiving audit events would make a revoked, still-listed admin an admin again.

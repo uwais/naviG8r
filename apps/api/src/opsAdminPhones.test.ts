@@ -8,6 +8,7 @@ import { createApp } from "./httpServer.ts";
 import { setFirebaseTokenVerifierForTests } from "./auth.ts";
 import { loadStoreFromDisk } from "./persistence.ts";
 import { createStore, type Store } from "./store.ts";
+import { authorizationContext, recordAudit } from "./rbac.ts";
 import { grantOpsAdminFromList, isOpsAdmin, opsAdminPhoneKeysFromEnv, registerCustomerOrgAdmin } from "./services.ts";
 
 const PLATFORM_ORG = "org_platform_ops";
@@ -194,13 +195,36 @@ test("a user who signed up before their number was listed becomes admin on the n
   await assertSignedInAsPlatformAdmin(after, signedIn.accessToken, userId);
 });
 
+test("the list only makes the first admin: once an admin exists, another listed number gets nothing", async (t) => {
+  const app = await startApp(t, `+1${US_PHONE},+1${US_PHONE_TWO}`, await tempDataFile(t));
+  await app.register(US_PHONE, "+1");
+  const laterUserId = await app.register(US_PHONE_TWO, "+1");
+  assert.equal((await app.otpSignIn(US_PHONE, "+1")).isOpsAdmin, true);
+  assert.equal((await app.otpSignIn(US_PHONE_TWO, "+1")).isOpsAdmin, false);
+  assert.equal((await app.firebaseSignIn(`+1${US_PHONE_TWO}`, "later-listed-token")).isOpsAdmin, false);
+  const record = platformRecord(app.store, laterUserId);
+  assert.equal(record.membershipCount, 0);
+  assert.equal(record.audits.length, 0);
+});
+
+test("with no admin left, a listed number whose platform row was removed before is still not re-granted", () => {
+  const listed = new Set(["+1:2025550143"]);
+  const store = createStore();
+  store.organizations.set(PLATFORM_ORG, { id: PLATFORM_ORG, kind: "PLATFORM", displayName: "Platform", kycStatus: "APPROVED", createdAtUtcMs: 1 });
+  store.users.set("usr_removed", { id: "usr_removed", phone: "2025550143", countryCode: "+1", fullName: "Synthetic", createdAtUtcMs: 1 });
+  authorizationContext.run({ requestId: "test", system: true, systemActor: "system:test" }, () =>
+    recordAudit(store, "ROLE_REMOVED", "membership", `usr_removed:${PLATFORM_ORG}`, "ADMIN,OPS", "ABSENT", "STAFF_LEFT"));
+  assert.equal(grantOpsAdminFromList(store, "usr_removed", listed), false);
+  assert.equal(store.memberships.size, 0);
+});
+
 test("an admin revoked on the admin page stays revoked while the number is still listed, on both sign-in paths", async (t) => {
   const app = await startApp(t, `+1${US_PHONE},+1${US_PHONE_TWO}`, await tempDataFile(t));
   await app.register(US_PHONE, "+1");
   const revokedUserId = await app.register(US_PHONE_TWO, "+1");
   const keeper = await app.otpSignIn(US_PHONE, "+1");
-  const revoked = await app.otpSignIn(US_PHONE_TWO, "+1");
-  assert.equal(revoked.isOpsAdmin, true);
+  const added = await app.request("/v1/ops-admins", "POST", { phone: US_PHONE_TWO, countryCode: "+1" }, keeper.accessToken);
+  assert.equal(added.status, 201);
 
   const revoke = await app.request(`/v1/ops-admins/${US_PHONE_TWO}?countryCode=%2B1`, "DELETE", undefined, keeper.accessToken);
   assert.equal(revoke.status, 200);
