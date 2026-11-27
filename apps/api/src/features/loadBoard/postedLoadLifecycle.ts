@@ -1,8 +1,9 @@
 /**
  * What happens to a posted load after it is posted (owner, 4 Nov 2026). It is BOOKED when its own shipper company books
- * a route made for it; a booking by anyone else leaves it alone. If that booking then fails or is not paid in time, it
- * goes back on the board while its pickup window is still open. After its latest pickup day it is EXPIRED.
- * Nobody is alerted by any of this: the other carriers just stop seeing it.
+ * a route made for it; a booking by anyone else leaves it alone. If that booking then fails or is not paid in time, and
+ * the company has no other live booking on a route made for this load, it goes back on the board while its pickup window
+ * is still open. Another live booking keeps it BOOKED, and My loads opens that shipment instead. After its latest pickup
+ * day, with no live booking, it is EXPIRED. Nobody is alerted by any of this: the other carriers just stop seeing it.
  */
 import { randomUUID } from "node:crypto";
 import { authorizationContext, recordAudit } from "../../rbac.ts";
@@ -28,22 +29,53 @@ function bookingFell(store: Store, load: PostedLoad): boolean {
 }
 
 /**
- * Expires open loads past their pickup window, and reopens or expires a booked load whose booking fell through. The
- * HTTP server runs this before every request, right after the unpaid-booking expiry, so no timer is needed.
- * Returns how many loads changed.
+ * The posting company's earliest live booking on a route made for this load. A second trip booked from Book a trip,
+ * after My loads already recorded the first, is still a booking of this load (owner, 4 Nov 2026). Another company's
+ * booking of the same trip is not.
+ */
+function liveBooking(store: Store, load: PostedLoad): { shipmentId: string; bookedAtUtcMs: number } | undefined {
+  const tripIds = new Set(load.routes.map((route) => route.tripId));
+  let chosen: Shipment | undefined;
+  for (const shipment of store.shipments.values()) {
+    if (shipment.customerOrgId !== load.shipperOrgId || !tripIds.has(shipment.anchorTripId)) continue;
+    if (!isActiveEntity(shipment) || shipment.status === "FAILED_CARRIER_REFUNDED") continue;
+    const earlier = chosen == null || shipment.createdAtUtcMs < chosen.createdAtUtcMs
+      || (shipment.createdAtUtcMs === chosen.createdAtUtcMs && shipment.id < chosen.id);
+    if (earlier) chosen = shipment;
+  }
+  return chosen ? { shipmentId: chosen.id, bookedAtUtcMs: chosen.createdAtUtcMs } : undefined;
+}
+
+function auditSweep(store: Store, action: string, loadId: string, previousState: string | undefined, newState: string): void {
+  const requestId = authorizationContext.getStore()?.requestId ?? randomUUID();
+  authorizationContext.run({ requestId, system: true, systemActor: "system:posted-load-sweep" }, () =>
+    recordAudit(store, action, "posted_load", loadId, previousState, newState));
+}
+
+/**
+ * Expires open loads past their pickup window, and reopens or expires a booked load whose booking fell through and
+ * whose company has no other live booking on a route made for it. The HTTP server runs this before every request,
+ * right after the unpaid-booking expiry, so no timer is needed. Returns how many loads changed.
  */
 export function sweepPostedLoads(store: Store, nowUtcMs = Date.now()): number {
   let changed = 0;
   for (const load of store.postedLoads.values()) {
     const fell = load.state === "BOOKED" && bookingFell(store, load);
+    if (fell) {
+      const kept = liveBooking(store, load);
+      if (kept) {
+        store.postedLoads.set(load.id, { ...load, booking: kept });
+        auditSweep(store, "POSTED_LOAD_BOOKING_KEPT", load.id, load.booking?.shipmentId, kept.shipmentId);
+        changed++;
+        continue;
+      }
+    }
     if (load.state !== "OPEN" && !fell) continue;
     if (load.state === "OPEN" && !pickupWindowPassed(load, nowUtcMs)) continue;
     const { booking: _booking, closedAtUtcMs: _closedAt, ...rest } = load;
     const next: PostedLoad = pickupWindowPassed(load, nowUtcMs) ? { ...rest, state: "EXPIRED", closedAtUtcMs: nowUtcMs } : { ...rest, state: "OPEN" };
     store.postedLoads.set(load.id, next);
-    const requestId = authorizationContext.getStore()?.requestId ?? randomUUID();
-    authorizationContext.run({ requestId, system: true, systemActor: "system:posted-load-sweep" }, () =>
-      recordAudit(store, next.state === "OPEN" ? "POSTED_LOAD_REOPENED" : "POSTED_LOAD_EXPIRED", "posted_load", load.id, load.state, next.state));
+    auditSweep(store, next.state === "OPEN" ? "POSTED_LOAD_REOPENED" : "POSTED_LOAD_EXPIRED", load.id, load.state, next.state);
     changed++;
   }
   return changed;
