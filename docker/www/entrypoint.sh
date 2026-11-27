@@ -4,7 +4,8 @@ set -eu
 cat > /usr/share/nginx/html/runtime-config.js <<EOF
 window.__NAVI8R_CONFIG__ = {
   TURNSTILE_SITE_KEY: "${VITE_TURNSTILE_SITE_KEY:-}",
-  PORTAL_URL: "${PORTAL_URL:-}"
+  PORTAL_URL: "${PORTAL_URL:-}",
+  FORMSPREE_FORM_ID: "${FORMSPREE_FORM_ID:-${VITE_FORMSPREE_FORM_ID:-}}"
 };
 EOF
 

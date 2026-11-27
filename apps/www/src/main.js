@@ -1,16 +1,29 @@
-const CONTACT_ENDPOINT = "https://formsubmit.co/ajax/7eadc0879f93ea0c161305caca38dbf2";
 const runtimeConfig = window.__NAVI8R_CONFIG__ || {};
 const TURNSTILE_SITE_KEY = String(
   runtimeConfig.TURNSTILE_SITE_KEY ||
-  import.meta.env.VITE_TURNSTILE_SITE_KEY ||
-  ""
+    import.meta.env.VITE_TURNSTILE_SITE_KEY ||
+    "",
 ).trim();
 const PORTAL_URL = String(
-  runtimeConfig.PORTAL_URL ||
-  "https://navig8r-customer.onrender.com/"
+  runtimeConfig.PORTAL_URL || "https://navig8r-customer.onrender.com/",
+).trim();
+// FormSubmit is currently in a multi-day Cloudflare 522 outage (Nov 2026).
+// Contact posts to Formspree instead. Form ID is not secret; set via runtime
+// env on Render (FORMSPREE_FORM_ID) or Vite build (VITE_FORMSPREE_FORM_ID).
+const FORMSPREE_FORM_ID = String(
+  runtimeConfig.FORMSPREE_FORM_ID ||
+    import.meta.env.VITE_FORMSPREE_FORM_ID ||
+    "",
 ).trim();
 
 const MIN_INTERACTION_MS = 1600;
+
+function contactEndpoint() {
+  if (!FORMSPREE_FORM_ID) return "";
+  const id = FORMSPREE_FORM_ID.replace(/^\/+/, "");
+  if (id.startsWith("http")) return id;
+  return `https://formspree.io/f/${id}`;
+}
 
 function qs(sel, root = document) {
   return root.querySelector(sel);
@@ -257,62 +270,81 @@ async function initContactHuman() {
   const mount = qs("[data-contact-human]");
   const label = qs("[data-contact-human-label]", mount || document);
   const turnstileEl = qs("[data-turnstile-contact]", mount || document);
-  if (!TURNSTILE_SITE_KEY || !turnstileEl) {
-    return { mode: "formsubmit" };
+  const fallbackEl = qs("[data-fallback-challenge]", mount || document);
+
+  if (TURNSTILE_SITE_KEY && turnstileEl) {
+    try {
+      const api = await loadTurnstile();
+      if (api) {
+        let token = "";
+        const widgetId = createTurnstileWidget(api, turnstileEl, {
+          onToken: (value) => {
+            token = value;
+          },
+        });
+        if (label) label.textContent = "Human check — required before send";
+        if (fallbackEl) fallbackEl.hidden = true;
+        return {
+          mode: "turnstile",
+          getProof: async () => {
+            if (!token) {
+              return { ok: false, reason: "Complete the human verification checkbox." };
+            }
+            return { ok: true, method: "turnstile", token };
+          },
+          reset: () => {
+            token = "";
+            if (widgetId != null && window.turnstile) window.turnstile.reset(widgetId);
+          },
+        };
+      }
+    } catch (err) {
+      console.warn(err);
+    }
   }
 
-  try {
-    const api = await loadTurnstile();
-    if (!api) return { mode: "formsubmit" };
-    let token = "";
-    const widgetId = createTurnstileWidget(api, turnstileEl, {
-      onToken: (value) => {
-        token = value;
-      },
-    });
-    if (label) {
-      label.textContent = "Human check — required before send";
-    }
+  if (fallbackEl) {
+    mountFallbackChallenge(fallbackEl, "contact");
     return {
-      mode: "turnstile",
-      getProof: async () => {
-        if (!token) {
-          return { ok: false, reason: "Complete the human verification checkbox." };
-        }
-        return { ok: true, method: "turnstile", token };
-      },
-      reset: () => {
-        token = "";
-        if (widgetId != null && window.turnstile) window.turnstile.reset(widgetId);
-      },
+      mode: "challenge",
+      getProof: async () => readFallbackChallenge(fallbackEl),
+      reset: () => mountFallbackChallenge(fallbackEl, "contact"),
     };
-  } catch (err) {
-    console.warn(err);
-    return { mode: "formsubmit" };
   }
+
+  return {
+    mode: "none",
+    getProof: async () => ({ ok: false, reason: "Human check unavailable." }),
+  };
 }
 
-function initContactForm(contactHuman) {
+function applyContactFormAction(form) {
+  const endpoint = contactEndpoint();
+  if (endpoint) {
+    form.setAttribute("action", endpoint);
+  } else {
+    // Never native-POST to this origin — that silently drops the lead.
+    form.removeAttribute("action");
+  }
+  return endpoint;
+}
+
+/**
+ * Wire the contact form immediately (before Turnstile finishes).
+ * contactHumanPromise resolves when the human-check UI is ready.
+ */
+function initContactForm(contactHumanPromise) {
   const form = qs("[data-contact-form]");
   if (!form) return;
   const status = qs("[data-form-status]", form);
   const submitBtn = qs("[data-submit]", form);
-  const nextField = qs("[data-form-next]", form);
+  const endpoint = applyContactFormAction(form);
   let openedAt = Date.now();
+  let contactHuman = null;
 
-  if (nextField) {
-    const next = new URL(window.location.href);
-    next.searchParams.set("sent", "1");
-    next.hash = "contact";
-    nextField.value = next.toString();
-  }
-
-  if (new URLSearchParams(window.location.search).get("sent") === "1") {
-    status.textContent = "Message sent. We’ll reply at hello@navig8r.org soon.";
-    const clean = new URL(window.location.href);
-    clean.searchParams.delete("sent");
-    window.history.replaceState({}, "", `${clean.pathname}${clean.search}${clean.hash || "#contact"}`);
-  }
+  // Re-enable when we have an endpoint (sync bootstrap may have left it on),
+  // or when JS can show the hello@ upgrade path without a backend.
+  if (submitBtn) submitBtn.disabled = false;
 
   form.addEventListener(
     "focusin",
@@ -326,6 +358,8 @@ function initContactForm(contactHuman) {
   );
 
   form.addEventListener("submit", async (event) => {
+    // Always take over once the module is live — AJAX when configured,
+    // hello@ message when not. Native Formspree only runs if this never loads.
     event.preventDefault();
     status.textContent = "";
     status.classList.remove("is-error");
@@ -349,11 +383,24 @@ function initContactForm(contactHuman) {
       return;
     }
 
-    if (!contactHuman || contactHuman.mode !== "turnstile") {
-      submitBtn.disabled = true;
-      submitBtn.textContent = "Sending…";
-      HTMLFormElement.prototype.submit.call(form);
+    if (!endpoint) {
+      status.textContent =
+        "Contact form is being upgraded. Email us directly at hello@navig8r.org.";
+      status.classList.add("is-error");
       return;
+    }
+
+    if (!contactHuman) {
+      status.textContent = "One moment — finishing the human check…";
+      try {
+        contactHuman = await contactHumanPromise;
+      } catch (err) {
+        console.warn(err);
+        status.textContent =
+          "Couldn’t load the human check. Email us directly at hello@navig8r.org.";
+        status.classList.add("is-error");
+        return;
+      }
     }
 
     const proof = await contactHuman.getProof();
@@ -364,7 +411,6 @@ function initContactForm(contactHuman) {
     }
 
     const data = new FormData(form);
-    data.append("_captcha", "false");
     data.append("human_verification", proof.method);
     if (proof.token) data.append("cf-turnstile-response", proof.token);
 
@@ -373,12 +419,19 @@ function initContactForm(contactHuman) {
     submitBtn.textContent = "Sending…";
 
     try {
-      const res = await fetch(CONTACT_ENDPOINT, {
+      const res = await fetch(endpoint, {
         method: "POST",
         body: data,
         headers: { Accept: "application/json" },
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          (Array.isArray(body.errors) && body.errors.map((e) => e.message).join(" ")) ||
+          body.error ||
+          `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
       form.reset();
       openedAt = Date.now();
       delete form.dataset.touched;
@@ -542,10 +595,14 @@ async function boot() {
   initYear();
   initPortalLinks();
 
-  const contactHuman = await initContactHuman();
+  // Attach the submit handler before awaiting Turnstile so a mid-load click
+  // never native-POSTs to this origin. Form action is also set by the sync
+  // bootstrap in index.html when FORMSPREE_FORM_ID is present.
+  const contactHumanPromise = initContactHuman();
+  initContactForm(contactHumanPromise);
   const humanGate = initHumanGate();
-  initContactForm(contactHuman);
   initPortalGate(humanGate);
+  await contactHumanPromise;
 }
 
 boot();
