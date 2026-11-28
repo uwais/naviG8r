@@ -2339,7 +2339,10 @@ export function confirmRazorpayCheckoutAuthorization(
     return { payment: pay };
   }
   refuseCheckoutIfTripLeft(store, s);
-  if (pay.status !== "CREATED") {
+  // A failed first attempt marks the payment FAILED. Checkout can still succeed on the same order.
+  // The payment.authorized webhook already promotes FAILED to AUTHORIZED; this callback must too,
+  // because it is what marks the booking paid when that webhook has not arrived yet.
+  if (pay.status !== "CREATED" && pay.status !== "FAILED") {
     throw new ApiError("payment_not_confirmable", { status: pay.status });
   }
   const now = nowUtcMs();
